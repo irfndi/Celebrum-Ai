@@ -1,0 +1,16 @@
+boto3==1.28.62
+python-telegram-bot==20.3
+python-dotenv==1.0.0
+pytz==2023.3.post1
+PyYAML==6.0.1
+ruff==0.0.292
+sqlalchemy==2.0.23
+greenlet>=3.0.3
+pytest==8.3.4
+pytest-asyncio==0.23.5
+coverage==7.6.10
+codecov==2.1.13
+geopy==2.4.1
+psycopg2-binary==2.9.9
+aiosqlite>=0.19.0
+moto==4.2.14
