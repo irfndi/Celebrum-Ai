@@ -7,7 +7,7 @@ import type { ArbitrageOpportunity } from '../types';
 function escapeMarkdownV2(text: string | number): string {
   const textStr = String(text);
   // Characters to escape: _ * [ ] ( ) ~ ` > # + - = | { } . !
-  const charsToEscape = /[_*\[\]()~`>#+\-=|{}.!]/g;
+  const charsToEscape = /[_*\[\]()~`>#+\-=|{}.!\\]/g;
   return textStr.replace(charsToEscape, '\\$&');
 }
 
