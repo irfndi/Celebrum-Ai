@@ -21,6 +21,6 @@ setup(
         "thefuzz==0.20.0",
         "pillow==10.1.0",
         "python-magic==0.4.27",
-        "aiohttp==3.9.1",
+        "aiohttp==3.11.0b0",
     ],
 )
