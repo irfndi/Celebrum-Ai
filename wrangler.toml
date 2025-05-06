@@ -4,7 +4,7 @@ compatibility_date = "2025-05-06"
 
 # KV Namespace for storing configuration and state
 kv_namespaces = [
-  { binding = "ArbEdgeKV", id = "your-kv-namespace-id", preview_id = "your-preview-kv-namespace-id" }
+  { binding = "ArbEdgeKV", id = "1018c576bf664c15afe0c53d85df8ed0", preview_id = "9db67fd132d64e93bcdf3cebebd07bc6" }
 ]
 
 # Durable Objects for managing state
