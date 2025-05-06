@@ -83,7 +83,13 @@ High
 
 US2a
 
-As a trader, I want to add or remove trading pairs for the bot to monitor via a configuration setting or Telegram command.
+As a trader, I want the ability to *exclude* specific dynamically discovered pairs from monitoring, or *include* additional specific pairs, via a configuration setting or Telegram command, to fine-tune the bot's focus.
+
+Medium
+
+US2b
+
+As a trader, I want the bot to dynamically discover relevant trading pairs by fetching all available markets from connected exchanges and filtering them based on criteria (e.g., quote currency like USDT, minimum liquidity/volume), so it can monitor a broader range of potential opportunities without manual pair configuration for each.
 
 High
 
@@ -191,8 +197,28 @@ Open positions
 
 Trade history
 
+All listed market details from each connected exchange (e.g., symbol, base asset, quote asset, contract type, minimum order size, volume)
+
+FR1.6.Y: The system must allow configuration of filters for dynamic pair discovery (e.g., include only pairs quoted in USDT, exclude leveraged tokens, minimum 24h volume).
+
+FR1.7: The system must fetch and process market data for dynamically discovered pairs, including but not limited to:
+
+Symbol
+
+Base asset
+
+Quote asset
+
+Contract type
+
+Minimum order size
+
+Volume
+
+FR1.8: The system must apply filters to dynamically discovered pairs based on user-configurable criteria (e.g., quote currency, minimum liquidity/volume).
+
 4.2 Arbitrage Opportunity Detection
-FR2.1: The system must fetch and compare funding rates for user-configured trading pairs across connected exchanges at regular intervals (using scheduled Workers or similar triggers).
+FR2.1: The system must fetch and compare funding rates for *dynamically discovered and filtered* trading pairs across connected exchanges at regular intervals (using scheduled Workers or similar triggers).
 
 FR2.2: An arbitrage opportunity is identified when the absolute difference (or normalized difference) between funding rates on two exchanges for a specific pair exceeds a user-configurable threshold (e.g., abs(Rate_A - Rate_B) > X%).
 
