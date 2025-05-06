@@ -18,7 +18,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
         with:
-          bun-version: latest
+          bun-version: 1.2.12
 
       - name: Get Bun cache directory
         id: bun-cache
@@ -84,7 +84,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
         with:
-          bun-version: latest
+          bun-version: 1.2.12
 
       - name: Get Bun cache directory
         id: bun-cache
