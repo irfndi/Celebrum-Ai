@@ -67,19 +67,20 @@ export default {
 	/**
 	 * Handles scheduled events based on cron triggers in wrangler.toml.
 	 */
-	// --- TODO: Implement scheduled tasks if needed ---
-	// async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-	//   console.log(`[${env.ENVIRONMENT}] Cron Trigger: ${event.cron}`);
-	//   try {
-	//     // Example: Trigger opportunity check
-	//     // await handleOpportunityCheck(env);
-	//     console.log('Scheduled task executed (placeholder)');
-	//   } catch (error) {
-	//     console.error('Error during scheduled task:', error);
-	//   }
-	//   // Ensure the task runs to completion, even if the fetch handler returns early.
-	//   ctx.waitUntil(Promise.resolve()); 
-	// },
+	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+	  console.log(`[${env.ENVIRONMENT}] Cron Trigger: ${controller.cron} at ${new Date(controller.scheduledTime)}`);
+	  try {
+	    // Example: Trigger opportunity check
+	    // import { OpportunityService } from './services/opportunityService'; // Make sure to import if used
+	    // const opportunityService = new OpportunityService(env);
+	    // await opportunityService.findAndExecuteArbitrage();
+	    console.log('Scheduled task executed (placeholder)');
+	  } catch (error) {
+	    console.error('Error during scheduled task:', error);
+	  }
+	  // Ensure the task runs to completion, even if the fetch handler returns early.
+	  // ctx.waitUntil(Promise.resolve()); // waitUntil typically takes a promise to wait for, not just Promise.resolve()
+	},
 };
 
 // --- Export the Durable Object class so Wrangler can bind it ---
