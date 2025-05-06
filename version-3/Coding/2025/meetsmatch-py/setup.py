@@ -19,7 +19,7 @@ setup(
         "pytest-asyncio==0.23.5",
         "python-Levenshtein==0.23.0",
         "thefuzz==0.20.0",
-        "pillow==10.1.0",
+        "pillow==10.3.0",
         "python-magic==0.4.27",
         "aiohttp==3.9.1",
     ],
