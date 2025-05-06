@@ -13,6 +13,11 @@ bindings = [
   { name = "POSITIONS", class_name = "PositionsManager" }
 ]
 
+# Add Durable Object migrations
+[[migrations]]
+tag = "v1" # Initial migration tag
+new_classes = [ "PositionsManager" ]
+
 # Cron Triggers for scheduled tasks
 [triggers]
 crons = ["*/5 * * * *"] # Run every 5 minutes
@@ -20,6 +25,9 @@ crons = ["*/5 * * * *"] # Run every 5 minutes
 # Environment variables
 [vars]
 ENVIRONMENT = "production"
+USDT_AMOUNT = "10"
+BYBIT_LEVERAGE = "20"
+BINANCE_LEVERAGE = "20"
 
 # Development environment variables
 [env.dev]
