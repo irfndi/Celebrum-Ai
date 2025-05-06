@@ -6,11 +6,11 @@ import type { Position } from '../../src/types'; // Import local Position type
 
 // Define types for the mocked structure more loosely
 type MockExchangeInstance = {
-  fetchFundingRate: Mock<[string], Promise<Record<string, unknown>>>; // Use Record<string, unknown> instead of any
-  loadMarkets: Mock<[], Promise<Record<string, unknown>>>; // Use Record<string, unknown> instead of any
-  fetchBalance: Mock<[], Promise<Record<string, unknown>>>; // Add mock for fetchBalance
-  fetchPositions: Mock<[string?], Promise<Record<string, unknown>[]>>; // Add mock for fetchPositions
-  createOrder: Mock<[string, ccxt.OrderType, ccxt.OrderSide, number, number?], Promise<Record<string, unknown>>>; // Add mock for createOrder
+  fetchFundingRate: Mock<(symbol: string) => Promise<Record<string, unknown>>>; // Use Record<string, unknown> instead of any
+  loadMarkets: Mock<() => Promise<Record<string, unknown>>>; // Use Record<string, unknown> instead of any
+  fetchBalance: Mock<() => Promise<Record<string, unknown>>>; // Add mock for fetchBalance
+  fetchPositions: Mock<(symbol?: string) => Promise<Record<string, unknown>[]>>; // Add mock for fetchPositions
+  createOrder: Mock<(symbol: string, type: ccxt.OrderType, side: ccxt.OrderSide, amount: number, price?: number) => Promise<Record<string, unknown>>>; // Add mock for createOrder
   // Add other mocked methods if needed
 };
 
@@ -121,7 +121,7 @@ describe('ExchangeService', () => {
   it('should fetch funding rate for a given pair from Binance', async () => {
     // Access the mocked constructor/instance (now directly available)
     // We still need the cast because the mock structure is simplified
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor(); // Get the instance
 
     // Data the mock function will return
@@ -154,7 +154,7 @@ describe('ExchangeService', () => {
   });
 
   it('should fetch balance for a given currency from Binance', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
 
     const expectedBalance = {
@@ -175,7 +175,7 @@ describe('ExchangeService', () => {
   });
 
   it('should fetch balance for a given currency from Bybit', async () => {
-    const MockedBybitConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).bybit;
+    const MockedBybitConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).bybit;
     const mockBybitInstance = MockedBybitConstructor();
 
     const expectedBalance = {
@@ -195,7 +195,7 @@ describe('ExchangeService', () => {
   });
 
   it('should return null and log error if fetching funding rate fails', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
 
     const errorMessage = 'Failed to fetch funding rate';
@@ -219,7 +219,7 @@ describe('ExchangeService', () => {
   });
 
   it('should return null and log error if fetching balance fails', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
 
     const errorMessage = 'Failed to fetch balance';
@@ -243,7 +243,7 @@ describe('ExchangeService', () => {
   });
 
   it('should fetch open positions for a given pair from Binance', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
 
     const expectedPositions = [
@@ -261,7 +261,7 @@ describe('ExchangeService', () => {
   });
 
   it('should fetch all open positions from Binance if no symbol is provided', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
 
     const expectedPositions = [
@@ -279,7 +279,7 @@ describe('ExchangeService', () => {
   });
 
   it('should return null and log error if fetching open positions fails', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
 
     const errorMessage = 'Failed to fetch positions';
@@ -302,7 +302,7 @@ describe('ExchangeService', () => {
   });
 
   it('should return null and log error if fetching open positions returns invalid data', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
 
     // Mock fetchPositions to return non-array data
@@ -327,7 +327,7 @@ describe('ExchangeService', () => {
   });
 
   it('should return null and log error if fetchBalance returns null', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
     // biome-ignore lint/suspicious/noExplicitAny: Testing null fetchBalance response
     mockBinanceInstance.fetchBalance.mockResolvedValue(null as any); // Return null
@@ -347,7 +347,7 @@ describe('ExchangeService', () => {
   });
 
   it('should return null and log error if fetchBalance response lacks total property', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
     const incompleteBalance = { free: { USDT: 100 } }; // Missing 'total'
     // biome-ignore lint/suspicious/noExplicitAny: Testing incomplete fetchBalance response
@@ -366,7 +366,7 @@ describe('ExchangeService', () => {
   });
 
   it('should return null and log error if fetchBalance total lacks requested currency', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
     const wrongCurrencyBalance = {
       total: { BTC: 0.1 }, // Missing 'USDT'
@@ -389,7 +389,7 @@ describe('ExchangeService', () => {
   // --- placeOrder Tests ---
 
   it('should place a limit order successfully', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
     const expectedOrder = {
       id: 'order123',
@@ -412,7 +412,7 @@ describe('ExchangeService', () => {
   });
 
   it('should place a market order successfully', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
     const expectedOrder = {
       id: 'order456',
@@ -435,7 +435,7 @@ describe('ExchangeService', () => {
   });
 
   it('should return null and log error if placeOrder returns invalid data (no id)', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
     const invalidOrderData = { symbol: 'BTC/USDT', amount: 0.01 }; // Missing id
     // biome-ignore lint/suspicious/noExplicitAny: Testing invalid placeOrder response (missing id)
@@ -454,7 +454,7 @@ describe('ExchangeService', () => {
   });
 
   it('should return null and log error if placeOrder throws an error', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
     const errorMessage = 'Insufficient balance';
     mockBinanceInstance.createOrder.mockRejectedValue(new Error(errorMessage));
@@ -474,7 +474,7 @@ describe('ExchangeService', () => {
   // --- closePosition Tests ---
 
   it('should close a long position successfully (sends market sell)', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
     const longPosition: Position = {
       symbol: 'BTC/USDT', // TradingPair (assuming string for simplicity in test)
@@ -500,7 +500,7 @@ describe('ExchangeService', () => {
   });
 
   it('should close a short position successfully (sends market buy)', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
     // Using 'amount' instead of 'contracts' for variety
     const shortPosition: Position = { 
@@ -527,7 +527,7 @@ describe('ExchangeService', () => {
   });
 
   it('should return null and log error if closePosition returns invalid order data', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
     const longPosition: Position = {
       symbol: 'BTC/USDT', // TradingPair (assuming string for simplicity in test)
@@ -557,7 +557,7 @@ describe('ExchangeService', () => {
   });
 
   it('should return null and log error if closePosition encounters an error', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
+    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
     const mockBinanceInstance = MockedBinanceConstructor();
     const longPosition: Position = {
       symbol: 'BTC/USDT', // TradingPair (assuming string for simplicity in test)
