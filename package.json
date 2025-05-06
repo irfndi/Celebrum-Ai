@@ -34,7 +34,7 @@
   "dependencies": {
     "ccxt": "^4.4.78",
     "grammy": "^1.36.1",
-    "itty-router": "^4.2.2",
+    "itty-router": "^5.0.18",
     "p-ratelimit": "^1.0.1"
   }
 }
