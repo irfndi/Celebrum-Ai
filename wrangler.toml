@@ -1,0 +1,36 @@
+name = "arb-edge"
+main = "src/index.ts"
+compatibility_date = "2025-05-06"
+
+# KV Namespace for storing configuration and state
+kv_namespaces = [
+  { binding = "ArbEdgeKV", id = "your-kv-namespace-id", preview_id = "your-preview-kv-namespace-id" }
+]
+
+# Durable Objects for managing state
+[durable_objects]
+bindings = [
+  { name = "POSITIONS", class_name = "PositionsManager" }
+]
+
+# Cron Triggers for scheduled tasks
+[triggers]
+crons = ["*/5 * * * *"] # Run every 5 minutes
+
+# Environment variables
+[vars]
+ENVIRONMENT = "production"
+
+# Development environment variables
+[env.dev]
+name = "arb-edge-dev"
+[env.dev.vars]
+ENVIRONMENT = "development"
+
+# Secrets (to be added via wrangler)
+# wrangler secret put BYBIT_API_KEY
+# wrangler secret put BYBIT_API_SECRET
+# wrangler secret put BINANCE_API_KEY
+# wrangler secret put BINANCE_API_SECRET
+# wrangler secret put TELEGRAM_BOT_TOKEN
+# wrangler secret put TELEGRAM_CHAT_ID
