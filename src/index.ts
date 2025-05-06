@@ -5,7 +5,7 @@ import { Router } from 'itty-router';
 // Example:
 // import { handleOpportunityCheck } from './services/opportunityService';
 // import { handleTelegramCommand } from './services/telegramService';
-// import { PositionsManager } from './services/positionsManager'; // Adjust path as needed
+import { PositionsManager } from './services/positionsManager'; // Import the DO class
 
 /**
  * Defines the environment bindings expected by the Worker.
@@ -82,6 +82,5 @@ export default {
 	// },
 };
 
-// --- TODO: Export Durable Object class if it's defined elsewhere ---
-// Example:
-// export { PositionsManager } from './services/positionsManager';
+// --- Export the Durable Object class so Wrangler can bind it ---
+export { PositionsManager };

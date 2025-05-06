@@ -42,3 +42,7 @@ ENVIRONMENT = "development"
 # wrangler secret put BINANCE_API_SECRET
 # wrangler secret put TELEGRAM_BOT_TOKEN
 # wrangler secret put TELEGRAM_CHAT_ID
+
+# Enable observability logs (Wrangler v3.38.0+)
+[observability.logs]
+enabled = true
