@@ -2,9 +2,9 @@ name: CI/CD & Security Analysis
 
 on:
   push:
-    branches: [ development ]
+    branches: [development]
   pull_request:
-    branches: [ development ]
+    branches: [development]
   workflow_dispatch:
 
 jobs:
@@ -15,20 +15,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18.x'
-          cache: 'npm'
+          node-version: "18.x"
+          cache: "pnpm"
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install
 
       - name: Run linters
-        run: npm run lint
+        run: pnpm run lint
 
       - name: Run tests with coverage
-        run: npm run test:coverage
+        run: pnpm run test:coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -70,20 +75,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18.x'
-          cache: 'npm'
+          node-version: "18.x"
+          cache: "pnpm"
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install
 
       - name: Build project
-        run: npm run build
+        run: pnpm run build
 
       - name: Deploy to Cloudflare Workers
-        run: npm run deploy
+        run: pnpm run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
