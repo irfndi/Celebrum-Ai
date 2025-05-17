@@ -1,6 +1,7 @@
 name = "arb-edge"
 main = "src/index.ts"
 compatibility_date = "2025-05-06"
+compatibility_flags = ["nodejs_compat"]
 
 # KV Namespace for storing configuration and state
 kv_namespaces = [

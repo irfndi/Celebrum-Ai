@@ -1,614 +1,541 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'; // Add vi import
-import type { Mock } from 'vitest';
-import { ExchangeService } from '../../src/services/exchangeService';
-import * as ccxt from 'ccxt'; // Revert to regular import
-import type { Position } from '../../src/types'; // Import local Position type
+/// <reference types='@cloudflare/workers-types' />
+/// <reference types="vitest/globals" />
+import ccxt from "ccxt";
+import type {
+  ExchangeId,
+  TradingPairSymbol,
+  PositionSide,
+  FundingRateInfo,
+  ArbitrageOpportunity,
+  Balances,
+  Balance,
+  Position,
+  Order,
+  Market,
+  OrderSide,
+  OrderType,
+  Ticker,
+  OHLCV,
+  LoggerInterface,
+  OrderBook,
+  Trade,
+  CCXTTradingFees,
+  CCXTTradingFeeInterface,
+} from "../../src/types";
+import type { Exchange as CCXTExchange, Fee as CCXTFee } from "ccxt";
+import { MOCK_MARKET_DEFAULTS } from "../mocks/marketMocks";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  type Mock,
+  type Mocked,
+} from "vitest";
+import { ExchangeService } from "../../src/services/exchangeService";
 
-// Define types for the mocked structure more loosely
-type MockExchangeInstance = {
-  fetchFundingRate: Mock<(symbol: string) => Promise<Record<string, unknown>>>; // Use Record<string, unknown> instead of any
-  loadMarkets: Mock<() => Promise<Record<string, unknown>>>; // Use Record<string, unknown> instead of any
-  fetchBalance: Mock<() => Promise<Record<string, unknown>>>; // Add mock for fetchBalance
-  fetchPositions: Mock<(symbol?: string) => Promise<Record<string, unknown>[]>>; // Add mock for fetchPositions
-  createOrder: Mock<(symbol: string, type: ccxt.OrderType, side: ccxt.OrderSide, amount: number, price?: number) => Promise<Record<string, unknown>>>; // Add mock for createOrder
-  // Add other mocked methods if needed
-};
+interface Leverage {
+  info: Record<string, any>;
+  symbol: string;
+  marginMode?: "cross" | "isolated" | string;
+  longLeverage: number;
+  shortLeverage: number;
+}
 
-// Mock ccxt library - Further Refined structure
-vi.mock('ccxt', () => {
-  const mockInstance: MockExchangeInstance = {
-    fetchFundingRate: vi.fn(),
-    loadMarkets: vi.fn().mockResolvedValue({}), // Mock market loading
-    fetchBalance: vi.fn(), // Initialize mock for fetchBalance
-    fetchPositions: vi.fn(), // Initialize mock for fetchPositions
-    createOrder: vi.fn(), // Initialize mock for createOrder
+import type {
+  Env,
+  KVNamespace,
+  KVNamespaceGetOptions,
+  KVNamespaceListOptions,
+  KVNamespaceListResult,
+  KVNamespaceGetWithMetadataResult,
+} from "@cloudflare/workers-types";
+
+vi.mock("ccxt", async (importOriginal: () => Promise<typeof ccxt>) => {
+  const originalCcxtModule = await importOriginal();
+  const testHelpers = await import("./exchangeService.test.helpers");
+
+  let factoryScopedSingletonInstances:
+    | Record<ExchangeId, testHelpers.MockExchangeInstance>
+    | undefined;
+
+  const initializeMockInstancesIfNeeded = () => {
+    if (!factoryScopedSingletonInstances) {
+      const tempInstances: Partial<
+        Record<ExchangeId, testHelpers.MockExchangeInstance>
+      > = {};
+      for (const id of testHelpers.ALL_MOCK_EXCHANGE_IDS) {
+        tempInstances[id] = testHelpers.createMockInstance(id);
+      }
+      factoryScopedSingletonInstances = tempInstances as Record<
+        ExchangeId,
+        testHelpers.MockExchangeInstance
+      >;
+    }
   };
-  const mockConstructor = vi.fn().mockImplementation(() => mockInstance);
+
+  // Factory function for creating mock exchange "instances"
+  const createMockCcxtInstance = (exchangeId: ExchangeId, _options?: any) => {
+    initializeMockInstancesIfNeeded();
+    const mockInstanceData = factoryScopedSingletonInstances![exchangeId];
+    if (!mockInstanceData) {
+      throw new Error(
+        `Mock instance data for ${exchangeId} not found in factory-scoped singleton.`
+      );
+    }
+    // Return a new object that simulates a ccxt instance
+    return {
+      id: exchangeId, // Ensure 'id' is present, as ccxt instances have it
+      ...mockInstanceData, // Spread all mocked methods and properties
+      // If options are passed and need to be stored or used (e.g. apiKey), handle here
+      // For instance:
+      // apiKey: _options?.apiKey,
+      // rateLimit: _options?.rateLimit || 2000, // Default rateLimit
+      // verbose: _options?.verbose || false,
+      // ... any other properties ccxt instances might have from options
+    };
+  };
+
+  // The base "Exchange" class mock can be a function that throws or returns a generic base mock
+  const MockBaseExchange = (_options?: any) => {
+    // This could return a very generic mock or throw if direct instantiation of base Exchange is not expected
+    // For now, let's make it similar to specific instances but with a generic ID or warning
+    console.warn(
+      "Mocked ccxt.Exchange base class instantiated. This might not be fully functional."
+    );
+    return {
+      id: "mockBaseExchange",
+      version: "mocked",
+      rateLimit: 2000,
+      // ...other common minimal properties
+      ...testHelpers.createMockInstance("generic" as ExchangeId), // Use a generic mock if available or minimal
+    };
+  };
+
+  const commonExports = {
+    Exchange: MockBaseExchange, // Mock for the base Exchange class
+    // Each exchange ID points to a function that will be called with 'new'
+    // This function then returns our pre-configured mock object.
+    binance: function (...args: any[]) {
+      return createMockCcxtInstance("binance", args[0]);
+    },
+    bybit: function (...args: any[]) {
+      return createMockCcxtInstance("bybit", args[0]);
+    },
+    bitget: function (...args: any[]) {
+      return createMockCcxtInstance("bitget", args[0]);
+    },
+    kraken: function (...args: any[]) {
+      return createMockCcxtInstance("kraken", args[0]);
+    },
+    mexc: function (...args: any[]) {
+      return createMockCcxtInstance("mexc", args[0]);
+    },
+    okx: function (...args: any[]) {
+      return createMockCcxtInstance("okx", args[0]);
+    },
+    bingx: function (...args: any[]) {
+      return createMockCcxtInstance("bingx", args[0]);
+    },
+
+    pro: new Proxy(
+      {},
+      {
+        get: (target, propKey) => {
+          const exchangeId = String(propKey).toLowerCase() as ExchangeId;
+          // Ensure factoryScopedSingletonInstances is initialized to check against its keys
+          initializeMockInstancesIfNeeded();
+          if (
+            factoryScopedSingletonInstances &&
+            factoryScopedSingletonInstances[exchangeId]
+          ) {
+            // For pro exchanges, return a function that produces the mock instance
+            return function (...args: any[]) {
+              return createMockCcxtInstance(exchangeId, args[0]);
+            };
+          }
+          if (
+            originalCcxtModule.pro &&
+            originalCcxtModule.pro.hasOwnProperty(exchangeId) &&
+            typeof (originalCcxtModule.pro as any)[exchangeId] === "function"
+          ) {
+            return (originalCcxtModule.pro as any)[exchangeId]; // Fallback to original if specific pro function exists
+          }
+          console.warn(
+            `ccxt.pro mock: Exchange class '${exchangeId}' not explicitly mocked. Returning undefined.`
+          );
+          return undefined;
+        },
+      }
+    ),
+    get _testAccessibleMockInstances() {
+      initializeMockInstancesIfNeeded();
+      return factoryScopedSingletonInstances;
+    },
+  };
 
   return {
-    // Add top-level exchange constructors for the 'in' check
-    binance: mockConstructor,
-    bybit: mockConstructor,
-
-    // Keep the default export structure as well if it's used elsewhere
-    // (though the service currently uses the top-level check)
+    ...originalCcxtModule, // Spread original ccxt for any unmocked parts
+    ...commonExports, // Override with our mocks
     default: {
-      binance: mockConstructor,
-      bybit: mockConstructor,
-      version: 'mock-version',
-      exchanges: ['binance', 'bybit'],
-      // ... other necessary properties
+      // Ensure default export is also fully mocked
+      ...originalCcxtModule,
+      ...commonExports,
     },
-    // Add other top-level exports if needed by the service (e.g., Exchange class)
-    // Exchange: class MockExchange {},
   };
 });
 
-/* // TODO: Fix or remove this unreachable test
-  it('should place an order on Binance', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor(); // Get the instance
+interface TestHelperMockedCcxtModule extends Readonly<typeof ccxt> {
+  _testAccessibleMockInstances?: Record<
+    ExchangeId,
+    import("./exchangeService.test.helpers").MockExchangeInstance
+  >;
+}
 
-    // Add createOrder to the mock instance
-    mockBinanceInstance.createOrder = vi.fn();
+let testAccessibleMockInstances:
+  | Record<
+      ExchangeId,
+      import("./exchangeService.test.helpers").MockExchangeInstance
+    >
+  | undefined;
+let mockEnv: Env;
 
-    const expectedOrder = {
-      id: '12345',
-      symbol: 'BTC/USDT',
-      type: 'limit',
-      side: 'buy',
-      amount: 0.01,
-      price: 50000,
-      status: 'open',
-      info: {}
+describe("ExchangeService", () => {
+  const logger: LoggerInterface = {
+    log: vi.fn(console.log),
+    error: vi.fn(console.error),
+    warn: vi.fn(console.warn),
+    info: vi.fn(console.info),
+    debug: vi.fn(console.debug),
+    addContext: vi.fn(),
+    addError: vi.fn(),
+  };
+
+  beforeEach(async () => {
+    const mockedCcxtModule = (await import(
+      "ccxt"
+    )) as unknown as TestHelperMockedCcxtModule;
+    const ccxtMocks = mockedCcxtModule._testAccessibleMockInstances;
+    if (ccxtMocks === undefined) {
+      throw new Error(
+        "_testAccessibleMockInstances was unexpectedly undefined during test setup. This indicates a problem with the mock initialization."
+      );
+    }
+    testAccessibleMockInstances = ccxtMocks;
+
+    const { MOCK_BINANCE_BALANCES_FACTORY } = await import(
+      "./exchangeService.test.helpers"
+    );
+
+    mockEnv = {
+      ArbEdgeKV: {
+        get: vi
+          .fn()
+          .mockImplementation(
+            (
+              key: string,
+              options?:
+                | KVNamespaceGetOptions
+                | "text"
+                | "json"
+                | "arrayBuffer"
+                | "stream"
+            ) => {
+              const type =
+                typeof options === "string" ? options : options?.type;
+              if (key.startsWith("arbitrageOpportunities")) {
+                const mockArbOp: ArbitrageOpportunity = {
+                  id: "test-op-123",
+                  exchangePair1: { exchange: "binance", symbol: "BTC/USDT" },
+                  exchangePair2: { exchange: "kraken", symbol: "BTC/USD" },
+                  profitPercentage: 1.5,
+                  timestamp: Date.now(),
+                  status: "open",
+                  potentialGain: { amount: 15, currency: "USDT" },
+                  paths: [],
+                };
+                if (type === "json") return Promise.resolve(mockArbOp);
+                return Promise.resolve(JSON.stringify(mockArbOp));
+              }
+              if (key.startsWith("userConfig:")) {
+                const mockUserConfig = {
+                  apiKey: "test-key",
+                  apiSecret: "test-secret",
+                };
+                if (type === "json") return Promise.resolve(mockUserConfig);
+                return Promise.resolve(JSON.stringify(mockUserConfig));
+              }
+              if (key === "allExchangeIds") {
+                if (type === "json")
+                  return Promise.resolve(["binance", "kraken"]);
+                return Promise.resolve(JSON.stringify(["binance", "kraken"]));
+              }
+              return Promise.resolve(null);
+            }
+          ),
+        put: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+        list: vi.fn().mockResolvedValue({
+          keys: [],
+          list_complete: true,
+          cursor: undefined,
+        }),
+        getWithMetadata: vi
+          .fn()
+          .mockResolvedValue({ value: null, metadata: null }),
+      } as unknown as KVNamespace,
     };
-    mockBinanceInstance.createOrder.mockResolvedValue(expectedOrder);
 
-    const service = new ExchangeService();
-    const order = await service.placeOrder('binance', 'BTC/USDT', 'limit', 'buy', 0.01, 50000);
-
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.createOrder).toHaveBeenCalledWith('BTC/USDT', 'limit', 'buy', 0.01, 50000);
-    expect(order).toEqual(expectedOrder);
+    const mocks = testAccessibleMockInstances;
+    if (mocks) {
+      for (const exchangeIdKey in mocks) {
+        if (Object.prototype.hasOwnProperty.call(mocks, exchangeIdKey)) {
+          const exchangeId = exchangeIdKey as ExchangeId;
+          const instance = mocks[exchangeId];
+          for (const mockFn of Object.values(instance)) {
+            if (
+              typeof mockFn === "function" &&
+              "_isMockFunction" in mockFn &&
+              mockFn._isMockFunction
+            ) {
+              (mockFn as Mock).mockClear();
+            }
+          }
+          instance.loadMarkets.mockResolvedValue({
+            "BTC/USDT": MOCK_MARKET_DEFAULTS as Market,
+          });
+          instance.fetchBalance.mockResolvedValue(
+            MOCK_BINANCE_BALANCES_FACTORY()
+          );
+        }
+      }
+    }
   });
 
-  it('should close a position on Binance', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<[], MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
-    // Add createOrder to the mock instance if not already added
-    if (!mockBinanceInstance.createOrder) {
-      mockBinanceInstance.createOrder = vi.fn();
+  it("should add exchanges and load their markets when added", async () => {
+    const service = new ExchangeService({ logger: logger, env: mockEnv });
+
+    // Get/initialize exchanges explicitly, which also loads their markets
+    await service.getExchangeInstance("binance");
+    await service.getExchangeInstance("kraken");
+
+    const mocks = testAccessibleMockInstances;
+    if (!mocks?.binance || !mocks?.kraken) {
+      throw new Error(
+        "Mocks for binance or kraken not initialized after adding them."
+      );
     }
 
-    const position = {
-      symbol: 'BTC/USDT',
-      side: 'long',
-      contracts: 0.01,
-      entryPrice: 60000,
-      unrealizedPnl: 100,
-      margin: 500,
-      info: {}
-    };
-
-    const expectedOrder = {
-      id: '67890',
-      symbol: 'BTC/USDT',
-      type: 'market',
-      side: 'sell',
-      amount: 0.01,
-      status: 'closed',
-      info: {}
-    };
-    mockBinanceInstance.createOrder.mockResolvedValue(expectedOrder);
-
-    const service = new ExchangeService();
-    const order = await service.closePosition('binance', position as ccxt.Position);
-
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.createOrder).toHaveBeenCalledWith('BTC/USDT', 'market', 'sell', 0.01);
-    expect(order).toEqual(expectedOrder);
-  });
-*/
-
-
-describe('ExchangeService', () => {
-  it('should be defined (placeholder test)', () => {
-    // This is just a placeholder to ensure the file is created
-    expect(true).toBe(true);
+    // addExchange should trigger loadMarkets for each respective exchange instance.
+    expect(mocks.binance.loadMarkets).toHaveBeenCalledTimes(1);
+    expect(mocks.kraken.loadMarkets).toHaveBeenCalledTimes(1);
   });
 
-  it('should fetch funding rate for a given pair from Binance', async () => {
-    // Access the mocked constructor/instance (now directly available)
-    // We still need the cast because the mock structure is simplified
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor(); // Get the instance
+  describe("Dynamic Exchange Management", () => {
+    let service: ExchangeService;
 
-    // Data the mock function will return
-    const mockRateData = {
-      symbol: 'BTC/USDT',
-      fundingRate: 0.0001,
-      timestamp: 1700000000000, // Use a concrete number for the mock
-      datetime: new Date(1700000000000).toISOString(), // Add datetime to mock return
-      info: {}, 
-      // Add other relevant fields returned by ccxt if the mock provides them
-    };
+    beforeEach(() => {
+      service = new ExchangeService({ logger: logger, env: mockEnv });
+      // Resetting mocks for specific exchanges if they were manipulated in other tests
+      // Ensure that testAccessibleMockInstances are fresh or reset for kraken
+      if (testAccessibleMockInstances?.kraken?.loadMarkets) {
+        (testAccessibleMockInstances.kraken.loadMarkets as Mock).mockClear();
+      }
+    });
 
-    // Expected shape for the assertion
-    const expectedRateResult = {
-      symbol: { base: 'BTC', quote: 'USDT', symbol: 'BTC/USDT' }, // Match TradingPair structure used in service
-      fundingRate: 0.0001,
-      timestamp: 1700000000000,
-      datetime: new Date(1700000000000).toISOString(), // Add datetime
-      info: {}
-    };
-    // Ensure the mock function on the instance is set up
-    mockBinanceInstance.fetchFundingRate.mockResolvedValue(mockRateData);
+    it("should initialize an exchange and its markets upon first retrieval", async () => {
+      // kraken mock should exist from the global ccxt mock setup
+      const mocks = testAccessibleMockInstances;
+      if (!mocks?.kraken)
+        throw new Error("Kraken mock not available in test setup");
 
-    const service = new ExchangeService();
-    const rate = await service.getFundingRate('binance', 'BTC/USDT');
+      // Ensure loadMarkets hasn't been called yet for kraken in this test context
+      // (Note: if kraken was a DEFAULT_EXCHANGE and initialized in constructor, this would be different)
+      // For this test, we assume kraken is NOT a default exchange pre-initialized.
+      expect(mocks.kraken.loadMarkets).not.toHaveBeenCalled();
 
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled(); // Ensure markets are loaded
-    expect(mockBinanceInstance.fetchFundingRate).toHaveBeenCalledWith('BTC/USDT');
-    expect(rate).toEqual(expectedRateResult); // Assert against the expected shape
+      const krakenInstance = await service.getExchangeInstance("kraken");
+
+      expect(krakenInstance).toBeDefined();
+      expect(krakenInstance?.id).toBe("kraken");
+      expect(mocks.kraken.loadMarkets).toHaveBeenCalledTimes(1);
+    });
+
+    /* Test for a non-existent feature removeExchange
+    it('should remove an exchange', async () => {
+      // Re-initialize service for this specific test case to start with both exchanges.
+      service = new ExchangeService({ logger: logger, env: mockEnv });
+      expect(service.getExchangeInstance('binance')).toBeDefined();
+      expect(service.getExchangeInstance('kraken')).toBeDefined();
+
+      service.removeExchange('kraken');
+      expect(service.getExchangeInstance('kraken')).toBeUndefined();
+      // Optionally, check that the binance instance still exists
+      expect(service.getExchangeInstance('binance')).toBeDefined();
+    });
+    */
   });
 
-  it('should fetch balance for a given currency from Binance', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
+  describe("getOpenPositions", () => {
+    let service: ExchangeService;
 
-    const expectedBalance = {
-      total: {
-        USDT: 1000.50,
-        BTC: 0.1,
-      },
-      // Include other balance properties if necessary for the test
-    };
-    mockBinanceInstance.fetchBalance.mockResolvedValue(expectedBalance);
+    beforeEach(() => {
+      // Ensure mocks are clean or specifically set for these tests if necessary
+      // The main beforeEach already clears mocks, so this might be fine.
+      service = new ExchangeService({ logger: logger, env: mockEnv });
+      // No explicit await service.initializeMarkets() is needed here because
+      // the ExchangeService constructor handles loading markets for 'binance'.
+    });
 
-    const service = new ExchangeService();
-    const balance = await service.getBalance('binance', 'USDT');
+    it("should fetch open positions for a given symbol on an exchange", async () => {
+      const mocks = testAccessibleMockInstances!;
+      const fakePosition = {
+        symbol: "BTC/USDT",
+        id: "1",
+        timestamp: Date.now(),
+        datetime: new Date().toISOString(),
+        info: {},
+        type: undefined,
+        side: "long",
+        contracts: 1,
+        contractSize: undefined,
+        price: 20000,
+        entryPrice: 20000,
+        markPrice: 20000,
+        notional: 20000,
+        leverage: 1,
+        collateral: 20000,
+        initialMargin: 20000,
+        maintenanceMargin: 1000,
+        unrealizedPnl: 0,
+        realizedPnl: 0,
+        liquidationPrice: 10000,
+        marginMode: "isolated",
+        hedged: false,
+        maintenanceMarginPercentage: undefined,
+        initialMarginPercentage: undefined,
+        percentage: undefined,
+      };
+      mocks.binance.fetchPositions.mockResolvedValue([fakePosition] as any);
 
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.fetchBalance).toHaveBeenCalled();
-    expect(balance).toBe(expectedBalance.total.USDT);
+      const positions = await service.getOpenPositions("binance", "BTC/USDT");
+      expect(positions).toBeDefined();
+      expect(positions).not.toBeNull();
+      expect(positions!.length).toBeGreaterThan(0);
+      expect(positions?.[0]?.symbol).toBe("BTC/USDT");
+      expect(mocks.binance.fetchPositions).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('should fetch balance for a given currency from Bybit', async () => {
-    const MockedBybitConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).bybit;
-    const mockBybitInstance = MockedBybitConstructor();
+  describe("setLeverage", () => {
+    let service: ExchangeService;
 
-    const expectedBalance = {
-      total: {
-        USDT: 500.75,
-        ETH: 0.5,
-      },
-    };
-    mockBybitInstance.fetchBalance.mockResolvedValue(expectedBalance);
+    beforeEach(() => {
+      service = new ExchangeService({ logger: logger, env: mockEnv });
+    });
 
-    const service = new ExchangeService();
-    const balance = await service.getBalance('bybit', 'ETH');
+    it("should set leverage for a symbol on a given exchange", async () => {
+      const mocks = testAccessibleMockInstances!;
+      const fakeLeverageResponse = { info: "Leverage set to 10 for BTC/USDT" };
+      mocks.binance.setLeverage.mockResolvedValue(fakeLeverageResponse as any);
 
-    expect(mockBybitInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBybitInstance.fetchBalance).toHaveBeenCalled();
-    expect(balance).toBe(expectedBalance.total.ETH);
+      const leverageResult = await service.setLeverage(
+        "binance",
+        "BTC/USDT",
+        10
+      );
+      expect(leverageResult).toBeDefined();
+      expect(leverageResult).toEqual(fakeLeverageResponse);
+      expect(mocks.binance.setLeverage).toHaveBeenCalledWith(
+        10,
+        "BTC/USDT",
+        undefined
+      ); // Check specific call args if params is not used
+    });
   });
 
-  it('should return null and log error if fetching funding rate fails', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
+  describe("getTicker", () => {
+    let service: ExchangeService;
 
-    const errorMessage = 'Failed to fetch funding rate';
-    mockBinanceInstance.fetchFundingRate.mockRejectedValue(new Error(errorMessage));
+    beforeEach(() => {
+      service = new ExchangeService({ logger: logger, env: mockEnv });
+    });
 
-    // Spy on console.error
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it("should fetch the ticker for a symbol on a given exchange", async () => {
+      const mocks = testAccessibleMockInstances!;
+      // if (!mocks) throw new Error("Mocks not initialized for test 'getTicker'"); // Covered by non-null assertion
 
-    const service = new ExchangeService();
-    const rate = await service.getFundingRate('binance', 'BTC/USDT');
+      // Explicitly mock fetchTicker for this test
+      const fakeTicker = {
+        symbol: "BTC/USDT",
+        bid: 100,
+        ask: 101,
+        timestamp: Date.now(),
+        datetime: new Date().toISOString(),
+        last: 100.5,
+        info: {},
+        // Add other required Ticker fields if necessary, e.g., from ccxt.Ticker type if strict
+        high: undefined,
+        low: undefined,
+        vwap: undefined,
+        open: undefined,
+        close: undefined,
+        average: undefined,
+        baseVolume: undefined,
+        quoteVolume: undefined,
+        previousClose: undefined,
+        change: undefined,
+        percentage: undefined,
+      };
+      mocks.binance.fetchTicker.mockResolvedValue(fakeTicker as any); // Use 'as any' to bypass strict Ticker typing for the mock value if needed
 
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.fetchFundingRate).toHaveBeenCalledWith('BTC/USDT');
-    expect(rate).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Error fetching funding rate for BTC/USDT on binance:',
-      expect.any(Error)
-    );
+      const ticker = await service.getTicker("binance", "BTC/USDT");
 
-    consoleErrorSpy.mockRestore(); // Restore console.error
+      expect(mocks.binance.fetchTicker).toHaveBeenCalledWith("BTC/USDT");
+      expect(ticker).toBeDefined();
+      expect(ticker?.symbol).toBe("BTC/USDT");
+      expect(ticker?.last).toBe(100.5); // Check a value from the explicit mock
+    });
   });
 
-  it('should return null and log error if fetching balance fails', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
+  describe("Error Handling", () => {
+    let service: ExchangeService;
 
-    const errorMessage = 'Failed to fetch balance';
-    mockBinanceInstance.fetchBalance.mockRejectedValue(new Error(errorMessage));
+    beforeEach(() => {
+      service = new ExchangeService({ logger: logger, env: mockEnv });
+    });
 
-    // Spy on console.error
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it("should return null when an exchange method throws an error", async () => {
+      const mocks = testAccessibleMockInstances;
+      if (!mocks)
+        throw new Error("Mocks not initialized for test 'Error Handling'");
 
-    const service = new ExchangeService();
-    const balance = await service.getBalance('binance', 'USDT');
+      // Ensure the specific mock for binance is available and then configure its behavior
+      if (!mocks.binance)
+        throw new Error("Binance mock not available for 'Error Handling' test");
 
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.fetchBalance).toHaveBeenCalled();
-    expect(balance).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Error fetching balance for USDT on binance:',
-      expect.any(Error)
-    );
+      mocks.binance.has = {
+        ...(mocks.binance.has || {}),
+        fetchTicker: true,
+      };
+      (mocks.binance.fetchTicker as Mock).mockRejectedValue(
+        new Error("API Error")
+      );
 
-    consoleErrorSpy.mockRestore(); // Restore console.error
+      const ticker = await service.getTicker("binance", "BTC/USDT");
+      expect(ticker).toBeNull();
+      expect(mocks.binance.fetchTicker).toHaveBeenCalledWith("BTC/USDT");
+    });
   });
 
-  it('should fetch open positions for a given pair from Binance', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-
-    const expectedPositions = [
-      { symbol: 'BTC/USDT', side: 'long', size: 0.01, entryPrice: 60000, unrealizedPnl: 100, margin: 500, info: {} },
-      // Add other position properties if necessary
-    ];
-    mockBinanceInstance.fetchPositions.mockResolvedValue(expectedPositions);
-
-    const service = new ExchangeService();
-    const positions = await service.getOpenPositions('binance', 'BTC/USDT');
-
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.fetchPositions).toHaveBeenCalledWith(['BTC/USDT']);
-    expect(positions).toEqual(expectedPositions);
+  afterAll(() => {
+    vi.doUnmock("ccxt");
+    vi.resetModules();
   });
-
-  it('should fetch all open positions from Binance if no symbol is provided', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-
-    const expectedPositions = [
-      { symbol: 'BTC/USDT', side: 'long', size: 0.01, entryPrice: 60000, unrealizedPnl: 100, margin: 500, info: {} },
-      { symbol: 'ETH/USDT', side: 'short', size: 0.1, entryPrice: 3000, unrealizedPnl: -50, margin: 300, info: {} },
-    ];
-    mockBinanceInstance.fetchPositions.mockResolvedValue(expectedPositions);
-
-    const service = new ExchangeService();
-    const positions = await service.getOpenPositions('binance');
-
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.fetchPositions).toHaveBeenCalledWith(undefined); // Should be called with no argument or undefined
-    expect(positions).toEqual(expectedPositions);
-  });
-
-  it('should return null and log error if fetching open positions fails', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-
-    const errorMessage = 'Failed to fetch positions';
-    mockBinanceInstance.fetchPositions.mockRejectedValue(new Error(errorMessage));
-
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    const service = new ExchangeService();
-    const positions = await service.getOpenPositions('binance', 'BTC/USDT');
-
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.fetchPositions).toHaveBeenCalledWith(['BTC/USDT']);
-    expect(positions).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Error fetching open positions on binance for BTC/USDT:',
-      expect.any(Error)
-    );
-
-    consoleErrorSpy.mockRestore();
-  });
-
-  it('should return null and log error if fetching open positions returns invalid data', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-
-    // Mock fetchPositions to return non-array data
-    const invalidData = { message: 'Invalid data format' };
-    // biome-ignore lint/suspicious/noExplicitAny: Testing invalid fetchPositions response
-    mockBinanceInstance.fetchPositions.mockResolvedValue(invalidData as any); // Revert cast back to any for this mock
-
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    const service = new ExchangeService();
-    const positions = await service.getOpenPositions('binance', 'BTC/USDT');
-
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.fetchPositions).toHaveBeenCalledWith(['BTC/USDT']);
-    expect(positions).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Invalid positions data received from binance:',
-      invalidData
-    );
-
-    consoleErrorSpy.mockRestore();
-  });
-
-  it('should return null and log error if fetchBalance returns null', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-    // biome-ignore lint/suspicious/noExplicitAny: Testing null fetchBalance response
-    mockBinanceInstance.fetchBalance.mockResolvedValue(null as any); // Return null
-
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const service = new ExchangeService();
-    const balance = await service.getBalance('binance', 'USDT');
-
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.fetchBalance).toHaveBeenCalled();
-    expect(balance).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Could not retrieve total balance for USDT on binance:',
-      null
-    );
-    consoleErrorSpy.mockRestore();
-  });
-
-  it('should return null and log error if fetchBalance response lacks total property', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-    const incompleteBalance = { free: { USDT: 100 } }; // Missing 'total'
-    // biome-ignore lint/suspicious/noExplicitAny: Testing incomplete fetchBalance response
-    mockBinanceInstance.fetchBalance.mockResolvedValue(incompleteBalance as any);
-
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const service = new ExchangeService();
-    const balance = await service.getBalance('binance', 'USDT');
-
-    expect(balance).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Could not retrieve total balance for USDT on binance:',
-      incompleteBalance
-    );
-    consoleErrorSpy.mockRestore();
-  });
-
-  it('should return null and log error if fetchBalance total lacks requested currency', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-    const wrongCurrencyBalance = {
-      total: { BTC: 0.1 }, // Missing 'USDT'
-    };
-    // biome-ignore lint/suspicious/noExplicitAny: Testing wrong currency fetchBalance response
-    mockBinanceInstance.fetchBalance.mockResolvedValue(wrongCurrencyBalance as any);
-
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const service = new ExchangeService();
-    const balance = await service.getBalance('binance', 'USDT');
-
-    expect(balance).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Could not retrieve total balance for USDT on binance:',
-      wrongCurrencyBalance
-    );
-    consoleErrorSpy.mockRestore();
-  });
-
-  // --- placeOrder Tests ---
-
-  it('should place a limit order successfully', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-    const expectedOrder = {
-      id: 'order123',
-      symbol: 'BTC/USDT',
-      type: 'limit',
-      side: 'buy',
-      amount: 0.01,
-      price: 60000,
-      info: { status: 'open' },
-    };
-    // biome-ignore lint/suspicious/noExplicitAny: Testing successful placeOrder response format
-    mockBinanceInstance.createOrder.mockResolvedValue(expectedOrder as any);
-
-    const service = new ExchangeService();
-    const order = await service.placeOrder('binance', 'BTC/USDT', 'limit', 'buy', 0.01, 60000);
-
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.createOrder).toHaveBeenCalledWith('BTC/USDT', 'limit', 'buy', 0.01, 60000);
-    expect(order).toEqual(expectedOrder);
-  });
-
-  it('should place a market order successfully', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-    const expectedOrder = {
-      id: 'order456',
-      symbol: 'ETH/USDT',
-      type: 'market',
-      side: 'sell',
-      amount: 0.1,
-      info: { status: 'filled' },
-    };
-    // biome-ignore lint/suspicious/noExplicitAny: Testing successful market placeOrder response format
-    mockBinanceInstance.createOrder.mockResolvedValue(expectedOrder as any);
-
-    const service = new ExchangeService();
-    // Price is undefined for market order
-    const order = await service.placeOrder('binance', 'ETH/USDT', 'market', 'sell', 0.1);
-
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.createOrder).toHaveBeenCalledWith('ETH/USDT', 'market', 'sell', 0.1, undefined);
-    expect(order).toEqual(expectedOrder);
-  });
-
-  it('should return null and log error if placeOrder returns invalid data (no id)', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-    const invalidOrderData = { symbol: 'BTC/USDT', amount: 0.01 }; // Missing id
-    // biome-ignore lint/suspicious/noExplicitAny: Testing invalid placeOrder response (missing id)
-    mockBinanceInstance.createOrder.mockResolvedValue(invalidOrderData as any);
-
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const service = new ExchangeService();
-    const order = await service.placeOrder('binance', 'BTC/USDT', 'market', 'buy', 0.01);
-
-    expect(order).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Invalid order data received from binance:',
-      invalidOrderData
-    );
-    consoleErrorSpy.mockRestore();
-  });
-
-  it('should return null and log error if placeOrder throws an error', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-    const errorMessage = 'Insufficient balance';
-    mockBinanceInstance.createOrder.mockRejectedValue(new Error(errorMessage));
-
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const service = new ExchangeService();
-    const order = await service.placeOrder('binance', 'BTC/USDT', 'market', 'buy', 100); // Large amount likely to fail
-
-    expect(order).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Error placing order on binance for BTC/USDT:',
-      expect.any(Error)
-    );
-    consoleErrorSpy.mockRestore();
-  });
-
-  // --- closePosition Tests ---
-
-  it('should close a long position successfully (sends market sell)', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-    const longPosition: Position = {
-      symbol: 'BTC/USDT', // TradingPair (assuming string for simplicity in test)
-      side: 'long',
-      entryPrice: 50000,
-      markPrice: 51000,
-      amount: 1,         // Optional, but needed for assertion
-      margin: 5000,      // Required
-      pnl: 1000,         // Required
-      leverage: 10,      // Required
-      info: {}           // Required
-    };
-    const expectedCloseOrder = { id: 'closeOrder789', symbol: 'BTC/USDT', type: 'market', side: 'sell', amount: 1, info: {} };
-    // biome-ignore lint/suspicious/noExplicitAny: Testing successful closePosition response format
-    mockBinanceInstance.createOrder.mockResolvedValue(expectedCloseOrder as any);
-
-    const service = new ExchangeService();
-    const order = await service.closePosition('binance', longPosition);
-
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.createOrder).toHaveBeenCalledWith('BTC/USDT', 'market', 'sell', 1);
-    expect(order).toEqual(expectedCloseOrder);
-  });
-
-  it('should close a short position successfully (sends market buy)', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-    // Using 'amount' instead of 'contracts' for variety
-    const shortPosition: Position = { 
-      symbol: 'ETH/USDT', 
-      side: 'short', 
-      amount: 1.5, 
-      entryPrice: 50000, 
-      markPrice: 51000, 
-      leverage: 10, 
-      margin: 5000, 
-      pnl: 1000, 
-      info: {} 
-    };
-    const expectedCloseOrder = { id: 'closeOrder101', symbol: 'ETH/USDT', type: 'market', side: 'buy', amount: 1.5, info: {} };
-    // biome-ignore lint/suspicious/noExplicitAny: Testing successful closePosition (short) response format
-    mockBinanceInstance.createOrder.mockResolvedValue(expectedCloseOrder as any);
-
-    const service = new ExchangeService();
-    const order = await service.closePosition('binance', shortPosition);
-
-    expect(mockBinanceInstance.loadMarkets).toHaveBeenCalled();
-    expect(mockBinanceInstance.createOrder).toHaveBeenCalledWith('ETH/USDT', 'market', 'buy', 1.5);
-    expect(order).toEqual(expectedCloseOrder);
-  });
-
-  it('should return null and log error if closePosition returns invalid order data', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-    const longPosition: Position = {
-      symbol: 'BTC/USDT', // TradingPair (assuming string for simplicity in test)
-      side: 'long',
-      entryPrice: 50000,
-      markPrice: 51000,
-      amount: 1,         // Optional, but needed for assertion
-      margin: 5000,      // Required
-      pnl: 1000,         // Required
-      leverage: 10,      // Required
-      info: {}           // Required
-    };
-    const invalidOrderData = { symbol: 'BTC/USDT' }; // No id
-    // biome-ignore lint/suspicious/noExplicitAny: Testing invalid closePosition response (missing id)
-    mockBinanceInstance.createOrder.mockResolvedValue(invalidOrderData as any);
-
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const service = new ExchangeService();
-    const order = await service.closePosition('binance', longPosition);
-
-    expect(order).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Invalid order data received from binance:',
-      invalidOrderData
-    );
-    consoleErrorSpy.mockRestore();
-  });
-
-  it('should return null and log error if closePosition encounters an error', async () => {
-    const MockedBinanceConstructor = (ccxt as unknown as Record<string, Mock<() => MockExchangeInstance>>).binance;
-    const mockBinanceInstance = MockedBinanceConstructor();
-    const longPosition: Position = {
-      symbol: 'BTC/USDT', // TradingPair (assuming string for simplicity in test)
-      side: 'long',
-      entryPrice: 50000,
-      markPrice: 51000,
-      amount: 1,         // Optional, but needed for assertion
-      margin: 5000,      // Required
-      pnl: 1000,         // Required
-      leverage: 10,      // Required
-      info: {}           // Required
-    };
-    const errorMessage = 'Position already closed';
-    mockBinanceInstance.createOrder.mockRejectedValue(new Error(errorMessage));
-
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const service = new ExchangeService();
-    const order = await service.closePosition('binance', longPosition);
-
-    expect(order).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Error closing position on binance for BTC/USDT:',
-      expect.any(Error)
-    );
-    consoleErrorSpy.mockRestore();
-  });
-
-  it('should return null and log error if an invalid exchangeId is provided', async () => { 
-    const service = new ExchangeService();
-    const invalidExchangeId = 'invalidExchange';
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); 
-
-    const balanceResult = await service.getBalance(invalidExchangeId, 'USDT'); 
-    expect(balanceResult).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      `Error fetching balance for ${'USDT'} on ${invalidExchangeId}:`, 
-      expect.any(Error) 
-    );
-    const balanceError = consoleErrorSpy.mock.calls[0][1] as Error;
-    expect(balanceError.message).toContain(`Unsupported exchange: ${invalidExchangeId}`);
-
-    const fundingRateResult = await service.getFundingRate(invalidExchangeId, 'BTC/USDT'); 
-    expect(fundingRateResult).toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      `Error fetching funding rate for ${'BTC/USDT'} on ${invalidExchangeId}:`, 
-      expect.any(Error)
-    );
-    const fundingError = consoleErrorSpy.mock.calls[1][1] as Error;
-    expect(fundingError.message).toContain(`Unsupported exchange: ${invalidExchangeId}`);
-
-    consoleErrorSpy.mockRestore();
-  });
-
 });

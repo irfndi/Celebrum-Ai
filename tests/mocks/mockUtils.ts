@@ -1,0 +1,1 @@
+export const MOCK_TIMESTAMP = 1672531200000; // Example: Jan 1, 2023 00:00:00 UTC

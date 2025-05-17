@@ -15,31 +15,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
-          bun-version: 1.2.12
-
-      - name: Get Bun cache directory
-        id: bun-cache
-        run: echo "dir=$(bun pm cache)" >> $GITHUB_OUTPUT
-
-      - name: Cache Bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.bun-cache.outputs.dir }}
-          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          node-version: '18.x'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: npm ci
 
       - name: Run linters
-        run: bunx @biomejs/biome lint ./src
+        run: npm run lint
 
       - name: Run tests with coverage
-        run: bun run test:coverage
+        run: npm run test:coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -81,31 +70,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
-          bun-version: 1.2.12
-
-      - name: Get Bun cache directory
-        id: bun-cache
-        run: echo "dir=$(bun pm cache)" >> $GITHUB_OUTPUT
-
-      - name: Cache Bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.bun-cache.outputs.dir }}
-          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          node-version: '18.x'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: npm ci
 
       - name: Build project
-        run: bun run build
+        run: npm run build
 
       - name: Deploy to Cloudflare Workers
-        run: bun run deploy
+        run: npm run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

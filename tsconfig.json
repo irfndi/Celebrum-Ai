@@ -2,8 +2,12 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",
-    "lib": ["ES2020", "WebWorker"],
-    "types": ["@cloudflare/workers-types", "node", "jest", "vitest/globals"],
+    "lib": ["ES2020"],
+    "types": [
+      "node",
+      "@cloudflare/workers-types/experimental",
+      "@cloudflare/vitest-pool-workers"
+    ],
     "moduleResolution": "node",
     "strict": true,
     "noImplicitAny": true,
