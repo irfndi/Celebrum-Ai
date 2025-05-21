@@ -19,6 +19,9 @@ import type {
   TradingFeeInterface as CCXTTradingFeeInterface,
   TradingFees as CCXTTradingFees,
 } from "ccxt";
+import type { OpportunityService } from "./services/opportunityService";
+import type { ExchangeService } from "./services/exchangeService";
+import type { TelegramService } from "./services/telegramService";
 
 // General Utility Types
 export interface LoggerInterface {
@@ -30,7 +33,13 @@ export interface LoggerInterface {
   http?(message: string, ...meta: unknown[]): void;
   verbose?(message: string, ...meta: unknown[]): void;
   silly?(message: string, ...meta: unknown[]): void;
-  child?(options: Record<string, unknown>): LoggerInterface;
+  child(options: Record<string, unknown>): LoggerInterface;
+
+  // Add missing methods
+  addContext(context: Record<string, unknown>): void;
+  addError(error: Error, context?: Record<string, unknown>): void;
+  getLogLevel(): string;
+  setLogLevel(newLevel: string): void;
 }
 
 // Exchange & Trading Related Types
@@ -48,6 +57,8 @@ export type CustomExchangeId = string & {
   readonly __brand: "CustomExchangeId";
 };
 export type ExchangeId = KnownExchangeId | CustomExchangeId;
+
+export type PositionSide = "long" | "short"; // Added PositionSide type
 
 export type TradingPairSymbol = string; // e.g., "BTC/USDT"
 
@@ -183,6 +194,11 @@ export interface Env {
   // Durable Object Namespaces (example, adjust as per actual usage)
   POSITIONS: DurableObjectNamespace; // If using DO for position tracking
   // Add other DOs if any: USER_SESSIONS: DurableObjectNamespace;
+
+  // Service Instances (for testing or specific DI patterns)
+  opportunityServiceInstance?: OpportunityService;
+  exchangeServiceInstance?: ExchangeService;
+  telegramServiceInstance?: TelegramService;
 
   // Secrets (typically set in Cloudflare dashboard or via wrangler secrets)
   TELEGRAM_BOT_TOKEN: string;

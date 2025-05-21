@@ -622,7 +622,7 @@ describe("Worker Main Logic", () => {
     );
     expect(response.status).toBe(404);
     const responseText = await response.text();
-    expect(responseText).toBe("ONLY ALL ROUTE ACTIVE");
+    expect(responseText).toBe(JSON.stringify({ status: "error", message: "Route not found" }));
     // TelegramService will not be called due to the all('*') route
     expect(TelegramService).not.toHaveBeenCalled();
   });
@@ -636,8 +636,8 @@ describe("Worker Main Logic", () => {
         mockExecutionContext
       );
       expect(response.status).toBe(404);
-      const text = await response.text();
-      expect(text).toBe("ONLY ALL ROUTE ACTIVE");
+      const responseJson = await response.json();
+      expect(responseJson).toEqual({ status: "error", message: "Route not found" });
     });
   });
 
@@ -736,8 +736,8 @@ describe("Worker Main Logic", () => {
       );
 
       expect(response.status).toBe(404);
-      const responseText = await response.text();
-      expect(responseText).toBe("ONLY ALL ROUTE ACTIVE");
+      const responseJson = await response.json();
+      expect(responseJson).toEqual({ status: "error", message: "Route not found" });
     });
 
     it("should return 404 for GET /find-opportunities with minimal router (OpportunityService branch)", async () => {
@@ -775,14 +775,11 @@ describe("Worker Main Logic", () => {
       );
 
       expect(response.status).toBe(404);
-      const responseText = await response.text();
-      expect(responseText).toBe("ONLY ALL ROUTE ACTIVE");
+      const responseJson = await response.json();
+      expect(responseJson).toEqual({ status: "error", message: "Route not found" });
     });
 
     it("should return 404 for GET /find-funding-rates with minimal router", async () => {
-      // const mockTelegramServiceInstance = { processFundingRateOpportunities: vi.fn().mockResolvedValue(undefined) };
-      // (TelegramService as unknown as Mock).mockImplementationOnce(() => mockTelegramServiceInstance);
-
       const request = mockRequest("GET", "http://localhost/find-funding-rates");
       const response = await httpWorker.fetch(
         request,
@@ -790,16 +787,12 @@ describe("Worker Main Logic", () => {
         mockExecutionContext
       );
       expect(response.status).toBe(404);
-      const responseText = await response.text();
-      expect(responseText).toBe("ONLY ALL ROUTE ACTIVE");
-      // expect(mockTelegramServiceInstance.processFundingRateOpportunities).toHaveBeenCalled();
+      const responseJson = await response.json();
+      expect(responseJson).toEqual({ status: "error", message: "Route not found" });
     });
 
     it("should return 404 for GET /find-funding-rates (error case) with minimal router", async () => {
       const errorMessage = "Service failure processing funding rates";
-      // const mockTelegramServiceInstance = { processFundingRateOpportunities: vi.fn().mockRejectedValue(new Error(errorMessage)) };
-      // (TelegramService as unknown as Mock).mockImplementationOnce(() => mockTelegramServiceInstance);
-
       const request = mockRequest("GET", "http://localhost/find-funding-rates");
       const response = await httpWorker.fetch(
         request,
@@ -807,25 +800,20 @@ describe("Worker Main Logic", () => {
         mockExecutionContext
       );
       expect(response.status).toBe(404);
-      const responseText = await response.text();
-      expect(responseText).toBe("ONLY ALL ROUTE ACTIVE");
-      // expect(mockEnv.LOGGER.error).toHaveBeenCalledWith('Error in /find-funding-rates:', expect.any(Error));
-      // expect(mockTelegramServiceInstance.processFundingRateOpportunities).toHaveBeenCalled();
+      const responseJson = await response.json();
+      expect(responseJson).toEqual({ status: "error", message: "Route not found" });
     });
 
     it("should return 404 for undefined routes", async () => {
-      const request = mockRequest(
-        "GET",
-        "http://localhost/this-route-does-not-exist"
-      );
+      const request = mockRequest("GET", "http://localhost/some/undefined/route");
       const response = await httpWorker.fetch(
         request,
         mockEnv,
         mockExecutionContext
       );
       expect(response.status).toBe(404);
-      const responseText = await response.text();
-      expect(responseText).toBe("ONLY ALL ROUTE ACTIVE");
+      const responseJson = await response.json();
+      expect(responseJson).toEqual({ status: "error", message: "Route not found" });
     });
   });
 

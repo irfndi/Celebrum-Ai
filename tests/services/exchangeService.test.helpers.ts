@@ -10,6 +10,8 @@ import { mockOrderFactory } from '../mocks/orderMocks';
 import { mockTradeFactory } from '../mocks/tradeMocks';
 import { MOCK_TRADING_FEES_FACTORY } from '../mocks/feeMocks';
 import { MOCK_TIMESTAMP } from '../mocks/mockUtils';
+import type { ExchangeService } from '../../src/services/exchangeService';
+import type { Logger } from '../../src/utils/logger';
 
 // This interface was in exchangeService.test.ts, moved here as createMockInstance returns it.
 export interface MockExchangeInstance { // ccxt.Exchange
@@ -141,4 +143,54 @@ export function createMockInstance(exchangeId: ExchangeId): MockExchangeInstance
 export const ALL_MOCK_EXCHANGE_IDS: ExchangeId[] = [
   'binance', 'bybit', 'bitget', 'kraken', 'mexc', 'okx', 'bingx',
 ];
+
+// Store exchanges instances that will be accessible for tests to modify
+export const _testMockInstances: Partial<Record<ExchangeId, MockExchangeInstance>> = {};
+
+export function createMockExchangeService(): { 
+  exchangeService: ExchangeService;
+  mockLogger: Logger;
+  singleMockExchangeInstance: MockExchangeInstance;
+} {
+  // Create mock instance for tests
+  const singleMockExchangeInstance = createMockInstance('binance' as ExchangeId);
+  
+  // Store in our local accessible mock instances
+  _testMockInstances['binance' as ExchangeId] = singleMockExchangeInstance;
+  
+  // Create mock env and logger
+  const mockLogger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn()
+  } as unknown as Logger;
+  
+  const mockKV = {
+    get: vi.fn().mockImplementation(async () => null),
+    put: vi.fn().mockResolvedValue(undefined),
+    delete: vi.fn().mockResolvedValue(undefined),
+    list: vi.fn().mockResolvedValue({ keys: [] }),
+  };
+  
+  const mockEnv = {
+    ArbEdgeKV: mockKV,
+  };
+  
+  // Get ExchangeService constructor
+  const { ExchangeService } = require('../../src/services/exchangeService');
+  
+  // Create an instance with our mocks
+  const exchangeService = new ExchangeService({
+    env: mockEnv,
+    logger: mockLogger,
+  });
+  
+  // Make instance directly available for tests
+  exchangeService.exchangeInstances = new Map();
+  exchangeService.exchangeInstances.set('binance', singleMockExchangeInstance);
+  
+  return { exchangeService, mockLogger, singleMockExchangeInstance };
+}
 

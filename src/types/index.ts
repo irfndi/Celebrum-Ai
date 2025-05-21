@@ -2,12 +2,17 @@
 
 export type ExchangeId =
   | 'binance'
+  | 'binanceusdm'
   | 'bybit'
+  | 'bitget'
+  | 'bingx'
+  | 'coinbase'
+  | 'gateio'
   | 'kraken'
+  | 'kucoin'
   | 'mexc'
   | 'okx'
-  | 'bingx'
-  | 'bitget'
+  | 'phemex'
   | (string & {}); // allow custom IDs while keeping autocomplete for known ones // Add other exchanges as needed
 export type TradingPairSymbol = string; // e.g., 'BTC/USDT'
 
@@ -17,8 +22,32 @@ export type OrderSide = 'buy' | 'sell'; // Added OrderSide
 
 // Basic Env interface for Cloudflare Workers
 export interface Env {
-  KV_NAMESPACE: KVNamespace;
+  ArbEdgeKV: KVNamespace;
   // Add other bindings as needed (e.g., D1 databases, R2 buckets, secrets)
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
+  NODE_ENV?: 'development' | 'production' | 'test';
+  LOG_LEVEL?: string;
+
+  // Properties for exchange configurations - Added based on linter error in tests
+  POSITIONS?: string; // Assuming stringified JSON or similar
+  EXCHANGES?: string; // Assuming stringified JSON or similar
+  ARBITRAGE_THRESHOLD?: string; // Assuming string representation of a number
+  MONITORED_PAIRS_CONFIG?: string; // Assuming stringified JSON or similar
+
+  // Allow any string keys for API keys like BINANCE_API_KEY
+  [key: string]: unknown;
+}
+
+// Definition for API Key Configuration
+export interface ApiKeyConfig {
+  apiKey: string;
+  secret?: string;   // Make secret optional
+  apiSecret?: string; // Add apiSecret as an alternative
+  subaccount?: string; // Optional subaccount identifier
+  password?: string;   // Optional password for exchanges like phemex
+  uid?: string;        // Optional UID for exchanges like bingx
+  new?: boolean;       // Flag to indicate if this is a new key being added
 }
 
 // Forward declaration for KVNamespace to be used in Env before its full import elsewhere if needed

@@ -7,7 +7,7 @@ import type {
 
 // Helper to escape MarkdownV2 characters
 // See: https://core.telegram.org/bots/api#markdownv2-style
-function escapeMarkdownV2(text: string | number | undefined): string {
+export function escapeMarkdownV2(text: string | number | undefined): string {
   if (text === undefined) return "N/A";
   const textStr = String(text);
   // Characters to escape: _ * [ ] ( ) ~ ` > # + - = | { } . !
@@ -25,35 +25,34 @@ export function formatOpportunityMessage(
 ): string {
   // Destructure from TypedArbitrageOpportunity
   const {
-    pairSymbol,
+    pair,
     longExchange,
     shortExchange,
     longRate,
     shortRate,
-    grossProfitMetric, // This is the primary rateDifference for funding rates
-    netProfitMetric, // This would be the netRateDifference
-    potentialProfitValue, // For potential profit display
+    rateDifference,
+    netRateDifference,
+    potentialProfitValue,
     timestamp,
     type,
     details,
   } = opportunity;
 
   // Format rates and difference as percentages with fixed precision
-  // Ensure rates are numbers before calling toFixed, provide fallback if not (though they should be for fundingRate type)
   const longRatePercent =
     typeof longRate === "number" ? (longRate * 100).toFixed(4) : "N/A";
   const shortRatePercent =
     typeof shortRate === "number" ? (shortRate * 100).toFixed(4) : "N/A";
-  const diffPercent = (grossProfitMetric * 100).toFixed(4);
+  const diffPercent = (rateDifference * 100).toFixed(4);
   const netDiffPercent =
-    typeof netProfitMetric === "number"
-      ? (netProfitMetric * 100).toFixed(4)
+    typeof netRateDifference === "number"
+      ? (netRateDifference * 100).toFixed(4)
       : undefined;
 
   const dateStr = new Date(timestamp).toLocaleString(); // Adjust locale/format as needed
 
   // Escape dynamic values
-  const pairEscaped = escapeMarkdownV2(pairSymbol);
+  const pairEscaped = escapeMarkdownV2(pair);
   const longExEscaped = escapeMarkdownV2(longExchange?.toUpperCase());
   const shortExEscaped = escapeMarkdownV2(shortExchange?.toUpperCase());
   const longRateEscaped = escapeMarkdownV2(longRatePercent);
@@ -95,29 +94,19 @@ export function formatOpportunityMessage(
     message += `
 💹 *Net Difference:* \`${netDiffEscaped}%\``;
   }
+
   if (potentialProfitEscaped && potentialProfitEscaped !== "N/A") {
     message += `
-💸 *Potential Profit:* \`${potentialProfitEscaped}\` USDT`; // Assuming USDT or a common quote
+💸 *Potential Profit:* \\~$${potentialProfitEscaped}`;
   }
+
   if (detailsEscaped) {
-    message += `\n📝 *Details:* ${detailsEscaped}`;
+    message += `
+📝 *Details:* ${detailsEscaped}`;
   }
 
   message += `
+🕒 *Timestamp:* ${dateEscaped}`;
 
-🕒 *Detected At:* ${dateEscaped}
-`;
-
-  // Optional: Command example (kept generic for now)
-  if (type === "fundingRate" && longExchange && shortExchange) {
-    message += `
-*To execute manually \\(Example\\):*
-\`/execute ${pairEscaped.replace(/[\/\\]/g, "_")} ${longExEscaped} ${shortExEscaped} 0\\.1 10\`
-\\(Replace 0\\.1 with size, 10 with leverage\\)
-  `;
-  }
-
-  return message.trim(); // Trim leading/trailing whitespace
+  return message;
 }
-
-// Add other formatting helpers as needed (e.g., for positions, balances)

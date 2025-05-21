@@ -948,7 +948,7 @@ describe("OpportunityService", () => {
   });
 
   afterEach(() => {
-    // vi.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it("should be defined", () => {
