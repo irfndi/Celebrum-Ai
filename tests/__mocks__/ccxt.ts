@@ -391,4 +391,8 @@ const defaultExport = {
   _testAccessibleMockInstances
 };
 
-export default defaultExport; 
+export default defaultExport;
+
+export function Exchange(config?: Record<string, unknown>): MockExchangeInstance {
+  return createMockInstance('binance');
+} 
