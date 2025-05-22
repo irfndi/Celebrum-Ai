@@ -1,4 +1,5 @@
 /// <reference types='@cloudflare/workers-types' />
+/* eslint-disable */
 import { vi } from 'vitest';
 import type { Mock } from 'vitest';
 import type { ExchangeId, TradingPairSymbol, FundingRateInfo, Balances, Position, Order, Market, Ticker, OHLCV, OrderBook, Trade, CCXTTradingFees } from '../../src/types';
@@ -90,7 +91,7 @@ export function MOCK_CCXT_TRANSFER_ENTRY_FACTORY(): CCXTTransferEntry {
   };
 }
 
-export function createMockInstance(exchangeId: ExchangeId): MockExchangeInstance {
+export function createMockInstance(exchangeId: ExchangeId | string): MockExchangeInstance {
   const pair: TradingPairSymbol = 'BTC/USDT';
   const base: string = 'BTC';
   const quote: string = 'USDT';
@@ -141,7 +142,7 @@ export function createMockInstance(exchangeId: ExchangeId): MockExchangeInstance
 }
 
 export const ALL_MOCK_EXCHANGE_IDS: ExchangeId[] = [
-  'binance', 'bybit', 'bitget', 'kraken', 'mexc', 'okx', 'bingx',
+  'binance', 'binanceusdm', 'bybit', 'bitget', 'bingx', 'coinbase', 'gateio', 'kraken', 'kucoin', 'mexc', 'okx', 'phemex',
 ];
 
 // Store exchanges instances that will be accessible for tests to modify
