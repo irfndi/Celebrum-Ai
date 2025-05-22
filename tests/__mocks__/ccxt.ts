@@ -334,6 +334,11 @@ const commonErrorClasses = {
   RequestTimeout
 };
 
+// Export the common error classes for tests
+export { commonErrorClasses };
+// Alias the accessible mock instances for tests expecting this name
+export const _theActualTestAccessibleMockInstances = _testAccessibleMockInstances;
+
 // Helper function to create exchange mock constructors
 // This function closes over _testAccessibleMockInstances
 const createExchangeMockConstructor = (exchangeId: ExchangeId, specificInstanceCreator: () => MockExchangeInstance) => {
