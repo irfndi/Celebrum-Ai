@@ -17,6 +17,7 @@ export default defineWorkersConfig({
   },
   test: {
     globals: true,
+    mockDir: 'tests/__mocks__',
     setupFiles: ['./tests/vitest.setup.ts'],
     poolOptions: {
       workers: {

@@ -1,0 +1,15 @@
+[package]
+name = "arb_edge"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+workers = "0.1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+console_error_panic_hook = "0.1.6"
+panic-abort = "0.3.2" 

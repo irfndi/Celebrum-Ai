@@ -382,6 +382,9 @@ export const mockExchangeConstructors = {
   // Add any other explicitly defined exchange mocks here
 };
 
+// Named export for Exchange constructor to support tests expecting ccxt.Exchange
+export const Exchange = mockExchangeConstructors.binance;
+
 // Add metadata
 export const version = '3.1.mock';  // Mocked CCXT version
 
@@ -398,6 +401,5 @@ const defaultExport = {
 
 export default defaultExport;
 
-export function Exchange(config?: Record<string, unknown>): MockExchangeInstance {
-  return createMockInstance('binance');
-} 
+// Removed duplicate Exchange function and repeated exports below to prevent redeclaration errors
+// ... existing code above ... 

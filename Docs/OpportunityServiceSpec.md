@@ -8,8 +8,10 @@
 - `exchangeService: ExchangeService` – external service for fetching rates/fees.
 - `telegramService: TelegramService | null` – optional, sends notifications.
 - `logger: Logger` – logs info, warnings, errors.
-- `monitoredPairs: StructuredTradingPair[]` – list of trading pairs to monitor.
+- `monitoredPairs: StructuredTradingPair[]` – list of trading pairs to monitor, derived from the user's configured API key pairs (requires at least two).
 - `exchanges: ExchangeId[]` – list of exchange IDs to check.
+- `mode: 'manual' | 'auto'` – operation mode for this service instance.
+- `autoConfig?: { threshold: number; maxMarginAllocation: number; slippageTolerance: number; }` – parameters for Automated Mode (required if `mode` is `auto`).
 
 ## Types
 ### ArbitrageOpportunity
@@ -36,6 +38,7 @@
 ): `Promise<ArbitrageOpportunity[]>`
 
 **Behavior:**
+0. Validate that at least two trading pairs are provided (`pairs.length >= 2`); if not, log a warning and return an empty array.
 1. Create a list of all unique `(exchangeId, pair)` combinations from the input `exchangeIds` and `pairs`.
 2. **Concurrently fetch Data:**
    a. For each `(exchangeId, pair)` combination, fetch **FundingRateInfo** (symbol, fundingRate, timestamp, datetime, info) via `exchangeService.getFundingRate(exchangeId, pair)`.

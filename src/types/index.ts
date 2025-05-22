@@ -196,3 +196,25 @@ export interface Ticker {
   quoteVolume: number | undefined;
   info: Record<string, unknown>; // Raw exchange response
 }
+
+// Aliases for CCXT types to support testing and integration
+export type OHLCV = import('ccxt').OHLCV;
+export type OrderBook = import('ccxt').OrderBook;
+export type Trade = import('ccxt').Trade;
+export type CCXTTradingFees = import('ccxt').TradingFees;
+export type TradingFeeInterface = import('ccxt').TradingFees;
+
+export interface LoggerInterface {
+  error(message: string, ...meta: unknown[]): void;
+  warn(message: string, ...meta: unknown[]): void;
+  info(message: string, ...meta: unknown[]): void;
+  http(message: string, ...meta: unknown[]): void;
+  verbose(message: string, ...meta: unknown[]): void;
+  debug(message: string, ...meta: unknown[]): void;
+  silly(message: string, ...meta: unknown[]): void;
+  addContext(context: Record<string, unknown>): void;
+  addError(error: Error, context?: Record<string, unknown>): void;
+  child(context: Record<string, unknown>): LoggerInterface;
+  getLogLevel(): string;
+  setLogLevel(level: string): void;
+}

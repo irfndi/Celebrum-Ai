@@ -1,5 +1,5 @@
 name = "arb-edge"
-main = "src/index.ts"
+type = "rust"
 compatibility_date = "2025-05-06"
 compatibility_flags = ["nodejs_compat"]
 
@@ -47,3 +47,8 @@ ENVIRONMENT = "development"
 # Enable observability logs (Wrangler v3.38.0+)
 [observability.logs]
 enabled = true
+
+# Build configuration for Rust
+[build]
+command = "rustup run nightly cargo build --target wasm32-unknown-unknown --release -Z build-std=std,panic_abort"
+upload_format = "service-worker"

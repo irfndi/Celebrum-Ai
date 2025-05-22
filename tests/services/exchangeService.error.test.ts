@@ -5,20 +5,8 @@ vi.mock('ccxt'); // Ensure the mock from __mocks__ is used
 import { describe, expect, it, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { ExchangeService } from '../../src/services/exchangeService';
 import type { Env, ExchangeId, LoggerInterface } from '../../src/types';
-import type { Exchange as CcxtExchange } from 'ccxt';
 import { CustomError, APIError, NetworkError } from '../../src/utils/CustomError';
-import { 
-  _testAccessibleMockInstances,
-  AuthenticationError,
-  PermissionDenied,
-  InvalidNonce,
-  InsufficientFunds,
-  InvalidOrder,
-  RateLimitExceeded,
-  DDoSProtection,
-  RequestTimeout,
-  ExchangeError
-} from 'ccxt';
+import { _testAccessibleMockInstances } from 'ccxt';
 
 // Import CCXT mock errors directly from the mock file
 import { 
@@ -83,6 +71,13 @@ describe('ExchangeService Error Handling', () => {
       cancelOrder: true,
       fetchOpenOrders: true
     };
+    // Add overrides for error scenarios
+    (singleMockExchangeInstance.fetchFundingRate as Mock).mockRejectedValue(new Error('Simulated error in fetchFundingRate'));
+    (singleMockExchangeInstance.fetchOpenOrders as Mock).mockRejectedValue(new Error('Simulated error in fetchOpenOrders'));
+    (singleMockExchangeInstance.fetchPositions as Mock).mockRejectedValue(new Error('Simulated error in fetchPositions'));
+    (singleMockExchangeInstance.setLeverage as Mock).mockRejectedValue(new Error('Simulated error in setLeverage'));
+    (singleMockExchangeInstance.fetchTradingFees as Mock).mockRejectedValue(new Error('Simulated error in fetchTradingFees'));
+    (singleMockExchangeInstance.fetchBalance as Mock).mockRejectedValue(new Error('Simulated error in fetchBalance'));
 
     mockLogger = {
       debug: vi.fn(),
@@ -118,7 +113,7 @@ describe('ExchangeService Error Handling', () => {
     });
     
     // Spy on getExchangeInstance to return the *same* mock instance each time
-    vi.spyOn(exchangeService, 'getExchangeInstance').mockResolvedValue(singleMockExchangeInstance as CcxtExchange);
+    vi.spyOn(exchangeService, 'getExchangeInstance').mockResolvedValue(singleMockExchangeInstance as any);
   });
 
   afterEach(() => {
@@ -261,7 +256,7 @@ describe('ExchangeService Error Handling', () => {
 
       // Set mock ENV variables for this test case
       const localMockEnvWithKeys = {
-        ...localExchangeService["env"], // Accessing private env, or pass it differently
+        ...localExchangeService.env,
         BINANCE_API_KEY: 'env_key',
         BINANCE_API_SECRET: 'env_secret',
         ArbEdgeKV: localMockKV, // Keep KV reference
@@ -502,7 +497,7 @@ describe('ExchangeService Error Handling', () => {
       // exchangeService in beforeEach is sufficient if its internal state doesn't change how getExchangeInstance is called.
       // However, to be safe when re-initing the service for a specific test:
       const localExchangeService = new ExchangeService({ env: mockEnv, logger: mockLogger });
-      vi.spyOn(localExchangeService, 'getExchangeInstance').mockResolvedValue(singleMockExchangeInstance as CcxtExchange);
+      vi.spyOn(localExchangeService, 'getExchangeInstance').mockResolvedValue(singleMockExchangeInstance as any);
 
 
       await expect(
@@ -517,7 +512,7 @@ describe('ExchangeService Error Handling', () => {
         get: vi.fn().mockRejectedValue(new Error('KV Error on get')),
       } as unknown as KVNamespace;
       const localExchangeService = new ExchangeService({ env: mockEnv, logger: mockLogger });
-      vi.spyOn(localExchangeService, 'getExchangeInstance').mockResolvedValue(singleMockExchangeInstance as CcxtExchange);
+      vi.spyOn(localExchangeService, 'getExchangeInstance').mockResolvedValue(singleMockExchangeInstance as any);
 
       await expect(
         localExchangeService.getApiKey('binance' as ExchangeId)
@@ -531,7 +526,7 @@ describe('ExchangeService Error Handling', () => {
         delete: vi.fn().mockRejectedValue(new Error('KV Error on delete')),
       } as unknown as KVNamespace;
       const localExchangeService = new ExchangeService({ env: mockEnv, logger: mockLogger });
-      vi.spyOn(localExchangeService, 'getExchangeInstance').mockResolvedValue(singleMockExchangeInstance as CcxtExchange);
+      vi.spyOn(localExchangeService, 'getExchangeInstance').mockResolvedValue(singleMockExchangeInstance as any);
 
       await expect(
         localExchangeService.deleteApiKey('binance' as ExchangeId)

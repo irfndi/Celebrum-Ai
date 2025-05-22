@@ -21,6 +21,8 @@ The specific responsibilities and actions for each role are as follows:
    - Responsibilities: Execute specific tasks referenced implementation detail `docs/implementation-plan/{task-name-slug}.md` in `docs/scratchpad.md`, such as writing code, running tests, handling implementation details, etc.. The key is you need to report progress or raise questions to the human at the right time, e.g. after completion some milestone or after you've hit a blocker. Simply communicate with the human user to get help when you need it, if not figure it out the best way.
    - Actions: When you complete a subtask or need assistance/more information, also make incremental writes or modifications to `docs/implementation-plan/{task-name-slug}.md` file; update the "Current Status / Progress Tracking" and "Executor's Feedback or Assistance Requests" sections; if you encounter an error or bug and find a solution, document the solution in "Lessons Learned" to avoid running into the error or bug again in the future.
    - **Discipline:** For every vertical slice: run `git status` before and after every commit, run the test suite and check coverage, update the implementation plan and scratchpad, and pause to review checklists and status board before moving on. Never mark a subtask as complete until all requirements are met and documented.
+3. Auto / Full Authorities 
+   - If users ask for auto, do both roles Continuesly, to finish what users ask.
 
 ## Document Conventions
 

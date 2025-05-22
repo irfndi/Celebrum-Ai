@@ -93,6 +93,12 @@ As a trader, I want the bot to dynamically discover relevant trading pairs by fe
 
 High
 
+US2c
+
+As a trader, I want opportunity detection to only run when I have at least two exchange API key pairs configured in my profile, and to dynamically adjust the monitored pairs when I add or remove keys.
+
+High
+
 US3
 
 As a trader, I want to be notified via Telegram when a funding rate arbitrage opportunity exceeding a configurable threshold is detected for any monitored pair.
@@ -171,11 +177,29 @@ As a trader, I want detailed performance reports (daily/weekly P&L, win rate) de
 
 Medium
 
+US16
+
+As a new user, I want to sign up via invitation code so that only authorized users can access the bot.
+
+High
+
+US17
+
+As a user, I want my profile to be created automatically on first /start after invitation so I can manage my settings.
+
+High
+
+US18
+
+As a user, I want to add and manage at least two exchange API key pairs to my profile via Telegram commands.
+
+High
+
 4. Functional Requirements
 4.1 Exchange Integration & API Management
 FR1.1: The system must securely connect to exchange APIs (Binance, Bybit initially; MEXC planned).
 
-FR1.2: Users must be able to add, store (encrypted, potentially using Worker secrets or KV), and remove API keys via a configuration file or secure interface/command.
+FR1.2: Users must sign up via invitation code, have a dedicated profile created per Telegram user, and be able to add, store (encrypted, via Worker secrets or KV), and remove multiple exchange API key pairs—requiring at least two pairs for arbitrage functions.
 
 FR1.3: The system must handle exchange-specific API protocols, authentication methods (e.g., HMAC SHA256), and data formats.
 
@@ -280,6 +304,8 @@ FR3.6: The system must support closing positions:
 Manually via Telegram command.
 
 (Post-MVP) Automatically based on triggers (TP, SL, funding rate convergence, time limit).
+
+FR3.7: Users must be able to configure automated execution parameters (threshold, maximum margin allocation, slippage tolerance) via Telegram commands before enabling Automated Mode.
 
 4.4 Risk Management
 FR4.1: Pre-trade Checks: Before executing any trade, the system must verify:

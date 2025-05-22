@@ -1,17 +1,18 @@
 /// <reference types='@cloudflare/workers-types' />
+// biome-ignore-file
 /* eslint-disable */
 import { vi } from 'vitest';
 import type { Mock } from 'vitest';
 import type { ExchangeId, TradingPairSymbol, FundingRateInfo, Balances, Position, Order, Market, Ticker, OHLCV, OrderBook, Trade, CCXTTradingFees } from '../../src/types';
 import type { Currency as CCXTCurrency, FundingRateHistory as CCXTFundingRateHistory, TransferEntry as CCXTTransferEntry } from 'ccxt';
-import { createMockMarket, MOCK_MARKET_DEFAULTS } from '../mocks/marketMocks';
-import { mockPositionFactory } from '../mocks/positionMocks';
-import { mockTickerFactory } from '../mocks/tickerMocks';
-import { mockOrderFactory } from '../mocks/orderMocks';
-import { mockTradeFactory } from '../mocks/tradeMocks';
-import { MOCK_TRADING_FEES_FACTORY } from '../mocks/feeMocks';
-import { MOCK_TIMESTAMP } from '../mocks/mockUtils';
-import type { ExchangeService } from '../../src/services/exchangeService';
+import { createMockMarket, MOCK_MARKET_DEFAULTS } from '../__mocks__/marketMocks';
+import { mockPositionFactory } from '../__mocks__/positionMocks';
+import { mockTickerFactory } from '../__mocks__/tickerMocks';
+import { mockOrderFactory } from '../__mocks__/orderMocks';
+import { mockTradeFactory } from '../__mocks__/tradeMocks';
+import { MOCK_TRADING_FEES_FACTORY } from '../__mocks__/feeMocks';
+import { MOCK_TIMESTAMP } from '../__mocks__/mockUtils';
+import { ExchangeService } from '../../src/services/exchangeService';
 import type { Logger } from '../../src/utils/logger';
 
 // This interface was in exchangeService.test.ts, moved here as createMockInstance returns it.
@@ -91,7 +92,7 @@ export function MOCK_CCXT_TRANSFER_ENTRY_FACTORY(): CCXTTransferEntry {
   };
 }
 
-export function createMockInstance(exchangeId: ExchangeId | string): MockExchangeInstance {
+export function createMockInstance(exchangeId: ExchangeId): MockExchangeInstance {
   const pair: TradingPairSymbol = 'BTC/USDT';
   const base: string = 'BTC';
   const quote: string = 'USDT';
@@ -178,9 +179,6 @@ export function createMockExchangeService(): {
   const mockEnv = {
     ArbEdgeKV: mockKV,
   };
-  
-  // Get ExchangeService constructor
-  const { ExchangeService } = require('../../src/services/exchangeService');
   
   // Create an instance with our mocks
   const exchangeService = new ExchangeService({

@@ -103,7 +103,7 @@ export interface IExchangeService {
   getTradingFees(
     exchangeId: string,
     symbol: string
-  ): Promise<ccxt.TradingFeeInterface | null>;
+  ): Promise<TradingFeeInterface | null>;
   getTakerFeeRate(
     exchangeId: ExchangeId,
     symbol: TradingPairSymbol
@@ -185,10 +185,8 @@ export class ExchangeService implements IExchangeService {
       options.secret = envApiSecret;
     }
     try {
-      // Instantiate exchange using factory function to support mocks
-      // biome-ignore lint/suspicious/noExplicitAny: CCXT exchange constructors accept various dynamic options; 'Record<string, any>' is the most practical type here.
-      console.log(`[DEBUG] getExchangeInstance - PRE-get ccxt constructor for "${exchangeId}"`);
-      const exchangeConstructor = (ccxt as any)[exchangeId];
+      // Dynamically get the exchange constructor from ccxt exports
+      const exchangeConstructor = (ccxt as unknown as Record<string, (options?: Record<string, unknown>) => ccxt.Exchange>)[exchangeId];
       console.log(`[DEBUG] getExchangeInstance - POST-get ccxt constructor for "${exchangeId}", constructor is:`, typeof exchangeConstructor);
       
       if (typeof exchangeConstructor !== 'function') {
@@ -199,14 +197,14 @@ export class ExchangeService implements IExchangeService {
       }
 
       console.log(`[DEBUG] getExchangeInstance - PRE-instantiate exchange for "${exchangeId}" with options:`, options);
-      const exchangeInstance = exchangeConstructor(options) as ccxt.Exchange;
+      const exchangeInstance = exchangeConstructor(options);
       console.log(`[DEBUG] getExchangeInstance - POST-instantiate exchange for "${exchangeId}", instance is:`, typeof exchangeInstance);
 
       // Attempt to load markets for the new instance
       if (exchangeInstance) {
         console.log(`[DEBUG] getExchangeInstance - PRE-loadMarkets for "${exchangeId}"`);
         const markets = await this.loadMarketsForExchange(exchangeId);
-        console.log(`[DEBUG] getExchangeInstance - POST-loadMarkets for "${exchangeId}", markets:`, markets ? Object.keys(markets).length + " markets found" : "null");
+        console.log(`[DEBUG] getExchangeInstance - POST-loadMarkets for "${exchangeId}", markets: ${markets ? `${Object.keys(markets).length} markets found` : 'null'}`);
         if (!markets) {
           this.logger.warn(
             `Markets could not be loaded for ${exchangeId}, instance initialization failed or is incomplete.`
@@ -278,7 +276,7 @@ export class ExchangeService implements IExchangeService {
     exchangeId: string
   ): Promise<Record<string, ccxt.Market> | null> {
     // Use the markets cache first if available within the TTL
-    if (this.marketsCache && this.marketsCache.has(exchangeId)) {
+    if (this.marketsCache.has(exchangeId)) {
       const cachedData = this.marketsCache.get(exchangeId);
       if (
         cachedData &&
@@ -627,6 +625,8 @@ export class ExchangeService implements IExchangeService {
       );
       return order;
     } catch (error: unknown) {
+      // Log the error before rethrowing
+      this.logger.error(`Error creating order for ${symbol} on ${exchangeId}:`, error);
       // If this is already an APIError, just re-throw it
       if (error instanceof APIError) {
         throw error;
@@ -853,7 +853,7 @@ export class ExchangeService implements IExchangeService {
   public async getTradingFees(
     exchangeId: string,
     symbol: string
-  ): Promise<ccxt.TradingFeeInterface | null> {
+  ): Promise<TradingFeeInterface | null> {
     try {
       const instance = await this.getExchangeInstance(exchangeId);
       if (!instance) {
@@ -893,7 +893,7 @@ export class ExchangeService implements IExchangeService {
           this.logger.info(
             `Returning first available fee structure for ${exchangeId} as a fallback for ${symbol}.`
           );
-          return firstFee as ccxt.TradingFeeInterface;
+          return firstFee as TradingFeeInterface;
         }
         this.logger.info(
           `No specific trading fee structure found for ${symbol} on ${exchangeId}.`
@@ -923,7 +923,7 @@ export class ExchangeService implements IExchangeService {
       if (fees?.taker) {
         return fees.taker;
       }
-      this.logger.warn(
+      this.logger.error(
         `Taker fee not found for ${symbol} on ${exchangeId}. Full fees: ${JSON.stringify(fees)}`
       );
       return undefined;
@@ -961,10 +961,14 @@ export class ExchangeService implements IExchangeService {
       // Cache for binance exchanges
       if (exchangeId === 'binance') {
         this.binanceUsdPairsCache.clear();
-        acceptedPairs.forEach(p => this.binanceUsdPairsCache.add(p));
+        for (const p of acceptedPairs) {
+          this.binanceUsdPairsCache.add(p);
+        }
       } else if (exchangeId === 'binanceusdm') {
         this.binanceUsdFuturesPairsCache.clear();
-        acceptedPairs.forEach(p => this.binanceUsdFuturesPairsCache.add(p));
+        for (const p of acceptedPairs) {
+          this.binanceUsdFuturesPairsCache.add(p);
+        }
       }
 
       return acceptedPairs;
