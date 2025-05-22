@@ -27,7 +27,7 @@
     "wrangler": "^4"
   },
   "dependencies": {
-    "ccxt": "^4.4.78",
+    "ccxt": "^4.4.85",
     "grammy": "^1.36.1",
     "itty-router": "^5.0.18",
     "p-ratelimit": "^1.0.1",

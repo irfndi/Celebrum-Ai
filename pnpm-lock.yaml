@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       ccxt:
-        specifier: ^4.4.78
-        version: 4.4.82
+        specifier: ^4.4.85
+        version: 4.4.85
       grammy:
         specifier: ^1.36.1
         version: 1.36.1
@@ -667,8 +667,8 @@ packages:
     resolution: {integrity: sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ==}
     engines: {node: '>=8'}
 
-  ccxt@4.4.82:
-    resolution: {integrity: sha512-P/qdvcNvgm15yb3H5msAf7hJGNtsU4A7uJdt2mo1vqMSpxz1eweBcyhaNvjQLHvifgm7P9ibWYOV5trLC8bfTA==}
+  ccxt@4.4.85:
+    resolution: {integrity: sha512-LPeFnWwyGM8YSCTUBJqo/20Dc+Keu5aCckLAbMsbuNrakYxNp2jXno1K4HpcN2livH6c2r8UVMibX736sgAwBQ==}
     engines: {node: '>=15.0.0'}
     hasBin: true
 
@@ -1775,7 +1775,7 @@ snapshots:
 
   cac@6.7.14: {}
 
-  ccxt@4.4.82:
+  ccxt@4.4.85:
     dependencies:
       ws: 8.18.2
     transitivePeerDependencies:
