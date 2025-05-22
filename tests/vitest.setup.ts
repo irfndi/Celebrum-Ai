@@ -5,4 +5,13 @@ import { vi } from 'vitest';
 vi.mock('logform');
 
 // Mock winston globally as it has internal resolution issues for logform.
-vi.mock('winston'); 
+vi.mock('winston');
+
+// Use manual CCXT mock for all tests
+vi.mock('ccxt', async () => {
+  const mock = await import('./__mocks__/ccxt');
+  return {
+    default: mock.default,
+    ...mock,
+  };
+}); 
