@@ -10,6 +10,7 @@ export default defineWorkersConfig({
       // Explicitly alias logform to its mock file
       "logform": path.resolve(__dirname, "tests/__mocks__/logform.js"),
       "winston": path.resolve(__dirname, "tests/__mocks__/winston.js"),
+      "ccxt": path.resolve(__dirname, "tests/__mocks__/ccxt.ts"),
       // "os": path.resolve(__dirname, "tests/__mocks__/node-os.cjs"), // Removed
       // "node:os": path.resolve(__dirname, "tests/__mocks__/node-os.js"), // Removed
     },
