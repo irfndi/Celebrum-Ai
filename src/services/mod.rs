@@ -16,6 +16,7 @@ pub mod user_trading_preferences;
 pub mod market_analysis;
 pub mod opportunity_enhanced;
 pub mod technical_trading;
+pub mod correlation_analysis;
 
 // Re-export main service structs
 pub use exchange::{ExchangeInterface, ExchangeService};
@@ -34,3 +35,4 @@ pub use user_trading_preferences::*;
 pub use market_analysis::*;
 pub use opportunity_enhanced::*;
 pub use technical_trading::*;
+pub use correlation_analysis::*;
