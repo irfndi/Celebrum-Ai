@@ -5,93 +5,385 @@ mod types;
 mod utils;
 mod services;
 
-use utils::error::ArbitrageError;
+use types::{ExchangeIdEnum, StructuredTradingPair, ArbitrageOpportunity};
+use utils::{ArbitrageError, ArbitrageResult};
 use services::exchange::{ExchangeService, ExchangeInterface};
+use services::opportunity::{OpportunityService, OpportunityServiceConfig};
+use services::telegram::TelegramService;
+use services::positions::{PositionsService, CreatePositionData, UpdatePositionData};
 use serde_json::json;
+use std::sync::Arc;
 
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
 
     let url = req.url()?;
-    match url.path().as_ref() {
-        "/kv-test" => {
-            // Basic KV get/put demonstration
+    let path = url.path();
+
+    match (req.method(), path.as_ref()) {
+        // Health check
+        (Method::Get, "/health") => {
+            Response::ok("ArbEdge Rust Worker is running!")
+        }
+
+        // KV test endpoint
+        (Method::Get, "/kv-test") => {
             let value = url.query().unwrap_or("default");
             let kv = env.kv("ArbEdgeKV")?;
-            // Store value under a test key
             kv.put("test-key", value)?.execute().await?;
-            // Retrieve stored value
             let retrieved = kv.get("test-key").text().await?;
             Response::ok(retrieved.unwrap_or_default())
         }
-        "/health" => {
-            Response::ok("ArbEdge Rust Worker is running!")
+
+        // Exchange API endpoints
+        (Method::Get, "/exchange/markets") => {
+            handle_get_markets(req, env).await
         }
-        "/exchange/markets" => {
-            // Test exchange markets endpoint
-            let exchange_service = match ExchangeService::new(&env) {
-                Ok(service) => service,
-                Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500)
-            };
-            
-            let exchange_id = url.query_pairs()
-                .find(|(key, _)| key == "exchange")
-                .map(|(_, value)| value.to_string())
-                .unwrap_or_else(|| "binance".to_string());
-            
-            match exchange_service.get_markets(&exchange_id).await {
-                Ok(markets) => {
-                    let market_count = markets.len();
-                    let sample_markets: Vec<_> = markets.into_iter().take(5).collect();
-                    let response = json!({
-                        "exchange": exchange_id,
-                        "total_markets": market_count,
-                        "sample_markets": sample_markets
-                    });
-                    Response::from_json(&response)
-                }
-                Err(e) => Response::error(format!("Failed to get markets: {}", e), 500)
-            }
+
+        (Method::Get, "/exchange/ticker") => {
+            handle_get_ticker(req, env).await
         }
-        "/exchange/ticker" => {
-            // Test exchange ticker endpoint
-            let exchange_service = match ExchangeService::new(&env) {
-                Ok(service) => service,
-                Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500)
-            };
-            
-            let query_pairs: std::collections::HashMap<String, String> = url.query_pairs()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect();
-            
-            let exchange_id = query_pairs.get("exchange").cloned().unwrap_or_else(|| "binance".to_string());
-            let symbol = query_pairs.get("symbol").cloned().unwrap_or_else(|| "BTCUSDT".to_string());
-            
-            match exchange_service.get_ticker(&exchange_id, &symbol).await {
-                Ok(ticker) => Response::from_json(&ticker),
-                Err(e) => Response::error(format!("Failed to get ticker: {}", e), 500)
-            }
+
+        (Method::Get, "/exchange/funding") => {
+            handle_get_funding_rate(req, env).await
         }
-        "/exchange/funding" => {
-            // Test exchange funding rate endpoint
-            let exchange_service = match ExchangeService::new(&env) {
-                Ok(service) => service,
-                Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500)
-            };
-            
-            let query_pairs: std::collections::HashMap<String, String> = url.query_pairs()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect();
-            
-            let exchange_id = query_pairs.get("exchange").cloned().unwrap_or_else(|| "binance".to_string());
-            let symbol = query_pairs.get("symbol").cloned().unwrap_or_else(|| "BTCUSDT".to_string());
-            
-            match exchange_service.get_funding_rate(&exchange_id, &symbol).await {
-                Ok(funding_rate) => Response::from_json(&funding_rate),
-                Err(e) => Response::error(format!("Failed to get funding rate: {}", e), 500)
-            }
+
+        // Opportunity finding endpoint
+        (Method::Post, "/find-opportunities") => {
+            handle_find_opportunities(req, env).await
         }
-        _ => Response::ok("Hello, ArbEdge in Rust! Available endpoints: /health, /kv-test, /exchange/markets, /exchange/ticker, /exchange/funding"),
+
+        // Telegram webhook endpoint
+        (Method::Post, "/webhook") => {
+            handle_telegram_webhook(req, env).await
+        }
+
+        // Position management endpoints
+        (Method::Post, "/positions") => {
+            handle_create_position(req, env).await
+        }
+
+        (Method::Get, "/positions") => {
+            handle_get_all_positions(req, env).await
+        }
+
+        (Method::Get, path) if path.starts_with("/positions/") => {
+            let id = path.strip_prefix("/positions/").unwrap();
+            handle_get_position(req, env, id).await
+        }
+
+        (Method::Put, path) if path.starts_with("/positions/") => {
+            let id = path.strip_prefix("/positions/").unwrap();
+            handle_update_position(req, env, id).await
+        }
+
+        (Method::Delete, path) if path.starts_with("/positions/") => {
+            let id = path.strip_prefix("/positions/").unwrap();
+            handle_close_position(req, env, id).await
+        }
+
+        // Default response
+        _ => Response::ok("Hello, ArbEdge in Rust! Available endpoints: /health, /kv-test, /exchange/*, /find-opportunities, /webhook, /positions"),
     }
+}
+
+#[event(scheduled)]
+pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    console_error_panic_hook::set_once();
+
+    match event.cron().as_str() {
+        // Monitor opportunities every minute
+        "* * * * *" => {
+            if let Err(e) = monitor_opportunities_scheduled(env).await {
+                console_log!("Error in scheduled opportunity monitoring: {}", e);
+            }
+        }
+        _ => {
+            console_log!("Unknown scheduled event: {}", event.cron());
+        }
+    }
+}
+
+// Handler implementations
+
+async fn handle_get_markets(req: Request, env: Env) -> Result<Response> {
+    let exchange_service = match ExchangeService::new(&env) {
+        Ok(service) => service,
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500)
+    };
+    
+    let url = req.url()?;
+    let exchange_id = url.query_pairs()
+        .find(|(key, _)| key == "exchange")
+        .map(|(_, value)| value.to_string())
+        .unwrap_or_else(|| "binance".to_string());
+    
+    match exchange_service.get_markets(&exchange_id).await {
+        Ok(markets) => {
+            let market_count = markets.len();
+            let sample_markets: Vec<_> = markets.into_iter().take(5).collect();
+            let response = json!({
+                "exchange": exchange_id,
+                "total_markets": market_count,
+                "sample_markets": sample_markets
+            });
+            Response::from_json(&response)
+        }
+        Err(e) => Response::error(format!("Failed to get markets: {}", e), 500)
+    }
+}
+
+async fn handle_get_ticker(req: Request, env: Env) -> Result<Response> {
+    let exchange_service = match ExchangeService::new(&env) {
+        Ok(service) => service,
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500)
+    };
+    
+    let url = req.url()?;
+    let query_pairs: std::collections::HashMap<String, String> = url.query_pairs()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    
+    let exchange_id = query_pairs.get("exchange").cloned().unwrap_or_else(|| "binance".to_string());
+    let symbol = query_pairs.get("symbol").cloned().unwrap_or_else(|| "BTCUSDT".to_string());
+    
+    match exchange_service.get_ticker(&exchange_id, &symbol).await {
+        Ok(ticker) => Response::from_json(&ticker),
+        Err(e) => Response::error(format!("Failed to get ticker: {}", e), 500)
+    }
+}
+
+async fn handle_get_funding_rate(req: Request, env: Env) -> Result<Response> {
+    let exchange_service = match ExchangeService::new(&env) {
+        Ok(service) => service,
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500)
+    };
+    
+    let url = req.url()?;
+    let query_pairs: std::collections::HashMap<String, String> = url.query_pairs()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    
+    let exchange_id = query_pairs.get("exchange").cloned().unwrap_or_else(|| "binance".to_string());
+    let symbol = query_pairs.get("symbol").cloned().unwrap_or_else(|| "BTCUSDT".to_string());
+    
+    match exchange_service.get_funding_rate(&exchange_id, &symbol).await {
+        Ok(funding_rate) => Response::from_json(&funding_rate),
+        Err(e) => Response::error(format!("Failed to get funding rate: {}", e), 500)
+    }
+}
+
+async fn handle_find_opportunities(req: Request, env: Env) -> Result<Response> {
+    // Parse configuration from environment
+    let exchanges_str = env.var("EXCHANGES")?.to_string();
+    let exchanges: Vec<ExchangeIdEnum> = exchanges_str.split(',')
+        .filter_map(|s| match s.trim() {
+            "binance" => Some(ExchangeIdEnum::Binance),
+            "bybit" => Some(ExchangeIdEnum::Bybit),
+            "okx" => Some(ExchangeIdEnum::OKX),
+            "bitget" => Some(ExchangeIdEnum::Bitget),
+            _ => None,
+        })
+        .collect();
+
+    if exchanges.len() < 2 {
+        return Response::error("At least two exchanges must be configured", 400);
+    }
+
+    let monitored_pairs_str = env.var("MONITORED_PAIRS_CONFIG")?.to_string();
+    let monitored_pairs: Vec<StructuredTradingPair> = match serde_json::from_str(&monitored_pairs_str) {
+        Ok(pairs) => pairs,
+        Err(e) => return Response::error(format!("Failed to parse monitored pairs: {}", e), 400),
+    };
+
+    let threshold: f64 = env.var("ARBITRAGE_THRESHOLD")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| "0.001".to_string())
+        .parse()
+        .unwrap_or(0.001);
+
+    // Create services
+    let exchange_service = Arc::new(match ExchangeService::new(&env) {
+        Ok(service) => service,
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500)
+    });
+
+    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) = (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID")) {
+        Some(Arc::new(TelegramService::new(services::telegram::TelegramConfig {
+            bot_token: bot_token.to_string(),
+            chat_id: chat_id.to_string(),
+        })))
+    } else {
+        None
+    };
+
+    let opportunity_config = OpportunityServiceConfig {
+        exchanges,
+        monitored_pairs,
+        threshold,
+    };
+
+    let opportunity_service = OpportunityService::new(
+        opportunity_config,
+        exchange_service,
+        telegram_service,
+    );
+
+    // Find opportunities
+    match opportunity_service.monitor_opportunities().await {
+        Ok(opportunities) => {
+            // Process opportunities (send notifications)
+            if let Err(e) = opportunity_service.process_opportunities(&opportunities).await {
+                console_log!("Failed to process opportunities: {}", e);
+            }
+
+            let response = json!({
+                "status": "success",
+                "opportunities_found": opportunities.len(),
+                "opportunities": opportunities
+            });
+            Response::from_json(&response)
+        }
+        Err(e) => Response::error(format!("Failed to find opportunities: {}", e), 500)
+    }
+}
+
+async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response> {
+    let update: serde_json::Value = req.json().await?;
+
+    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) = (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID")) {
+        TelegramService::new(services::telegram::TelegramConfig {
+            bot_token: bot_token.to_string(),
+            chat_id: chat_id.to_string(),
+        })
+    } else {
+        return Response::error("Telegram configuration not found", 500);
+    };
+
+    match telegram_service.handle_webhook(update).await {
+        Ok(Some(response_text)) => Response::ok(response_text),
+        Ok(None) => Response::ok("OK"),
+        Err(e) => Response::error(format!("Webhook processing error: {}", e), 500)
+    }
+}
+
+async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> {
+    let kv = env.kv("ArbEdgeKV")?;
+    let positions_service = PositionsService::new(kv);
+
+    let position_data: CreatePositionData = req.json().await?;
+
+    match positions_service.create_position(position_data).await {
+        Ok(position) => Response::from_json(&position),
+        Err(e) => Response::error(format!("Failed to create position: {}", e), 500)
+    }
+}
+
+async fn handle_get_all_positions(_req: Request, env: Env) -> Result<Response> {
+    let kv = env.kv("ArbEdgeKV")?;
+    let positions_service = PositionsService::new(kv);
+
+    match positions_service.get_all_positions().await {
+        Ok(positions) => Response::from_json(&positions),
+        Err(e) => Response::error(format!("Failed to get positions: {}", e), 500)
+    }
+}
+
+async fn handle_get_position(_req: Request, env: Env, id: &str) -> Result<Response> {
+    let kv = env.kv("ArbEdgeKV")?;
+    let positions_service = PositionsService::new(kv);
+
+    match positions_service.get_position(id).await {
+        Ok(Some(position)) => Response::from_json(&position),
+        Ok(None) => Response::error("Position not found", 404),
+        Err(e) => Response::error(format!("Failed to get position: {}", e), 500)
+    }
+}
+
+async fn handle_update_position(mut req: Request, env: Env, id: &str) -> Result<Response> {
+    let kv = env.kv("ArbEdgeKV")?;
+    let positions_service = PositionsService::new(kv);
+
+    let update_data: UpdatePositionData = req.json().await?;
+
+    match positions_service.update_position(id, update_data).await {
+        Ok(Some(position)) => Response::from_json(&position),
+        Ok(None) => Response::error("Position not found", 404),
+        Err(e) => Response::error(format!("Failed to update position: {}", e), 500)
+    }
+}
+
+async fn handle_close_position(_req: Request, env: Env, id: &str) -> Result<Response> {
+    let kv = env.kv("ArbEdgeKV")?;
+    let positions_service = PositionsService::new(kv);
+
+    match positions_service.close_position(id).await {
+        Ok(true) => Response::ok("Position closed"),
+        Ok(false) => Response::error("Position not found", 404),
+        Err(e) => Response::error(format!("Failed to close position: {}", e), 500)
+    }
+}
+
+async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
+    // Parse configuration from environment
+    let exchanges_str = env.var("EXCHANGES").map_err(|_| ArbitrageError::config_error("EXCHANGES not configured"))?;
+    let exchanges: Vec<ExchangeIdEnum> = exchanges_str.to_string().split(',')
+        .filter_map(|s| match s.trim() {
+            "binance" => Some(ExchangeIdEnum::Binance),
+            "bybit" => Some(ExchangeIdEnum::Bybit),
+            "okx" => Some(ExchangeIdEnum::OKX),
+            "bitget" => Some(ExchangeIdEnum::Bitget),
+            _ => None,
+        })
+        .collect();
+
+    if exchanges.len() < 2 {
+        return Err(ArbitrageError::config_error("At least two exchanges must be configured"));
+    }
+
+    let monitored_pairs_str = env.var("MONITORED_PAIRS_CONFIG")
+        .map_err(|_| ArbitrageError::config_error("MONITORED_PAIRS_CONFIG not configured"))?;
+    let monitored_pairs: Vec<StructuredTradingPair> = serde_json::from_str(&monitored_pairs_str.to_string())
+        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse monitored pairs: {}", e)))?;
+
+    let threshold: f64 = env.var("ARBITRAGE_THRESHOLD")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| "0.001".to_string())
+        .parse()
+        .unwrap_or(0.001);
+
+    // Create services
+    let exchange_service = Arc::new(ExchangeService::new(&env)?);
+
+    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) = (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID")) {
+        Some(Arc::new(TelegramService::new(services::telegram::TelegramConfig {
+            bot_token: bot_token.to_string(),
+            chat_id: chat_id.to_string(),
+        })))
+    } else {
+        None
+    };
+
+    let opportunity_config = OpportunityServiceConfig {
+        exchanges,
+        monitored_pairs,
+        threshold,
+    };
+
+    let opportunity_service = OpportunityService::new(
+        opportunity_config,
+        exchange_service,
+        telegram_service,
+    );
+
+    // Find and process opportunities
+    let opportunities = opportunity_service.monitor_opportunities().await?;
+    
+    if !opportunities.is_empty() {
+        console_log!("Found {} opportunities", opportunities.len());
+        opportunity_service.process_opportunities(&opportunities).await?;
+    }
+
+    Ok(())
 } 

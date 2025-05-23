@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 
 /// Exchange identifiers
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExchangeIdEnum {
     Binance,
@@ -50,6 +50,7 @@ pub enum ArbitrageType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArbitrageOpportunity {
+    pub id: String,
     pub pair: String,
     pub long_exchange: Option<ExchangeIdEnum>,
     pub short_exchange: Option<ExchangeIdEnum>,
@@ -74,6 +75,7 @@ impl ArbitrageOpportunity {
         r#type: ArbitrageType,
     ) -> Self {
         Self {
+            id: String::new(),
             pair,
             long_exchange,
             short_exchange,

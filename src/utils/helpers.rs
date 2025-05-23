@@ -184,7 +184,9 @@ mod tests {
 
     #[test]
     fn test_percentage_difference() {
-        assert_eq!(percentage_difference(100.0, 90.0), 200.0 * 10.0 / 190.0);
+        let expected = 200.0 * 10.0 / 190.0; // ~10.526315789473685
+        let actual = percentage_difference(100.0, 90.0);
+        assert!(approximately_equal(actual, expected, 1e-10));
         assert_eq!(percentage_difference(0.0, 0.0), 0.0);
     }
 

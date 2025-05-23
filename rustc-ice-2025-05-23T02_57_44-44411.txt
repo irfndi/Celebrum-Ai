@@ -1,0 +1,57 @@
+thread 'rustc' panicked at compiler/rustc_mir_transform/src/validate.rs:80:25:
+broken MIR in Item(DefId(0:403 ~ arb_edge[3e67]::services::opportunity::{impl#0}::find_opportunities::{closure#0})) (after phase change to runtime-optimized) at bb27[0]:
+Unsize coercion, but `std::pin::Pin<std::boxed::Box<{async block@src/services/opportunity.rs:65:30: 65:40}>>` isn't coercible to `std::pin::Pin<std::boxed::Box<dyn futures::Future<Output = (std::string::String, types::ExchangeIdEnum, std::option::Option<types::FundingRateInfo>)> + std::marker::Send>>`
+stack backtrace:
+   0:        0x111febb4c - std::backtrace::Backtrace::create::h78da82d6487fab12
+   1:        0x11015b340 - std[fc481aa773b41545]::panicking::update_hook::<alloc[630b23cb72b99949]::boxed::Box<rustc_driver_impl[3b76d6ea4acdbef4]::install_ice_hook::{closure#1}>>::{closure#0}
+   2:        0x11200941c - std::panicking::rust_panic_with_hook::h7b4938f86b98571b
+   3:        0x112009010 - std::panicking::begin_panic_handler::{{closure}}::h3759e39b5edf8ba4
+   4:        0x112004350 - std::sys::backtrace::__rust_end_short_backtrace::h258a81df8922b7d2
+   5:        0x112008cd8 - __rustc[c5cd6cf756c73e4e]::rust_begin_unwind
+   6:        0x114c447dc - core::panicking::panic_fmt::h4d5a8c4b55c8c346
+   7:        0x111163340 - <rustc_mir_transform[6703fde92c44e340]::validate::CfgChecker>::fail::<alloc[630b23cb72b99949]::string::String>
+   8:        0x111162bd0 - <rustc_mir_transform[6703fde92c44e340]::validate::Validator as rustc_mir_transform[6703fde92c44e340]::pass_manager::MirPass>::run_pass
+   9:        0x1110b1c28 - rustc_mir_transform[6703fde92c44e340]::pass_manager::run_passes_inner
+  10:        0x1110d6c2c - rustc_mir_transform[6703fde92c44e340]::run_optimization_passes
+  11:        0x1110d70ac - rustc_mir_transform[6703fde92c44e340]::optimized_mir
+  12:        0x111759280 - rustc_query_impl[afe9de6fdd9c3dc5]::plumbing::__rust_begin_short_backtrace::<rustc_query_impl[afe9de6fdd9c3dc5]::query_impl::optimized_mir::dynamic_query::{closure#2}::{closure#0}, rustc_middle[87a24c80dca27a20]::query::erase::Erased<[u8; 8usize]>>
+  13:        0x11152af84 - rustc_query_system[6590b7dfe249b245]::query::plumbing::try_execute_query::<rustc_query_impl[afe9de6fdd9c3dc5]::DynamicConfig<rustc_query_system[6590b7dfe249b245]::query::caches::DefIdCache<rustc_middle[87a24c80dca27a20]::query::erase::Erased<[u8; 8usize]>>, false, false, false>, rustc_query_impl[afe9de6fdd9c3dc5]::plumbing::QueryCtxt, false>
+  14:        0x1117764c4 - rustc_query_impl[afe9de6fdd9c3dc5]::query_impl::optimized_mir::get_query_non_incr::__rust_end_short_backtrace
+  15:        0x110e2426c - <rustc_middle[87a24c80dca27a20]::ty::context::TyCtxt>::coroutine_layout
+  16:        0x111f8dda8 - rustc_ty_utils[8832a48717604c4a]::layout::layout_of
+  17:        0x11175ec68 - rustc_query_impl[afe9de6fdd9c3dc5]::plumbing::__rust_begin_short_backtrace::<rustc_query_impl[afe9de6fdd9c3dc5]::query_impl::layout_of::dynamic_query::{closure#2}::{closure#0}, rustc_middle[87a24c80dca27a20]::query::erase::Erased<[u8; 16usize]>>
+  18:        0x111732114 - <rustc_query_impl[afe9de6fdd9c3dc5]::query_impl::layout_of::dynamic_query::{closure#2} as core[8c929786e63903a4]::ops::function::FnOnce<(rustc_middle[87a24c80dca27a20]::ty::context::TyCtxt, rustc_middle[87a24c80dca27a20]::ty::PseudoCanonicalInput<rustc_middle[87a24c80dca27a20]::ty::Ty>)>>::call_once
+  19:        0x111555634 - rustc_query_system[6590b7dfe249b245]::query::plumbing::try_execute_query::<rustc_query_impl[afe9de6fdd9c3dc5]::DynamicConfig<rustc_query_system[6590b7dfe249b245]::query::caches::DefaultCache<rustc_middle[87a24c80dca27a20]::ty::PseudoCanonicalInput<rustc_middle[87a24c80dca27a20]::ty::Ty>, rustc_middle[87a24c80dca27a20]::query::erase::Erased<[u8; 16usize]>>, false, true, false>, rustc_query_impl[afe9de6fdd9c3dc5]::plumbing::QueryCtxt, false>
+  20:        0x1117b0f94 - rustc_query_impl[afe9de6fdd9c3dc5]::query_impl::layout_of::get_query_non_incr::__rust_end_short_backtrace
+  21:        0x111137cc4 - <rustc_mir_transform[6703fde92c44e340]::known_panics_lint::KnownPanicsLint as rustc_mir_transform[6703fde92c44e340]::pass_manager::MirLint>::run_lint
+  22:        0x1110b1868 - rustc_mir_transform[6703fde92c44e340]::pass_manager::run_passes_inner
+  23:        0x1110d670c - rustc_mir_transform[6703fde92c44e340]::run_analysis_to_runtime_passes
+  24:        0x1110d637c - rustc_mir_transform[6703fde92c44e340]::mir_drops_elaborated_and_const_checked
+  25:        0x11175e3b4 - rustc_query_impl[afe9de6fdd9c3dc5]::plumbing::__rust_begin_short_backtrace::<rustc_query_impl[afe9de6fdd9c3dc5]::query_impl::mir_drops_elaborated_and_const_checked::dynamic_query::{closure#2}::{closure#0}, rustc_middle[87a24c80dca27a20]::query::erase::Erased<[u8; 8usize]>>
+  26:        0x1115a4770 - rustc_query_system[6590b7dfe249b245]::query::plumbing::try_execute_query::<rustc_query_impl[afe9de6fdd9c3dc5]::DynamicConfig<rustc_data_structures[8509fe2b66e05626]::vec_cache::VecCache<rustc_span[efcbabaa0f48db0f]::def_id::CrateNum, rustc_middle[87a24c80dca27a20]::query::erase::Erased<[u8; 8usize]>, rustc_query_system[6590b7dfe249b245]::dep_graph::graph::DepNodeIndex>, false, false, false>, rustc_query_impl[afe9de6fdd9c3dc5]::plumbing::QueryCtxt, false>
+  27:        0x111773fc0 - rustc_query_impl[afe9de6fdd9c3dc5]::query_impl::mir_drops_elaborated_and_const_checked::get_query_non_incr::__rust_end_short_backtrace
+  28:        0x1109c68bc - <rustc_middle[87a24c80dca27a20]::ty::context::TyCtxt>::par_hir_body_owners::<rustc_interface[6dc1b9e5839364a5]::passes::run_required_analyses::{closure#2}::{closure#0}>::{closure#0}
+  29:        0x110a45a30 - rustc_interface[6dc1b9e5839364a5]::passes::run_required_analyses
+  30:        0x110a47dac - rustc_interface[6dc1b9e5839364a5]::passes::analysis
+  31:        0x11175e900 - rustc_query_impl[afe9de6fdd9c3dc5]::plumbing::__rust_begin_short_backtrace::<rustc_query_impl[afe9de6fdd9c3dc5]::query_impl::analysis::dynamic_query::{closure#2}::{closure#0}, rustc_middle[87a24c80dca27a20]::query::erase::Erased<[u8; 0usize]>>
+  32:        0x11152ec38 - rustc_query_system[6590b7dfe249b245]::query::plumbing::try_execute_query::<rustc_query_impl[afe9de6fdd9c3dc5]::DynamicConfig<rustc_query_system[6590b7dfe249b245]::query::caches::SingleCache<rustc_middle[87a24c80dca27a20]::query::erase::Erased<[u8; 0usize]>>, false, false, false>, rustc_query_impl[afe9de6fdd9c3dc5]::plumbing::QueryCtxt, false>
+  33:        0x11176ab84 - rustc_query_impl[afe9de6fdd9c3dc5]::query_impl::analysis::get_query_non_incr::__rust_end_short_backtrace
+  34:        0x11010bfc0 - rustc_interface[6dc1b9e5839364a5]::passes::create_and_enter_global_ctxt::<core[8c929786e63903a4]::option::Option<rustc_interface[6dc1b9e5839364a5]::queries::Linker>, rustc_driver_impl[3b76d6ea4acdbef4]::run_compiler::{closure#0}::{closure#2}>
+  35:        0x110157f2c - rustc_interface[6dc1b9e5839364a5]::interface::run_compiler::<(), rustc_driver_impl[3b76d6ea4acdbef4]::run_compiler::{closure#0}>::{closure#1}
+  36:        0x110149ecc - std[fc481aa773b41545]::sys::backtrace::__rust_begin_short_backtrace::<rustc_interface[6dc1b9e5839364a5]::util::run_in_thread_with_globals<rustc_interface[6dc1b9e5839364a5]::util::run_in_thread_pool_with_globals<rustc_interface[6dc1b9e5839364a5]::interface::run_compiler<(), rustc_driver_impl[3b76d6ea4acdbef4]::run_compiler::{closure#0}>::{closure#1}, ()>::{closure#0}, ()>::{closure#0}::{closure#0}, ()>
+  37:        0x11015e8ec - <<std[fc481aa773b41545]::thread::Builder>::spawn_unchecked_<rustc_interface[6dc1b9e5839364a5]::util::run_in_thread_with_globals<rustc_interface[6dc1b9e5839364a5]::util::run_in_thread_pool_with_globals<rustc_interface[6dc1b9e5839364a5]::interface::run_compiler<(), rustc_driver_impl[3b76d6ea4acdbef4]::run_compiler::{closure#0}>::{closure#1}, ()>::{closure#0}, ()>::{closure#0}::{closure#0}, ()>::{closure#1} as core[8c929786e63903a4]::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  38:        0x11200c848 - std::sys::pal::unix::thread::Thread::new::thread_start::ha96915e06029a0ff
+  39:        0x183a02c0c - __pthread_cond_wait
+
+
+rustc version: 1.89.0-nightly (bf64d66bd 2025-05-21)
+platform: aarch64-apple-darwin
+
+query stack during panic:
+#0 [optimized_mir] optimizing MIR for `services::opportunity::<impl at src/services/opportunity.rs:26:1: 26:24>::find_opportunities::{closure#0}`
+#1 [layout_of] computing layout of `{async fn body of services::opportunity::<impl at src/services/opportunity.rs:26:1: 26:24>::find_opportunities()}`
+#2 [mir_drops_elaborated_and_const_checked] elaborating drops for `services::opportunity::<impl at src/services/opportunity.rs:26:1: 26:24>::find_opportunities`
+#3 [analysis] running analysis passes on this crate
+end of query stack
+delayed bug: error performing operation: fully_perform
+disabled backtrace
