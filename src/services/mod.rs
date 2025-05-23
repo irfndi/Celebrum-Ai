@@ -13,6 +13,7 @@ pub mod fund_monitoring;
 pub mod dynamic_config;
 pub mod notifications;
 pub mod user_trading_preferences;
+pub mod market_analysis;
 
 // Re-export main service structs
 pub use exchange::{ExchangeInterface, ExchangeService};
@@ -28,3 +29,4 @@ pub use fund_monitoring::{FundMonitoringService, FundMonitoringConfig, ExchangeB
 pub use dynamic_config::{DynamicConfigService, DynamicConfigTemplate, ConfigValidationResult, ConfigPreset};
 pub use notifications::{NotificationService, NotificationTemplate, AlertTrigger, Notification, NotificationHistory, NotificationAnalytics, TriggerEvaluationContext};
 pub use user_trading_preferences::*;
+pub use market_analysis::*;
