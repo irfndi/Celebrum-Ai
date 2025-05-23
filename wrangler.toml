@@ -1,23 +1,16 @@
 name = "arb-edge"
-type = "rust"
 compatibility_date = "2025-05-06"
 compatibility_flags = ["nodejs_compat"]
+main = "build/worker/shim.mjs"
+
+# Build configuration for Rust
+[build]
+command = "cargo install worker-build && worker-build --release"
 
 # KV Namespace for storing configuration and state
 kv_namespaces = [
   { binding = "ArbEdgeKV", id = "1018c576bf664c15afe0c53d85df8ed0", preview_id = "9db67fd132d64e93bcdf3cebebd07bc6" }
 ]
-
-# Durable Objects for managing state
-[durable_objects]
-bindings = [
-  { name = "POSITIONS", class_name = "PositionsManager" }
-]
-
-# Add Durable Object migrations
-[[migrations]]
-tag = "v1" # Initial migration tag
-new_classes = [ "PositionsManager" ]
 
 # Cron Triggers for scheduled tasks
 [triggers]
@@ -44,11 +37,9 @@ ENVIRONMENT = "development"
 # wrangler secret put TELEGRAM_BOT_TOKEN
 # wrangler secret put TELEGRAM_CHAT_ID
 
-# Enable observability logs (Wrangler v3.38.0+)
-[observability.logs]
+# Enable observability
+[observability]
 enabled = true
 
-# Build configuration for Rust
-[build]
-command = "rustup run nightly cargo build --target wasm32-unknown-unknown --release -Z build-std=std,panic_abort"
-upload_format = "service-worker"
+[observability.logs]
+enabled = true

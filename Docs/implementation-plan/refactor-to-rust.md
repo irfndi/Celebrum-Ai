@@ -56,9 +56,9 @@ We want to rewrite the entire ArbEdge codebase in Rust to leverage Rust's perfor
 ## Project Status Board
 
 - [x] Task 1: Create feature branch `feature/refactor-to-rust`
-- [ ] Task 2: Initialize Rust workspace and Worker configuration (In Progress, Blocked by Homebrew Rust overriding rustup toolchain)
-- [ ] Task 3: Integrate Workers database in Rust
-- [ ] Task 4: Implement utility modules in Rust
+- [x] Task 2: Initialize Rust workspace and Worker configuration
+- [ ] Task 3: Integrate Workers database in Rust (In Progress)
+- [ ] Task 4: Implement utility modules in Rust (In Progress)
 - [ ] Task 5: Develop exchange API client in Rust
 - [ ] Task 6: Develop Telegram bot client in Rust
 - [ ] Task 7: Migrate core business logic to Rust
@@ -70,4 +70,6 @@ We want to rewrite the entire ArbEdge codebase in Rust to leverage Rust's perfor
 
 ## Executor's Feedback or Assistance Requests
 
-- Blocker: Build for wasm32-unknown-unknown still fails due to Homebrew Rust taking precedence. Please ensure `~/.cargo/bin` is first in your `PATH` (e.g., add `export PATH="$HOME/.cargo/bin:$PATH"` to your `~/.zshrc` and restart your shell), or uninstall the Homebrew Rust (`brew uninstall rust`), so the rustup-managed nightly toolchain override takes effect. Once the environment is fixed, I can compile the Worker and complete Task 2. 
+- ✅ RESOLVED: Build for wasm32-unknown-unknown was failing due to Homebrew Rust taking precedence. Fixed by setting `export PATH="$HOME/.cargo/bin:$PATH"` to prioritize rustup-managed toolchain.
+- ✅ COMPLETED: Task 2 - Successfully set up Rust workspace with worker-build, updated to latest worker crate (0.5.0), and verified deployment dry-run succeeds. Basic KV operations are working.
+- 🔄 IN PROGRESS: Task 4 - Starting migration of utility modules from TypeScript to Rust. 
