@@ -18,6 +18,7 @@ DROP TABLE IF EXISTS opportunities;
 DROP TABLE IF EXISTS positions;
 DROP TABLE IF EXISTS system_config;
 DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS user_trading_preferences;
 
 -- User Profiles Table
 CREATE TABLE user_profiles (
@@ -45,6 +46,43 @@ CREATE TABLE user_profiles (
     
     -- Additional metadata
     profile_metadata TEXT -- JSON object for additional profile data
+);
+
+-- User Trading Preferences Table (Task 1.5)
+CREATE TABLE user_trading_preferences (
+    preference_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL UNIQUE,
+    
+    -- Trading Focus Selection
+    trading_focus TEXT DEFAULT 'arbitrage', -- arbitrage, technical, hybrid
+    experience_level TEXT DEFAULT 'beginner', -- beginner, intermediate, advanced
+    risk_tolerance TEXT DEFAULT 'conservative', -- conservative, balanced, aggressive
+    
+    -- Automation Preferences  
+    automation_level TEXT DEFAULT 'manual', -- manual, semi_auto, full_auto
+    automation_scope TEXT DEFAULT 'none', -- arbitrage_only, technical_only, both, none
+    
+    -- Feature Access Control
+    arbitrage_enabled BOOLEAN DEFAULT TRUE,
+    technical_enabled BOOLEAN DEFAULT FALSE,
+    advanced_analytics_enabled BOOLEAN DEFAULT FALSE,
+    
+    -- User Preferences
+    preferred_notification_channels TEXT, -- JSON array: ["telegram", "email", "push"]
+    trading_hours_timezone TEXT DEFAULT 'UTC',
+    trading_hours_start TEXT DEFAULT '00:00',
+    trading_hours_end TEXT DEFAULT '23:59',
+    
+    -- Onboarding Progress
+    onboarding_completed BOOLEAN DEFAULT FALSE,
+    tutorial_steps_completed TEXT, -- JSON array of completed tutorial steps
+    
+    -- Timestamps
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    
+    -- Foreign key reference
+    FOREIGN KEY (user_id) REFERENCES user_profiles(user_id) ON DELETE CASCADE
 );
 
 -- User Invitations Table
@@ -233,6 +271,14 @@ CREATE INDEX idx_user_profiles_subscription_tier ON user_profiles(subscription_t
 CREATE INDEX idx_user_profiles_account_status ON user_profiles(account_status);
 CREATE INDEX idx_user_profiles_created_at ON user_profiles(created_at);
 
+-- User Trading Preferences indexes (Task 1.5)
+CREATE INDEX idx_user_trading_preferences_user_id ON user_trading_preferences(user_id);
+CREATE INDEX idx_user_trading_preferences_trading_focus ON user_trading_preferences(trading_focus);
+CREATE INDEX idx_user_trading_preferences_automation_level ON user_trading_preferences(automation_level);
+CREATE INDEX idx_user_trading_preferences_experience_level ON user_trading_preferences(experience_level);
+CREATE INDEX idx_user_trading_preferences_arbitrage_enabled ON user_trading_preferences(arbitrage_enabled);
+CREATE INDEX idx_user_trading_preferences_technical_enabled ON user_trading_preferences(technical_enabled);
+
 CREATE INDEX idx_user_invitations_inviter ON user_invitations(inviter_user_id);
 CREATE INDEX idx_user_invitations_status ON user_invitations(status);
 CREATE INDEX idx_user_invitations_type ON user_invitations(invitation_type);
@@ -296,6 +342,35 @@ INSERT INTO user_profiles (
     '{"max_position_size": 1000, "auto_trading": false}',
     'free',
     'active'
+);
+
+-- Insert sample user trading preferences (Task 1.5)
+INSERT INTO user_trading_preferences (
+    preference_id,
+    user_id,
+    trading_focus,
+    experience_level,
+    risk_tolerance,
+    automation_level,
+    automation_scope,
+    arbitrage_enabled,
+    technical_enabled,
+    advanced_analytics_enabled,
+    preferred_notification_channels,
+    onboarding_completed
+) VALUES (
+    'pref_123456789',
+    'user_123456789',
+    'arbitrage', -- Default focus on arbitrage
+    'beginner',
+    'conservative',
+    'manual', -- Manual execution only for now
+    'none', -- No automation enabled
+    TRUE, -- Arbitrage enabled
+    FALSE, -- Technical trading disabled initially
+    FALSE, -- Advanced analytics disabled for beginners
+    '["telegram"]', -- Telegram notifications preferred
+    FALSE -- Onboarding not completed yet
 );
 
 INSERT INTO user_invitations (

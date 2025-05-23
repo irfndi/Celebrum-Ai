@@ -167,4 +167,39 @@
 - ✅ 4 unit tests covering core functionality
 - ✅ 221 total tests passing (0 failures)
 
-**Next Priority**: 🚀 **Task 9: Advanced Market Analysis** 
+**Next Priority**: 🚀 **Task 1.5: Trading Focus & Automation Preferences** *(prerequisite for Task 9)*
+
+## Strategic Vision Update
+
+### 🎯 **Platform Evolution: Hybrid Trading Platform**
+
+**Strategic Pivot** (Based on user feedback):
+- **From**: Pure arbitrage detection platform
+- **To**: Hybrid platform supporting both arbitrage and technical analysis trading
+- **Future**: Automated execution for both trading types
+
+**Immediate UX Requirements**:
+- **Task 1.5**: User profile enhancement for trading focus selection
+- Users choose: Arbitrage (default), Technical Trading, or Hybrid approach
+- Automation preferences: Manual, Semi-Auto, Full-Auto (future)
+- Access control based on user preferences and experience level
+
+**Core Value Propositions**:
+1. **User Choice**: Focus on arbitrage, technical trading, or both
+2. **Risk Stratification**: Low-risk arbitrage + higher-risk technical trading  
+3. **Automation Levels**: Manual alerts → Semi-auto → Full automation (future)
+4. **AI Enhancement**: AI improves both arbitrage and technical analysis
+5. **Subscription Tiers**: Different access levels (future planning)
+
+**Immediate Implementation Changes**:
+- Task 9 expanded to support both arbitrage enhancement AND standalone technical trading
+- Added user preference system for opportunity type focus
+- Designed foundation for future automated execution (Phase 4)
+- Technical analysis serves dual purpose: improve arbitrage safety + generate trading opportunities
+
+**Long-term Roadmap**:
+- **Phase 2**: Complete hybrid analysis platform (current)
+- **Phase 3**: Advanced features and UI/UX 
+- **Phase 4**: Automated trading execution (future vision)
+
+This strategic direction positions us for broader market appeal while maintaining our arbitrage expertise. 
