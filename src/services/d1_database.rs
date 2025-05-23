@@ -1072,6 +1072,313 @@ impl D1Service {
 
         Ok(result)
     }
+
+    // ============= NOTIFICATION SYSTEM OPERATIONS =============
+
+    /// Store a notification template
+    pub async fn store_notification_template(&self, template: &crate::services::notifications::NotificationTemplate) -> ArbitrageResult<()> {
+        let stmt = self.db.prepare("
+            INSERT OR REPLACE INTO notification_templates (
+                template_id, name, description, category, title_template, 
+                message_template, priority, channels, variables, 
+                is_system_template, is_active, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+
+        stmt.bind(&[
+            template.template_id.clone().into(),
+            template.name.clone().into(),
+            template.description.clone().unwrap_or_default().into(),
+            template.category.clone().into(),
+            template.title_template.clone().into(),
+            template.message_template.clone().into(),
+            template.priority.clone().into(),
+            serde_json::to_string(&template.channels).unwrap().into(),
+            serde_json::to_string(&template.variables).unwrap().into(),
+            template.is_system_template.into(),
+            template.is_active.into(),
+            (template.created_at as i64).into(),
+            (template.updated_at as i64).into(),
+        ]).map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get notification template by ID
+    pub async fn get_notification_template(&self, template_id: &str) -> ArbitrageResult<Option<crate::services::notifications::NotificationTemplate>> {
+        let stmt = self.db.prepare("SELECT * FROM notification_templates WHERE template_id = ? AND is_active = TRUE");
+        
+        let result = stmt.bind(&[template_id.into()])
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .first::<HashMap<String, Value>>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        if let Some(row) = result {
+            Ok(Some(self.row_to_notification_template(row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Store an alert trigger
+    pub async fn store_alert_trigger(&self, trigger: &crate::services::notifications::AlertTrigger) -> ArbitrageResult<()> {
+        let stmt = self.db.prepare("
+            INSERT OR REPLACE INTO alert_triggers (
+                trigger_id, user_id, name, description, trigger_type, 
+                conditions, template_id, is_active, priority, channels, 
+                cooldown_minutes, max_alerts_per_hour, created_at, 
+                updated_at, last_triggered_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+
+        stmt.bind(&[
+            trigger.trigger_id.clone().into(),
+            trigger.user_id.clone().into(),
+            trigger.name.clone().into(),
+            trigger.description.clone().unwrap_or_default().into(),
+            trigger.trigger_type.clone().into(),
+            serde_json::to_string(&trigger.conditions).unwrap().into(),
+            trigger.template_id.clone().unwrap_or_default().into(),
+            trigger.is_active.into(),
+            trigger.priority.clone().into(),
+            serde_json::to_string(&trigger.channels).unwrap().into(),
+            (trigger.cooldown_minutes as i64).into(),
+            (trigger.max_alerts_per_hour as i64).into(),
+            (trigger.created_at as i64).into(),
+            (trigger.updated_at as i64).into(),
+            trigger.last_triggered_at.map(|t| t as i64).unwrap_or(0).into(),
+        ]).map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get user's alert triggers
+    pub async fn get_user_alert_triggers(&self, user_id: &str) -> ArbitrageResult<Vec<crate::services::notifications::AlertTrigger>> {
+        let stmt = self.db.prepare("
+            SELECT * FROM alert_triggers 
+            WHERE user_id = ? AND is_active = TRUE 
+            ORDER BY priority DESC, created_at ASC
+        ");
+        
+        let result = stmt.bind(&[user_id.into()])
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .all()
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        let mut triggers = Vec::new();
+        let results = result.results::<HashMap<String, Value>>()
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to parse results: {}", e)))?;
+        
+        for row in results {
+            triggers.push(self.row_to_alert_trigger(row)?);
+        }
+
+        Ok(triggers)
+    }
+
+    /// Store a notification
+    pub async fn store_notification(&self, notification: &crate::services::notifications::Notification) -> ArbitrageResult<()> {
+        let stmt = self.db.prepare("
+            INSERT INTO notifications (
+                notification_id, user_id, trigger_id, template_id, title, 
+                message, category, priority, notification_data, channels, 
+                status, created_at, scheduled_at, sent_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+
+        stmt.bind(&[
+            notification.notification_id.clone().into(),
+            notification.user_id.clone().into(),
+            notification.trigger_id.clone().unwrap_or_default().into(),
+            notification.template_id.clone().unwrap_or_default().into(),
+            notification.title.clone().into(),
+            notification.message.clone().into(),
+            notification.category.clone().into(),
+            notification.priority.clone().into(),
+            serde_json::to_string(&notification.notification_data).unwrap().into(),
+            serde_json::to_string(&notification.channels).unwrap().into(),
+            notification.status.clone().into(),
+            (notification.created_at as i64).into(),
+            notification.scheduled_at.map(|t| t as i64).unwrap_or(0).into(),
+            notification.sent_at.map(|t| t as i64).unwrap_or(0).into(),
+        ]).map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Update notification status
+    pub async fn update_notification_status(&self, notification_id: &str, status: &str, sent_at: Option<u64>) -> ArbitrageResult<()> {
+        let stmt = self.db.prepare("
+            UPDATE notifications 
+            SET status = ?, sent_at = ? 
+            WHERE notification_id = ?
+        ");
+
+        stmt.bind(&[
+            status.into(),
+            sent_at.map(|t| t as i64).unwrap_or(0).into(),
+            notification_id.into(),
+        ]).map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Store notification delivery history
+    pub async fn store_notification_history(&self, history: &crate::services::notifications::NotificationHistory) -> ArbitrageResult<()> {
+        let stmt = self.db.prepare("
+            INSERT INTO notification_history (
+                history_id, notification_id, user_id, channel, delivery_status, 
+                response_data, error_message, delivery_time_ms, retry_count, 
+                attempted_at, delivered_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+
+        stmt.bind(&[
+            history.history_id.clone().into(),
+            history.notification_id.clone().into(),
+            history.user_id.clone().into(),
+            history.channel.clone().into(),
+            history.delivery_status.clone().into(),
+            serde_json::to_string(&history.response_data).unwrap().into(),
+            history.error_message.clone().unwrap_or_default().into(),
+            history.delivery_time_ms.map(|t| t as i64).unwrap_or(0).into(),
+            (history.retry_count as i64).into(),
+            (history.attempted_at as i64).into(),
+            history.delivered_at.map(|t| t as i64).unwrap_or(0).into(),
+        ]).map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get user's notification history
+    pub async fn get_user_notification_history(&self, user_id: &str, limit: Option<i32>) -> ArbitrageResult<Vec<crate::services::notifications::NotificationHistory>> {
+        let limit_clause = limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default();
+        let query = format!("
+            SELECT nh.*, n.title, n.category 
+            FROM notification_history nh
+            LEFT JOIN notifications n ON nh.notification_id = n.notification_id
+            WHERE nh.user_id = ? 
+            ORDER BY nh.attempted_at DESC{}
+        ", limit_clause);
+
+        let stmt = self.db.prepare(&query);
+        
+        let result = stmt.bind(&[user_id.into()])
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .all()
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        let mut history = Vec::new();
+        let results = result.results::<HashMap<String, Value>>()
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to parse results: {}", e)))?;
+        
+        for row in results {
+            history.push(self.row_to_notification_history(row)?);
+        }
+
+        Ok(history)
+    }
+
+    /// Update alert trigger last triggered time
+    pub async fn update_trigger_last_triggered(&self, trigger_id: &str, timestamp: u64) -> ArbitrageResult<()> {
+        let stmt = self.db.prepare("
+            UPDATE alert_triggers 
+            SET last_triggered_at = ? 
+            WHERE trigger_id = ?
+        ");
+
+        stmt.bind(&[
+            (timestamp as i64).into(),
+            trigger_id.into(),
+        ]).map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(())
+    }
+
+    // Helper methods for converting database rows to structs
+    fn row_to_notification_template(&self, row: HashMap<String, Value>) -> ArbitrageResult<crate::services::notifications::NotificationTemplate> {
+        Ok(crate::services::notifications::NotificationTemplate {
+            template_id: row.get("template_id").unwrap().to_string(),
+            name: row.get("name").unwrap().to_string(),
+            description: if row.get("description").unwrap().to_string().is_empty() { None } else { Some(row.get("description").unwrap().to_string()) },
+            category: row.get("category").unwrap().to_string(),
+            title_template: row.get("title_template").unwrap().to_string(),
+            message_template: row.get("message_template").unwrap().to_string(),
+            priority: row.get("priority").unwrap().to_string(),
+            channels: serde_json::from_str(&row.get("channels").unwrap().to_string())?,
+            variables: serde_json::from_str(&row.get("variables").unwrap().to_string())?,
+            is_system_template: row.get("is_system_template").unwrap().to_string().parse().unwrap_or(false),
+            is_active: row.get("is_active").unwrap().to_string().parse().unwrap_or(true),
+            created_at: row.get("created_at").unwrap().to_string().parse().unwrap_or(0) as u64,
+            updated_at: row.get("updated_at").unwrap().to_string().parse().unwrap_or(0) as u64,
+        })
+    }
+
+    fn row_to_alert_trigger(&self, row: HashMap<String, Value>) -> ArbitrageResult<crate::services::notifications::AlertTrigger> {
+        Ok(crate::services::notifications::AlertTrigger {
+            trigger_id: row.get("trigger_id").unwrap().to_string(),
+            user_id: row.get("user_id").unwrap().to_string(),
+            name: row.get("name").unwrap().to_string(),
+            description: if row.get("description").unwrap().to_string().is_empty() { None } else { Some(row.get("description").unwrap().to_string()) },
+            trigger_type: row.get("trigger_type").unwrap().to_string(),
+            conditions: serde_json::from_str(&row.get("conditions").unwrap().to_string())?,
+            template_id: if row.get("template_id").unwrap().to_string().is_empty() { None } else { Some(row.get("template_id").unwrap().to_string()) },
+            is_active: row.get("is_active").unwrap().to_string().parse().unwrap_or(true),
+            priority: row.get("priority").unwrap().to_string(),
+            channels: serde_json::from_str(&row.get("channels").unwrap().to_string())?,
+            cooldown_minutes: row.get("cooldown_minutes").unwrap().to_string().parse().unwrap_or(5) as u32,
+            max_alerts_per_hour: row.get("max_alerts_per_hour").unwrap().to_string().parse().unwrap_or(10) as u32,
+            created_at: row.get("created_at").unwrap().to_string().parse().unwrap_or(0) as u64,
+            updated_at: row.get("updated_at").unwrap().to_string().parse().unwrap_or(0) as u64,
+            last_triggered_at: {
+                let val = row.get("last_triggered_at").unwrap().to_string().parse().unwrap_or(0i64);
+                if val > 0 { Some(val as u64) } else { None }
+            },
+        })
+    }
+
+    fn row_to_notification_history(&self, row: HashMap<String, Value>) -> ArbitrageResult<crate::services::notifications::NotificationHistory> {
+        Ok(crate::services::notifications::NotificationHistory {
+            history_id: row.get("history_id").unwrap().to_string(),
+            notification_id: row.get("notification_id").unwrap().to_string(),
+            user_id: row.get("user_id").unwrap().to_string(),
+            channel: row.get("channel").unwrap().to_string(),
+            delivery_status: row.get("delivery_status").unwrap().to_string(),
+            response_data: serde_json::from_str(&row.get("response_data").unwrap().to_string())?,
+            error_message: if row.get("error_message").unwrap().to_string().is_empty() { None } else { Some(row.get("error_message").unwrap().to_string()) },
+            delivery_time_ms: {
+                let val = row.get("delivery_time_ms").unwrap().to_string().parse().unwrap_or(0i64);
+                if val > 0 { Some(val as u64) } else { None }
+            },
+            retry_count: row.get("retry_count").unwrap().to_string().parse().unwrap_or(0) as u32,
+            attempted_at: row.get("attempted_at").unwrap().to_string().parse().unwrap_or(0) as u64,
+            delivered_at: {
+                let val = row.get("delivered_at").unwrap().to_string().parse().unwrap_or(0i64);
+                if val > 0 { Some(val as u64) } else { None }
+            },
+        })
+    }
 }
 
 /// Query result wrapper for compatibility with dynamic config service

@@ -11,6 +11,7 @@ pub mod d1_database;
 pub mod ai_exchange_router;
 pub mod fund_monitoring;
 pub mod dynamic_config;
+pub mod notifications;
 
 // Re-export main service structs
 pub use exchange::{ExchangeInterface, ExchangeService};
@@ -24,3 +25,4 @@ pub use d1_database::D1Service;
 pub use ai_exchange_router::{AiExchangeRouterService, AiExchangeRouterConfig, MarketDataSnapshot, AiOpportunityAnalysis};
 pub use fund_monitoring::{FundMonitoringService, FundMonitoringConfig, ExchangeBalanceSnapshot, FundAllocation, BalanceHistoryEntry, FundOptimizationResult, BalanceAnalytics};
 pub use dynamic_config::{DynamicConfigService, DynamicConfigTemplate, ConfigValidationResult, ConfigPreset};
+pub use notifications::{NotificationService, NotificationTemplate, AlertTrigger, Notification, NotificationHistory, NotificationAnalytics, TriggerEvaluationContext};
