@@ -14,6 +14,7 @@ pub mod dynamic_config;
 pub mod notifications;
 pub mod user_trading_preferences;
 pub mod market_analysis;
+pub mod opportunity_enhanced;
 
 // Re-export main service structs
 pub use exchange::{ExchangeInterface, ExchangeService};
@@ -30,3 +31,4 @@ pub use dynamic_config::{DynamicConfigService, DynamicConfigTemplate, ConfigVali
 pub use notifications::{NotificationService, NotificationTemplate, AlertTrigger, Notification, NotificationHistory, NotificationAnalytics, TriggerEvaluationContext};
 pub use user_trading_preferences::*;
 pub use market_analysis::*;
+pub use opportunity_enhanced::*;
