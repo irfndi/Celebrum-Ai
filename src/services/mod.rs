@@ -12,6 +12,7 @@ pub mod ai_exchange_router;
 pub mod fund_monitoring;
 pub mod dynamic_config;
 pub mod notifications;
+pub mod user_trading_preferences;
 
 // Re-export main service structs
 pub use exchange::{ExchangeInterface, ExchangeService};
@@ -26,3 +27,4 @@ pub use ai_exchange_router::{AiExchangeRouterService, AiExchangeRouterConfig, Ma
 pub use fund_monitoring::{FundMonitoringService, FundMonitoringConfig, ExchangeBalanceSnapshot, FundAllocation, BalanceHistoryEntry, FundOptimizationResult, BalanceAnalytics};
 pub use dynamic_config::{DynamicConfigService, DynamicConfigTemplate, ConfigValidationResult, ConfigPreset};
 pub use notifications::{NotificationService, NotificationTemplate, AlertTrigger, Notification, NotificationHistory, NotificationAnalytics, TriggerEvaluationContext};
+pub use user_trading_preferences::*;

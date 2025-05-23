@@ -58,7 +58,7 @@
 
 **User Profile Creation Flow**:
 ```
-1. Basic Registration (email, password, invitation code)
+1. Basic Registration (email, trading password (session based when interaction with telegram bot), invitation code)
 2. Trading Experience Assessment (Beginner/Intermediate/Advanced)
 3. 🎯 TRADING FOCUS SELECTION ← NEW UX STEP
    - "What type of trading interests you most?"

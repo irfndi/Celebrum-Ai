@@ -1,6 +1,7 @@
 use worker::{Env, Result, D1Database};
 use serde_json::{Value, json};
 use crate::types::{UserProfile, UserInvitation, TradingAnalytics, InvitationCode, UserApiKey};
+use crate::services::user_trading_preferences::UserTradingPreferences;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
 use uuid;
@@ -157,6 +158,105 @@ impl D1Service {
 
         // For now, just return true if no error occurred
         // In a production system, we'd need to check if rows were actually affected
+        Ok(true)
+    }
+
+    // ============= USER TRADING PREFERENCES OPERATIONS =============
+
+    /// Store user trading preferences in D1 database
+    pub async fn store_trading_preferences(&self, preferences: &UserTradingPreferences) -> ArbitrageResult<()> {
+        let trading_focus_str = serde_json::to_string(&preferences.trading_focus)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize trading focus: {}", e)))?;
+        
+        let experience_level_str = serde_json::to_string(&preferences.experience_level)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize experience level: {}", e)))?;
+        
+        let risk_tolerance_str = serde_json::to_string(&preferences.risk_tolerance)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize risk tolerance: {}", e)))?;
+        
+        let automation_level_str = serde_json::to_string(&preferences.automation_level)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize automation level: {}", e)))?;
+        
+        let automation_scope_str = serde_json::to_string(&preferences.automation_scope)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize automation scope: {}", e)))?;
+        
+        let notification_channels_json = serde_json::to_string(&preferences.preferred_notification_channels)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize notification channels: {}", e)))?;
+        
+        let tutorial_steps_json = serde_json::to_string(&preferences.tutorial_steps_completed)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize tutorial steps: {}", e)))?;
+
+        let stmt = self.db.prepare("
+            INSERT OR REPLACE INTO user_trading_preferences (
+                preference_id, user_id, trading_focus, experience_level, risk_tolerance,
+                automation_level, automation_scope, arbitrage_enabled, technical_enabled,
+                advanced_analytics_enabled, preferred_notification_channels,
+                trading_hours_timezone, trading_hours_start, trading_hours_end,
+                onboarding_completed, tutorial_steps_completed, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+
+        stmt.bind(&[
+            preferences.preference_id.clone().into(),
+            preferences.user_id.clone().into(),
+            trading_focus_str.into(),
+            experience_level_str.into(),
+            risk_tolerance_str.into(),
+            automation_level_str.into(),
+            automation_scope_str.into(),
+            preferences.arbitrage_enabled.into(),
+            preferences.technical_enabled.into(),
+            preferences.advanced_analytics_enabled.into(),
+            notification_channels_json.into(),
+            preferences.trading_hours_timezone.clone().into(),
+            preferences.trading_hours_start.clone().into(),
+            preferences.trading_hours_end.clone().into(),
+            preferences.onboarding_completed.into(),
+            tutorial_steps_json.into(),
+            (preferences.created_at as i64).into(),
+            (preferences.updated_at as i64).into(),
+        ]).map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get user trading preferences by user ID
+    pub async fn get_trading_preferences(&self, user_id: &str) -> ArbitrageResult<Option<UserTradingPreferences>> {
+        let stmt = self.db.prepare("SELECT * FROM user_trading_preferences WHERE user_id = ?");
+        
+        let result = stmt.bind(&[user_id.into()])
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .first::<HashMap<String, Value>>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        match result {
+            Some(row) => {
+                let preferences = self.row_to_trading_preferences(row)?;
+                Ok(Some(preferences))
+            }
+            None => Ok(None)
+        }
+    }
+
+    /// Update user trading preferences
+    pub async fn update_trading_preferences(&self, preferences: &UserTradingPreferences) -> ArbitrageResult<()> {
+        self.store_trading_preferences(preferences).await
+    }
+
+    /// Delete user trading preferences
+    pub async fn delete_trading_preferences(&self, user_id: &str) -> ArbitrageResult<bool> {
+        let stmt = self.db.prepare("DELETE FROM user_trading_preferences WHERE user_id = ?");
+        
+        let _result = stmt.bind(&[user_id.into()])
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
         Ok(true)
     }
 
@@ -1317,6 +1417,57 @@ impl D1Service {
     }
 
     // Helper methods for converting database rows to structs
+    fn row_to_trading_preferences(&self, row: HashMap<String, Value>) -> ArbitrageResult<UserTradingPreferences> {
+        let trading_focus: crate::services::user_trading_preferences::TradingFocus = serde_json::from_str(
+            &row.get("trading_focus").unwrap().to_string().trim_matches('"')
+        ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse trading focus: {}", e)))?;
+        
+        let experience_level: crate::services::user_trading_preferences::ExperienceLevel = serde_json::from_str(
+            &row.get("experience_level").unwrap().to_string().trim_matches('"')
+        ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse experience level: {}", e)))?;
+        
+        let risk_tolerance: crate::services::user_trading_preferences::RiskTolerance = serde_json::from_str(
+            &row.get("risk_tolerance").unwrap().to_string().trim_matches('"')
+        ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse risk tolerance: {}", e)))?;
+        
+        let automation_level: crate::services::user_trading_preferences::AutomationLevel = serde_json::from_str(
+            &row.get("automation_level").unwrap().to_string().trim_matches('"')
+        ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse automation level: {}", e)))?;
+        
+        let automation_scope: crate::services::user_trading_preferences::AutomationScope = serde_json::from_str(
+            &row.get("automation_scope").unwrap().to_string().trim_matches('"')
+        ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse automation scope: {}", e)))?;
+        
+        let preferred_notification_channels: Vec<String> = serde_json::from_str(
+            &row.get("preferred_notification_channels").unwrap().to_string()
+        ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse notification channels: {}", e)))?;
+        
+        let tutorial_steps_completed: Vec<String> = serde_json::from_str(
+            &row.get("tutorial_steps_completed").unwrap().to_string()
+        ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse tutorial steps: {}", e)))?;
+
+        Ok(UserTradingPreferences {
+            preference_id: row.get("preference_id").unwrap().to_string(),
+            user_id: row.get("user_id").unwrap().to_string(),
+            trading_focus,
+            experience_level,
+            risk_tolerance,
+            automation_level,
+            automation_scope,
+            arbitrage_enabled: row.get("arbitrage_enabled").unwrap().to_string().parse().unwrap_or(true),
+            technical_enabled: row.get("technical_enabled").unwrap().to_string().parse().unwrap_or(false),
+            advanced_analytics_enabled: row.get("advanced_analytics_enabled").unwrap().to_string().parse().unwrap_or(false),
+            preferred_notification_channels,
+            trading_hours_timezone: row.get("trading_hours_timezone").unwrap().to_string(),
+            trading_hours_start: row.get("trading_hours_start").unwrap().to_string(),
+            trading_hours_end: row.get("trading_hours_end").unwrap().to_string(),
+            onboarding_completed: row.get("onboarding_completed").unwrap().to_string().parse().unwrap_or(false),
+            tutorial_steps_completed,
+            created_at: row.get("created_at").unwrap().to_string().parse().unwrap_or(0) as u64,
+            updated_at: row.get("updated_at").unwrap().to_string().parse().unwrap_or(0) as u64,
+        })
+    }
+
     fn row_to_notification_template(&self, row: HashMap<String, Value>) -> ArbitrageResult<crate::services::notifications::NotificationTemplate> {
         Ok(crate::services::notifications::NotificationTemplate {
             template_id: row.get("template_id").unwrap().to_string(),
