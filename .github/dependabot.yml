@@ -1,0 +1,19 @@
+# Basic Dependabot configuration file
+
+version: 2
+updates:
+  # Enable version updates for npm (used by Bun)
+  - package-ecosystem: "npm"
+    # Look for `package.json` and `lock` files in the repository root
+    directory: "/"
+    # Check for updates daily (other options: 'weekly', 'monthly')
+    schedule:
+      interval: "daily"
+    # Optionally: Assign reviewers, labels, etc.
+    # reviewers:
+    #   - "octocat"
+    # assignees:
+    #   - "octocat"
+    # labels:
+    #   - "dependencies"
+    # milestone: 1

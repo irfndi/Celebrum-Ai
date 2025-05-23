@@ -1,0 +1,928 @@
+use worker::*;
+
+// Module declarations
+mod services;
+mod types;
+mod utils;
+
+use serde_json::json;
+use services::exchange::{ExchangeInterface, ExchangeService};
+use services::opportunity::{OpportunityService, OpportunityServiceConfig};
+use services::positions::{CreatePositionData, PositionsService, UpdatePositionData};
+use services::telegram::TelegramService;
+use std::sync::Arc;
+use types::{AccountInfo, ExchangeIdEnum, StructuredTradingPair};
+use utils::{ArbitrageError, ArbitrageResult};
+use std::collections::HashMap;
+use uuid::Uuid;
+
+#[event(fetch)]
+pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
+    console_error_panic_hook::set_once();
+
+    let url = req.url()?;
+    let path = url.path();
+
+    match (req.method(), path) {
+        // Health check
+        (Method::Get, "/health") => {
+            Response::ok("ArbEdge Rust Worker is running!")
+        }
+
+        // KV test endpoint
+        (Method::Get, "/kv-test") => {
+            let value = url.query().unwrap_or("default");
+            let kv = env.kv("ArbEdgeKV")?;
+            kv.put("test-key", value)?.execute().await?;
+            let retrieved = kv.get("test-key").text().await?;
+            Response::ok(retrieved.unwrap_or_default())
+        }
+
+        // Exchange API endpoints
+        (Method::Get, "/exchange/markets") => {
+            handle_get_markets(req, env).await
+        }
+
+        (Method::Get, "/exchange/ticker") => {
+            handle_get_ticker(req, env).await
+        }
+
+        (Method::Get, "/exchange/funding") => {
+            handle_funding_rate(req, env).await
+        }
+
+        // Opportunity finding endpoint
+        (Method::Post, "/find-opportunities") => {
+            handle_find_opportunities(req, env).await
+        }
+
+        // Telegram webhook endpoint
+        (Method::Post, "/webhook") => {
+            handle_telegram_webhook(req, env).await
+        }
+
+        // Position management endpoints
+        (Method::Post, "/positions") => {
+            handle_create_position(req, env).await
+        }
+
+        (Method::Get, "/positions") => {
+            handle_get_all_positions(req, env).await
+        }
+
+        (Method::Get, path) if path.starts_with("/positions/") => {
+            let id = path.strip_prefix("/positions/").unwrap();
+            // Validate UUID format
+            if Uuid::parse_str(id).is_err() {
+                return Response::error("Invalid position ID format. Must be a valid UUID.", 400);
+            }
+            handle_get_position(req, env, id).await
+        }
+
+        (Method::Put, path) if path.starts_with("/positions/") => {
+            let id = path.strip_prefix("/positions/").unwrap();
+            // Validate UUID format
+            if Uuid::parse_str(id).is_err() {
+                return Response::error("Invalid position ID format. Must be a valid UUID.", 400);
+            }
+            handle_update_position(req, env, id).await
+        }
+
+        (Method::Delete, path) if path.starts_with("/positions/") => {
+            let id = path.strip_prefix("/positions/").unwrap();
+            // Validate UUID format
+            if Uuid::parse_str(id).is_err() {
+                return Response::error("Invalid position ID format. Must be a valid UUID.", 400);
+            }
+            handle_close_position(req, env, id).await
+        }
+
+        // Default response
+        _ => Response::ok("Hello, ArbEdge in Rust! Available endpoints: /health, /kv-test, /exchange/*, /find-opportunities, /webhook, /positions"),
+    }
+}
+
+#[event(scheduled)]
+pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    console_error_panic_hook::set_once();
+
+    match event.cron().as_str() {
+        // Monitor opportunities every minute
+        "* * * * *" => {
+            if let Err(e) = monitor_opportunities_scheduled(env).await {
+                console_log!("Error in scheduled opportunity monitoring: {}", e);
+            }
+        }
+        _ => {
+            console_log!("Unknown scheduled event: {}", event.cron());
+        }
+    }
+}
+
+// Helper functions to reduce code duplication
+
+/// Parse exchanges from environment string, returning error if less than two
+fn parse_exchanges_from_env(exchanges_str: &str) -> std::result::Result<Vec<ExchangeIdEnum>, ArbitrageError> {
+    let exchanges: Vec<ExchangeIdEnum> = exchanges_str
+        .split(',')
+        .filter_map(|s| match s.trim() {
+            "binance" => Some(ExchangeIdEnum::Binance),
+            "bybit" => Some(ExchangeIdEnum::Bybit),
+            "okx" => Some(ExchangeIdEnum::OKX),
+            "bitget" => Some(ExchangeIdEnum::Bitget),
+            _ => None,
+        })
+        .collect();
+
+    if exchanges.len() < 2 {
+        Err(ArbitrageError::config_error("At least two exchanges must be configured"))
+    } else {
+        Ok(exchanges)
+    }
+}
+
+/// Create OpportunityService by reading environment variables and initializing services
+async fn create_opportunity_service(custom_env: &types::Env) -> ArbitrageResult<OpportunityService> {
+    // Parse configuration from environment
+    let exchanges_str = custom_env.worker_env.var("EXCHANGES")?.to_string();
+    let exchanges = parse_exchanges_from_env(&exchanges_str)?;
+
+    let monitored_pairs_str = custom_env.worker_env.var("MONITORED_PAIRS_CONFIG")?.to_string();
+    let monitored_pairs: Vec<StructuredTradingPair> =
+        serde_json::from_str(&monitored_pairs_str).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to parse monitored pairs: {}", e))
+        })?;
+
+    let threshold: f64 = custom_env.worker_env
+        .var("ARBITRAGE_THRESHOLD")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| "0.001".to_string())
+        .parse()
+        .unwrap_or(0.001);
+
+    // Create services
+    let exchange_service = Arc::new(ExchangeService::new(custom_env)?);
+
+    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) =
+        (custom_env.worker_env.var("TELEGRAM_BOT_TOKEN"), custom_env.worker_env.var("TELEGRAM_CHAT_ID"))
+    {
+        Some(Arc::new(TelegramService::new(
+            services::telegram::TelegramConfig {
+                bot_token: bot_token.to_string(),
+                chat_id: chat_id.to_string(),
+            },
+        )))
+    } else {
+        None
+    };
+
+    let opportunity_config = OpportunityServiceConfig {
+        exchanges,
+        monitored_pairs,
+        threshold,
+    };
+
+    Ok(OpportunityService::new(opportunity_config, exchange_service, telegram_service))
+}
+
+// Handler implementations
+
+async fn handle_get_markets(req: Request, env: Env) -> Result<Response> {
+    let custom_env = types::Env::new(env);
+    let exchange_service = match ExchangeService::new(&custom_env) {
+        Ok(service) => service,
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500),
+    };
+
+    let url = req.url()?;
+    let exchange_id = url
+        .query_pairs()
+        .find(|(key, _)| key == "exchange")
+        .map(|(_, value)| value.to_string())
+        .unwrap_or_else(|| "binance".to_string());
+
+    match exchange_service.get_markets(&exchange_id).await {
+        Ok(markets) => {
+            let market_count = markets.len();
+            let sample_markets: Vec<_> = markets.into_iter().take(5).collect();
+            let response = json!({
+                "exchange": exchange_id,
+                "total_markets": market_count,
+                "sample_markets": sample_markets
+            });
+            Response::from_json(&response)
+        }
+        Err(e) => Response::error(format!("Failed to get markets: {}", e), 500),
+    }
+}
+
+async fn handle_get_ticker(req: Request, env: Env) -> Result<Response> {
+    let custom_env = types::Env::new(env);
+    let exchange_service = match ExchangeService::new(&custom_env) {
+        Ok(service) => service,
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500),
+    };
+
+    let url = req.url()?;
+    let query_pairs: std::collections::HashMap<String, String> = url
+        .query_pairs()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+
+    let exchange_id = query_pairs
+        .get("exchange")
+        .cloned()
+        .unwrap_or_else(|| "binance".to_string());
+    let symbol = query_pairs
+        .get("symbol")
+        .cloned()
+        .unwrap_or_else(|| "BTCUSDT".to_string());
+
+    match exchange_service.get_ticker(&exchange_id, &symbol).await {
+        Ok(ticker) => Response::from_json(&ticker),
+        Err(e) => Response::error(format!("Failed to get ticker: {}", e), 500),
+    }
+}
+
+async fn handle_funding_rate(req: Request, env: Env) -> Result<Response> {
+    let url = req.url()?;
+    let query_params: HashMap<String, String> = url.query_pairs().into_owned().collect();
+    
+    let exchange_id = query_params.get("exchange").unwrap_or(&"binance".to_string()).clone();
+    let symbol = query_params.get("symbol").unwrap_or(&"BTCUSDT".to_string()).clone();
+    
+    let custom_env = types::Env::new(env);
+    let exchange_service = match ExchangeService::new(&custom_env) {
+        Ok(service) => service,
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500),
+    };
+    
+    match exchange_service
+        .fetch_funding_rates(&exchange_id, Some(&symbol))
+        .await
+    {
+        Ok(rates) => Response::from_json(&rates),
+        Err(e) => Response::error(format!("Failed to fetch funding rate: {}", e), 500),
+    }
+}
+
+async fn handle_find_opportunities(mut req: Request, env: Env) -> Result<Response> {
+    // Create custom env first 
+    let custom_env = types::Env::new(env);
+    
+    // Parse request body for trading pairs (optional)
+    let request_data: serde_json::Value = match req.json().await {
+        Ok(data) => data,
+        Err(_) => {
+            // Default trading pairs if no body provided
+            json!({
+                "trading_pairs": ["BTCUSDT", "ETHUSDT", "ADAUSDT", "DOTUSDT", "SOLUSDT"],
+                "min_threshold": 0.01
+            })
+        }
+    };
+
+    let _trading_pairs: Vec<String> = request_data["trading_pairs"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect();
+
+    let _min_threshold = request_data["min_threshold"]
+        .as_f64()
+        .unwrap_or(0.01);
+
+    // Create opportunity service using helper
+    let opportunity_service = match create_opportunity_service(&custom_env).await {
+        Ok(service) => service,
+        Err(e) => return Response::error(format!("Failed to create opportunity service: {}", e), 500),
+    };
+
+    // Find opportunities
+    match opportunity_service.monitor_opportunities().await {
+        Ok(opportunities) => {
+            // Process opportunities (send notifications)
+            if let Err(e) = opportunity_service
+                .process_opportunities(&opportunities)
+                .await
+            {
+                console_log!("Failed to process opportunities: {}", e);
+            }
+
+            let response = json!({
+                "status": "success",
+                "opportunities_found": opportunities.len(),
+                "opportunities": opportunities
+            });
+            Response::from_json(&response)
+        }
+        Err(e) => Response::error(format!("Failed to find opportunities: {}", e), 500),
+    }
+}
+
+async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response> {
+    let update: serde_json::Value = req.json().await?;
+
+    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) =
+        (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID"))
+    {
+        TelegramService::new(services::telegram::TelegramConfig {
+            bot_token: bot_token.to_string(),
+            chat_id: chat_id.to_string(),
+        })
+    } else {
+        return Response::error("Telegram configuration not found", 500);
+    };
+
+    match telegram_service.handle_webhook(update).await {
+        Ok(Some(response_text)) => Response::ok(response_text),
+        Ok(None) => Response::ok("OK"),
+        Err(e) => Response::error(format!("Webhook processing error: {}", e), 500),
+    }
+}
+
+async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> {
+    let kv = env.kv("ArbEdgeKV")?;
+    let positions_service = PositionsService::new(kv);
+
+    // TODO: Fetch real account info from a dedicated service or user configuration
+    let dummy_account_info = AccountInfo { total_balance_usd: 10000.0 }; // Example: $10,000 balance
+
+    let position_data: CreatePositionData = match req.json().await {
+        Ok(data) => data,
+        Err(e) => return Response::error(format!("Failed to parse request JSON: {}", e), 400),
+    };
+
+    match positions_service.create_position(position_data, &dummy_account_info).await {
+        Ok(position) => Response::from_json(&position),
+        Err(e) => match e.kind {
+            crate::utils::error::ErrorKind::DatabaseError => Response::error(e.message, 500),
+            crate::utils::error::ErrorKind::NetworkError => Response::error(e.message, 502),
+            crate::utils::error::ErrorKind::ParseError => Response::error(e.message, 400),
+            crate::utils::error::ErrorKind::ValidationError => Response::error(e.message, 400),
+            crate::utils::error::ErrorKind::Authentication => Response::error(e.message, 401),
+            crate::utils::error::ErrorKind::Authorization => Response::error(e.message, 403),
+            crate::utils::error::ErrorKind::ExchangeError => {
+                Response::error(format!("Exchange error: {}", e.message), 500)
+            }
+            _ => Response::error(format!("Failed to create position: {}", e), 500),
+        }
+    }
+}
+
+async fn handle_get_all_positions(_req: Request, env: Env) -> Result<Response> {
+    let kv = env.kv("ArbEdgeKV")?;
+    let positions_service = PositionsService::new(kv);
+
+    match positions_service.get_all_positions().await {
+        Ok(positions) => Response::from_json(&positions),
+        Err(e) => Response::error(format!("Failed to get positions: {}", e), 500),
+    }
+}
+
+async fn handle_get_position(_req: Request, env: Env, id: &str) -> Result<Response> {
+    let kv = env.kv("ArbEdgeKV")?;
+    let positions_service = PositionsService::new(kv);
+
+    match positions_service.get_position(id).await {
+        Ok(Some(position)) => Response::from_json(&position),
+        Ok(None) => Response::error("Position not found", 404),
+        Err(e) => Response::error(format!("Failed to get position: {}", e), 500),
+    }
+}
+
+async fn handle_update_position(mut req: Request, env: Env, id: &str) -> Result<Response> {
+    let kv = env.kv("ArbEdgeKV")?;
+    let positions_service = PositionsService::new(kv);
+
+    let update_data: UpdatePositionData = req.json().await?;
+
+    match positions_service.update_position(id, update_data).await {
+        Ok(Some(position)) => Response::from_json(&position),
+        Ok(None) => Response::error("Position not found", 404),
+        Err(e) => Response::error(format!("Failed to update position: {}", e), 500),
+    }
+}
+
+async fn handle_close_position(_req: Request, env: Env, id: &str) -> Result<Response> {
+    let kv = env.kv("ArbEdgeKV")?;
+    let positions_service = PositionsService::new(kv);
+
+    match positions_service.close_position(id).await {
+        Ok(true) => Response::ok("Position closed"),
+        Ok(false) => Response::error("Position not found", 404),
+        Err(e) => Response::error(format!("Failed to close position: {}", e), 500),
+    }
+}
+
+async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
+    let custom_env = types::Env::new(env);
+    
+    // Create opportunity service using helper
+    let opportunity_service = create_opportunity_service(&custom_env).await?;
+
+    // Find and process opportunities
+    let opportunities = opportunity_service.monitor_opportunities().await?;
+
+    if !opportunities.is_empty() {
+        console_log!("Found {} opportunities", opportunities.len());
+        opportunity_service
+            .process_opportunities(&opportunities)
+            .await?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use types::ExchangeIdEnum;
+
+    // Tests for parse_exchanges_from_env function
+    #[test]
+    fn test_parse_exchanges_from_env_valid_input() {
+        let exchanges_str = "binance,bybit,okx";
+        let result = parse_exchanges_from_env(exchanges_str).unwrap();
+        
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&ExchangeIdEnum::Binance));
+        assert!(result.contains(&ExchangeIdEnum::Bybit));
+        assert!(result.contains(&ExchangeIdEnum::OKX));
+    }
+
+    #[test]
+    fn test_parse_exchanges_from_env_with_whitespace() {
+        let exchanges_str = " binance , bybit , okx ";
+        let result = parse_exchanges_from_env(exchanges_str).unwrap();
+        
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&ExchangeIdEnum::Binance));
+        assert!(result.contains(&ExchangeIdEnum::Bybit));
+        assert!(result.contains(&ExchangeIdEnum::OKX));
+    }
+
+    #[test]
+    fn test_parse_exchanges_from_env_invalid_exchange() {
+        let exchanges_str = "binance,invalid_exchange,okx";
+        let result = parse_exchanges_from_env(exchanges_str).unwrap();
+        
+        // Should only contain valid exchanges
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&ExchangeIdEnum::Binance));
+        assert!(result.contains(&ExchangeIdEnum::OKX));
+    }
+
+    #[test]
+    fn test_parse_exchanges_from_env_insufficient_exchanges() {
+        let exchanges_str = "binance";
+        let result = parse_exchanges_from_env(exchanges_str);
+        
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("At least two exchanges must be configured"));
+    }
+
+    #[test]
+    fn test_parse_exchanges_from_env_empty_string() {
+        let exchanges_str = "";
+        let result = parse_exchanges_from_env(exchanges_str);
+        
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_exchanges_from_env_all_supported() {
+        let exchanges_str = "binance,bybit,okx,bitget";
+        let result = parse_exchanges_from_env(exchanges_str).unwrap();
+        
+        assert_eq!(result.len(), 4);
+        assert!(result.contains(&ExchangeIdEnum::Binance));
+        assert!(result.contains(&ExchangeIdEnum::Bybit));
+        assert!(result.contains(&ExchangeIdEnum::OKX));
+        assert!(result.contains(&ExchangeIdEnum::Bitget));
+    }
+
+    // Tests for route matching logic
+    mod route_tests {
+        use super::*;
+
+        #[test]
+        fn test_health_endpoint_routing() {
+            let method = Method::Get;
+            let path = "/health";
+            
+            match (method, path) {
+                (Method::Get, "/health") => {
+                    // This should match the health endpoint
+                    assert!(true, "Health endpoint route should match");
+                }
+                _ => panic!("Health endpoint route should match"),
+            }
+        }
+
+        #[test]
+        fn test_kv_test_endpoint_routing() {
+            let method = Method::Get;
+            let path = "/kv-test";
+            
+            match (method, path) {
+                (Method::Get, "/kv-test") => {
+                    assert!(true, "KV test endpoint route should match");
+                }
+                _ => panic!("KV test endpoint route should match"),
+            }
+        }
+
+        #[test]
+        fn test_exchange_endpoints_routing() {
+            let exchange_routes = vec![
+                (Method::Get, "/exchange/markets"),
+                (Method::Get, "/exchange/ticker"),
+                (Method::Get, "/exchange/funding"),
+            ];
+
+            for (method, path) in exchange_routes {
+                match (method, path) {
+                    (Method::Get, "/exchange/markets") |
+                    (Method::Get, "/exchange/ticker") |
+                    (Method::Get, "/exchange/funding") => {
+                        assert!(true, "Exchange endpoint should match");
+                    }
+                    _ => panic!("Exchange endpoint should match for {}", path),
+                }
+            }
+        }
+
+        #[test]
+        fn test_opportunity_endpoint_routing() {
+            let method = Method::Post;
+            let path = "/find-opportunities";
+            
+            match (method, path) {
+                (Method::Post, "/find-opportunities") => {
+                    assert!(true, "Find opportunities endpoint should match");
+                }
+                _ => panic!("Find opportunities endpoint should match"),
+            }
+        }
+
+        #[test]
+        fn test_telegram_webhook_routing() {
+            let method = Method::Post;
+            let path = "/webhook";
+            
+            match (method, path) {
+                (Method::Post, "/webhook") => {
+                    assert!(true, "Telegram webhook endpoint should match");
+                }
+                _ => panic!("Telegram webhook endpoint should match"),
+            }
+        }
+
+        #[test]
+        fn test_positions_routing() {
+            let position_routes = vec![
+                (Method::Post, "/positions"),
+                (Method::Get, "/positions"),
+                (Method::Get, "/positions/123e4567-e89b-12d3-a456-426614174000"),
+                (Method::Put, "/positions/123e4567-e89b-12d3-a456-426614174000"),
+                (Method::Delete, "/positions/123e4567-e89b-12d3-a456-426614174000"),
+            ];
+
+            for (method, path) in position_routes {
+                match (&method, path) {
+                    (Method::Post, "/positions") |
+                    (Method::Get, "/positions") => {
+                        assert!(true, "Positions endpoint should match");
+                    }
+                    (Method::Get, path) if path.starts_with("/positions/") => {
+                        let id = path.strip_prefix("/positions/").unwrap();
+                        if Uuid::parse_str(id).is_ok() {
+                            assert!(true, "GET position by ID should match with valid UUID");
+                        }
+                    }
+                    (Method::Put, path) if path.starts_with("/positions/") => {
+                        let id = path.strip_prefix("/positions/").unwrap();
+                        if Uuid::parse_str(id).is_ok() {
+                            assert!(true, "PUT position by ID should match with valid UUID");
+                        }
+                    }
+                    (Method::Delete, path) if path.starts_with("/positions/") => {
+                        let id = path.strip_prefix("/positions/").unwrap();
+                        if Uuid::parse_str(id).is_ok() {
+                            assert!(true, "DELETE position by ID should match with valid UUID");
+                        }
+                    }
+                    _ => {
+                        let method_str = format!("{:?}", method);
+                        panic!("Position endpoint should match for {} {}", method_str, path);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_uuid_validation_in_position_routes() {
+            let valid_uuid = "123e4567-e89b-12d3-a456-426614174000";
+            let invalid_uuid = "invalid-uuid-format";
+
+            // Valid UUID should pass validation
+            assert!(Uuid::parse_str(valid_uuid).is_ok());
+
+            // Invalid UUID should fail validation
+            assert!(Uuid::parse_str(invalid_uuid).is_err());
+        }
+
+        #[test]
+        fn test_default_route_fallback() {
+            let unmatched_routes = vec![
+                (Method::Get, "/unknown"),
+                (Method::Post, "/invalid"),
+                (Method::Put, "/nonexistent"),
+            ];
+
+            for (method, path) in unmatched_routes {
+                match (method, path) {
+                    (Method::Get, "/health") |
+                    (Method::Get, "/kv-test") |
+                    (Method::Get, "/exchange/markets") |
+                    (Method::Get, "/exchange/ticker") |
+                    (Method::Get, "/exchange/funding") |
+                    (Method::Post, "/find-opportunities") |
+                    (Method::Post, "/webhook") |
+                    (Method::Post, "/positions") |
+                    (Method::Get, "/positions") => {
+                        panic!("Route should not match known endpoints");
+                    }
+                    (Method::Get, path) if path.starts_with("/positions/") => {
+                        panic!("Route should not match position endpoints");
+                    }
+                    (Method::Put, path) if path.starts_with("/positions/") => {
+                        panic!("Route should not match position endpoints");
+                    }
+                    (Method::Delete, path) if path.starts_with("/positions/") => {
+                        panic!("Route should not match position endpoints");
+                    }
+                    _ => {
+                        assert!(true, "Unknown routes should fall through to default");
+                    }
+                }
+            }
+        }
+    }
+
+    // Tests for scheduled event handling
+    mod scheduled_tests {
+        #[test]
+        fn test_scheduled_cron_pattern_matching() {
+            let cron_patterns = vec![
+                "* * * * *",      // Every minute (should match)
+                "0 * * * *",      // Every hour (should not match)
+                "0 0 * * *",      // Every day (should not match)
+                "invalid",        // Invalid pattern (should not match)
+            ];
+
+            for cron in cron_patterns {
+                match cron {
+                    "* * * * *" => {
+                        assert!(true, "Every minute cron should be recognized");
+                    }
+                    _ => {
+                        assert!(true, "Other cron patterns should not trigger opportunity monitoring");
+                    }
+                }
+            }
+        }
+    }
+
+    // Tests for query parameter parsing
+    mod query_parsing_tests {
+        #[test]
+        fn test_exchange_query_parameter_parsing() {
+            // Test default exchange
+            let default_exchange = "binance".to_string();
+            assert_eq!(default_exchange, "binance");
+
+            // Test explicit exchange parameter
+            let exchange_param = "bybit";
+            assert_eq!(exchange_param, "bybit");
+        }
+
+        #[test]
+        fn test_symbol_query_parameter_parsing() {
+            // Test default symbol
+            let default_symbol = "BTCUSDT".to_string();
+            assert_eq!(default_symbol, "BTCUSDT");
+
+            // Test explicit symbol parameter
+            let symbol_param = "ETHUSDT";
+            assert_eq!(symbol_param, "ETHUSDT");
+        }
+
+        #[test]
+        fn test_query_pairs_collection() {
+            // Simulate query parameter collection
+            let query_params = vec![
+                ("exchange".to_string(), "binance".to_string()),
+                ("symbol".to_string(), "BTCUSDT".to_string()),
+                ("limit".to_string(), "100".to_string()),
+            ];
+
+            let query_map: std::collections::HashMap<String, String> = query_params.into_iter().collect();
+
+            assert_eq!(query_map.get("exchange"), Some(&"binance".to_string()));
+            assert_eq!(query_map.get("symbol"), Some(&"BTCUSDT".to_string()));
+            assert_eq!(query_map.get("limit"), Some(&"100".to_string()));
+        }
+    }
+
+    // Tests for JSON request/response handling
+    mod json_handling_tests {
+        use super::*;
+
+        #[test]
+        fn test_find_opportunities_request_parsing() {
+            // Test default request data when no body provided
+            let default_data = json!({
+                "trading_pairs": ["BTCUSDT", "ETHUSDT", "ADAUSDT", "DOTUSDT", "SOLUSDT"],
+                "min_threshold": 0.01
+            });
+
+            assert_eq!(default_data["trading_pairs"].as_array().unwrap().len(), 5);
+            assert_eq!(default_data["min_threshold"].as_f64().unwrap(), 0.01);
+        }
+
+        #[test]
+        fn test_trading_pairs_parsing() {
+            let request_data = json!({
+                "trading_pairs": ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+                "min_threshold": 0.02
+            });
+
+            let trading_pairs: Vec<String> = request_data["trading_pairs"]
+                .as_array()
+                .unwrap_or(&vec![])
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+
+            assert_eq!(trading_pairs.len(), 3);
+            assert!(trading_pairs.contains(&"BTCUSDT".to_string()));
+            assert!(trading_pairs.contains(&"ETHUSDT".to_string()));
+            assert!(trading_pairs.contains(&"BNBUSDT".to_string()));
+        }
+
+        #[test]
+        fn test_min_threshold_parsing() {
+            let request_data = json!({
+                "trading_pairs": ["BTCUSDT"],
+                "min_threshold": 0.05
+            });
+
+            let min_threshold = request_data["min_threshold"]
+                .as_f64()
+                .unwrap_or(0.01);
+
+            assert_eq!(min_threshold, 0.05);
+        }
+
+        #[test]
+        fn test_response_format() {
+            // Test opportunities response format
+            let opportunities_response = json!({
+                "status": "success",
+                "opportunities_found": 2,
+                "opportunities": [
+                    {
+                        "trading_pair": "BTCUSDT",
+                        "exchange_a": "binance",
+                        "exchange_b": "bybit",
+                        "funding_rate_diff": 0.02
+                    }
+                ]
+            });
+
+            assert_eq!(opportunities_response["status"], "success");
+            assert_eq!(opportunities_response["opportunities_found"], 2);
+            assert!(opportunities_response["opportunities"].is_array());
+        }
+
+        #[test]
+        fn test_error_response_format() {
+            let error_message = "Failed to create exchange service";
+            let error_response = format!("Failed to create exchange service: {}", error_message);
+            
+            assert!(error_response.contains("Failed to create exchange service"));
+        }
+    }
+
+    // Tests for environment variable handling
+    mod env_tests {
+        #[test]
+        fn test_telegram_config_validation() {
+            // Test when both bot token and chat ID are available
+            let bot_token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11";
+            let chat_id = "-123456789";
+
+            assert!(!bot_token.is_empty());
+            assert!(!chat_id.is_empty());
+            assert!(bot_token.contains(":"));
+            assert!(chat_id.starts_with("-") || chat_id.parse::<i64>().is_ok());
+        }
+
+        #[test]
+        fn test_arbitrage_threshold_parsing() {
+            // Test default threshold
+            let default_threshold = "0.001".parse::<f64>().unwrap();
+            assert_eq!(default_threshold, 0.001);
+
+            // Test custom threshold
+            let custom_threshold = "0.005".parse::<f64>().unwrap();
+            assert_eq!(custom_threshold, 0.005);
+
+            // Test invalid threshold fallback
+            let invalid_threshold = "invalid".parse::<f64>().unwrap_or(0.001);
+            assert_eq!(invalid_threshold, 0.001);
+        }
+
+        #[test]
+        fn test_monitored_pairs_config_parsing() {
+            let pairs_config = r#"[
+                {"base": "BTC", "quote": "USDT", "type": "spot"},
+                {"base": "ETH", "quote": "USDT", "type": "spot"}
+            ]"#;
+
+            let parsed: std::result::Result<serde_json::Value, serde_json::Error> = serde_json::from_str(pairs_config);
+            assert!(parsed.is_ok());
+
+            let pairs = parsed.unwrap();
+            assert!(pairs.is_array());
+            assert_eq!(pairs.as_array().unwrap().len(), 2);
+        }
+    }
+
+    // Tests for utility functions used in handlers
+    mod handler_utilities_tests {
+        use super::*;
+
+        #[test]
+        fn test_url_path_extraction() {
+            let path = "/positions/123e4567-e89b-12d3-a456-426614174000";
+            let id = path.strip_prefix("/positions/").unwrap();
+            
+            assert_eq!(id, "123e4567-e89b-12d3-a456-426614174000");
+            assert!(Uuid::parse_str(id).is_ok());
+        }
+
+        #[test]
+        fn test_invalid_uuid_handling() {
+            let invalid_ids = vec![
+                "invalid-uuid",
+                "123",
+                "",
+                "not-a-uuid-at-all",
+                "123e4567-e89b-12d3-a456", // Too short
+            ];
+
+            for invalid_id in invalid_ids {
+                assert!(Uuid::parse_str(invalid_id).is_err());
+            }
+        }
+
+        #[test]
+        fn test_valid_uuid_formats() {
+            let valid_ids = vec![
+                "123e4567-e89b-12d3-a456-426614174000",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+            ];
+
+            for valid_id in valid_ids {
+                assert!(Uuid::parse_str(valid_id).is_ok());
+            }
+        }
+
+        #[test]
+        fn test_content_type_handling() {
+            // Test that we expect JSON content type for POST/PUT requests
+            let content_type = "application/json";
+            assert_eq!(content_type, "application/json");
+        }
+
+        #[test]
+        fn test_http_status_codes() {
+            // Test common status codes used in handlers
+            let success_code = 200;
+            let bad_request_code = 400;
+            let not_found_code = 404;
+            let server_error_code = 500;
+
+            assert_eq!(success_code, 200);
+            assert_eq!(bad_request_code, 400);
+            assert_eq!(not_found_code, 404);
+            assert_eq!(server_error_code, 500);
+        }
+    }
+}

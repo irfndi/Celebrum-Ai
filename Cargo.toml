@@ -1,0 +1,39 @@
+[package]
+name = "arb_edge"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = { version = "0.5.0", features = ["d1"] }
+console_error_panic_hook = "0.1.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+url = "2.5"
+base64 = "0.22"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+uuid = { version = "1.17", features = ["v4", "serde", "js"] }
+anyhow = "1.0"
+futures = "0.3"
+thiserror = "2.0"
+regex = "1.11"
+
+# WASM-specific dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.93"
+wasm-bindgen-futures = "0.4.43"
+js-sys = "0.3.70"
+web-sys = "0.3.70"
+# HTTP client for WASM - reqwest with WASM features
+reqwest = { version = "0.12.15", features = ["json"], default-features = false }
+
+# Native (non-WASM) dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# HTTP client for native - reqwest with full features
+reqwest = { version = "0.12.15", features = ["json", "stream"], default-features = false }
+tokio = { version = "1.42", features = ["macros", "rt"] } 

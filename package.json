@@ -1,0 +1,30 @@
+{
+  "name": "arb-edge",
+  "version": "0.1.0",
+  "description": "A Cloudflare Worker project for Arbitrage Edge in Rust.",
+  "keywords": [
+    "cloudflare-worker",
+    "arbitrage",
+    "edge-computing",
+    "rust",
+    "wasm"
+  ],
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir=dist",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "cargo test",
+    "lint": "cargo clippy",
+    "format": "cargo fmt"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^4.16.0"
+  },
+  "pnpm": {
+    "overrides": {}
+  },
+  "dependencies": {}
+}
