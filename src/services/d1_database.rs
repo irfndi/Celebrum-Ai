@@ -6,6 +6,9 @@ use std::collections::HashMap;
 use uuid;
 use chrono;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsValue;
+
 /// D1Service provides database operations using Cloudflare D1 SQL database
 /// This service handles persistent storage for user profiles, invitations, and analytics
 pub struct D1Service {
@@ -748,17 +751,59 @@ impl D1Service {
         Ok(())
     }
 
-    /// Health check for D1 database
+    /// Health check for D1 database connection
     pub async fn health_check(&self) -> ArbitrageResult<bool> {
-        let stmt = self.db.prepare("SELECT 1");
-        
-        match stmt.first::<i32>(None).await {
+        let stmt = self.db.prepare("SELECT 1 as test");
+        let result = stmt.first::<serde_json::Value>(None).await;
+        match result {
             Ok(_) => Ok(true),
             Err(_) => Ok(false),
         }
     }
 
-    // ============= BALANCE HISTORY OPERATIONS =============
+    // ============= GENERIC QUERY HELPERS =============
+    
+    #[cfg(target_arch = "wasm32")]
+    /// Execute a prepared statement with parameters (for INSERT, UPDATE, DELETE)
+    pub async fn execute_query(&self, sql: &str, params: &[JsValue]) -> ArbitrageResult<()> {
+        let stmt = self.db.prepare(sql);
+        stmt.bind(params)
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+        Ok(())
+    }
+    
+    #[cfg(target_arch = "wasm32")]
+    /// Execute a query that returns results (for SELECT)
+    pub async fn query(&self, sql: &str, params: &[JsValue]) -> ArbitrageResult<QueryResult> {
+        let stmt = self.db.prepare(sql);
+        let result = stmt.bind(params)
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .all()
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+            
+        let results = result.results::<HashMap<String, Value>>()
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to parse results: {}", e)))?;
+            
+        Ok(QueryResult { results })
+    }
+    
+    #[cfg(target_arch = "wasm32")]
+    /// Execute a query that returns a single result (for SELECT with LIMIT 1)
+    pub async fn query_first(&self, sql: &str, params: &[JsValue]) -> ArbitrageResult<Option<HashMap<String, Value>>> {
+        let stmt = self.db.prepare(sql);
+        let result = stmt.bind(params)
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .first::<HashMap<String, Value>>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+        Ok(result)
+    }
+
+    // ============= FUND MONITORING OPERATIONS =============
 
     /// Store balance history entry
     pub async fn store_balance_history(&self, entry: &crate::services::fund_monitoring::BalanceHistoryEntry) -> ArbitrageResult<()> {
@@ -891,4 +936,146 @@ impl D1Service {
                 .to_string(),
         })
     }
+
+    // ============= DYNAMIC CONFIGURATION OPERATIONS =============
+
+    /// Store a dynamic configuration template
+    pub async fn store_config_template(&self, template: &crate::services::dynamic_config::DynamicConfigTemplate) -> ArbitrageResult<()> {
+        let template_json = serde_json::to_string(template)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize template: {}", e)))?;
+
+        let stmt = self.db.prepare("
+            INSERT INTO dynamic_config_templates (
+                template_id, name, description, version, category, 
+                parameters, created_at, created_by, is_system_template, 
+                subscription_tier_required
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+
+        stmt.bind(&[
+            template.template_id.clone().into(),
+            template.name.clone().into(),
+            template.description.clone().into(),
+            template.version.clone().into(),
+            serde_json::to_string(&template.category).unwrap().into(),
+            template_json.into(),
+            (template.created_at as i64).into(),
+            template.created_by.clone().into(),
+            template.is_system_template.into(),
+            serde_json::to_string(&template.subscription_tier_required).unwrap().into(),
+        ]).map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get a dynamic configuration template by ID
+    pub async fn get_config_template(&self, template_id: &str) -> ArbitrageResult<Option<HashMap<String, Value>>> {
+        let stmt = self.db.prepare("SELECT parameters FROM dynamic_config_templates WHERE template_id = ?");
+        
+        let result = stmt.bind(&[template_id.into()])
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .first::<HashMap<String, Value>>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(result)
+    }
+
+    /// Store a dynamic configuration preset
+    pub async fn store_config_preset(&self, preset: &crate::services::dynamic_config::ConfigPreset) -> ArbitrageResult<()> {
+        let stmt = self.db.prepare("
+            INSERT INTO dynamic_config_presets (
+                preset_id, name, description, template_id, parameter_values, 
+                risk_level, target_audience, created_at, is_system_preset
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+
+        stmt.bind(&[
+            preset.preset_id.clone().into(),
+            preset.name.clone().into(),
+            preset.description.clone().into(),
+            preset.template_id.clone().into(),
+            serde_json::to_string(&preset.parameter_values).unwrap().into(),
+            serde_json::to_string(&preset.risk_level).unwrap().into(),
+            preset.target_audience.clone().into(),
+            (preset.created_at as i64).into(),
+            preset.is_system_preset.into(),
+        ]).map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Deactivate user configuration instances
+    pub async fn deactivate_user_config(&self, user_id: &str, template_id: &str) -> ArbitrageResult<()> {
+        let stmt = self.db.prepare("
+            UPDATE user_config_instances 
+            SET is_active = false 
+            WHERE user_id = ? AND template_id = ? AND is_active = true
+        ");
+
+        stmt.bind(&[user_id.into(), template_id.into()])
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Store a user configuration instance
+    pub async fn store_user_config_instance(&self, instance: &crate::services::dynamic_config::UserConfigInstance) -> ArbitrageResult<()> {
+        let stmt = self.db.prepare("
+            INSERT INTO user_config_instances (
+                instance_id, user_id, template_id, preset_id, parameter_values, 
+                version, is_active, created_at, updated_at, rollback_data
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+
+        stmt.bind(&[
+            instance.instance_id.clone().into(),
+            instance.user_id.clone().into(),
+            instance.template_id.clone().into(),
+            instance.preset_id.as_deref().unwrap_or("").into(),
+            serde_json::to_string(&instance.parameter_values).unwrap().into(),
+            (instance.version as i64).into(),
+            instance.is_active.into(),
+            (instance.created_at as i64).into(),
+            (instance.updated_at as i64).into(),
+            instance.rollback_data.as_deref().unwrap_or("").into(),
+        ]).map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get user's active configuration instance
+    pub async fn get_user_config_instance(&self, user_id: &str, template_id: &str) -> ArbitrageResult<Option<HashMap<String, Value>>> {
+        let stmt = self.db.prepare("
+            SELECT * FROM user_config_instances 
+            WHERE user_id = ? AND template_id = ? AND is_active = true 
+            ORDER BY version DESC LIMIT 1
+        ");
+        
+        let result = stmt.bind(&[user_id.into(), template_id.into()])
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .first::<HashMap<String, Value>>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        Ok(result)
+    }
+}
+
+/// Query result wrapper for compatibility with dynamic config service
+#[derive(Debug, Clone)]
+pub struct QueryResult {
+    pub results: Vec<HashMap<String, Value>>,
 } 

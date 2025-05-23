@@ -351,11 +351,8 @@ impl AiExchangeRouterService {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     last_error = Some(e);
-                    if attempt < self.config.max_retries {
-                        // Exponential backoff
-                        let delay = std::time::Duration::from_millis(1000 * attempt as u64);
-                        tokio::time::sleep(delay).await;
-                    }
+                    // For Cloudflare Workers, we don't need to add delay between retries
+                    // The ephemeral nature of workers makes immediate retries appropriate
                 }
             }
         }

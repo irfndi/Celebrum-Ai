@@ -8,13 +8,15 @@ mod utils;
 use serde_json::json;
 use services::exchange::{ExchangeInterface, ExchangeService};
 use services::opportunity::{OpportunityService, OpportunityServiceConfig};
-use services::positions::{CreatePositionData, PositionsService, UpdatePositionData};
+use services::positions::{CreatePositionData, ProductionPositionsService, UpdatePositionData};
 use services::telegram::TelegramService;
 use std::sync::Arc;
 use types::{AccountInfo, ExchangeIdEnum, StructuredTradingPair};
 use utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
 use uuid::Uuid;
+use services::user_profile::UserProfileService;
+use services::d1_database::D1Service;
 
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
@@ -344,17 +346,31 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
 
 async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> {
     let kv = env.kv("ArbEdgeKV")?;
-    let positions_service = PositionsService::new(kv);
+    let d1_service = D1Service::new(&env)?;
+    let encryption_key = env.var("ENCRYPTION_KEY").map(|v| v.to_string()).unwrap_or_else(|_| "default_key".to_string());
+    let user_profile_service = UserProfileService::new(kv.clone(), d1_service, encryption_key);
+    let positions_service = ProductionPositionsService::new(kv);
 
-    // TODO: Fetch real account info from a dedicated service or user configuration
-    let dummy_account_info = AccountInfo { total_balance_usd: 10000.0 }; // Example: $10,000 balance
+    // Parse request JSON and extract user_id
+    let position_data_json = req.json::<serde_json::Value>().await?;
+    let user_id = match position_data_json.get("user_id").and_then(|v| v.as_str()) {
+        Some(uid) => uid,
+        None => return Response::error("Missing user_id in request", 400),
+    };
+    let position_data: CreatePositionData = serde_json::from_value(position_data_json.clone())
+        .map_err(|e| worker::Error::RustError(format!("Failed to parse CreatePositionData: {}", e)))?;
 
-    let position_data: CreatePositionData = match req.json().await {
-        Ok(data) => data,
-        Err(e) => return Response::error(format!("Failed to parse request JSON: {}", e), 400),
+    // Fetch real account info from user profile
+    let user_profile = match user_profile_service.get_user_profile(user_id).await {
+        Ok(Some(profile)) => profile,
+        Ok(None) => return Response::error("User profile not found", 404),
+        Err(e) => return Response::error(format!("Failed to fetch user profile: {}", e), 500),
+    };
+    let account_info = AccountInfo {
+        total_balance_usd: user_profile.total_pnl_usdt, // TODO: Replace with real balance field when available
     };
 
-    match positions_service.create_position(position_data, &dummy_account_info).await {
+    match positions_service.create_position(position_data, &account_info).await {
         Ok(position) => Response::from_json(&position),
         Err(e) => match e.kind {
             crate::utils::error::ErrorKind::DatabaseError => Response::error(e.message, 500),
@@ -373,7 +389,7 @@ async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> 
 
 async fn handle_get_all_positions(_req: Request, env: Env) -> Result<Response> {
     let kv = env.kv("ArbEdgeKV")?;
-    let positions_service = PositionsService::new(kv);
+    let positions_service = ProductionPositionsService::new(kv);
 
     match positions_service.get_all_positions().await {
         Ok(positions) => Response::from_json(&positions),
@@ -383,7 +399,7 @@ async fn handle_get_all_positions(_req: Request, env: Env) -> Result<Response> {
 
 async fn handle_get_position(_req: Request, env: Env, id: &str) -> Result<Response> {
     let kv = env.kv("ArbEdgeKV")?;
-    let positions_service = PositionsService::new(kv);
+    let positions_service = ProductionPositionsService::new(kv);
 
     match positions_service.get_position(id).await {
         Ok(Some(position)) => Response::from_json(&position),
@@ -394,7 +410,7 @@ async fn handle_get_position(_req: Request, env: Env, id: &str) -> Result<Respon
 
 async fn handle_update_position(mut req: Request, env: Env, id: &str) -> Result<Response> {
     let kv = env.kv("ArbEdgeKV")?;
-    let positions_service = PositionsService::new(kv);
+    let positions_service = ProductionPositionsService::new(kv);
 
     let update_data: UpdatePositionData = req.json().await?;
 
@@ -407,7 +423,7 @@ async fn handle_update_position(mut req: Request, env: Env, id: &str) -> Result<
 
 async fn handle_close_position(_req: Request, env: Env, id: &str) -> Result<Response> {
     let kv = env.kv("ArbEdgeKV")?;
-    let positions_service = PositionsService::new(kv);
+    let positions_service = ProductionPositionsService::new(kv);
 
     match positions_service.close_position(id).await {
         Ok(true) => Response::ok("Position closed"),
