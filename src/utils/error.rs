@@ -127,8 +127,11 @@ impl ArbitrageError {
 
     pub fn exchange_error(exchange: &str, message: impl Into<String>) -> Self {
         let mut details = ErrorDetails::new();
-        details.insert("exchange".to_string(), serde_json::Value::String(exchange.to_string()));
-        
+        details.insert(
+            "exchange".to_string(),
+            serde_json::Value::String(exchange.to_string()),
+        );
+
         Self::new(ErrorKind::ExchangeError, message)
             .with_details(details)
             .with_status(502)
@@ -204,4 +207,4 @@ macro_rules! arbitrage_error {
         )+
         ArbitrageError::new($kind, $msg).with_details(details)
     }};
-} 
+}

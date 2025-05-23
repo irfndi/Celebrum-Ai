@@ -1,12 +1,8 @@
 // src/services/mod.rs
 
 pub mod exchange;
-pub mod telegram;
 pub mod opportunity;
 pub mod positions;
+pub mod telegram;
 
-// Re-export commonly used items
-pub use exchange::*;
-pub use telegram::*;
-pub use opportunity::*;
-pub use positions::*; 
+// Re-export main service structs

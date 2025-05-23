@@ -69,7 +69,7 @@ impl Logger {
     pub fn child(&self, context: HashMap<String, Value>) -> Self {
         let mut new_context = self.context.clone();
         new_context.extend(context);
-        
+
         Self {
             level: self.level.clone(),
             context: new_context,
@@ -82,7 +82,7 @@ impl Logger {
 
     fn format_message(&self, level: &LogLevel, message: &str, meta: Option<&Value>) -> String {
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f UTC");
-        
+
         let mut log_obj = serde_json::json!({
             "timestamp": timestamp.to_string(),
             "level": level.as_str(),
@@ -92,9 +92,10 @@ impl Logger {
         // Add context
         if !self.context.is_empty() {
             log_obj["context"] = serde_json::Value::Object(
-                self.context.iter()
+                self.context
+                    .iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect()
+                    .collect(),
             );
         }
 
@@ -103,9 +104,8 @@ impl Logger {
             log_obj["meta"] = meta.clone();
         }
 
-        serde_json::to_string(&log_obj).unwrap_or_else(|_| {
-            format!("[{}] {}: {}", timestamp, level.as_str(), message)
-        })
+        serde_json::to_string(&log_obj)
+            .unwrap_or_else(|_| format!("[{}] {}: {}", timestamp, level.as_str(), message))
     }
 
     pub fn error(&self, message: &str) {
@@ -157,7 +157,7 @@ impl Logger {
             "error": error.to_string(),
             "error_type": std::any::type_name_of_val(error),
         });
-        
+
         let combined_meta = match context {
             Some(ctx) => {
                 let mut combined = ctx.clone();
@@ -265,4 +265,4 @@ mod tests {
         assert!(!logger.should_log(&LogLevel::Info));
         assert!(!logger.should_log(&LogLevel::Debug));
     }
-} 
+}

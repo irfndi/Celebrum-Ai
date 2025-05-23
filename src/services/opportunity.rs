@@ -1,14 +1,14 @@
 // src/services/opportunity.rs
 
-use crate::types::*;
-use crate::utils::{ArbitrageError, ArbitrageResult};
-use crate::services::exchange::{ExchangeService, ExchangeInterface};
+use crate::services::exchange::ExchangeService;
 use crate::services::telegram::TelegramService;
-use std::collections::HashMap;
-use futures::future::join_all;
+use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum, FundingRateInfo, StructuredTradingPair};
+use crate::utils::ArbitrageResult;
+use crate::services::exchange::ExchangeInterface;
 use std::sync::Arc;
-use std::pin::Pin;
-use std::future::Future;
+
+use futures::future::join_all;
+use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct OpportunityServiceConfig {
@@ -45,7 +45,10 @@ impl OpportunityService {
         let mut opportunities = Vec::new();
 
         // Step 1: Fetch funding rates for all pairs and exchanges
-        let mut funding_rate_data: HashMap<String, HashMap<ExchangeIdEnum, Option<FundingRateInfo>>> = HashMap::new();
+        let mut funding_rate_data: HashMap<
+            String,
+            HashMap<ExchangeIdEnum, Option<FundingRateInfo>>,
+        > = HashMap::new();
 
         // Initialize maps
         for pair in pairs {
@@ -60,10 +63,38 @@ impl OpportunityService {
                 let exchange_service = Arc::clone(&self.exchange_service);
                 let pair = pair.clone();
                 let exchange_id = *exchange_id;
-                
+
                 let task = async move {
-                    let result = exchange_service.get_funding_rate(&exchange_id.to_string(), &pair).await;
-                    (pair, exchange_id, result.ok())
+                    let result = exchange_service
+                        .fetch_funding_rates(&exchange_id.to_string(), Some(&pair))
+                        .await;
+                    
+                    // Parse the result to extract FundingRateInfo
+                    let funding_info = match result {
+                        Ok(rates) => {
+                            if let Some(rate_data) = rates.first() {
+                                // Extract funding rate from the response
+                                let funding_rate = rate_data["fundingRate"]
+                                    .as_str()
+                                    .and_then(|s| s.parse::<f64>().ok())
+                                    .unwrap_or(0.0);
+                                
+                                Some(FundingRateInfo {
+                                    symbol: pair.clone(),
+                                    funding_rate,
+                                    timestamp: Some(chrono::Utc::now()),
+                                    datetime: Some(chrono::Utc::now().to_rfc3339()),
+                                    next_funding_time: None,
+                                    estimated_rate: None,
+                                })
+                            } else {
+                                None
+                            }
+                        }
+                        Err(_) => None,
+                    };
+                    
+                    (pair, exchange_id, funding_info)
                 };
                 funding_tasks.push(task);
             }
@@ -82,7 +113,8 @@ impl OpportunityService {
         // Step 2: Identify opportunities
         for pair in pairs {
             if let Some(pair_funding_rates) = funding_rate_data.get(pair) {
-                let available_exchanges: Vec<ExchangeIdEnum> = pair_funding_rates.iter()
+                let available_exchanges: Vec<ExchangeIdEnum> = pair_funding_rates
+                    .iter()
                     .filter_map(|(exchange_id, rate_info)| {
                         if rate_info.is_some() {
                             Some(*exchange_id)
@@ -102,18 +134,29 @@ impl OpportunityService {
                         let exchange_a = available_exchanges[i];
                         let exchange_b = available_exchanges[j];
 
-                        if let (Some(Some(rate_a)), Some(Some(rate_b))) = 
-                            (pair_funding_rates.get(&exchange_a), pair_funding_rates.get(&exchange_b)) {
-
+                        if let (Some(Some(rate_a)), Some(Some(rate_b))) = (
+                            pair_funding_rates.get(&exchange_a),
+                            pair_funding_rates.get(&exchange_b),
+                        ) {
                             let rate_diff = (rate_a.funding_rate - rate_b.funding_rate).abs();
 
                             if rate_diff >= threshold {
                                 // Determine which exchange to go long/short
-                                let (long_exchange, short_exchange, long_rate, short_rate) = 
+                                let (long_exchange, short_exchange, long_rate, short_rate) =
                                     if rate_a.funding_rate > rate_b.funding_rate {
-                                        (exchange_b, exchange_a, rate_b.funding_rate, rate_a.funding_rate)
+                                        (
+                                            exchange_b,
+                                            exchange_a,
+                                            rate_b.funding_rate,
+                                            rate_a.funding_rate,
+                                        )
                                     } else {
-                                        (exchange_a, exchange_b, rate_a.funding_rate, rate_b.funding_rate)
+                                        (
+                                            exchange_a,
+                                            exchange_b,
+                                            rate_a.funding_rate,
+                                            rate_b.funding_rate,
+                                        )
                                     };
 
                                 // For now, we'll set net difference same as rate difference
@@ -154,14 +197,21 @@ impl OpportunityService {
     }
 
     pub async fn monitor_opportunities(&self) -> ArbitrageResult<Vec<ArbitrageOpportunity>> {
-        let pair_symbols: Vec<String> = self.config.monitored_pairs.iter()
+        let pair_symbols: Vec<String> = self
+            .config
+            .monitored_pairs
+            .iter()
             .map(|p| p.symbol.clone())
             .collect();
 
-        self.find_opportunities(&self.config.exchanges, &pair_symbols, self.config.threshold).await
+        self.find_opportunities(&self.config.exchanges, &pair_symbols, self.config.threshold)
+            .await
     }
 
-    pub async fn process_opportunities(&self, opportunities: &[ArbitrageOpportunity]) -> ArbitrageResult<()> {
+    pub async fn process_opportunities(
+        &self,
+        opportunities: &[ArbitrageOpportunity],
+    ) -> ArbitrageResult<()> {
         if opportunities.is_empty() {
             return Ok(());
         }
@@ -169,7 +219,10 @@ impl OpportunityService {
         // Send notifications if Telegram service is available
         if let Some(telegram_service) = &self.telegram_service {
             for opportunity in opportunities {
-                if let Err(e) = telegram_service.send_opportunity_notification(opportunity).await {
+                if let Err(e) = telegram_service
+                    .send_opportunity_notification(opportunity)
+                    .await
+                {
                     // Log error but don't fail the whole process
                     eprintln!("Failed to send Telegram notification: {}", e);
                 }
@@ -182,4 +235,4 @@ impl OpportunityService {
     pub fn get_config(&self) -> &OpportunityServiceConfig {
         &self.config
     }
-} 
+}

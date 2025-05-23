@@ -1,9 +1,9 @@
 // src/types.rs
 
-use serde::{Deserialize, Serialize};
-use worker::js_sys::Date;
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use worker::js_sys::Date;
 
 /// Exchange identifiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -243,8 +243,8 @@ pub struct Ticker {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderBook {
     pub symbol: String,
-    pub bids: Vec<[f64; 2]>,  // [price, amount]
-    pub asks: Vec<[f64; 2]>,  // [price, amount]
+    pub bids: Vec<[f64; 2]>, // [price, amount]
+    pub asks: Vec<[f64; 2]>, // [price, amount]
     pub timestamp: Option<DateTime<Utc>>,
     pub datetime: Option<String>,
 }
@@ -369,4 +369,4 @@ pub enum ExchangeError {
     Http(#[from] reqwest::Error),
 }
 
-pub type ExchangeResult<T> = Result<T, ExchangeError>; 
+pub type ExchangeResult<T> = Result<T, ExchangeError>;

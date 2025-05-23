@@ -1,6 +1,6 @@
 // src/utils/formatter.rs
 
-use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeId, ExchangeIdEnum};
+use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
 #[cfg(not(test))]
 use chrono::{DateTime, Utc};
 
@@ -8,8 +8,10 @@ use chrono::{DateTime, Utc};
 /// See: https://core.telegram.org/bots/api#markdownv2-style
 pub fn escape_markdown_v2(text: &str) -> String {
     // Characters to escape: _ * [ ] ( ) ~ ` > # + - = | { } . !
-    let chars_to_escape = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
-    
+    let chars_to_escape = [
+        '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!',
+    ];
+
     text.chars()
         .map(|c| {
             if chars_to_escape.contains(&c) {
@@ -51,8 +53,8 @@ pub fn format_timestamp(timestamp: u64) -> String {
     }
     #[cfg(not(test))]
     {
-        let datetime = DateTime::from_timestamp_millis(timestamp as i64)
-            .unwrap_or_else(|| Utc::now());
+        let datetime =
+            DateTime::from_timestamp_millis(timestamp as i64).unwrap_or_else(|| Utc::now());
         datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string()
     }
 }
@@ -85,7 +87,9 @@ pub fn format_opportunity_message(opportunity: &ArbitrageOpportunity) -> String 
     let net_diff_escaped = format_optional_percentage(&opportunity.net_rate_difference);
     let potential_profit_escaped = format_money(&opportunity.potential_profit_value);
     let date_escaped = escape_markdown_v2(&format_timestamp(opportunity.timestamp));
-    let details_escaped = opportunity.details.as_ref()
+    let details_escaped = opportunity
+        .details
+        .as_ref()
         .map(|d| escape_markdown_v2(d))
         .unwrap_or_else(|| "".to_string());
 
@@ -97,7 +101,9 @@ pub fn format_opportunity_message(opportunity: &ArbitrageOpportunity) -> String 
 
     // Format based on opportunity type
     match opportunity.r#type {
-        ArbitrageType::FundingRate if opportunity.long_exchange.is_some() && opportunity.short_exchange.is_some() => {
+        ArbitrageType::FundingRate
+            if opportunity.long_exchange.is_some() && opportunity.short_exchange.is_some() =>
+        {
             message.push_str(&format!(
                 "\n↔️ *Action:* LONG `{}` / SHORT `{}`\n\n*Rates \\(Funding\\):*\n   \\- Long \\({}\\): `{}%`\n   \\- Short \\({}\\): `{}%`\n💰 *Gross Difference:* `{}%`",
                 long_exchange_escaped,
@@ -121,7 +127,7 @@ pub fn format_opportunity_message(opportunity: &ArbitrageOpportunity) -> String 
                 escape_markdown_v2(type_str),
                 diff_escaped
             ));
-            
+
             if opportunity.long_exchange.is_some() {
                 message.push_str(&format!("\n➡️ *Exchange 1:* `{}`", long_exchange_escaped));
             }
@@ -137,8 +143,13 @@ pub fn format_opportunity_message(opportunity: &ArbitrageOpportunity) -> String 
     }
 
     // Add potential profit if available
-    if opportunity.potential_profit_value.is_some() && potential_profit_escaped != escape_markdown_v2("N/A") {
-        message.push_str(&format!("\n💸 *Potential Profit:* \\~${}", potential_profit_escaped));
+    if opportunity.potential_profit_value.is_some()
+        && potential_profit_escaped != escape_markdown_v2("N/A")
+    {
+        message.push_str(&format!(
+            "\n💸 *Potential Profit:* \\~${}",
+            potential_profit_escaped
+        ));
     }
 
     // Add details if available
@@ -182,7 +193,7 @@ mod tests {
             0.0006,
             ArbitrageType::FundingRate,
         );
-        
+
         // Set a fixed timestamp to avoid WASM binding issues in tests
         opportunity.timestamp = 1640995200000; // 2022-01-01 00:00:00 UTC
 
@@ -192,4 +203,4 @@ mod tests {
         assert!(message.contains("bybit"));
         assert!(message.contains("Funding"));
     }
-} 
+}

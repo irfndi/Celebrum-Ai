@@ -1,10 +1,11 @@
 // src/services/telegram.rs
 
-use crate::types::*;
+use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
 use crate::utils::{ArbitrageError, ArbitrageResult};
+
+use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 
 pub struct TelegramConfig {
     pub bot_token: String,
@@ -181,7 +182,6 @@ impl TelegramService {
     }
 
     fn format_timestamp(&self, timestamp: u64) -> String {
-        use chrono::{DateTime, Utc};
         let datetime = DateTime::from_timestamp_millis(timestamp as i64)
             .unwrap_or_else(|| Utc::now());
         datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string()

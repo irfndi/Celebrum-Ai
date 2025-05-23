@@ -13,7 +13,13 @@ pub fn safe_parse_float(value: &Value, default_value: f64) -> f64 {
                 s.parse::<f64>().unwrap_or(default_value)
             }
         }
-        Value::Bool(b) => if *b { 1.0 } else { 0.0 },
+        Value::Bool(b) => {
+            if *b {
+                1.0
+            } else {
+                0.0
+            }
+        }
         _ => default_value,
     }
 }
@@ -23,7 +29,7 @@ pub fn safe_parse_float_str(value: &str, default_value: f64) -> f64 {
     if value.trim().is_empty() {
         return default_value;
     }
-    
+
     value.parse::<f64>().unwrap_or(default_value)
 }
 
@@ -37,7 +43,7 @@ pub fn safe_parse_float_opt(value: Option<&str>, default_value: f64) -> f64 {
 
 /// Performs a deep clone of a JSON-serializable value.
 /// This is equivalent to JSON.parse(JSON.stringify()) in JavaScript.
-pub fn deep_clone<T>(value: &T) -> Result<T, serde_json::Error> 
+pub fn deep_clone<T>(value: &T) -> Result<T, serde_json::Error>
 where
     T: serde::Serialize + for<'de> serde::Deserialize<'de>,
 {
@@ -65,14 +71,19 @@ pub fn round_to_decimal_places(value: f64, decimal_places: u32) -> f64 {
 /// Converts a percentage string (e.g., "1.5%") to a decimal
 pub fn percentage_to_decimal(percentage_str: &str) -> Result<f64, String> {
     let cleaned = percentage_str.trim().trim_end_matches('%');
-    cleaned.parse::<f64>()
+    cleaned
+        .parse::<f64>()
         .map(|p| p / 100.0)
         .map_err(|_| format!("Invalid percentage format: {}", percentage_str))
 }
 
 /// Converts a decimal to a percentage string
 pub fn decimal_to_percentage(decimal: f64, decimal_places: u32) -> String {
-    format!("{:.prec$}%", decimal * 100.0, prec = decimal_places as usize)
+    format!(
+        "{:.prec$}%",
+        decimal * 100.0,
+        prec = decimal_places as usize
+    )
 }
 
 /// Checks if a float is approximately equal to another within a tolerance
@@ -93,10 +104,10 @@ pub fn percentage_difference(value1: f64, value2: f64) -> f64 {
 
 /// Validates that a value is within a specific range
 pub fn validate_range<T: PartialOrd + std::fmt::Display>(
-    value: T, 
-    min: T, 
-    max: T, 
-    field_name: &str
+    value: T,
+    min: T,
+    max: T,
+    field_name: &str,
 ) -> Result<T, String> {
     if value < min || value > max {
         Err(format!(
@@ -116,7 +127,11 @@ pub fn moving_average(values: &[f64], window_size: usize) -> Vec<f64> {
 
     let mut result = Vec::new();
     for i in 0..values.len() {
-        let start = if i + 1 >= window_size { i + 1 - window_size } else { 0 };
+        let start = if i + 1 >= window_size {
+            i + 1 - window_size
+        } else {
+            0
+        };
         let end = i + 1;
         let window = &values[start..end];
         let avg = window.iter().sum::<f64>() / window.len() as f64;
@@ -208,4 +223,4 @@ mod tests {
         assert_eq!(result[3], 3.0); // [2,3,4] avg = 3
         assert_eq!(result[4], 4.0); // [3,4,5] avg = 4
     }
-} 
+}

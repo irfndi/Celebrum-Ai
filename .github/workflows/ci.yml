@@ -2,9 +2,9 @@ name: CI/CD & Security Analysis
 
 on:
   push:
-    branches: [development]
+    branches: [development, main, feature/refactor-to-rust]
   pull_request:
-    branches: [development]
+    branches: [development, main]
   workflow_dispatch:
 
 jobs:
@@ -15,32 +15,56 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
         with:
-          version: latest
+          toolchain: stable
+          components: rustfmt, clippy, rust-src
+          override: true
 
-      - name: Setup Node.js
+      - name: Add WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Setup Node.js (for wrangler)
         uses: actions/setup-node@v3
         with:
           node-version: "18.x"
-          cache: "pnpm"
 
-      - name: Install dependencies
-        run: pnpm install
+      - name: Install wrangler
+        run: npm install -g wrangler@latest
 
-      - name: Run linters
-        run: pnpm run lint
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-      - name: Run tests with coverage
-        run: pnpm run test:coverage
+      - name: Run linter
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
-          verbose: true
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Build for WASM
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Test wrangler build
+        run: wrangler deploy --dry-run
 
   codeql:
     name: CodeQL Security Analysis
@@ -58,7 +82,16 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: typescript
+          languages: rust
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Add WASM target
+        run: rustup target add wasm32-unknown-unknown
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
@@ -69,31 +102,32 @@ jobs:
   deploy:
     name: Deploy to Cloudflare
     needs: [test, codeql]
-    if: github.ref == 'refs/heads/development' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
         with:
-          version: latest
+          toolchain: stable
+          components: rust-src
+          override: true
 
-      - name: Setup Node.js
+      - name: Add WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Setup Node.js (for wrangler)
         uses: actions/setup-node@v3
         with:
           node-version: "18.x"
-          cache: "pnpm"
 
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Build project
-        run: pnpm run build
+      - name: Install wrangler
+        run: npm install -g wrangler@latest
 
       - name: Deploy to Cloudflare Workers
-        run: pnpm run deploy
+        run: wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

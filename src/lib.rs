@@ -1,18 +1,19 @@
 use worker::*;
 
 // Module declarations
+mod services;
 mod types;
 mod utils;
-mod services;
 
-use types::{ExchangeIdEnum, StructuredTradingPair, ArbitrageOpportunity};
-use utils::{ArbitrageError, ArbitrageResult};
-use services::exchange::{ExchangeService, ExchangeInterface};
-use services::opportunity::{OpportunityService, OpportunityServiceConfig};
-use services::telegram::TelegramService;
-use services::positions::{PositionsService, CreatePositionData, UpdatePositionData};
 use serde_json::json;
+use services::exchange::{ExchangeInterface, ExchangeService};
+use services::opportunity::{OpportunityService, OpportunityServiceConfig};
+use services::positions::{CreatePositionData, PositionsService, UpdatePositionData};
+use services::telegram::TelegramService;
 use std::sync::Arc;
+use types::{ExchangeIdEnum, StructuredTradingPair};
+use utils::{ArbitrageError, ArbitrageResult};
+use std::collections::HashMap;
 
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
@@ -46,7 +47,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
 
         (Method::Get, "/exchange/funding") => {
-            handle_get_funding_rate(req, env).await
+            handle_funding_rate(req, env).await
         }
 
         // Opportunity finding endpoint
@@ -110,15 +111,16 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
 async fn handle_get_markets(req: Request, env: Env) -> Result<Response> {
     let exchange_service = match ExchangeService::new(&env) {
         Ok(service) => service,
-        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500)
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500),
     };
-    
+
     let url = req.url()?;
-    let exchange_id = url.query_pairs()
+    let exchange_id = url
+        .query_pairs()
         .find(|(key, _)| key == "exchange")
         .map(|(_, value)| value.to_string())
         .unwrap_or_else(|| "binance".to_string());
-    
+
     match exchange_service.get_markets(&exchange_id).await {
         Ok(markets) => {
             let market_count = markets.len();
@@ -130,54 +132,63 @@ async fn handle_get_markets(req: Request, env: Env) -> Result<Response> {
             });
             Response::from_json(&response)
         }
-        Err(e) => Response::error(format!("Failed to get markets: {}", e), 500)
+        Err(e) => Response::error(format!("Failed to get markets: {}", e), 500),
     }
 }
 
 async fn handle_get_ticker(req: Request, env: Env) -> Result<Response> {
     let exchange_service = match ExchangeService::new(&env) {
         Ok(service) => service,
-        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500)
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500),
     };
-    
+
     let url = req.url()?;
-    let query_pairs: std::collections::HashMap<String, String> = url.query_pairs()
+    let query_pairs: std::collections::HashMap<String, String> = url
+        .query_pairs()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
-    
-    let exchange_id = query_pairs.get("exchange").cloned().unwrap_or_else(|| "binance".to_string());
-    let symbol = query_pairs.get("symbol").cloned().unwrap_or_else(|| "BTCUSDT".to_string());
-    
+
+    let exchange_id = query_pairs
+        .get("exchange")
+        .cloned()
+        .unwrap_or_else(|| "binance".to_string());
+    let symbol = query_pairs
+        .get("symbol")
+        .cloned()
+        .unwrap_or_else(|| "BTCUSDT".to_string());
+
     match exchange_service.get_ticker(&exchange_id, &symbol).await {
         Ok(ticker) => Response::from_json(&ticker),
-        Err(e) => Response::error(format!("Failed to get ticker: {}", e), 500)
+        Err(e) => Response::error(format!("Failed to get ticker: {}", e), 500),
     }
 }
 
-async fn handle_get_funding_rate(req: Request, env: Env) -> Result<Response> {
+async fn handle_funding_rate(req: Request, env: Env) -> Result<Response> {
+    let url = req.url()?;
+    let query_params: HashMap<String, String> = url.query_pairs().into_owned().collect();
+    
+    let exchange_id = query_params.get("exchange").unwrap_or(&"binance".to_string()).clone();
+    let symbol = query_params.get("symbol").unwrap_or(&"BTCUSDT".to_string()).clone();
+    
     let exchange_service = match ExchangeService::new(&env) {
         Ok(service) => service,
-        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500)
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500),
     };
     
-    let url = req.url()?;
-    let query_pairs: std::collections::HashMap<String, String> = url.query_pairs()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
-    
-    let exchange_id = query_pairs.get("exchange").cloned().unwrap_or_else(|| "binance".to_string());
-    let symbol = query_pairs.get("symbol").cloned().unwrap_or_else(|| "BTCUSDT".to_string());
-    
-    match exchange_service.get_funding_rate(&exchange_id, &symbol).await {
-        Ok(funding_rate) => Response::from_json(&funding_rate),
-        Err(e) => Response::error(format!("Failed to get funding rate: {}", e), 500)
+    match exchange_service
+        .fetch_funding_rates(&exchange_id, Some(&symbol))
+        .await
+    {
+        Ok(rates) => Response::from_json(&rates),
+        Err(e) => Response::error(format!("Failed to fetch funding rate: {}", e), 500),
     }
 }
 
-async fn handle_find_opportunities(req: Request, env: Env) -> Result<Response> {
+async fn handle_find_opportunities(mut req: Request, env: Env) -> Result<Response> {
     // Parse configuration from environment
     let exchanges_str = env.var("EXCHANGES")?.to_string();
-    let exchanges: Vec<ExchangeIdEnum> = exchanges_str.split(',')
+    let exchanges: Vec<ExchangeIdEnum> = exchanges_str
+        .split(',')
         .filter_map(|s| match s.trim() {
             "binance" => Some(ExchangeIdEnum::Binance),
             "bybit" => Some(ExchangeIdEnum::Bybit),
@@ -191,13 +202,40 @@ async fn handle_find_opportunities(req: Request, env: Env) -> Result<Response> {
         return Response::error("At least two exchanges must be configured", 400);
     }
 
-    let monitored_pairs_str = env.var("MONITORED_PAIRS_CONFIG")?.to_string();
-    let monitored_pairs: Vec<StructuredTradingPair> = match serde_json::from_str(&monitored_pairs_str) {
-        Ok(pairs) => pairs,
-        Err(e) => return Response::error(format!("Failed to parse monitored pairs: {}", e), 400),
+    // Parse request body for trading pairs
+    let request_data: serde_json::Value = match req.json().await {
+        Ok(data) => data,
+        Err(_) => {
+            // Default trading pairs if no body provided
+            json!({
+                "trading_pairs": ["BTCUSDT", "ETHUSDT", "ADAUSDT", "DOTUSDT", "SOLUSDT"],
+                "min_threshold": 0.01
+            })
+        }
     };
 
-    let threshold: f64 = env.var("ARBITRAGE_THRESHOLD")
+    let trading_pairs: Vec<String> = request_data["trading_pairs"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect();
+
+    let min_threshold = request_data["min_threshold"]
+        .as_f64()
+        .unwrap_or(0.01);
+
+    let monitored_pairs_str = env.var("MONITORED_PAIRS_CONFIG")?.to_string();
+    let monitored_pairs: Vec<StructuredTradingPair> =
+        match serde_json::from_str(&monitored_pairs_str) {
+            Ok(pairs) => pairs,
+            Err(e) => {
+                return Response::error(format!("Failed to parse monitored pairs: {}", e), 400)
+            }
+        };
+
+    let threshold: f64 = env
+        .var("ARBITRAGE_THRESHOLD")
         .map(|v| v.to_string())
         .unwrap_or_else(|_| "0.001".to_string())
         .parse()
@@ -206,14 +244,18 @@ async fn handle_find_opportunities(req: Request, env: Env) -> Result<Response> {
     // Create services
     let exchange_service = Arc::new(match ExchangeService::new(&env) {
         Ok(service) => service,
-        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500)
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500),
     });
 
-    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) = (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID")) {
-        Some(Arc::new(TelegramService::new(services::telegram::TelegramConfig {
-            bot_token: bot_token.to_string(),
-            chat_id: chat_id.to_string(),
-        })))
+    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) =
+        (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID"))
+    {
+        Some(Arc::new(TelegramService::new(
+            services::telegram::TelegramConfig {
+                bot_token: bot_token.to_string(),
+                chat_id: chat_id.to_string(),
+            },
+        )))
     } else {
         None
     };
@@ -224,17 +266,17 @@ async fn handle_find_opportunities(req: Request, env: Env) -> Result<Response> {
         threshold,
     };
 
-    let opportunity_service = OpportunityService::new(
-        opportunity_config,
-        exchange_service,
-        telegram_service,
-    );
+    let opportunity_service =
+        OpportunityService::new(opportunity_config, exchange_service, telegram_service);
 
     // Find opportunities
     match opportunity_service.monitor_opportunities().await {
         Ok(opportunities) => {
             // Process opportunities (send notifications)
-            if let Err(e) = opportunity_service.process_opportunities(&opportunities).await {
+            if let Err(e) = opportunity_service
+                .process_opportunities(&opportunities)
+                .await
+            {
                 console_log!("Failed to process opportunities: {}", e);
             }
 
@@ -245,14 +287,16 @@ async fn handle_find_opportunities(req: Request, env: Env) -> Result<Response> {
             });
             Response::from_json(&response)
         }
-        Err(e) => Response::error(format!("Failed to find opportunities: {}", e), 500)
+        Err(e) => Response::error(format!("Failed to find opportunities: {}", e), 500),
     }
 }
 
 async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response> {
     let update: serde_json::Value = req.json().await?;
 
-    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) = (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID")) {
+    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) =
+        (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID"))
+    {
         TelegramService::new(services::telegram::TelegramConfig {
             bot_token: bot_token.to_string(),
             chat_id: chat_id.to_string(),
@@ -264,7 +308,7 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
     match telegram_service.handle_webhook(update).await {
         Ok(Some(response_text)) => Response::ok(response_text),
         Ok(None) => Response::ok("OK"),
-        Err(e) => Response::error(format!("Webhook processing error: {}", e), 500)
+        Err(e) => Response::error(format!("Webhook processing error: {}", e), 500),
     }
 }
 
@@ -276,7 +320,7 @@ async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> 
 
     match positions_service.create_position(position_data).await {
         Ok(position) => Response::from_json(&position),
-        Err(e) => Response::error(format!("Failed to create position: {}", e), 500)
+        Err(e) => Response::error(format!("Failed to create position: {}", e), 500),
     }
 }
 
@@ -286,7 +330,7 @@ async fn handle_get_all_positions(_req: Request, env: Env) -> Result<Response> {
 
     match positions_service.get_all_positions().await {
         Ok(positions) => Response::from_json(&positions),
-        Err(e) => Response::error(format!("Failed to get positions: {}", e), 500)
+        Err(e) => Response::error(format!("Failed to get positions: {}", e), 500),
     }
 }
 
@@ -297,7 +341,7 @@ async fn handle_get_position(_req: Request, env: Env, id: &str) -> Result<Respon
     match positions_service.get_position(id).await {
         Ok(Some(position)) => Response::from_json(&position),
         Ok(None) => Response::error("Position not found", 404),
-        Err(e) => Response::error(format!("Failed to get position: {}", e), 500)
+        Err(e) => Response::error(format!("Failed to get position: {}", e), 500),
     }
 }
 
@@ -310,7 +354,7 @@ async fn handle_update_position(mut req: Request, env: Env, id: &str) -> Result<
     match positions_service.update_position(id, update_data).await {
         Ok(Some(position)) => Response::from_json(&position),
         Ok(None) => Response::error("Position not found", 404),
-        Err(e) => Response::error(format!("Failed to update position: {}", e), 500)
+        Err(e) => Response::error(format!("Failed to update position: {}", e), 500),
     }
 }
 
@@ -321,14 +365,18 @@ async fn handle_close_position(_req: Request, env: Env, id: &str) -> Result<Resp
     match positions_service.close_position(id).await {
         Ok(true) => Response::ok("Position closed"),
         Ok(false) => Response::error("Position not found", 404),
-        Err(e) => Response::error(format!("Failed to close position: {}", e), 500)
+        Err(e) => Response::error(format!("Failed to close position: {}", e), 500),
     }
 }
 
 async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
     // Parse configuration from environment
-    let exchanges_str = env.var("EXCHANGES").map_err(|_| ArbitrageError::config_error("EXCHANGES not configured"))?;
-    let exchanges: Vec<ExchangeIdEnum> = exchanges_str.to_string().split(',')
+    let exchanges_str = env
+        .var("EXCHANGES")
+        .map_err(|_| ArbitrageError::config_error("EXCHANGES not configured"))?;
+    let exchanges: Vec<ExchangeIdEnum> = exchanges_str
+        .to_string()
+        .split(',')
         .filter_map(|s| match s.trim() {
             "binance" => Some(ExchangeIdEnum::Binance),
             "bybit" => Some(ExchangeIdEnum::Bybit),
@@ -339,15 +387,21 @@ async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
         .collect();
 
     if exchanges.len() < 2 {
-        return Err(ArbitrageError::config_error("At least two exchanges must be configured"));
+        return Err(ArbitrageError::config_error(
+            "At least two exchanges must be configured",
+        ));
     }
 
-    let monitored_pairs_str = env.var("MONITORED_PAIRS_CONFIG")
+    let monitored_pairs_str = env
+        .var("MONITORED_PAIRS_CONFIG")
         .map_err(|_| ArbitrageError::config_error("MONITORED_PAIRS_CONFIG not configured"))?;
-    let monitored_pairs: Vec<StructuredTradingPair> = serde_json::from_str(&monitored_pairs_str.to_string())
-        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse monitored pairs: {}", e)))?;
+    let monitored_pairs: Vec<StructuredTradingPair> =
+        serde_json::from_str(&monitored_pairs_str.to_string()).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to parse monitored pairs: {}", e))
+        })?;
 
-    let threshold: f64 = env.var("ARBITRAGE_THRESHOLD")
+    let threshold: f64 = env
+        .var("ARBITRAGE_THRESHOLD")
         .map(|v| v.to_string())
         .unwrap_or_else(|_| "0.001".to_string())
         .parse()
@@ -356,11 +410,15 @@ async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
     // Create services
     let exchange_service = Arc::new(ExchangeService::new(&env)?);
 
-    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) = (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID")) {
-        Some(Arc::new(TelegramService::new(services::telegram::TelegramConfig {
-            bot_token: bot_token.to_string(),
-            chat_id: chat_id.to_string(),
-        })))
+    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) =
+        (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID"))
+    {
+        Some(Arc::new(TelegramService::new(
+            services::telegram::TelegramConfig {
+                bot_token: bot_token.to_string(),
+                chat_id: chat_id.to_string(),
+            },
+        )))
     } else {
         None
     };
@@ -371,19 +429,18 @@ async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
         threshold,
     };
 
-    let opportunity_service = OpportunityService::new(
-        opportunity_config,
-        exchange_service,
-        telegram_service,
-    );
+    let opportunity_service =
+        OpportunityService::new(opportunity_config, exchange_service, telegram_service);
 
     // Find and process opportunities
     let opportunities = opportunity_service.monitor_opportunities().await?;
-    
+
     if !opportunities.is_empty() {
         console_log!("Found {} opportunities", opportunities.len());
-        opportunity_service.process_opportunities(&opportunities).await?;
+        opportunity_service
+            .process_opportunities(&opportunities)
+            .await?;
     }
 
     Ok(())
-} 
+}

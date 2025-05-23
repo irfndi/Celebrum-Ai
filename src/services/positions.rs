@@ -1,10 +1,8 @@
 // src/services/positions.rs
 
-use crate::types::*;
+use crate::types::{ArbitragePosition, ExchangeIdEnum, PositionSide, PositionStatus};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use worker::kv::KvStore;
-use serde_json;
-use std::collections::HashMap;
 
 pub struct PositionsService {
     kv_store: KvStore,
@@ -15,10 +13,13 @@ impl PositionsService {
         Self { kv_store }
     }
 
-    pub async fn create_position(&self, position_data: CreatePositionData) -> ArbitrageResult<ArbitragePosition> {
+    pub async fn create_position(
+        &self,
+        position_data: CreatePositionData,
+    ) -> ArbitrageResult<ArbitragePosition> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         let position = ArbitragePosition {
             id: id.clone(),
             exchange: position_data.exchange,
@@ -35,33 +36,47 @@ impl PositionsService {
 
         // Store in KV
         let key = format!("position:{}", id);
-        let value = serde_json::to_string(&position)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize position: {}", e)))?;
-        
-        self.kv_store.put(&key, value)
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to store position: {}", e)))?
+        let value = serde_json::to_string(&position).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize position: {}", e))
+        })?;
+
+        self.kv_store
+            .put(&key, value)
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to store position: {}", e))
+            })?
             .execute()
             .await
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute KV put: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to execute KV put: {}", e))
+            })?;
 
         Ok(position)
     }
 
     pub async fn get_position(&self, id: &str) -> ArbitrageResult<Option<ArbitragePosition>> {
         let key = format!("position:{}", id);
-        
+
         match self.kv_store.get(&key).text().await {
             Ok(Some(value)) => {
-                let position: ArbitragePosition = serde_json::from_str(&value)
-                    .map_err(|e| ArbitrageError::parse_error(format!("Failed to deserialize position: {}", e)))?;
+                let position: ArbitragePosition = serde_json::from_str(&value).map_err(|e| {
+                    ArbitrageError::parse_error(format!("Failed to deserialize position: {}", e))
+                })?;
                 Ok(Some(position))
             }
             Ok(None) => Ok(None),
-            Err(e) => Err(ArbitrageError::database_error(format!("Failed to get position: {}", e)))
+            Err(e) => Err(ArbitrageError::database_error(format!(
+                "Failed to get position: {}",
+                e
+            ))),
         }
     }
 
-    pub async fn update_position(&self, id: &str, update_data: UpdatePositionData) -> ArbitrageResult<Option<ArbitragePosition>> {
+    pub async fn update_position(
+        &self,
+        id: &str,
+        update_data: UpdatePositionData,
+    ) -> ArbitrageResult<Option<ArbitragePosition>> {
         let mut position = match self.get_position(id).await? {
             Some(pos) => pos,
             None => return Ok(None),
@@ -85,14 +100,20 @@ impl PositionsService {
 
         // Store updated position
         let key = format!("position:{}", id);
-        let value = serde_json::to_string(&position)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize position: {}", e)))?;
-        
-        self.kv_store.put(&key, value)
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to store position: {}", e)))?
+        let value = serde_json::to_string(&position).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize position: {}", e))
+        })?;
+
+        self.kv_store
+            .put(&key, value)
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to store position: {}", e))
+            })?
             .execute()
             .await
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute KV put: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to execute KV put: {}", e))
+            })?;
 
         Ok(Some(position))
     }
@@ -121,16 +142,15 @@ impl PositionsService {
 
     pub async fn get_open_positions(&self) -> ArbitrageResult<Vec<ArbitragePosition>> {
         let all_positions = self.get_all_positions().await?;
-        Ok(all_positions.into_iter()
+        Ok(all_positions
+            .into_iter()
             .filter(|pos| pos.status == PositionStatus::Open)
             .collect())
     }
 
     pub async fn calculate_total_pnl(&self) -> ArbitrageResult<f64> {
         let positions = self.get_open_positions().await?;
-        let total_pnl = positions.iter()
-            .filter_map(|pos| pos.pnl)
-            .sum();
+        let total_pnl = positions.iter().filter_map(|pos| pos.pnl).sum();
         Ok(total_pnl)
     }
 }
@@ -151,4 +171,4 @@ pub struct UpdatePositionData {
     pub current_price: Option<f64>,
     pub pnl: Option<f64>,
     pub status: Option<PositionStatus>,
-} 
+}
