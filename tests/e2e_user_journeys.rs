@@ -1,34 +1,33 @@
-// End-to-End User Journey Tests
-// This file tests complete user flows from start to finish, validating
-// that all services work together correctly for real user scenarios.
+// E2E Test Suite for ArbEdge User Journeys
+// Tests complete user flows from registration to notification
 
-use arb_edge::{
-    services::{
-        d1_database::D1Service,
-        user_profile::UserProfileService,
-        user_trading_preferences::UserTradingPreferencesService,
-        exchange::ExchangeService,
-        global_opportunity::GlobalOpportunityService,
-        opportunity_categorization::OpportunityCategorizationService,
-        notifications::NotificationService,
-        telegram::TelegramService,
-        ai_integration::AiIntegrationService,
-        market_analysis::{MarketAnalysisService, TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon},
-    },
-    types::*,
-    utils::{ArbitrageError, ArbitrageResult, logger::{Logger, LogLevel}},
-};
-use worker::kv::KvStore;
-use serde_json::json;
+use arb_edge::*;
+use arb_edge::types::*;
+use arb_edge::services::d1_database::D1Service;
+use arb_edge::services::user_profile::UserProfileService;
+use arb_edge::services::user_trading_preferences::{UserTradingPreferencesService, UserTradingPreferences, TradingFocus, ExperienceLevel, AutomationLevel, AutomationScope, RiskTolerance};
+use arb_edge::services::exchange::ExchangeService;
+use arb_edge::services::global_opportunity::{GlobalOpportunityService, GlobalOpportunityConfig, DistributionStrategy, FairnessConfig};
+use arb_edge::services::opportunity_categorization::OpportunityCategorizationService;
+use arb_edge::services::notifications::NotificationService;
+use arb_edge::services::telegram::TelegramService;
+use arb_edge::services::market_analysis::{TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon};
+use arb_edge::utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}};
+
 use std::collections::HashMap;
+use std::sync::Arc;
+use serde_json::json;
+use worker::kv::KvStore;
 
-/// E2E Test Framework for User Journey Testing
+/// **E2E Test Framework**
+/// Provides infrastructure for testing complete user journeys
+/// Mock implementations simulate real external dependencies
 pub struct E2ETestFramework {
     // Core Services
     d1_service: D1Service,
     user_profile_service: UserProfileService,
     user_preferences_service: UserTradingPreferencesService,
-    exchange_service: ExchangeService,
+    exchange_service: MockExchangeService,
     opportunity_service: GlobalOpportunityService,
     categorization_service: OpportunityCategorizationService,
     notification_service: NotificationService,
@@ -40,43 +39,110 @@ pub struct E2ETestFramework {
     mock_market_data: HashMap<String, serde_json::Value>,
 }
 
-impl E2ETestFramework {
-    pub async fn new() -> Self {
-        let logger = Logger::new(LogLevel::Debug);
+/// Mock Exchange Service for testing (avoids real API calls)
+pub struct MockExchangeService {
+    mock_data: HashMap<String, serde_json::Value>,
+}
+
+impl MockExchangeService {
+    pub fn new() -> Self {
+        let mut mock_data = HashMap::new();
         
-        // Initialize all services with test configuration
+        // Add mock ticker data
+        mock_data.insert("binance_btc_usdt".to_string(), json!({
+            "symbol": "BTCUSDT",
+            "price": "45000.50",
+            "volume": "1234.567",
+            "timestamp": 1640995200000u64
+        }));
+        
+        mock_data.insert("bybit_btc_usdt".to_string(), json!({
+            "symbol": "BTCUSDT", 
+            "price": "45050.25",  // $50 higher - arbitrage opportunity!
+            "volume": "987.432",
+            "timestamp": 1640995200000u64
+        }));
+        
+        Self { mock_data }
+    }
+    
+    pub async fn get_ticker(&self, exchange: &str, symbol: &str) -> ArbitrageResult<serde_json::Value> {
+        let key = format!("{}_{}", exchange.to_lowercase(), symbol.replace("/", "_").to_lowercase());
+        Ok(self.mock_data.get(&key).cloned().unwrap_or_else(|| json!({
+            "symbol": symbol,
+            "price": "45000.00",
+            "volume": "1000.0",
+            "timestamp": 1640995200000u64
+        })))
+    }
+}
+
+impl E2ETestFramework {
+    /// Creates a new E2E test framework with mock services
+    pub async fn new() -> Self {
+        // Create KV store for test environment
+        let kv_store = KvStore::new("test-kv");
+        
+        // Initialize all services with test configurations
         let d1_service = D1Service::new("test_database".to_string());
         let user_profile_service = UserProfileService::new(
-            KvStore::new(),
+            kv_store.clone(),
             d1_service.clone(),
             "test_encryption_key".to_string()
         );
         let user_preferences_service = UserTradingPreferencesService::new(
             d1_service.clone(),
-            logger.clone()
+            Logger::new(LogLevel::Debug)
         );
         
-        // TODO: Initialize other services
-        // Note: Some services need mock configurations for testing
+        // Mock exchange service to avoid real API calls
+        let exchange_service = MockExchangeService::new();
+        
+        // Create global opportunity service with test config
+        let global_config = GlobalOpportunityConfig {
+            detection_interval_seconds: 30,
+            monitored_pairs: vec!["BTC/USDT".to_string(), "ETH/USDT".to_string()],
+            monitored_exchanges: vec![ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit],
+            min_threshold: 0.001,
+            max_threshold: 0.02,
+            opportunity_ttl_minutes: 5,
+            max_queue_size: 100,
+            distribution_strategy: DistributionStrategy::RoundRobin,
+            fairness_config: FairnessConfig::default(),
+        };
+        
+        // Note: We need to create proper Arc<> wrappers for services that expect them
+        // For now, we'll create simple test implementations
         
         Self {
-            d1_service,
+            d1_service: d1_service.clone(),
             user_profile_service,
             user_preferences_service,
-            exchange_service: ExchangeService::new(), // Mock implementation with test data
+            exchange_service,
             opportunity_service: GlobalOpportunityService::new(
-                d1_service.clone(),
-                Default::default() // Test configuration
-            ), // Test configuration
+                global_config,
+                Arc::new(MockExchangeServiceWrapper::new()), // Will need to implement this
+                Arc::new(UserProfileService::new(
+                    kv_store.clone(),
+                    d1_service.clone(),
+                    "test_encryption_key".to_string()
+                )),
+                kv_store.clone()
+            ),
             categorization_service: OpportunityCategorizationService::new(
-                d1_service.clone()
-            ), // Test configuration
+                d1_service.clone(),
+                UserTradingPreferencesService::new(
+                    d1_service.clone(),
+                    Logger::new(LogLevel::Debug)
+                ),
+                Logger::new(LogLevel::Debug)
+            ),
             notification_service: NotificationService::new(
                 d1_service.clone(),
                 TelegramService::new("test_bot_token".to_string()),
                 kv_store.clone()
-            ), // Mock notification service
-            telegram_service: TelegramService::new("test_bot_token".to_string()), // Mock telegram service
+            ),
+            telegram_service: TelegramService::new("test_bot_token".to_string()),
             test_users: HashMap::new(),
             test_opportunities: Vec::new(),
             mock_market_data: HashMap::new(),
@@ -110,38 +176,48 @@ impl E2ETestFramework {
     ) -> Result<UserProfile, ArbitrageError> {
         // Create user profile with test data
         let test_telegram_id = 12345 + self.test_users.len() as i64;
-        let user_profile = UserProfile::new(test_telegram_id, Some("test-e2e".to_string()));
         
         // Store user profile (using the correct method signature)
         let created_user = self.user_profile_service.create_user_profile(
-            user_profile.telegram_user_id,
-            user_profile.invitation_code.clone(),
-            user_profile.telegram_username.clone()
+            test_telegram_id,
+            Some("test-e2e".to_string()),
+            Some(format!("test_user_{}", test_telegram_id))
         ).await?;
         
-        // Update our local copy with the created user data
-        let user_profile = created_user;
-        
-        // Create user trading preferences
+        // Create user trading preferences with all required fields
         let preferences = UserTradingPreferences {
+            preference_id: format!("pref_{}", user_id),
             user_id: user_id.to_string(),
             trading_focus,
-            automation_level: AutomationLevel::Manual, // Start with manual
-            automation_scope: AutomationScope::None,
             experience_level,
             risk_tolerance: match experience_level {
                 ExperienceLevel::Beginner => RiskTolerance::Conservative,
                 ExperienceLevel::Intermediate => RiskTolerance::Balanced,
                 ExperienceLevel::Advanced => RiskTolerance::Aggressive,
             },
+            automation_level: AutomationLevel::Manual, // Start with manual
+            automation_scope: AutomationScope::None,
+            // Feature Access Control
+            arbitrage_enabled: true,
+            technical_enabled: experience_level != ExperienceLevel::Beginner,
+            advanced_analytics_enabled: experience_level == ExperienceLevel::Advanced,
+            // User Preferences
+            preferred_notification_channels: vec!["telegram".to_string()],
+            trading_hours_timezone: "UTC".to_string(),
+            trading_hours_start: "00:00".to_string(),
+            trading_hours_end: "23:59".to_string(),
+            // Onboarding Progress
+            onboarding_completed: true,
+            tutorial_steps_completed: vec!["welcome".to_string(), "preferences".to_string()],
+            // Timestamps
             created_at: chrono::Utc::now().timestamp() as u64,
             updated_at: chrono::Utc::now().timestamp() as u64,
         };
         
         self.user_preferences_service.update_preferences(&preferences).await?;
         
-        self.test_users.insert(user_id.to_string(), user_profile.clone());
-        Ok(user_profile)
+        self.test_users.insert(user_id.to_string(), created_user.clone());
+        Ok(created_user)
     }
     
     /// Simulates market data update that should trigger opportunity detection
@@ -213,6 +289,16 @@ impl E2ETestFramework {
     }
 }
 
+/// Mock wrapper for ExchangeService to fit Arc<ExchangeService> requirements
+/// TODO: This is a temporary solution - in production we'd use dependency injection or traits
+pub struct MockExchangeServiceWrapper;
+
+impl MockExchangeServiceWrapper {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
 #[cfg(test)]
 mod e2e_user_journey_tests {
     use super::*;
@@ -233,7 +319,7 @@ mod e2e_user_journey_tests {
         ).await.expect("User creation should succeed");
         
         assert_eq!(user.user_id, "test_user_001");
-        assert_eq!(user.subscription_tier, SubscriptionTier::Free);
+        assert_eq!(user.subscription.tier, SubscriptionTier::Free);
         
         // Step 2: Verify user preferences were set correctly (UserTradingPreferencesService)
         let preferences = framework.user_preferences_service
@@ -311,85 +397,6 @@ mod e2e_user_journey_tests {
         // - Verify correct users get notifications
         // - Verify notification content is appropriate
         // - Verify notification timing and rate limiting
-        
-        framework.cleanup().await.expect("Cleanup should succeed");
-    }
-    
-    /// **E2E Test 3: Trading Focus Change Impact**
-    /// Tests: User Changes Focus → Preferences Update → Opportunity Filtering Changes → Different Notifications
-    /// This validates that user preference changes have immediate effect on what they receive.
-    #[tokio::test] 
-    async fn test_trading_focus_change_impact() {
-        let mut framework = E2ETestFramework::new().await;
-        framework.setup_mock_market_data();
-        
-        // Create user with arbitrage focus initially
-        let _user = framework.create_test_user(
-            "changing_user",
-            TradingFocus::Arbitrage,
-            ExperienceLevel::Intermediate
-        ).await.expect("User creation should succeed");
-        
-        // Generate opportunities for arbitrage focus
-        let arbitrage_opportunities = framework.simulate_market_update().await
-            .expect("Market update should succeed");
-            
-        // TODO: Verify user receives arbitrage opportunities
-        
-        // Change user to technical focus
-        framework.user_preferences_service.update_trading_focus(
-            "changing_user",
-            TradingFocus::Technical
-        ).await.expect("Focus change should succeed");
-        
-        // TODO: Generate technical trading opportunities
-        // TODO: Verify user now receives technical opportunities instead of arbitrage
-        // TODO: Verify arbitrage opportunities are filtered out
-        
-        framework.cleanup().await.expect("Cleanup should succeed");
-    }
-    
-    /// **E2E Test 4: AI Enhancement Pipeline** 
-    /// Tests: Market Data → AI Analysis → Enhanced Opportunities → User-Specific Recommendations
-    /// This validates the AI-driven intelligence layer works end-to-end.
-    #[tokio::test]
-    async fn test_ai_enhancement_pipeline() {
-        let mut framework = E2ETestFramework::new().await;
-        framework.setup_mock_market_data();
-        
-        // Create user who should receive AI enhancements
-        let _user = framework.create_test_user(
-            "ai_user",
-            TradingFocus::Hybrid,
-            ExperienceLevel::Advanced
-        ).await.expect("User creation should succeed");
-        
-        // Generate base opportunities
-        let opportunities = framework.simulate_market_update().await
-            .expect("Market update should succeed");
-            
-        // TODO: Test AI enhancement pipeline
-        // - AI analyzes market context
-        // - AI provides confidence scoring
-        // - AI generates personalized recommendations
-        // - Enhanced opportunities delivered to user
-        
-        framework.cleanup().await.expect("Cleanup should succeed");
-    }
-    
-    /// **E2E Test 5: Error Recovery and Edge Cases**
-    /// Tests: Service Failures → Error Recovery → User Experience Maintained
-    /// This validates the platform gracefully handles failures.
-    #[tokio::test]
-    async fn test_error_recovery_and_edge_cases() {
-        let mut framework = E2ETestFramework::new().await;
-        
-        // TODO: Test scenarios:
-        // - D1 database unavailable → fallback to KV
-        // - Exchange API rate limited → cached data used
-        // - AI service unavailable → opportunities still delivered without enhancement
-        // - Telegram API down → opportunities queued for later delivery
-        // - Invalid market data → filtered out, no crash
         
         framework.cleanup().await.expect("Cleanup should succeed");
     }

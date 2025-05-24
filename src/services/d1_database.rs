@@ -1078,12 +1078,14 @@ impl D1Service {
             template.name.clone().into(),
             template.description.clone().into(),
             template.version.clone().into(),
-            serde_json::to_string(&template.category).unwrap().into(),
+            serde_json::to_string(&template.category)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize category: {}", e)))?.into(),
             template_json.into(),
             (template.created_at as i64).into(),
             template.created_by.clone().into(),
             template.is_system_template.into(),
-            serde_json::to_string(&template.subscription_tier_required).unwrap().into(),
+            serde_json::to_string(&template.subscription_tier_required)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize subscription_tier_required: {}", e)))?.into(),
         ]).map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
         .run()
         .await
@@ -1119,8 +1121,10 @@ impl D1Service {
             preset.name.clone().into(),
             preset.description.clone().into(),
             preset.template_id.clone().into(),
-            serde_json::to_string(&preset.parameter_values).unwrap().into(),
-            serde_json::to_string(&preset.risk_level).unwrap().into(),
+            serde_json::to_string(&preset.parameter_values)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize parameter_values: {}", e)))?.into(),
+            serde_json::to_string(&preset.risk_level)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize risk_level: {}", e)))?.into(),
             preset.target_audience.clone().into(),
             (preset.created_at as i64).into(),
             preset.is_system_preset.into(),
@@ -1163,7 +1167,8 @@ impl D1Service {
             instance.user_id.clone().into(),
             instance.template_id.clone().into(),
             instance.preset_id.as_deref().unwrap_or("").into(),
-            serde_json::to_string(&instance.parameter_values).unwrap().into(),
+            serde_json::to_string(&instance.parameter_values)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize parameter_values: {}", e)))?.into(),
             (instance.version as i64).into(),
             instance.is_active.into(),
             (instance.created_at as i64).into(),
@@ -1214,8 +1219,10 @@ impl D1Service {
             template.title_template.clone().into(),
             template.message_template.clone().into(),
             template.priority.clone().into(),
-            serde_json::to_string(&template.channels).unwrap().into(),
-            serde_json::to_string(&template.variables).unwrap().into(),
+            serde_json::to_string(&template.channels)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize channels: {}", e)))?.into(),
+            serde_json::to_string(&template.variables)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize variables: {}", e)))?.into(),
             template.is_system_template.into(),
             template.is_active.into(),
             (template.created_at as i64).into(),
@@ -1262,11 +1269,13 @@ impl D1Service {
             trigger.name.clone().into(),
             trigger.description.clone().unwrap_or_default().into(),
             trigger.trigger_type.clone().into(),
-            serde_json::to_string(&trigger.conditions).unwrap().into(),
+            serde_json::to_string(&trigger.conditions)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize conditions: {}", e)))?.into(),
             trigger.template_id.clone().unwrap_or_default().into(),
             trigger.is_active.into(),
             trigger.priority.clone().into(),
-            serde_json::to_string(&trigger.channels).unwrap().into(),
+            serde_json::to_string(&trigger.channels)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize channels: {}", e)))?.into(),
             (trigger.cooldown_minutes as i64).into(),
             (trigger.max_alerts_per_hour as i64).into(),
             (trigger.created_at as i64).into(),
@@ -1324,8 +1333,10 @@ impl D1Service {
             notification.message.clone().into(),
             notification.category.clone().into(),
             notification.priority.clone().into(),
-            serde_json::to_string(&notification.notification_data).unwrap().into(),
-            serde_json::to_string(&notification.channels).unwrap().into(),
+            serde_json::to_string(&notification.notification_data)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize notification_data: {}", e)))?.into(),
+            serde_json::to_string(&notification.channels)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize channels: {}", e)))?.into(),
             notification.status.clone().into(),
             (notification.created_at as i64).into(),
             notification.scheduled_at.map(|t| t as i64).unwrap_or(0).into(),
@@ -1374,7 +1385,8 @@ impl D1Service {
             history.user_id.clone().into(),
             history.channel.clone().into(),
             history.delivery_status.clone().into(),
-            serde_json::to_string(&history.response_data).unwrap().into(),
+            serde_json::to_string(&history.response_data)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize response_data: {}", e)))?.into(),
             history.error_message.clone().unwrap_or_default().into(),
             history.delivery_time_ms.map(|t| t as i64).unwrap_or(0).into(),
             (history.retry_count as i64).into(),
