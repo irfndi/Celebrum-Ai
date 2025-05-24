@@ -4,7 +4,7 @@
 use crate::services::market_analysis::{MarketAnalysisService, TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon, PriceSeries};
 use crate::services::user_trading_preferences::{UserTradingPreferencesService, TradingFocus, ExperienceLevel, RiskTolerance};
 use crate::types::ExchangeIdEnum;
-use crate::utils::{ArbitrageError, ArbitrageResult, logger::{Logger, LogLevel}};
+use crate::utils::{ArbitrageResult, logger::Logger};
 use std::sync::Arc;
 use serde::{Serialize, Deserialize};
 
@@ -189,10 +189,10 @@ impl TechnicalTradingService {
         // Get price series for the pair
         if let Some(price_series) = self.market_analysis_service.get_price_series(&exchange_str, pair) {
             // Generate different types of technical signals
-            signals.extend(self.generate_rsi_signals(&price_series)?);
-            signals.extend(self.generate_moving_average_signals(&price_series)?);
-            signals.extend(self.generate_bollinger_band_signals(&price_series)?);
-            signals.extend(self.generate_momentum_signals(&price_series)?);
+            signals.extend(self.generate_rsi_signals(price_series)?);
+            signals.extend(self.generate_moving_average_signals(price_series)?);
+            signals.extend(self.generate_bollinger_band_signals(price_series)?);
+            signals.extend(self.generate_momentum_signals(price_series)?);
         }
 
         // Filter signals by minimum confidence
@@ -202,6 +202,7 @@ impl TechnicalTradingService {
     }
 
     /// Generate RSI-based trading signals
+    #[allow(clippy::result_large_err)]
     fn generate_rsi_signals(&self, price_series: &PriceSeries) -> ArbitrageResult<Vec<TechnicalSignal>> {
         let mut signals = Vec::new();
 
@@ -277,6 +278,7 @@ impl TechnicalTradingService {
     }
 
     /// Generate moving average crossover signals
+    #[allow(clippy::result_large_err)]
     fn generate_moving_average_signals(&self, price_series: &PriceSeries) -> ArbitrageResult<Vec<TechnicalSignal>> {
         let mut signals = Vec::new();
 
@@ -289,8 +291,8 @@ impl TechnicalTradingService {
             &[&sma_short_name, &sma_long_name]
         )?;
 
-        let short_ma = indicators.iter().find(|i| i.indicator_name == format!("SMA_{}", self.config.ma_short_period));
-        let long_ma = indicators.iter().find(|i| i.indicator_name == format!("SMA_{}", self.config.ma_long_period));
+        let short_ma = indicators.iter().find(|i| i.indicator_name == format!("sma_{}", self.config.ma_short_period));
+        let long_ma = indicators.iter().find(|i| i.indicator_name == format!("sma_{}", self.config.ma_long_period));
 
         if let (Some(short_indicator), Some(long_indicator)) = (short_ma, long_ma) {
             if short_indicator.values.len() >= 2 && long_indicator.values.len() >= 2 {
@@ -350,6 +352,7 @@ impl TechnicalTradingService {
     }
 
     /// Generate Bollinger Band signals
+    #[allow(clippy::result_large_err)]
     fn generate_bollinger_band_signals(&self, price_series: &PriceSeries) -> ArbitrageResult<Vec<TechnicalSignal>> {
         let mut signals = Vec::new();
 
@@ -360,7 +363,7 @@ impl TechnicalTradingService {
             &[&bb_name]
         )?;
 
-        if let Some(bb_indicator) = indicators.iter().find(|i| i.indicator_name == format!("BB_{}", self.config.bb_period)) {
+        if let Some(bb_indicator) = indicators.iter().find(|i| i.indicator_name == format!("bb_{}", self.config.bb_period)) {
             if let Some(latest_bb) = bb_indicator.values.last() {
                 let current_price = if let Some(latest_price) = price_series.data_points.last() {
                     latest_price.price
@@ -434,6 +437,7 @@ impl TechnicalTradingService {
     }
 
     /// Generate momentum-based signals
+    #[allow(clippy::result_large_err)]
     fn generate_momentum_signals(&self, price_series: &PriceSeries) -> ArbitrageResult<Vec<TechnicalSignal>> {
         let mut signals = Vec::new();
 
@@ -443,6 +447,12 @@ impl TechnicalTradingService {
         }
 
         let prices: Vec<f64> = price_series.data_points.iter().map(|p| p.price).collect();
+        
+        // Ensure we have enough data points (at least 6 for 5 periods ago calculation)
+        if prices.len() < 6 {
+            return Ok(signals);
+        }
+        
         let current_price = prices[prices.len() - 1];
         let price_5_periods_ago = prices[prices.len() - 6]; // 5 periods ago
         
@@ -484,6 +494,8 @@ impl TechnicalTradingService {
     }
 
     /// Create a technical signal with all necessary data
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::result_large_err)]
     fn create_technical_signal(
         &self,
         price_series: &PriceSeries,

@@ -1,6 +1,6 @@
 // src/services/dynamic_config.rs
 
-use crate::types::{UserProfile, SubscriptionTier, RiskManagementConfig, UserConfiguration};
+use crate::types::SubscriptionTier;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use crate::services::D1Service;
 use worker::kv::KvStore;
@@ -8,7 +8,7 @@ use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use chrono::Utc;
 use uuid::Uuid;
-use serde_json::{json, Value};
+// use serde_json::json; // Conditionally imported in tests
 
 /// Dynamic Configuration Service for Task 7
 /// Implements user-customizable trading parameters with templates, presets, validation, and versioning
@@ -429,7 +429,7 @@ impl DynamicConfigService {
         user_id: &str,
     ) -> ArbitrageResult<ConfigValidationResult> {
         let mut errors = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Get user subscription status via D1 database
         let user_has_premium = self.check_user_subscription_status(user_id).await?;
@@ -493,7 +493,7 @@ impl DynamicConfigService {
                     },
                     ParameterType::Percentage => {
                         if let Some(num) = value.as_f64() {
-                            if num < 0.0 || num > 1.0 {
+                            if !(0.0..=1.0).contains(&num) {
                                 errors.push(ValidationError {
                                     parameter_key: param.key.clone(),
                                     error_type: ValidationErrorType::OutOfRange,
@@ -563,6 +563,7 @@ impl DynamicConfigService {
     }
 
     // Private helper methods
+    #[allow(clippy::result_large_err)]
     fn validate_template(&self, template: &DynamicConfigTemplate) -> ArbitrageResult<()> {
         if template.name.is_empty() {
             return Err(ArbitrageError::validation_error("Template name cannot be empty"));
@@ -573,6 +574,7 @@ impl DynamicConfigService {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn validate_preset_against_template(&self, preset: &ConfigPreset, template: &DynamicConfigTemplate) -> ArbitrageResult<()> {
         for param in &template.parameters {
             if param.is_required && !preset.parameter_values.contains_key(&param.key) {
@@ -767,6 +769,7 @@ mod tests {
     use crate::types::SubscriptionTier;
     use std::collections::HashMap;
     use chrono::Utc;
+    use serde_json::json;
 
     // Test that demonstrates DynamicConfigService can be constructed and used
     // This addresses the "never constructed" warning
@@ -1014,7 +1017,7 @@ mod tests {
                     },
                     ParameterType::Percentage => {
                         if let Some(num) = value.as_f64() {
-                            if num < 0.0 || num > 1.0 {
+                            if !(0.0..=1.0).contains(&num) {
                                 errors.push(ValidationError {
                                     parameter_key: param.key.clone(),
                                     error_type: ValidationErrorType::OutOfRange,
@@ -1035,7 +1038,7 @@ mod tests {
                         errors.push(ValidationError {
                             parameter_key: param.key.clone(),
                             error_type: ValidationErrorType::SubscriptionRequired,
-                            message: format!("Parameter requires subscription"),
+                            message: "Parameter requires subscription".to_string(),
                             suggested_value: Some(param.default_value.clone()),
                         });
                     }
@@ -1066,6 +1069,7 @@ mod tests {
         })
     }
 
+    #[allow(clippy::result_large_err)]
     fn validate_template_structure(template: &DynamicConfigTemplate) -> ArbitrageResult<()> {
         if template.name.is_empty() {
             return Err(ArbitrageError::validation_error("Template name cannot be empty"));
@@ -1076,6 +1080,7 @@ mod tests {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn validate_preset_against_template_logic(preset: &ConfigPreset, template: &DynamicConfigTemplate) -> ArbitrageResult<()> {
         for param in &template.parameters {
             if param.is_required && !preset.parameter_values.contains_key(&param.key) {

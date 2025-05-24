@@ -1,7 +1,7 @@
 // src/utils/formatter.rs
 
 use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
-use crate::services::opportunity_categorization::{CategorizedOpportunity, OpportunityCategory, RiskIndicator};
+use crate::services::opportunity_categorization::{CategorizedOpportunity, OpportunityCategory};
 use crate::services::ai_intelligence::{AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion};
 use crate::services::market_analysis::RiskLevel;
 #[cfg(not(test))]
@@ -151,9 +151,7 @@ pub fn format_categorized_opportunity_message(categorized_opp: &CategorizedOppor
 
     // Add risk indicator details
     let risk_indicator = &categorized_opp.risk_indicator;
-    message.push_str(&format!(
-        "\n🔍 *Risk Assessment:*"
-    ));
+    message.push_str("\n🔍 *Risk Assessment:*");
     message.push_str(&format!(
         "\n   • Volatility: `{}` {}",
         escape_markdown_v2(&risk_indicator.volatility_assessment),
@@ -213,9 +211,7 @@ pub fn format_ai_enhancement_message(enhancement: &AiOpportunityEnhancement) -> 
 
     // Risk Assessment Summary
     let risk_assessment = &enhancement.ai_risk_assessment;
-    message.push_str(&format!(
-        "\n📊 *Risk Analysis:*"
-    ));
+    message.push_str("\n📊 *Risk Analysis:*");
     message.push_str(&format!(
         "\n   • Overall Risk: `{:.1}%` {}",
         risk_assessment.overall_risk_score * 100.0,

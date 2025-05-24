@@ -1,22 +1,20 @@
-use worker::{Request, Response, Env};
+// use worker::{Request, Response, Env}; // TODO: Re-enable when implementing worker integration
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use crate::{
     services::{
         AiIntegrationService, 
         ai_integration::{AiProvider, AiAnalysisRequest, AiAnalysisResponse},
-        UserTradingPreferencesService,
         UserProfileService,
         D1Service,
     },
-    types::{UserProfile, UserApiKey, GlobalOpportunity, ArbitrageOpportunity, ExchangeIdEnum},
-    utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}},
+    types::{UserProfile, GlobalOpportunity, ArbitrageOpportunity},
+    utils::{ArbitrageResult, ArbitrageError},
 };
 use worker::kv::KvStore;
 use reqwest::Client;
 use worker::console_log;
-use regex;
-use regex::Regex;
+// use regex::Regex; // TODO: Re-enable when implementing text parsing features
 
 /// Configuration for AI-Exchange Router
 #[derive(Debug, Clone)]
@@ -105,7 +103,7 @@ pub struct AiExchangeRouterService {
     user_service: UserProfileService,
     d1_service: D1Service,
     kv_store: KvStore,
-    http_client: Client,
+    _http_client: Client,
 }
 
 impl AiExchangeRouterService {
@@ -123,7 +121,7 @@ impl AiExchangeRouterService {
             user_service,
             d1_service,
             kv_store,
-            http_client: Client::new(),
+            _http_client: Client::new(),
         }
     }
 
@@ -454,6 +452,7 @@ impl AiExchangeRouterService {
     }
 
     /// Create user context for AI analysis
+    #[allow(clippy::result_large_err)]
     fn create_user_context(&self, user_profile: &UserProfile) -> ArbitrageResult<Value> {
         Ok(json!({
             "user_id": user_profile.user_id,
@@ -467,6 +466,7 @@ impl AiExchangeRouterService {
     }
 
     /// Create opportunity-specific analysis request
+    #[allow(clippy::result_large_err)]
     fn create_opportunity_analysis_request(
         &self,
         opportunity: &GlobalOpportunity,
@@ -487,13 +487,14 @@ impl AiExchangeRouterService {
             prompt,
             market_data: serde_json::to_value(opportunity)
                 .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize opportunity: {}", e)))?,
-            user_context: user_context.cloned().or_else(|| Some(self.create_user_context(user_profile).ok()?)),
+            user_context: user_context.cloned().or_else(|| self.create_user_context(user_profile).ok()),
             max_tokens: Some(600),
             temperature: Some(0.5),
         })
     }
 
     /// Parse AI response into structured opportunity analysis
+    #[allow(clippy::result_large_err)]
     fn parse_ai_opportunity_response(
         &self,
         user_id: &str,
@@ -894,14 +895,16 @@ mod tests {
     #[cfg(test)]
     mod integration_tests {
         use super::*;
-        use crate::types::{UserProfile, SubscriptionTier};
+        use crate::types::UserProfile;
         use std::collections::HashMap;
 
         // Mock structures for testing
+        #[allow(dead_code)]
         struct MockKvStore {
             data: HashMap<String, String>,
         }
 
+        #[allow(dead_code)]
         impl MockKvStore {
             fn new() -> Self {
                 Self {
@@ -919,10 +922,12 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)]
         struct MockUserProfileService {
             profiles: HashMap<String, UserProfile>,
         }
 
+        #[allow(dead_code)]
         impl MockUserProfileService {
             fn new() -> Self {
                 Self {
@@ -940,10 +945,12 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)]
         struct MockAiIntegrationService {
             responses: HashMap<String, AiAnalysisResponse>,
         }
 
+        #[allow(dead_code)]
         impl MockAiIntegrationService {
             fn new() -> Self {
                 Self {
@@ -975,8 +982,10 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)]
         struct MockD1Service;
 
+        #[allow(dead_code)]
         impl MockD1Service {
             fn new() -> Self {
                 Self
@@ -1042,10 +1051,10 @@ mod tests {
         #[tokio::test]
         async fn test_ai_exchange_router_service_creation() {
             let config = create_test_config();
-            let ai_service = MockAiIntegrationService::new();
-            let user_service = MockUserProfileService::new();
-            let d1_service = MockD1Service::new();
-            let kv_store = MockKvStore::new();
+            let _ai_service = MockAiIntegrationService::new();
+            let _user_service = MockUserProfileService::new();
+            let _d1_service = MockD1Service::new();
+            let _kv_store = MockKvStore::new();
 
             // Note: In actual implementation, this would use the real constructor
             // For now, we test the configuration and structure
@@ -1055,6 +1064,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[allow(clippy::result_large_err)]
         async fn test_rate_limit_functionality() -> ArbitrageResult<()> {
             let rate_limit = AiCallRateLimit {
                 user_id: "test_user".to_string(),
@@ -1078,8 +1088,8 @@ mod tests {
 
         #[tokio::test]
         async fn test_market_data_analysis_prompt_generation() {
-            let config = create_test_config();
-            let market_data = create_test_market_data();
+            let _config = create_test_config();
+            let _market_data = create_test_market_data();
             let user_profile = create_test_user_profile();
 
             // Test default prompt generation
@@ -1104,10 +1114,11 @@ mod tests {
         }
 
         #[tokio::test]
+        #[allow(clippy::result_large_err)]
         async fn test_opportunity_analysis_parsing() -> ArbitrageResult<()> {
             let user_id = "test_user_123";
             let opportunity = create_test_global_opportunity();
-            let ai_response = create_mock_ai_response();
+            let _ai_response = create_mock_ai_response();
             
             // Test AI opportunity analysis structure
             let analysis = AiOpportunityAnalysis {

@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use thiserror::Error;
+// use thiserror::Error; // TODO: Re-enable when implementing custom error types
 
 /// Exchange identifiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -684,7 +684,7 @@ impl UserProfile {
             .filter(|key| key.is_active)
             .filter_map(|key| {
                 if let ApiKeyProvider::Exchange(exchange) = &key.provider {
-                    Some(exchange.clone())
+                    Some(*exchange)
                 } else {
                     None
                 }
@@ -718,7 +718,7 @@ pub struct InvitationCode {
 impl InvitationCode {
     pub fn new(purpose: String, max_uses: Option<u32>, expires_in_days: Option<u32>) -> Self {
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        let code = format!("ARB-{}", uuid::Uuid::new_v4().to_string().replace('-', "").to_uppercase()[..8].to_string());
+        let code = format!("ARB-{}", &uuid::Uuid::new_v4().to_string().replace('-', "").to_uppercase()[..8]);
         
         let expires_at = expires_in_days.map(|days| {
             now + (days as u64 * 24 * 60 * 60 * 1000) // Convert days to milliseconds
@@ -740,8 +740,8 @@ impl InvitationCode {
         let now = chrono::Utc::now().timestamp_millis() as u64;
         
         self.is_active
-            && self.expires_at.map_or(true, |exp| now < exp)
-            && self.max_uses.map_or(true, |max| self.current_uses < max)
+            && self.expires_at.is_none_or(|exp| now < exp)
+            && self.max_uses.is_none_or(|max| self.current_uses < max)
     }
 
     pub fn use_code(&mut self) -> bool {
@@ -807,7 +807,6 @@ impl UserSession {
 }
 
 /// Global Opportunity System Types for Task 2
-
 /// Global opportunity with distribution metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalOpportunity {
@@ -923,18 +922,13 @@ impl Default for GlobalOpportunityConfig {
 }
 
 /// Risk tolerance levels for users
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum RiskTolerance {
     Low,
+    #[default]
     Medium,
     High,
     Custom,
-}
-
-impl Default for RiskTolerance {
-    fn default() -> Self {
-        RiskTolerance::Medium
-    }
 }
 
 impl std::fmt::Display for RiskTolerance {
@@ -963,18 +957,13 @@ impl std::str::FromStr for RiskTolerance {
 }
 
 /// Account status for users
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum AccountStatus {
+    #[default]
     Active,
     Suspended,
     Pending,
     Disabled,
-}
-
-impl Default for AccountStatus {
-    fn default() -> Self {
-        AccountStatus::Active
-    }
 }
 
 impl std::fmt::Display for AccountStatus {
@@ -1003,18 +992,13 @@ impl std::str::FromStr for AccountStatus {
 }
 
 /// Email verification status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum EmailVerificationStatus {
+    #[default]
     Pending,
     Verified,
     Failed,
     Expired,
-}
-
-impl Default for EmailVerificationStatus {
-    fn default() -> Self {
-        EmailVerificationStatus::Pending
-    }
 }
 
 impl std::fmt::Display for EmailVerificationStatus {
@@ -1043,18 +1027,13 @@ impl std::str::FromStr for EmailVerificationStatus {
 }
 
 /// User invitation types
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum InvitationType {
     Email,
     Telegram,
     Referral,
+    #[default]
     Direct,
-}
-
-impl Default for InvitationType {
-    fn default() -> Self {
-        InvitationType::Direct
-    }
 }
 
 impl std::fmt::Display for InvitationType {
@@ -1083,19 +1062,14 @@ impl std::str::FromStr for InvitationType {
 }
 
 /// Invitation status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum InvitationStatus {
+    #[default]
     Pending,
     Accepted,
     Expired,
     Cancelled,
     Failed,
-}
-
-impl Default for InvitationStatus {
-    fn default() -> Self {
-        InvitationStatus::Pending
-    }
 }
 
 impl std::fmt::Display for InvitationStatus {

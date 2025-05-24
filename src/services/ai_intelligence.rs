@@ -10,9 +10,9 @@ use crate::services::{
     UserTradingPreferencesService,
     CorrelationAnalysisService,
     D1Service,
-    opportunity_categorization::{CategorizedOpportunity, UserOpportunityPreferences, OpportunityCategory},
-    user_trading_preferences::{UserTradingPreferences, TradingFocus, ExperienceLevel, RiskTolerance},
-    market_analysis::{TradingOpportunity, RiskLevel, TimeHorizon, OpportunityType},
+    opportunity_categorization::CategorizedOpportunity,
+    user_trading_preferences::{UserTradingPreferences, TradingFocus},
+    market_analysis::{TradingOpportunity, RiskLevel},
     correlation_analysis::CorrelationMetrics,
     dynamic_config::UserConfigInstance,
 };
@@ -135,6 +135,7 @@ pub struct AiIntelligenceService {
 
 impl AiIntelligenceService {
     /// Create new AI Intelligence Service
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: AiIntelligenceConfig,
         ai_router: AiExchangeRouterService,
@@ -195,7 +196,7 @@ impl AiIntelligenceService {
             .await?;
 
         // Create AI analysis prompt
-        let ai_prompt = self.create_opportunity_analysis_prompt(
+        let _ai_prompt = self.create_opportunity_analysis_prompt(
             &categorized_opp,
             &positions,
             &preferences,
@@ -214,7 +215,7 @@ impl AiIntelligenceService {
             user_id,
             opportunity,
             &categorized_opp,
-            &ai_response.first().unwrap(),
+            ai_response.first().unwrap(),
             &positions,
         ).await?;
 
@@ -253,7 +254,7 @@ impl AiIntelligenceService {
         }
 
         // Get correlation data - use a mock exchange data for now
-        let mut exchange_data = std::collections::HashMap::new();
+        let exchange_data = std::collections::HashMap::new();
         // TODO: In real implementation, fetch actual price data from exchanges
         
         // Get user preferences  
@@ -271,7 +272,7 @@ impl AiIntelligenceService {
         };
 
         // Create AI risk assessment prompt
-        let ai_prompt = self.create_portfolio_risk_prompt(&positions, &correlation_metrics, &preferences);
+        let _ai_prompt = self.create_portfolio_risk_prompt(&positions, &correlation_metrics, &preferences);
 
         // Get AI analysis
         let market_snapshot = self.create_portfolio_market_snapshot(&positions);
@@ -579,7 +580,7 @@ impl AiIntelligenceService {
         &self,
         user_id: &str,
         opportunity: &TradingOpportunity,
-        categorized_opp: &CategorizedOpportunity,
+        _categorized_opp: &CategorizedOpportunity,
         ai_analysis: &crate::services::ai_exchange_router::AiOpportunityAnalysis,
         positions: &[ArbitragePosition],
     ) -> ArbitrageResult<AiOpportunityEnhancement> {
@@ -798,13 +799,13 @@ impl AiIntelligenceService {
     }
 
     /// Get user performance data
-    async fn get_user_performance_data(&self, user_id: &str, _days: u32) -> ArbitrageResult<PerformanceData> {
+    async fn get_user_performance_data(&self, _user_id: &str, _days: u32) -> ArbitrageResult<PerformanceData> {
         // This would fetch actual performance data from D1
         Ok(PerformanceData {
             total_trades: 25,
             win_rate: 0.68,
             average_pnl: 45.50,
-            total_pnl: 1137.50,
+            _total_pnl: 1137.50,
         })
     }
 
@@ -1028,7 +1029,7 @@ struct PerformanceData {
     total_trades: u32,
     win_rate: f64,
     average_pnl: f64,
-    total_pnl: f64,
+    _total_pnl: f64,
 }
 
 // ============= TESTS =============
@@ -1051,6 +1052,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     fn create_test_opportunity() -> TradingOpportunity {
         TradingOpportunity {
             opportunity_id: "test_opp_1".to_string(),
@@ -1250,7 +1252,7 @@ mod tests {
             total_trades: 100,
             win_rate: 0.8,
             average_pnl: 50.0,
-            total_pnl: 5000.0,
+            _total_pnl: 5000.0,
         };
         assert_eq!(service.calculate_automation_readiness(&high_readiness_data), 0.8);
 
@@ -1259,7 +1261,7 @@ mod tests {
             total_trades: 30,
             win_rate: 0.65,
             average_pnl: 30.0,
-            total_pnl: 900.0,
+            _total_pnl: 900.0,
         };
         assert_eq!(service.calculate_automation_readiness(&medium_readiness_data), 0.6);
 
@@ -1268,7 +1270,7 @@ mod tests {
             total_trades: 10,
             win_rate: 0.5,
             average_pnl: 20.0,
-            total_pnl: 200.0,
+            _total_pnl: 200.0,
         };
         assert_eq!(service.calculate_automation_readiness(&low_readiness_data), 0.3);
     }
@@ -1332,6 +1334,7 @@ mod tests {
     }
 
     // Mock service for testing business logic
+    #[allow(dead_code)]
     struct MockAiIntelligenceService {
         config: AiIntelligenceConfig,
     }

@@ -364,7 +364,7 @@ impl NotificationService {
             0.0
         };
 
-        let mut category_breakdown = HashMap::new();
+        let category_breakdown = HashMap::new();
         let mut channel_performance = HashMap::new();
 
         // Analyze categories and channels
@@ -413,6 +413,7 @@ impl NotificationService {
 
     // ============= HELPER METHODS =============
 
+    #[allow(clippy::result_large_err)]
     fn validate_template(&self, template: &NotificationTemplate) -> ArbitrageResult<()> {
         if template.template_id.is_empty() {
             return Err(ArbitrageError::validation_error("Template ID cannot be empty".to_string()));
@@ -530,6 +531,7 @@ impl NotificationService {
         Ok(false)
     }
 
+    #[allow(clippy::result_large_err)]
     fn generate_notification_content(
         &self,
         template: &NotificationTemplate,
@@ -618,7 +620,7 @@ impl NotificationService {
             .ok_or_else(|| ArbitrageError::not_found(format!("User profile not found: {}", user_id)))
     }
 
-    fn was_delivery_successful(&self, notification_id: &str, channel: &str) -> bool {
+    fn was_delivery_successful(&self, _notification_id: &str, _channel: &str) -> bool {
         // TODO: Implement async version - this should check D1 notification_history table
         // For now, return false for more realistic behavior since delivery can fail
         // In production, this would query the notification_history table:
@@ -720,6 +722,7 @@ impl NotificationService {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn get_default_template_for_trigger_type(&self, trigger_type: &str) -> ArbitrageResult<NotificationTemplate> {
         match trigger_type {
             "opportunity_threshold" => Ok(self.create_opportunity_alert_template()),
@@ -822,7 +825,7 @@ mod tests {
         let template_id = "tmpl_opportunity_alert";
         let category = "opportunity";
         let is_system = true;
-        let variables = vec!["pair", "rate_difference", "long_exchange", "short_exchange", "long_rate", "short_rate", "potential_profit"];
+        let variables = ["pair", "rate_difference", "long_exchange", "short_exchange", "long_rate", "short_rate", "potential_profit"];
         
         // Verify template properties (this is a unit test, not integration)
         assert_eq!(template_id, "tmpl_opportunity_alert");

@@ -2,12 +2,12 @@
 // Task 9.1: Technical Indicators Foundation for Hybrid Trading Platform
 // Supports both arbitrage enhancement and standalone technical trading
 
-use crate::utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}};
+use crate::utils::{ArbitrageResult, ArbitrageError, logger::Logger};
 use crate::services::{D1Service, UserTradingPreferencesService};
 use crate::services::user_trading_preferences::{UserTradingPreferences, TradingFocus};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use worker::*;
+// use worker::*; // TODO: Re-enable when implementing worker functionality
 
 // ============= CORE DATA STRUCTURES =============
 
@@ -207,6 +207,7 @@ pub struct MathUtils;
 
 impl MathUtils {
     /// Calculate Simple Moving Average
+    #[allow(clippy::result_large_err)]
     pub fn simple_moving_average(prices: &[f64], period: usize) -> ArbitrageResult<Vec<f64>> {
         if prices.len() < period {
             return Err(ArbitrageError::validation_error("Insufficient data for SMA calculation"));
@@ -223,6 +224,7 @@ impl MathUtils {
     }
     
     /// Calculate Exponential Moving Average
+    #[allow(clippy::result_large_err)]
     pub fn exponential_moving_average(prices: &[f64], period: usize) -> ArbitrageResult<Vec<f64>> {
         if prices.is_empty() {
             return Err(ArbitrageError::validation_error("No price data provided"));
@@ -244,6 +246,7 @@ impl MathUtils {
     }
     
     /// Calculate standard deviation
+    #[allow(clippy::result_large_err)]
     pub fn standard_deviation(values: &[f64]) -> ArbitrageResult<f64> {
         if values.is_empty() {
             return Err(ArbitrageError::validation_error("No values provided"));
@@ -258,6 +261,7 @@ impl MathUtils {
     }
     
     /// Calculate Relative Strength Index (RSI)
+    #[allow(clippy::result_large_err)]
     pub fn relative_strength_index(prices: &[f64], period: usize) -> ArbitrageResult<Vec<f64>> {
         if prices.len() < period + 1 {
             return Err(ArbitrageError::validation_error("Insufficient data for RSI calculation"));
@@ -299,6 +303,7 @@ impl MathUtils {
     }
     
     /// Calculate Bollinger Bands
+    #[allow(clippy::result_large_err)]
     pub fn bollinger_bands(prices: &[f64], period: usize, std_dev_multiplier: f64) -> ArbitrageResult<(Vec<f64>, Vec<f64>, Vec<f64>)> {
         let sma = Self::simple_moving_average(prices, period)?;
         
@@ -322,6 +327,7 @@ impl MathUtils {
     }
     
     /// Calculate price correlation between two price series
+    #[allow(clippy::result_large_err)]
     pub fn price_correlation(prices1: &[f64], prices2: &[f64]) -> ArbitrageResult<f64> {
         if prices1.len() != prices2.len() || prices1.is_empty() {
             return Err(ArbitrageError::validation_error("Price series must be same length and non-empty"));
@@ -353,7 +359,7 @@ impl MathUtils {
 
 /// Main service for market analysis and technical indicators
 pub struct MarketAnalysisService {
-    d1_service: D1Service,
+    _d1_service: D1Service,
     preferences_service: UserTradingPreferencesService,
     logger: Logger,
     price_cache: HashMap<String, PriceSeries>,  // In-memory cache for recent price data
@@ -366,7 +372,7 @@ impl MarketAnalysisService {
         logger: Logger,
     ) -> Self {
         Self {
-            d1_service,
+            _d1_service: d1_service,
             preferences_service,
             logger,
             price_cache: HashMap::new(),
@@ -501,6 +507,7 @@ impl MarketAnalysisService {
     }
     
     /// Calculate technical indicators for a price series
+    #[allow(clippy::result_large_err)]
     pub fn calculate_indicators(&self, series: &PriceSeries, indicators: &[&str]) -> ArbitrageResult<Vec<IndicatorResult>> {
         let prices = series.price_values();
         let mut results = Vec::new();
@@ -649,7 +656,7 @@ mod tests {
         
         // RSI should be between 0 and 100
         for value in rsi {
-            assert!(value >= 0.0 && value <= 100.0);
+            assert!((0.0..=100.0).contains(&value));
         }
     }
     

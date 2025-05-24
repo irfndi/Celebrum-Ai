@@ -124,6 +124,7 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
 // Helper functions to reduce code duplication
 
 /// Parse exchanges from environment string, returning error if less than two
+#[allow(clippy::result_large_err)]
 fn parse_exchanges_from_env(exchanges_str: &str) -> std::result::Result<Vec<ExchangeIdEnum>, ArbitrageError> {
     let exchanges: Vec<ExchangeIdEnum> = exchanges_str
         .split(',')
@@ -534,7 +535,7 @@ mod tests {
             match (method, path) {
                 (Method::Get, "/health") => {
                     // This should match the health endpoint
-                    assert!(true, "Health endpoint route should match");
+                    // Health endpoint route matched
                 }
                 _ => panic!("Health endpoint route should match"),
             }
@@ -547,7 +548,7 @@ mod tests {
             
             match (method, path) {
                 (Method::Get, "/kv-test") => {
-                    assert!(true, "KV test endpoint route should match");
+                    // KV test endpoint route matched
                 }
                 _ => panic!("KV test endpoint route should match"),
             }
@@ -566,7 +567,7 @@ mod tests {
                     (Method::Get, "/exchange/markets") |
                     (Method::Get, "/exchange/ticker") |
                     (Method::Get, "/exchange/funding") => {
-                        assert!(true, "Exchange endpoint should match");
+                        // Exchange endpoint matched
                     }
                     _ => panic!("Exchange endpoint should match for {}", path),
                 }
@@ -580,7 +581,7 @@ mod tests {
             
             match (method, path) {
                 (Method::Post, "/find-opportunities") => {
-                    assert!(true, "Find opportunities endpoint should match");
+                    // Find opportunities endpoint matched
                 }
                 _ => panic!("Find opportunities endpoint should match"),
             }
@@ -593,7 +594,7 @@ mod tests {
             
             match (method, path) {
                 (Method::Post, "/webhook") => {
-                    assert!(true, "Telegram webhook endpoint should match");
+                    // Telegram webhook endpoint matched
                 }
                 _ => panic!("Telegram webhook endpoint should match"),
             }
@@ -613,24 +614,24 @@ mod tests {
                 match (&method, path) {
                     (Method::Post, "/positions") |
                     (Method::Get, "/positions") => {
-                        assert!(true, "Positions endpoint should match");
+                        // Positions endpoint matched
                     }
                     (Method::Get, path) if path.starts_with("/positions/") => {
                         let id = path.strip_prefix("/positions/").unwrap();
                         if Uuid::parse_str(id).is_ok() {
-                            assert!(true, "GET position by ID should match with valid UUID");
+                            // GET position by ID matched with valid UUID
                         }
                     }
                     (Method::Put, path) if path.starts_with("/positions/") => {
                         let id = path.strip_prefix("/positions/").unwrap();
                         if Uuid::parse_str(id).is_ok() {
-                            assert!(true, "PUT position by ID should match with valid UUID");
+                            // PUT position by ID matched with valid UUID
                         }
                     }
                     (Method::Delete, path) if path.starts_with("/positions/") => {
                         let id = path.strip_prefix("/positions/").unwrap();
                         if Uuid::parse_str(id).is_ok() {
-                            assert!(true, "DELETE position by ID should match with valid UUID");
+                            // DELETE position by ID matched with valid UUID
                         }
                     }
                     _ => {
@@ -684,7 +685,7 @@ mod tests {
                         panic!("Route should not match position endpoints");
                     }
                     _ => {
-                        assert!(true, "Unknown routes should fall through to default");
+                        // Unknown routes fall through to default
                     }
                 }
             }
@@ -705,10 +706,10 @@ mod tests {
             for cron in cron_patterns {
                 match cron {
                     "* * * * *" => {
-                        assert!(true, "Every minute cron should be recognized");
+                        // Every minute cron recognized
                     }
                     _ => {
-                        assert!(true, "Other cron patterns should not trigger opportunity monitoring");
+                        // Other cron patterns don't trigger opportunity monitoring
                     }
                 }
             }

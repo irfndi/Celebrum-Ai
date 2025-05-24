@@ -1,9 +1,9 @@
 // src/services/fund_monitoring.rs
 
-use crate::types::{Balance, Balances, UserProfile, UserApiKey, ExchangeIdEnum, UserSession};
+use crate::types::{Balance, Balances};
 use crate::services::{ExchangeService, D1Service};
 use crate::ExchangeInterface;
-use crate::utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}};
+// use crate::utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}}; // TODO: Re-enable when implementing fund monitoring
 use worker::*;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
@@ -238,7 +238,7 @@ impl FundMonitoringService {
     /// Optimize fund allocation across exchanges
     pub async fn optimize_fund_allocation(
         &self,
-        user_id: &str,
+        _user_id: &str,
         balance_snapshots: &HashMap<String, ExchangeBalanceSnapshot>,
         target_allocation: &HashMap<String, f64>, // asset -> target percentage
     ) -> Result<FundOptimizationResult> {
@@ -629,12 +629,12 @@ impl BalanceAnalytics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+
 
     #[test]
     fn test_optimization_score_calculation() {
         // Test the optimization score calculation directly
-        let allocations = vec![
+        let allocations = [
             FundAllocation {
                 exchange_id: "binance".to_string(),
                 asset: "BTC".to_string(),
@@ -654,21 +654,21 @@ mod tests {
         ];
 
         // Create a minimal config for testing
-        let config = FundMonitoringConfig::default();
+        let _config = FundMonitoringConfig::default();
         
         // Test the calculation logic directly
         let total_variance: f64 = allocations.iter().map(|a| a.variance_percentage.abs()).sum();
         let avg_variance = total_variance / allocations.len() as f64;
         let score = 100.0 - (avg_variance * 2.0).min(100.0);
         
-        assert!(score >= 0.0 && score <= 100.0);
+        assert!((0.0..=100.0).contains(&score));
         assert!(score > 80.0); // Should be high score with low variance
     }
 
     #[test]
     fn test_risk_assessment_logic() {
         // Test risk assessment logic directly
-        let low_risk_allocations = vec![
+        let low_risk_allocations = [
             FundAllocation {
                 exchange_id: "binance".to_string(),
                 asset: "BTC".to_string(),
@@ -679,7 +679,7 @@ mod tests {
             },
         ];
 
-        let high_risk_allocations = vec![
+        let high_risk_allocations = [
             FundAllocation {
                 exchange_id: "binance".to_string(),
                 asset: "BTC".to_string(),

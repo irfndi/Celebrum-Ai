@@ -1,16 +1,16 @@
 // Opportunity Categorization Service
 // Task 9.5: User Experience & Opportunity Categorization
 
-use crate::utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}};
+use crate::utils::{ArbitrageResult, ArbitrageError, logger::Logger};
 use crate::services::{
     D1Service, 
     UserTradingPreferencesService,
     market_analysis::{TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon},
-    user_trading_preferences::{UserTradingPreferences, TradingFocus, ExperienceLevel, RiskTolerance, FeatureAccess}
+    user_trading_preferences::{UserTradingPreferences, TradingFocus, ExperienceLevel, RiskTolerance}
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 // ============= OPPORTUNITY CATEGORY TYPES =============
 
@@ -291,8 +291,8 @@ pub struct OpportunityCategorizationService {
     d1_service: D1Service,
     preferences_service: UserTradingPreferencesService,
     logger: Logger,
-    // Cache for user preferences to avoid repeated DB calls (using RefCell for interior mutability)
-    user_prefs_cache: RefCell<HashMap<String, (UserOpportunityPreferences, u64)>>, // (preferences, cache_time)
+    // Cache for user preferences to avoid repeated DB calls (using Arc<Mutex<>> for thread safety)
+    user_prefs_cache: Arc<Mutex<HashMap<String, (UserOpportunityPreferences, u64)>>>, // (preferences, cache_time)
 }
 
 impl OpportunityCategorizationService {
@@ -305,7 +305,7 @@ impl OpportunityCategorizationService {
             d1_service,
             preferences_service,
             logger,
-            user_prefs_cache: RefCell::new(HashMap::new()),
+            user_prefs_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
     
@@ -427,10 +427,11 @@ impl OpportunityCategorizationService {
         
         // Check if we have a valid cached entry (cache TTL: 1 hour = 3600000 ms)
         {
-            let cache = self.user_prefs_cache.borrow();
-            if let Some((cached_prefs, cache_time)) = cache.get(user_id) {
-                if now - cache_time < 3600000 { // 1 hour TTL
-                    return Ok(cached_prefs.clone());
+            if let Ok(cache) = self.user_prefs_cache.lock() {
+                if let Some((cached_prefs, cache_time)) = cache.get(user_id) {
+                    if now - cache_time < 3600000 { // 1 hour TTL
+                        return Ok(cached_prefs.clone());
+                    }
                 }
             }
         }
@@ -452,8 +453,9 @@ impl OpportunityCategorizationService {
         
         // Store in cache
         {
-            let mut cache = self.user_prefs_cache.borrow_mut();
-            cache.insert(user_id.to_string(), (opportunity_prefs.clone(), now));
+            if let Ok(mut cache) = self.user_prefs_cache.lock() {
+                cache.insert(user_id.to_string(), (opportunity_prefs.clone(), now));
+            }
         }
         
         Ok(opportunity_prefs)
@@ -472,36 +474,38 @@ impl OpportunityCategorizationService {
         
         // Remove entries older than 1 hour
         const CACHE_TTL_MS: u64 = 3600000; // 1 hour
-        let mut cache = self.user_prefs_cache.borrow_mut();
-        let initial_count = cache.len();
+        if let Ok(mut cache) = self.user_prefs_cache.lock() {
+            let initial_count = cache.len();
+            
+            cache.retain(|_user_id, (_prefs, cache_time)| {
+                now - *cache_time < CACHE_TTL_MS
+            });
+            
+            // Log cache cleanup if significant number of entries were removed
+            let remaining_entries = cache.len();
+            let evicted_count = initial_count - remaining_entries;
         
-        cache.retain(|_user_id, (_prefs, cache_time)| {
-            now - *cache_time < CACHE_TTL_MS
-        });
-        
-        // Log cache cleanup if significant number of entries were removed
-        let remaining_entries = cache.len();
-        let evicted_count = initial_count - remaining_entries;
-        
-        if evicted_count > 0 {
-            self.logger.debug(&format!(
-                "Cache eviction completed. Evicted {} stale entries, {} entries remaining in user preferences cache", 
-                evicted_count, remaining_entries
-            ));
+            if evicted_count > 0 {
+                self.logger.debug(&format!(
+                    "Cache eviction completed. Evicted {} stale entries, {} entries remaining in user preferences cache", 
+                    evicted_count, remaining_entries
+                ));
+            }
         }
     }
     
     /// Manually clear the user preferences cache (useful for testing or memory management)
     pub fn clear_cache(&self) {
-        let mut cache = self.user_prefs_cache.borrow_mut();
-        let cleared_count = cache.len();
-        cache.clear();
-        
-        if cleared_count > 0 {
-            self.logger.info(&format!(
-                "Manually cleared {} entries from user preferences cache", 
-                cleared_count
-            ));
+        if let Ok(mut cache) = self.user_prefs_cache.lock() {
+            let cleared_count = cache.len();
+            cache.clear();
+            
+            if cleared_count > 0 {
+                self.logger.info(&format!(
+                    "Manually cleared {} entries from user preferences cache", 
+                    cleared_count
+                ));
+            }
         }
     }
     
@@ -526,8 +530,9 @@ impl OpportunityCategorizationService {
         };
         
         {
-            let mut cache = self.user_prefs_cache.borrow_mut();
-            cache.insert(preferences.user_id.clone(), (preferences.clone(), now));
+            if let Ok(mut cache) = self.user_prefs_cache.lock() {
+                cache.insert(preferences.user_id.clone(), (preferences.clone(), now));
+            }
         }
         
         self.logger.info(&format!(
@@ -573,8 +578,8 @@ impl OpportunityCategorizationService {
     /// Get category statistics for a user
     pub async fn get_user_category_statistics(
         &self,
-        user_id: &str,
-        days: u32,
+        _user_id: &str,
+        _days: u32,
     ) -> ArbitrageResult<HashMap<OpportunityCategory, CategoryStatistics>> {
         // TODO: In real implementation, query D1 for historical data
         // For now, return empty statistics
@@ -586,9 +591,6 @@ impl OpportunityCategorizationService {
     /// Determine which categories apply to an opportunity
     fn determine_opportunity_categories(&self, opportunity: &TradingOpportunity) -> Vec<OpportunityCategory> {
         let mut categories = Vec::new();
-        
-        // Convert to HashSet for O(1) lookups instead of O(n) contains()
-        let indicators: std::collections::HashSet<&String> = opportunity.indicators_used.iter().collect();
         
         // Categorize based on opportunity type
         match opportunity.opportunity_type {
@@ -607,13 +609,13 @@ impl OpportunityCategorizationService {
                 categories.push(OpportunityCategory::TechnicalSignals);
                 
                 // Analyze indicators to determine specific technical category - now O(1) instead of O(n)
-                if indicators.contains(&"momentum".to_string()) {
+                if opportunity.indicators_used.contains(&"momentum".to_string()) {
                     categories.push(OpportunityCategory::MomentumTrading);
                 }
-                if indicators.contains(&"rsi".to_string()) {
+                if opportunity.indicators_used.contains(&"rsi".to_string()) {
                     categories.push(OpportunityCategory::MeanReversion);
                 }
-                if indicators.contains(&"breakout".to_string()) {
+                if opportunity.indicators_used.contains(&"breakout".to_string()) {
                     categories.push(OpportunityCategory::BreakoutPatterns);
                 }
                 
@@ -717,7 +719,7 @@ impl OpportunityCategorizationService {
             score += 0.15;
             factors.push("Suitable for your experience level".to_string());
         } else {
-            score -= 0.3;
+            score -= 0.15; // Less harsh penalty for experience mismatch
             factors.push("May be too advanced for current experience level".to_string());
         }
         
@@ -761,7 +763,7 @@ impl OpportunityCategorizationService {
         }
         
         // Clamp score between 0.0 and 1.0
-        score = score.max(0.0).min(1.0);
+        score = score.clamp(0.0, 1.0);
         
         (score, factors)
     }
@@ -930,8 +932,10 @@ impl OpportunityCategorizationService {
         // Create default alert configs for enabled categories
         let alert_configs: Vec<CategoryAlertConfig> = enabled_categories.iter()
             .map(|category| {
-                let mut config = CategoryAlertConfig::default();
-                config.category = category.clone();
+                let mut config = CategoryAlertConfig { 
+                    category: category.clone(), 
+                    ..Default::default() 
+                };
                 
                 // Adjust thresholds based on experience level
                 match user_prefs.experience_level {
@@ -998,8 +1002,9 @@ mod tests {
     use super::*;
     use crate::utils::logger::{Logger, LogLevel};
     
+    #[allow(dead_code)]
     fn create_test_service() -> OpportunityCategorizationService {
-        let logger = Logger::new(LogLevel::Info);
+        let _logger = Logger::new(LogLevel::Info);
         // Note: In real tests, we'd use mock D1Service and UserTradingPreferencesService
         // For unit testing, we focus on testing individual methods that don't require DB
         // OpportunityCategorizationService::new(mock_d1_service, mock_preferences_service, logger)

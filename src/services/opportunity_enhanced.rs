@@ -7,13 +7,13 @@ use crate::services::telegram::TelegramService;
 use crate::services::market_analysis::{MarketAnalysisService, TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon};
 use crate::services::user_trading_preferences::{UserTradingPreferencesService, TradingFocus, ExperienceLevel, RiskTolerance};
 use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum, FundingRateInfo, StructuredTradingPair};
-use crate::utils::{ArbitrageError, ArbitrageResult, logger::{Logger, LogLevel}};
+use crate::utils::{ArbitrageResult, logger::Logger};
 use crate::services::exchange::ExchangeInterface;
 use std::sync::Arc;
 
 use futures::future::join_all;
 use std::collections::HashMap;
-use serde_json::Value;
+// use serde_json::Value; // TODO: Re-enable when implementing JSON processing
 
 #[derive(Clone)]
 pub struct EnhancedOpportunityServiceConfig {
@@ -50,7 +50,7 @@ impl Default for EnhancedOpportunityServiceConfig {
 pub struct EnhancedOpportunityService {
     config: EnhancedOpportunityServiceConfig,
     exchange_service: Arc<ExchangeService>,
-    telegram_service: Option<Arc<TelegramService>>,
+    _telegram_service: Option<Arc<TelegramService>>,
     market_analysis_service: Arc<MarketAnalysisService>,
     preferences_service: Arc<UserTradingPreferencesService>,
     logger: Logger,
@@ -68,7 +68,7 @@ impl EnhancedOpportunityService {
         Self {
             config,
             exchange_service,
-            telegram_service,
+            _telegram_service: telegram_service,
             market_analysis_service,
             preferences_service,
             logger,
@@ -419,7 +419,7 @@ impl EnhancedOpportunityService {
     fn calculate_rsi_score(&self, rsi_value: f64) -> f64 {
         if rsi_value > self.config.rsi_overbought || rsi_value < self.config.rsi_oversold {
             0.3 // Extreme RSI values indicate potential reversal - lower score for arbitrage
-        } else if rsi_value >= 40.0 && rsi_value <= 60.0 {
+        } else if (40.0..=60.0).contains(&rsi_value) {
             0.8 // Neutral RSI range - good for arbitrage
         } else {
             0.6 // Moderate RSI values - decent for arbitrage
@@ -427,6 +427,7 @@ impl EnhancedOpportunityService {
     }
 
     /// Calculate volatility-based score
+    #[allow(clippy::result_large_err)]
     fn calculate_volatility_score(&self, price_series: &crate::services::market_analysis::PriceSeries) -> ArbitrageResult<f64> {
         if price_series.data_points.len() < 10 {
             return Ok(0.5); // Neutral score for insufficient data

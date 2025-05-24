@@ -7,7 +7,9 @@ use std::collections::HashMap;
 
 // Trait for KV store operations that can be implemented by both real KvStore and mock stores
 pub trait KvStoreInterface {
+    #[allow(async_fn_in_trait)]
     async fn get(&self, key: &str) -> Result<Option<String>, String>;
+    #[allow(async_fn_in_trait)]
     async fn put(&self, key: &str, value: String) -> Result<(), String>;
 }
 
@@ -69,8 +71,8 @@ impl<K: KvStoreInterface> PositionsService<K> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp_millis() as u64;
 
-        let mut final_size_base_currency: f64 = 0.0;
-        let mut calculated_size_usd_for_audit: Option<f64> = None;
+        let final_size_base_currency: f64;
+        let calculated_size_usd_for_audit: Option<f64>;
         let mut risk_percentage_applied_for_audit: Option<f64> = None;
 
         if let Some(risk_perc) = position_data.risk_percentage {
@@ -295,6 +297,7 @@ impl<K: KvStoreInterface> PositionsService<K> {
         Ok(())
     }
 
+    #[allow(dead_code)]
     async fn remove_from_position_index(&self, position_id: &str) -> ArbitrageResult<()> {
         let mut index = self.get_position_index().await?;
         index.retain(|id| id != position_id);

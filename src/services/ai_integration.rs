@@ -1,10 +1,10 @@
-use crate::types::{UserProfile, UserApiKey, ApiKeyProvider};
+use crate::types::{UserApiKey, ApiKeyProvider};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use worker::console_log;
+// use worker::console_log; // TODO: Re-enable when implementing logging integration
 use worker::kv::KvStore;
 use uuid;
 
@@ -107,7 +107,7 @@ impl AiIntegrationService {
         
         if ai_key_count >= self.config.max_ai_keys_per_user as usize {
             return Err(ArbitrageError::validation_error(
-                &format!("Maximum AI keys limit ({}) reached", self.config.max_ai_keys_per_user)
+                format!("Maximum AI keys limit ({}) reached", self.config.max_ai_keys_per_user)
             ));
         }
 
@@ -216,7 +216,7 @@ impl AiIntegrationService {
             }
             Err(e) => {
                 // Return validation error with details
-                Err(ArbitrageError::validation_error(&format!("AI credentials validation failed: {}", e)))
+                Err(ArbitrageError::validation_error(format!("AI credentials validation failed: {}", e)))
             }
         }
     }
@@ -289,6 +289,7 @@ impl AiIntegrationService {
     }
 
     /// Create AI provider from user API key
+    #[allow(clippy::result_large_err)]
     pub fn create_ai_provider(&self, api_key: &UserApiKey) -> ArbitrageResult<AiProvider> {
         match api_key.provider {
             ApiKeyProvider::OpenAI => Ok(AiProvider::OpenAI {
@@ -349,7 +350,7 @@ impl AiIntegrationService {
             .timeout(std::time::Duration::from_secs(self.config.default_timeout_seconds))
             .send()
             .await
-            .map_err(|e| ArbitrageError::network_error(&format!("OpenAI validation failed: {}", e)))?;
+                            .map_err(|e| ArbitrageError::network_error(format!("OpenAI validation failed: {}", e)))?;
 
         Ok(response.status().is_success())
     }
@@ -373,7 +374,7 @@ impl AiIntegrationService {
             .timeout(std::time::Duration::from_secs(self.config.default_timeout_seconds))
             .send()
             .await
-            .map_err(|e| ArbitrageError::network_error(&format!("Anthropic validation failed: {}", e)))?;
+                            .map_err(|e| ArbitrageError::network_error(format!("Anthropic validation failed: {}", e)))?;
 
         // Accept both success and rate limit as valid (credentials are correct)
         Ok(response.status().is_success() || response.status() == 429)
@@ -397,7 +398,7 @@ impl AiIntegrationService {
         let response = request
             .send()
             .await
-            .map_err(|e| ArbitrageError::network_error(&format!("Custom provider validation failed: {}", e)))?;
+                            .map_err(|e| ArbitrageError::network_error(format!("Custom provider validation failed: {}", e)))?;
 
         Ok(response.status().is_success())
     }
@@ -436,15 +437,15 @@ impl AiIntegrationService {
             .timeout(std::time::Duration::from_secs(self.config.default_timeout_seconds))
             .send()
             .await
-            .map_err(|e| ArbitrageError::network_error(&format!("OpenAI API call failed: {}", e)))?;
+            .map_err(|e| ArbitrageError::network_error(format!("OpenAI API call failed: {}", e)))?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(ArbitrageError::api_error(&format!("OpenAI API error: {}", error_text)));
+            return Err(ArbitrageError::api_error(format!("OpenAI API error: {}", error_text)));
         }
 
         let response_data: Value = response.json().await
-            .map_err(|e| ArbitrageError::parse_error(&format!("Failed to parse OpenAI response: {}", e)))?;
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse OpenAI response: {}", e)))?;
 
         let analysis = response_data["choices"][0]["message"]["content"]
             .as_str()
@@ -489,15 +490,15 @@ impl AiIntegrationService {
             .timeout(std::time::Duration::from_secs(self.config.default_timeout_seconds))
             .send()
             .await
-            .map_err(|e| ArbitrageError::network_error(&format!("Anthropic API call failed: {}", e)))?;
+            .map_err(|e| ArbitrageError::network_error(format!("Anthropic API call failed: {}", e)))?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(ArbitrageError::api_error(&format!("Anthropic API error: {}", error_text)));
+            return Err(ArbitrageError::api_error(format!("Anthropic API error: {}", error_text)));
         }
 
         let response_data: Value = response.json().await
-            .map_err(|e| ArbitrageError::parse_error(&format!("Failed to parse Anthropic response: {}", e)))?;
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse Anthropic response: {}", e)))?;
 
         let analysis = response_data["content"][0]["text"]
             .as_str()
@@ -542,15 +543,15 @@ impl AiIntegrationService {
         let response = http_request
             .send()
             .await
-            .map_err(|e| ArbitrageError::network_error(&format!("Custom provider API call failed: {}", e)))?;
+            .map_err(|e| ArbitrageError::network_error(format!("Custom provider API call failed: {}", e)))?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(ArbitrageError::api_error(&format!("Custom provider API error: {}", error_text)));
+            return Err(ArbitrageError::api_error(format!("Custom provider API error: {}", error_text)));
         }
 
         let response_data: Value = response.json().await
-            .map_err(|e| ArbitrageError::parse_error(&format!("Failed to parse custom provider response: {}", e)))?;
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse custom provider response: {}", e)))?;
 
         // Try to extract analysis from common response formats
         let analysis = response_data["response"]
@@ -640,6 +641,7 @@ impl AiIntegrationService {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn create_ai_provider_from_key(
         &self,
         api_key: &UserApiKey,
@@ -683,6 +685,7 @@ impl AiIntegrationService {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn encrypt_string(&self, plaintext: &str) -> ArbitrageResult<String> {
         use base64::{Engine as _, engine::general_purpose};
         
@@ -697,6 +700,7 @@ impl AiIntegrationService {
         Ok(general_purpose::STANDARD.encode(encrypted))
     }
 
+    #[allow(clippy::result_large_err)]
     fn decrypt_string(&self, ciphertext: &str) -> ArbitrageResult<String> {
         use base64::{Engine as _, engine::general_purpose};
         
@@ -724,10 +728,12 @@ mod tests {
 
     // Mock KV store for testing
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct MockKvStore {
         data: std::sync::Arc<std::sync::Mutex<HashMap<String, String>>>,
     }
 
+    #[allow(dead_code)]
     impl MockKvStore {
         fn new() -> Self {
             Self {

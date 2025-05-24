@@ -14,17 +14,23 @@ use hex;
 
 #[allow(dead_code)]
 pub trait ExchangeInterface {
+    #[allow(async_fn_in_trait)]
     async fn save_api_key(
         &self,
         exchange_id: &str,
         credentials: &ExchangeCredentials,
     ) -> ArbitrageResult<()>;
 
+    #[allow(async_fn_in_trait)]
     async fn get_api_key(&self, exchange_id: &str) -> ArbitrageResult<Option<ExchangeCredentials>>;
+    #[allow(async_fn_in_trait)]
     async fn delete_api_key(&self, exchange_id: &str) -> ArbitrageResult<()>;
 
+    #[allow(async_fn_in_trait)]
     async fn get_markets(&self, exchange_id: &str) -> ArbitrageResult<Vec<Market>>;
+    #[allow(async_fn_in_trait)]
     async fn get_ticker(&self, exchange_id: &str, symbol: &str) -> ArbitrageResult<Ticker>;
+    #[allow(async_fn_in_trait)]
     async fn get_orderbook(
         &self,
         exchange_id: &str,
@@ -32,18 +38,21 @@ pub trait ExchangeInterface {
         limit: Option<u32>,
     ) -> ArbitrageResult<OrderBook>;
 
+    #[allow(async_fn_in_trait)]
     async fn fetch_funding_rates(
         &self,
         exchange_id: &str,
         symbol: Option<&str>,
     ) -> ArbitrageResult<Vec<Value>>;
 
+    #[allow(async_fn_in_trait)]
     async fn get_balance(
         &self,
         exchange_id: &str,
         credentials: &ExchangeCredentials,
     ) -> ArbitrageResult<Value>;
 
+    #[allow(async_fn_in_trait)]
     async fn create_order(
         &self,
         exchange_id: &str,
@@ -54,6 +63,7 @@ pub trait ExchangeInterface {
         price: Option<f64>,
     ) -> ArbitrageResult<Value>;
 
+    #[allow(async_fn_in_trait)]
     async fn cancel_order(
         &self,
         exchange_id: &str,
@@ -62,6 +72,7 @@ pub trait ExchangeInterface {
         symbol: &str,
     ) -> ArbitrageResult<Value>;
 
+    #[allow(async_fn_in_trait)]
     async fn get_open_orders(
         &self,
         exchange_id: &str,
@@ -69,6 +80,7 @@ pub trait ExchangeInterface {
         symbol: Option<&str>,
     ) -> ArbitrageResult<Vec<Value>>;
 
+    #[allow(async_fn_in_trait)]
     async fn get_open_positions(
         &self,
         exchange_id: &str,
@@ -76,6 +88,7 @@ pub trait ExchangeInterface {
         symbol: Option<&str>,
     ) -> ArbitrageResult<Vec<Value>>;
 
+    #[allow(async_fn_in_trait)]
     async fn set_leverage(
         &self,
         exchange_id: &str,
@@ -84,6 +97,7 @@ pub trait ExchangeInterface {
         leverage: u32,
     ) -> ArbitrageResult<Value>;
 
+    #[allow(async_fn_in_trait)]
     async fn get_trading_fees(
         &self,
         exchange_id: &str,
@@ -518,7 +532,7 @@ impl ExchangeInterface for ExchangeService {
     async fn get_balance(
         &self,
         exchange_id: &str,
-        credentials: &ExchangeCredentials,
+        _credentials: &ExchangeCredentials,
     ) -> ArbitrageResult<Value> {
         Err(ArbitrageError::not_implemented(format!(
             "get_balance not implemented for exchange: {}", 
@@ -529,11 +543,11 @@ impl ExchangeInterface for ExchangeService {
     async fn create_order(
         &self,
         exchange_id: &str,
-        credentials: &ExchangeCredentials,
-        symbol: &str,
-        side: &str,
-        amount: f64,
-        price: Option<f64>,
+        _credentials: &ExchangeCredentials,
+        _symbol: &str,
+        _side: &str,
+        _amount: f64,
+        _price: Option<f64>,
     ) -> ArbitrageResult<Value> {
         Err(ArbitrageError::not_implemented(format!(
             "create_order not implemented for exchange: {}", 
@@ -544,9 +558,9 @@ impl ExchangeInterface for ExchangeService {
     async fn cancel_order(
         &self,
         exchange_id: &str,
-        credentials: &ExchangeCredentials,
-        order_id: &str,
-        symbol: &str,
+        _credentials: &ExchangeCredentials,
+        _order_id: &str,
+        _symbol: &str,
     ) -> ArbitrageResult<Value> {
         Err(ArbitrageError::not_implemented(format!(
             "cancel_order not implemented for exchange: {}", 
@@ -557,8 +571,8 @@ impl ExchangeInterface for ExchangeService {
     async fn get_open_orders(
         &self,
         exchange_id: &str,
-        credentials: &ExchangeCredentials,
-        symbol: Option<&str>,
+        _credentials: &ExchangeCredentials,
+        _symbol: Option<&str>,
     ) -> ArbitrageResult<Vec<Value>> {
         Err(ArbitrageError::not_implemented(format!(
             "get_open_orders not implemented for exchange: {}", 
@@ -569,8 +583,8 @@ impl ExchangeInterface for ExchangeService {
     async fn get_open_positions(
         &self,
         exchange_id: &str,
-        credentials: &ExchangeCredentials,
-        symbol: Option<&str>,
+        _credentials: &ExchangeCredentials,
+        _symbol: Option<&str>,
     ) -> ArbitrageResult<Vec<Value>> {
         Err(ArbitrageError::not_implemented(format!(
             "get_open_positions not implemented for exchange: {}", 
@@ -581,9 +595,9 @@ impl ExchangeInterface for ExchangeService {
     async fn set_leverage(
         &self,
         exchange_id: &str,
-        credentials: &ExchangeCredentials,
-        symbol: &str,
-        leverage: u32,
+        _credentials: &ExchangeCredentials,
+        _symbol: &str,
+        _leverage: u32,
     ) -> ArbitrageResult<Value> {
         Err(ArbitrageError::not_implemented(format!(
             "set_leverage not implemented for exchange: {}", 
@@ -655,10 +669,12 @@ mod tests {
     use std::collections::HashMap;
 
     // Mock environment for testing
+    #[allow(dead_code)]
     struct MockEnv {
         kv: HashMap<String, String>,
     }
 
+    #[allow(dead_code)]
     impl MockEnv {
         fn new() -> Self {
             Self {
@@ -713,12 +729,12 @@ mod tests {
         #[test]
         fn test_parse_binance_ticker_success() {
             // Create a mock service (we only need the parsing method)
-            let env = MockEnv::new();
+            let _env = MockEnv::new();
             // Note: We can't easily create ExchangeService without Worker KV, 
             // so we'll test the data parsing logic directly with mock data
             
             let ticker_data = create_mock_binance_ticker_data();
-            let symbol = "BTCUSDT";
+            let _symbol = "BTCUSDT";
 
             // Expected values from mock data
             assert_eq!(ticker_data["bidPrice"], "50000.50");
@@ -747,7 +763,7 @@ mod tests {
         #[test]
         fn test_parse_bybit_ticker_success() {
             let ticker_data = create_mock_bybit_ticker_data();
-            let symbol = "BTCUSDT";
+            let _symbol = "BTCUSDT";
 
             // Expected values from mock data
             assert_eq!(ticker_data["bid1Price"], "50000.50");
@@ -850,11 +866,11 @@ mod tests {
         #[test]
         fn test_query_parameter_sorting() {
             // Test query parameter sorting logic (used in binance authentication)
-            let mut params = vec![
+            let mut params = [
                 ("symbol".to_string(), "BTCUSDT".to_string()),
                 ("timestamp".to_string(), "1234567890".to_string()),
                 ("limit".to_string(), "100".to_string()),
-            ];
+            ].to_vec();
 
             params.sort();
             let query_string = params
@@ -918,7 +934,7 @@ mod tests {
             assert_eq!(symbol, "BTCUSDT");
             assert_eq!(base, "BTC");
             assert_eq!(quote, "USDT");
-            assert_eq!(active, true);
+            assert!(active);
             assert_eq!(base_precision, Some(8));
             assert_eq!(quote_precision, Some(8));
         }
@@ -941,7 +957,7 @@ mod tests {
             assert_eq!(symbol, "BTCUSDT");
             assert_eq!(base, "BTC");
             assert_eq!(quote, "USDT");
-            assert_eq!(active, true);
+            assert!(active);
         }
 
         #[test]
@@ -952,7 +968,7 @@ mod tests {
                 "status": "HALT"
             });
             let active = inactive_binance["status"].as_str() == Some("TRADING");
-            assert_eq!(active, false);
+            assert!(!active);
 
             // Test inactive market for Bybit
             let inactive_bybit = json!({
@@ -960,7 +976,7 @@ mod tests {
                 "status": "Closed"
             });
             let active_bybit = inactive_bybit["status"].as_str() == Some("Trading");
-            assert_eq!(active_bybit, false);
+            assert!(!active_bybit);
         }
     }
 
@@ -1160,7 +1176,6 @@ mod tests {
 
     // Tests for exchange validation and error handling
     mod validation_tests {
-        use super::*;
 
         #[test]
         fn test_supported_exchanges() {
@@ -1182,11 +1197,11 @@ mod tests {
                 match exchange {
                     "binance" | "bybit" => {
                         // These should be supported
-                        assert!(false, "Should not reach here for supported exchanges");
+                        panic!("Should not reach here for supported exchanges");
                     }
                     _ => {
                         // These should be unsupported
-                        assert!(true, "Correctly identified as unsupported: {}", exchange);
+                        // Correctly identified as unsupported: {}
                     }
                 }
             }
@@ -1206,7 +1221,7 @@ mod tests {
             for symbol in invalid_symbols {
                 // These would trigger validation in real implementation
                 if symbol.is_empty() || symbol.len() < 6 {
-                    assert!(true, "Correctly identified as invalid: {}", symbol);
+                    // Correctly identified as invalid symbol
                 }
             }
         }
@@ -1214,7 +1229,6 @@ mod tests {
 
     // Tests for KV storage key generation
     mod storage_tests {
-        use super::*;
 
         #[test]
         fn test_kv_key_generation() {
@@ -1339,7 +1353,7 @@ mod tests {
             assert_eq!(market.symbol, "BTCUSDT");
             assert_eq!(market.base, "BTC");
             assert_eq!(market.quote, "USDT");
-            assert_eq!(market.active, true);
+            assert!(market.active);
             assert_eq!(market.precision.amount, Some(8));
             assert_eq!(market.precision.price, Some(8));
         }
@@ -1373,7 +1387,7 @@ mod tests {
 
     mod service_integration_tests {
         use super::*;
-        use std::collections::HashMap;
+
 
         // Test the business logic without requiring actual worker environment
         

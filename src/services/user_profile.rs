@@ -1,10 +1,10 @@
 // src/services/user_profile.rs
 
-use crate::types::{UserProfile, UserApiKey, InvitationCode, UserSession, ExchangeIdEnum, ApiKeyProvider};
+use crate::types::{UserProfile, UserApiKey, InvitationCode, UserSession, ExchangeIdEnum};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use crate::services::D1Service;
 use worker::kv::KvStore;
-use std::collections::HashMap;
+// use std::collections::HashMap; // TODO: Re-enable when implementing HashMap functionality
 
 pub struct UserProfileService {
     kv_store: KvStore,
@@ -349,6 +349,7 @@ impl UserProfileService {
     }
 
     // Simple encryption/decryption (in production, use proper encryption)
+    #[allow(clippy::result_large_err)]
     fn encrypt_string(&self, plaintext: &str) -> ArbitrageResult<String> {
         // For MVP, we'll use base64 encoding with a simple XOR cipher
         // In production, use proper encryption like AES-GCM
@@ -366,6 +367,7 @@ impl UserProfileService {
         Ok(general_purpose::STANDARD.encode(encrypted))
     }
 
+    #[allow(clippy::result_large_err)]
     fn decrypt_string(&self, ciphertext: &str) -> ArbitrageResult<String> {
         use base64::{Engine as _, engine::general_purpose};
         
@@ -389,7 +391,7 @@ impl UserProfileService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ExchangeIdEnum, ApiKeyProvider};
+    use crate::types::ExchangeIdEnum;
 
     // Note: Service integration tests would require proper mocking framework
     // These tests focus on the core logic that can be tested independently
@@ -399,7 +401,7 @@ mod tests {
         // Test user profile creation logic
         let telegram_user_id = 123456789i64;
         let invitation_code = Some("TEST-CODE".to_string());
-        let telegram_username = Some("testuser".to_string());
+        let _telegram_username = Some("testuser".to_string());
 
         // Create a test profile manually to validate structure
         let profile = UserProfile::new(telegram_user_id, invitation_code.clone());

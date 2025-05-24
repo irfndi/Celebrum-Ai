@@ -5,7 +5,7 @@ use arb_edge::{
             UserTradingPreferences, TradingFocus, ExperienceLevel, 
             RiskTolerance, AutomationLevel, AutomationScope
         },
-        market_analysis::{TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon},
+        market_analysis::{TradingOpportunity, OpportunityType, RiskLevel},
     },
 };
 
@@ -18,7 +18,7 @@ async fn test_user_registration_flow_integration() {
     // Test data
     let test_telegram_id = 123456789i64;
     let test_invitation_code = Some("TEST_INVITATION".to_string());
-    let test_username = Some("test_user_e2e".to_string());
+    let _test_username = Some("test_user_e2e".to_string());
     
     // Step 1: Validate UserProfile creation with complete data structure
     let user_profile = UserProfile::new(test_telegram_id, test_invitation_code.clone());
@@ -26,16 +26,16 @@ async fn test_user_registration_flow_integration() {
     // Verify core user profile structure
     assert_eq!(user_profile.telegram_user_id, test_telegram_id);
     assert_eq!(user_profile.invitation_code, test_invitation_code);
-    assert_eq!(user_profile.is_active, true);
+            assert!(user_profile.is_active);
     assert_eq!(user_profile.total_trades, 0);
     assert_eq!(user_profile.total_pnl_usdt, 0.0);
     
     // Verify subscription defaults
     assert!(matches!(user_profile.subscription.tier, SubscriptionTier::Free));
-    assert_eq!(user_profile.subscription.is_active, true);
+            assert!(user_profile.subscription.is_active);
     
     // Verify configuration defaults  
-    assert_eq!(user_profile.configuration.auto_trading_enabled, false);
+    assert!(!user_profile.configuration.auto_trading_enabled);
     assert_eq!(user_profile.configuration.risk_tolerance_percentage, 0.02); // 2% default
     
     println!("✅ User profile structure validation completed");
@@ -78,8 +78,8 @@ async fn test_user_registration_flow_integration() {
     // Verify beginner user gets conservative settings
     assert_eq!(user_preferences.risk_tolerance, RiskTolerance::Conservative);
     assert_eq!(user_preferences.automation_level, AutomationLevel::Manual);
-    assert_eq!(user_preferences.technical_enabled, false);
-    assert_eq!(user_preferences.advanced_analytics_enabled, false);
+    assert!(!user_preferences.technical_enabled);
+    assert!(!user_preferences.advanced_analytics_enabled);
     
     println!("✅ User preferences integration validation completed");
     
@@ -159,8 +159,8 @@ async fn test_user_registration_flow_integration() {
     // Verify advanced user preferences
     assert_eq!(experienced_preferences.experience_level, ExperienceLevel::Advanced);
     assert_eq!(experienced_preferences.risk_tolerance, RiskTolerance::Aggressive);
-    assert_eq!(experienced_preferences.technical_enabled, true);
-    assert_eq!(experienced_preferences.advanced_analytics_enabled, true);
+            assert!(experienced_preferences.technical_enabled);
+        assert!(experienced_preferences.advanced_analytics_enabled);
     assert_eq!(experienced_preferences.automation_level, AutomationLevel::SemiAuto);
     
     println!("✅ Business logic validation completed");
@@ -206,17 +206,17 @@ async fn test_user_registration_service_interface_validation() {
     // Test the exact data structures that services would use
     
     // Step 1: Test UserProfileService create interface expectations
-    let telegram_id = 987654321i64;
+            let _telegram_id = 987654321i64;
     let invitation_code = Some("VIP_ACCESS".to_string());
     let username = Some("premium_user".to_string());
     
     // This simulates what UserProfileService.create_user_profile() would receive
-    let service_user = UserProfile::new(telegram_id, invitation_code.clone());
+            let service_user = UserProfile::new(_telegram_id, invitation_code.clone());
     
     // Verify service interface compatibility
-    assert_eq!(service_user.telegram_user_id, telegram_id);
+            assert_eq!(service_user.telegram_user_id, _telegram_id);
     assert_eq!(service_user.invitation_code, invitation_code);
-    assert!(service_user.user_id.len() > 0); // UUID should be generated
+    assert!(!service_user.user_id.is_empty()); // UUID should be generated
     
     println!("✅ UserProfileService interface compatibility validated");
     
@@ -305,7 +305,7 @@ async fn test_user_registration_service_interface_validation() {
     
     // Verify timestamp is reasonable (after year 2001 and not in the future)
     let now_millis = chrono::Utc::now().timestamp_millis() as u64;
-    let time_diff = (service_user.created_at as i64 - now_millis as i64).abs() as u64;
+    let time_diff = (service_user.created_at as i64 - now_millis as i64).unsigned_abs();
     
     assert!(service_user.created_at > 1000000000000, "Timestamp should be after year 2001");
     assert!(time_diff <= 10000, "Timestamp should be within 10 seconds of current time");
@@ -322,11 +322,11 @@ async fn test_user_registration_service_interface_validation() {
     
     // Verify types are as expected (compile-time check)
     fn verify_types(
-        telegram_id: i64,
-        invitation_code: Option<String>,
-        username: Option<String>,
-        user_profile: &UserProfile,
-        preferences: &UserTradingPreferences,
+        _telegram_id: i64,
+        _invitation_code: Option<String>,
+        _username: Option<String>,
+        _user_profile: &UserProfile,
+        _preferences: &UserTradingPreferences,
     ) {}
     verify_types(
         service_user.telegram_user_id,
@@ -522,7 +522,7 @@ fn test_categorization_compatibility(opportunity: &TradingOpportunity, user_pref
     }
     
     // Ensure score is within bounds
-    suitability_score = suitability_score.max(0.0).min(1.0);
+    suitability_score = suitability_score.clamp(0.0, 1.0);
     
     CategorizationResult {
         is_suitable: suitability_score > 0.4, // 40% threshold

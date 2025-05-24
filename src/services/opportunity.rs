@@ -4,7 +4,7 @@ use crate::log_error;
 use crate::services::exchange::ExchangeService;
 use crate::services::telegram::TelegramService;
 use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum, FundingRateInfo, StructuredTradingPair};
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::utils::ArbitrageResult;
 use crate::services::exchange::ExchangeInterface;
 use std::sync::Arc;
 

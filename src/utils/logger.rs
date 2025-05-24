@@ -1,6 +1,6 @@
 // src/utils/logger.rs
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use worker::console_log;
@@ -24,7 +24,7 @@ impl LogLevel {
         }
     }
 
-    pub fn from_str(s: &str) -> LogLevel {
+    pub fn from_string(s: &str) -> LogLevel {
         match s.to_lowercase().as_str() {
             "error" => LogLevel::Error,
             "warn" | "warning" => LogLevel::Warn,
@@ -52,7 +52,7 @@ impl Logger {
     pub fn from_env() -> Self {
         // Try to get log level from environment, default to Info
         let level_str = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
-        Self::new(LogLevel::from_str(&level_str))
+        Self::new(LogLevel::from_string(&level_str))
     }
 
     pub fn set_level(&mut self, level: LogLevel) {
@@ -186,7 +186,7 @@ pub fn init_logger(level: LogLevel) {
 
 /// Get a reference to the global logger
 pub fn logger() -> &'static Logger {
-    GLOBAL_LOGGER.get_or_init(|| Logger::from_env())
+    GLOBAL_LOGGER.get_or_init(Logger::from_env)
 }
 
 /// Convenience macros for logging
@@ -243,11 +243,11 @@ mod tests {
 
     #[test]
     fn test_log_level_from_str() {
-        assert_eq!(LogLevel::from_str("error"), LogLevel::Error);
-        assert_eq!(LogLevel::from_str("WARN"), LogLevel::Warn);
-        assert_eq!(LogLevel::from_str("info"), LogLevel::Info);
-        assert_eq!(LogLevel::from_str("debug"), LogLevel::Debug);
-        assert_eq!(LogLevel::from_str("invalid"), LogLevel::Info);
+        assert_eq!(LogLevel::from_string("error"), LogLevel::Error);
+        assert_eq!(LogLevel::from_string("WARN"), LogLevel::Warn);
+        assert_eq!(LogLevel::from_string("info"), LogLevel::Info);
+        assert_eq!(LogLevel::from_string("debug"), LogLevel::Debug);
+        assert_eq!(LogLevel::from_string("invalid"), LogLevel::Info);
     }
 
     #[test]

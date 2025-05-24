@@ -10,15 +10,10 @@ use crate::utils::formatter::{
     format_parameter_suggestions_message,
     escape_markdown_v2
 };
-use crate::services::opportunity_categorization::{CategorizedOpportunity, OpportunityCategory, RiskIndicator, AlertPriority};
+use crate::services::opportunity_categorization::CategorizedOpportunity;
 use crate::services::ai_intelligence::{AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion};
-use crate::services::user_trading_preferences::{UserTradingPreferences, TradingFocus, ExperienceLevel};
-use chrono::Utc;
 use reqwest::Client;
 use serde_json::{json, Value};
-use crate::services::market_analysis::{TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon};
-use crate::types::{ArbitrageType, ExchangeIdEnum};
-use chrono::Datelike; // Import for year(), month(), day() methods
 
 #[derive(Clone)]
 pub struct TelegramConfig {
@@ -121,7 +116,7 @@ impl TelegramService {
 
     async fn handle_command(&self, text: &str, user_id: &str) -> ArbitrageResult<Option<String>> {
         let parts: Vec<&str> = text.split_whitespace().collect();
-        let command = parts.get(0).unwrap_or(&"");
+        let command = parts.first().unwrap_or(&"");
         let args = &parts[1..];
 
         match *command {
@@ -193,7 +188,7 @@ impl TelegramService {
     }
 
     async fn get_opportunities_message(&self, _user_id: &str, args: &[&str]) -> String {
-        let filter_category = args.get(0);
+        let filter_category = args.first();
         
         let mut message = "📊 *Recent Trading Opportunities*\n\n".to_string();
         
@@ -379,7 +374,7 @@ mod tests {
     use crate::services::opportunity_categorization::{CategorizedOpportunity, OpportunityCategory, RiskIndicator, AlertPriority};
     use crate::services::market_analysis::{TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon};
     use serde_json::json;
-    use chrono::Datelike; // Import for year(), month(), day() methods
+    // use chrono::Datelike; // TODO: Re-enable when implementing date formatting
 
     fn create_test_config() -> TelegramConfig {
         TelegramConfig {
@@ -568,7 +563,7 @@ mod tests {
         #[test]
         fn test_webhook_url_validation() {
             let config = create_test_config();
-            let service = TelegramService::new(config);
+            let _service = TelegramService::new(config);
             
             // This is a placeholder test - in real implementation would validate URL format
             let webhook_url = "https://example.com/webhook";
@@ -581,7 +576,7 @@ mod tests {
             let _service = TelegramService::new(config);
             
             // Service should work without webhook being set
-            assert!(true); // Placeholder assertion
+            // Placeholder assertion - service creation successful
         }
     }
 
@@ -698,7 +693,7 @@ mod tests {
             let _service = TelegramService::new(config);
             
             // Service should handle being disabled gracefully
-            assert!(true); // Placeholder - would test actual disabled behavior
+            // Placeholder - would test actual disabled behavior
         }
 
         #[test]
@@ -719,7 +714,7 @@ mod tests {
         #[test]
         fn test_telegram_api_url_construction() {
             let config = create_test_config();
-            let service = TelegramService::new(config.clone());
+            let _service = TelegramService::new(config.clone());
             
             let expected_base = format!("https://api.telegram.org/bot{}/", config.bot_token);
             assert!(expected_base.contains(&config.bot_token));
@@ -843,11 +838,11 @@ mod tests {
         #[test]
         fn test_complete_notification_workflow() {
             let config = create_test_config();
-            let service = TelegramService::new(config);
+            let _service = TelegramService::new(config);
             let opportunity = create_test_opportunity();
             
             let message = format_opportunity_message(&opportunity);
-            assert!(message.len() > 0);
+            assert!(!message.is_empty());
             assert!(message.contains("BTCUSDT"));
         }
 

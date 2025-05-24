@@ -277,7 +277,7 @@ Edge Deployment: Leverage Cloudflare Workers for potentially lower latency execu
 - ✅ Semi-automated arbitrage execution
 - ✅ Advanced arbitrage analytics
 - ✅ Priority notifications
-- ✅ Basic AI integration (system AI)
+- ✅ Basic AI integration (BYOK)
 - 🚫 No technical trading
 - 🚫 No full automation
 
@@ -427,3 +427,11 @@ The Enhanced MVP will include:
 - **Strategy Effectiveness**: Technical analysis improves arbitrage timing by >15%
 - **User AI Adoption**: >40% of premium users integrate their own AI services
 - **Innovation Pipeline**: 3+ new revenue streams launched within first year
+
+
+Future:
+Performance Based fees: 
+- additional charger users for certain volume of trades, win rate & profit
+
+VIP or Users Tier:
+- additional features & fees for users who pay a monthly fee

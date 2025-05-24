@@ -571,6 +571,7 @@ impl D1Service {
     // ============= HELPER METHODS =============
 
     /// Convert database row to UserProfile
+    #[allow(clippy::result_large_err)]
     fn row_to_user_profile(&self, row: HashMap<String, Value>) -> ArbitrageResult<UserProfile> {
         // Parse required fields
         let user_id = row.get("user_id")
@@ -651,6 +652,7 @@ impl D1Service {
     }
 
     /// Convert database row to InvitationCode
+    #[allow(clippy::result_large_err)]
     fn row_to_invitation_code(&self, row: HashMap<String, Value>) -> ArbitrageResult<InvitationCode> {
         let code = row.get("code")
             .and_then(|v| v.as_str())
@@ -702,6 +704,7 @@ impl D1Service {
     }
 
     /// Convert database row to UserInvitation
+    #[allow(clippy::result_large_err)]
     fn row_to_user_invitation(&self, row: HashMap<String, Value>) -> ArbitrageResult<UserInvitation> {
         // Parse required fields
         let invitation_id = row.get("invitation_id")
@@ -746,23 +749,20 @@ impl D1Service {
         // Parse timestamps
         let created_at = row.get("created_at")
             .and_then(|v| v.as_i64())
-            .map(|ts| chrono::DateTime::from_timestamp_millis(ts))
-            .flatten()
+            .and_then(chrono::DateTime::from_timestamp_millis)
             .map(|dt| dt.with_timezone(&chrono::Utc))
-            .unwrap_or_else(|| chrono::Utc::now());
+            .unwrap_or_else(chrono::Utc::now);
 
         let expires_at = row.get("expires_at")
             .and_then(|v| v.as_i64())
             .filter(|&ts| ts > 0)
-            .map(|ts| chrono::DateTime::from_timestamp_millis(ts))
-            .flatten()
+            .and_then(chrono::DateTime::from_timestamp_millis)
             .map(|dt| dt.with_timezone(&chrono::Utc));
 
         let accepted_at = row.get("accepted_at")
             .and_then(|v| v.as_i64())
             .filter(|&ts| ts > 0)
-            .map(|ts| chrono::DateTime::from_timestamp_millis(ts))
-            .flatten()
+            .and_then(chrono::DateTime::from_timestamp_millis)
             .map(|dt| dt.with_timezone(&chrono::Utc));
 
         Ok(UserInvitation {
@@ -780,6 +780,7 @@ impl D1Service {
     }
 
     /// Convert database row to TradingAnalytics
+    #[allow(clippy::result_large_err)]
     fn row_to_trading_analytics(&self, row: HashMap<String, Value>) -> ArbitrageResult<TradingAnalytics> {
         // Parse required fields
         let analytics_id = row.get("analytics_id")
@@ -833,10 +834,9 @@ impl D1Service {
 
         let timestamp = row.get("timestamp")
             .and_then(|v| v.as_i64())
-            .map(|ts| chrono::DateTime::from_timestamp_millis(ts))
-            .flatten()
+            .and_then(chrono::DateTime::from_timestamp_millis)
             .map(|dt| dt.with_timezone(&chrono::Utc))
-            .unwrap_or_else(|| chrono::Utc::now());
+            .unwrap_or_else(chrono::Utc::now);
 
         Ok(TradingAnalytics {
             analytics_id,
@@ -1093,6 +1093,7 @@ impl D1Service {
     }
 
     /// Convert database row to BalanceHistoryEntry
+    #[allow(clippy::result_large_err)]
     fn row_to_balance_history(&self, row: HashMap<String, Value>) -> ArbitrageResult<crate::services::fund_monitoring::BalanceHistoryEntry> {
         let balance_data = row.get("balance_data")
             .and_then(|v| v.as_str())
@@ -1526,6 +1527,7 @@ impl D1Service {
     // ============= HELPER METHODS FOR SAFE ROW CONVERSION =============
     
     /// Helper method to safely extract string field from database row
+    #[allow(clippy::result_large_err)]
     fn get_string_field(&self, row: &HashMap<String, Value>, field_name: &str) -> ArbitrageResult<String> {
         row.get(field_name)
             .and_then(|v| v.as_str())
@@ -1568,6 +1570,7 @@ impl D1Service {
     }
     
     /// Helper method to safely extract float field from database row
+    #[allow(dead_code)]
     fn get_f64_field(&self, row: &HashMap<String, Value>, field_name: &str, default: f64) -> f64 {
         row.get(field_name)
             .and_then(|v| v.as_f64())
@@ -1581,6 +1584,7 @@ impl D1Service {
     }
     
     /// Helper method to safely extract and parse JSON field from database row
+    #[allow(dead_code)]
     fn get_json_field<T: serde::de::DeserializeOwned>(&self, row: &HashMap<String, Value>, field_name: &str, default: T) -> T {
         row.get(field_name)
             .and_then(|v| v.as_str())
@@ -1589,6 +1593,7 @@ impl D1Service {
     }
 
     // Helper methods for converting database rows to structs
+    #[allow(clippy::result_large_err)]
     fn row_to_trading_preferences(&self, row: HashMap<String, Value>) -> ArbitrageResult<UserTradingPreferences> {
         // Extract required string fields safely
         let preference_id = self.get_string_field(&row, "preference_id")?;
@@ -1597,27 +1602,27 @@ impl D1Service {
         // Extract enum fields with proper error handling
         let trading_focus_str = self.get_string_field(&row, "trading_focus")?;
         let trading_focus: crate::services::user_trading_preferences::TradingFocus = serde_json::from_str(
-            &trading_focus_str.trim_matches('"')
+            trading_focus_str.trim_matches('"')
         ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse trading focus '{}': {}", trading_focus_str, e)))?;
         
         let experience_level_str = self.get_string_field(&row, "experience_level")?;
         let experience_level: crate::services::user_trading_preferences::ExperienceLevel = serde_json::from_str(
-            &experience_level_str.trim_matches('"')
+            experience_level_str.trim_matches('"')
         ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse experience level '{}': {}", experience_level_str, e)))?;
         
         let risk_tolerance_str = self.get_string_field(&row, "risk_tolerance")?;
         let risk_tolerance: crate::services::user_trading_preferences::RiskTolerance = serde_json::from_str(
-            &risk_tolerance_str.trim_matches('"')
+            risk_tolerance_str.trim_matches('"')
         ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse risk tolerance '{}': {}", risk_tolerance_str, e)))?;
         
         let automation_level_str = self.get_string_field(&row, "automation_level")?;
         let automation_level: crate::services::user_trading_preferences::AutomationLevel = serde_json::from_str(
-            &automation_level_str.trim_matches('"')
+            automation_level_str.trim_matches('"')
         ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse automation level '{}': {}", automation_level_str, e)))?;
         
         let automation_scope_str = self.get_string_field(&row, "automation_scope")?;
         let automation_scope: crate::services::user_trading_preferences::AutomationScope = serde_json::from_str(
-            &automation_scope_str.trim_matches('"')
+            automation_scope_str.trim_matches('"')
         ).map_err(|e| ArbitrageError::parse_error(format!("Failed to parse automation scope '{}': {}", automation_scope_str, e)))?;
         
         // Extract JSON array fields safely
@@ -1656,6 +1661,7 @@ impl D1Service {
         })
     }
 
+    #[allow(clippy::result_large_err)]
     fn row_to_notification_template(&self, row: HashMap<String, Value>) -> ArbitrageResult<crate::services::notifications::NotificationTemplate> {
         let template_id = self.get_string_field(&row, "template_id")?;
         let name = self.get_string_field(&row, "name")?;
@@ -1691,6 +1697,7 @@ impl D1Service {
         })
     }
 
+    #[allow(clippy::result_large_err)]
     fn row_to_alert_trigger(&self, row: HashMap<String, Value>) -> ArbitrageResult<crate::services::notifications::AlertTrigger> {
         let trigger_id = self.get_string_field(&row, "trigger_id")?;
         let user_id = self.get_string_field(&row, "user_id")?;
@@ -1731,6 +1738,7 @@ impl D1Service {
         })
     }
 
+    #[allow(clippy::result_large_err)]
     fn row_to_notification_history(&self, row: HashMap<String, Value>) -> ArbitrageResult<crate::services::notifications::NotificationHistory> {
         let history_id = self.get_string_field(&row, "history_id")?;
         let notification_id = self.get_string_field(&row, "notification_id")?;

@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::services::market_analysis::{PriceSeries, MathUtils, PricePoint};
-use crate::services::user_trading_preferences::{UserTradingPreferences, TradingFocus, ExperienceLevel, RiskTolerance, AutomationLevel, AutomationScope};
-use crate::utils::ArbitrageResult;
+use crate::services::market_analysis::{PriceSeries, MathUtils};
+use crate::services::user_trading_preferences::{UserTradingPreferences, TradingFocus};
+// use crate::utils::ArbitrageResult; // TODO: Re-enable when implementing correlation analysis
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExchangeCorrelationData {
@@ -352,7 +352,7 @@ impl CorrelationAnalysisService {
         Ok(LaggeddCorrelationResult {
             correlation,
             confidence,
-            data_points: leader_prices.len(),
+            _data_points: leader_prices.len(),
         })
     }
 
@@ -476,7 +476,7 @@ impl CorrelationAnalysisService {
 struct LaggeddCorrelationResult {
     correlation: f64,
     confidence: f64,
-    data_points: usize,
+    _data_points: usize,
 }
 
 #[cfg(test)]

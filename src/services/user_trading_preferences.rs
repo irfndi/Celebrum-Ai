@@ -1,18 +1,26 @@
 // User Trading Preferences Service
 // Task 1.5: Trading focus selection and automation preferences management
 
-use crate::utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}};
+use crate::utils::{ArbitrageResult, ArbitrageError, logger::Logger};
 use crate::services::D1Service;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use worker::*;
+// use worker::*; // TODO: Re-enable when implementing worker functionality
+
+/// Required onboarding steps that users must complete
+const REQUIRED_ONBOARDING_STEPS: &[&str] = &[
+    "trading_focus_selected",
+    "automation_configured",
+    "exchanges_connected"
+];
 
 // ============= TRADING PREFERENCE TYPES =============
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum TradingFocus {
     #[serde(rename = "arbitrage")]
+    #[default]
     Arbitrage,      // Default - focus on arbitrage opportunities (low risk)
     #[serde(rename = "technical")]
     Technical,      // Focus on technical analysis trading (higher risk)
@@ -20,15 +28,10 @@ pub enum TradingFocus {
     Hybrid,         // Both arbitrage and technical (experienced users)
 }
 
-impl Default for TradingFocus {
-    fn default() -> Self {
-        TradingFocus::Arbitrage // Safe default for new users
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum AutomationLevel {
     #[serde(rename = "manual")]
+    #[default]
     Manual,         // Alerts only, user executes manually (default)
     #[serde(rename = "semi_auto")]
     SemiAuto,       // Pre-approval required for each trade
@@ -36,15 +39,10 @@ pub enum AutomationLevel {
     FullAuto,       // Automated execution based on rules
 }
 
-impl Default for AutomationLevel {
-    fn default() -> Self {
-        AutomationLevel::Manual // Safe default for new users
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum AutomationScope {
     #[serde(rename = "none")]
+    #[default]
     None,           // No automation (manual only)
     #[serde(rename = "arbitrage_only")]
     ArbitrageOnly,  // Automate arbitrage trades only
@@ -54,15 +52,10 @@ pub enum AutomationScope {
     Both,           // Automate both types
 }
 
-impl Default for AutomationScope {
-    fn default() -> Self {
-        AutomationScope::None // Safe default
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum ExperienceLevel {
     #[serde(rename = "beginner")]
+    #[default]
     Beginner,       // New to trading, conservative approach
     #[serde(rename = "intermediate")]
     Intermediate,   // Some trading experience
@@ -70,26 +63,15 @@ pub enum ExperienceLevel {
     Advanced,       // Experienced trader
 }
 
-impl Default for ExperienceLevel {
-    fn default() -> Self {
-        ExperienceLevel::Beginner // Safe default
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum RiskTolerance {
     #[serde(rename = "conservative")]
+    #[default]
     Conservative,   // Low risk, capital preservation focused
     #[serde(rename = "balanced")]
     Balanced,       // Moderate risk tolerance
     #[serde(rename = "aggressive")]
     Aggressive,     // Higher risk tolerance
-}
-
-impl Default for RiskTolerance {
-    fn default() -> Self {
-        RiskTolerance::Conservative // Safe default
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,11 +144,12 @@ impl UserTradingPreferences {
         }
     }
     
+    #[allow(clippy::result_large_err)]
     pub fn enable_technical_trading(&mut self) -> ArbitrageResult<()> {
         // Validate that user is not beginner for technical trading
         if self.experience_level == ExperienceLevel::Beginner {
             return Err(ArbitrageError::validation_error(
-                "Technical trading requires intermediate or advanced experience level"
+                "Technical trading requires intermediate or advanced experience level. Please update your experience level in your profile settings first, or choose 'Arbitrage' focus to continue with safer trading options."
             ));
         }
         
@@ -188,6 +171,7 @@ impl UserTradingPreferences {
         Ok(())
     }
     
+    #[allow(clippy::result_large_err)]
     pub fn set_automation_level(&mut self, level: AutomationLevel, scope: AutomationScope) -> ArbitrageResult<()> {
         // Validate automation access based on experience
         match level {
@@ -412,7 +396,7 @@ impl UserTradingPreferencesService {
         // Validate preferences before updating
         let validation = self.validate_preferences(preferences);
         if !validation.is_valid {
-            return Err(ArbitrageError::validation_error(&format!(
+            return Err(ArbitrageError::validation_error(format!(
                 "Invalid preferences: {:?}", validation.errors
             )));
         }
@@ -457,7 +441,7 @@ impl UserTradingPreferencesService {
         // Auto-enable technical trading if choosing technical or hybrid focus
         match focus {
             TradingFocus::Technical | TradingFocus::Hybrid => {
-                if let Err(_) = preferences.enable_technical_trading() {
+                if preferences.enable_technical_trading().is_err() {
                     // If they can't enable technical trading, suggest upgrading experience level
                     self.logger.warn(
                         &format!("User {} attempted to enable technical trading but is beginner level", user_id),
@@ -539,7 +523,7 @@ impl UserTradingPreferencesService {
         
         // Validate technical trading vs experience
         if preferences.technical_enabled && preferences.experience_level == ExperienceLevel::Beginner {
-            result.errors.push("Technical trading requires intermediate or advanced experience".to_string());
+            result.errors.push("Technical trading requires intermediate or advanced experience. Consider updating your experience level or choosing arbitrage focus for safer trading.".to_string());
             result.is_valid = false;
         }
         
@@ -564,8 +548,7 @@ impl UserTradingPreferencesService {
         }
         
         // Check if onboarding is complete
-        let required_steps = vec!["trading_focus_selected", "automation_configured", "exchanges_connected"];
-        let completed_required = required_steps.iter()
+        let completed_required = REQUIRED_ONBOARDING_STEPS.iter()
             .all(|step| preferences.tutorial_steps_completed.contains(&step.to_string()));
         
         if completed_required && !preferences.onboarding_completed {
@@ -666,33 +649,5 @@ mod tests {
         assert!(access.custom_indicators); // Technical enabled + not beginner
     }
     
-    #[test]
-    #[ignore] // Requires proper environment setup 
-    fn test_preference_validation() {
-        // This test requires proper environment setup
-        // TODO: Implement proper test environment setup
-        /*
-        let service = UserTradingPreferencesService::new(
-            D1Service::new(Env::default()),
-            Logger::new("test".to_string(), LogLevel::Info),
-        );
-        
-        let mut preferences = UserTradingPreferences::new_default("test_user".to_string());
-        
-        // Valid default preferences
-        let validation = service.validate_preferences(&preferences);
-        assert!(validation.is_valid);
-        
-        // Invalid: beginner with technical trading
-        preferences.technical_enabled = true;
-        let validation = service.validate_preferences(&preferences);
-        assert!(!validation.is_valid);
-        assert!(!validation.errors.is_empty());
-        
-        // Fix by upgrading experience
-        preferences.experience_level = ExperienceLevel::Intermediate;
-        let validation = service.validate_preferences(&preferences);
-        assert!(validation.is_valid);
-        */
-    }
+    // TODO: Implement integration test for preference validation with proper test environment
 } 
