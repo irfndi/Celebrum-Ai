@@ -351,35 +351,45 @@ Edge Deployment: Leverage Cloudflare Workers for potentially lower latency execu
 
 The Enhanced MVP will include:
 
-**Phase 1**: User Choice Foundation + Trading Focus Selection
+**Phase 1**: User Choice Foundation + Core Services
 - User onboarding with trading focus selection (arbitrage/technical/hybrid)
 - Default settings (arbitrage + manual execution) for new users
-- Basic user trading preferences management
-- Foundation for progressive automation
+- Core service architecture implementation (ExchangeService, PositionsService, FundMonitoringService)
+- Authentication middleware and security foundations
 
-**Phase 2**: Hybrid Opportunity Detection System  
+**Phase 2**: Market Data & Opportunity System  
+- Real-time market data pipeline with exchange integrations
+- GlobalOpportunityService with fair distribution queuing
 - Arbitrage opportunity detection and alerts
 - Technical analysis indicators and signal generation
 - Risk-stratified opportunity presentation based on user focus
-- Manual execution for both opportunity types
 
-**Phase 3**: AI Integration & Automation Framework
-- BYOK AI integration with existing services (Tasks 3, 6, 7)
+**Phase 3**: Infrastructure & Performance
+- HTTP request layer and RESTful API implementation
+- Rate limiting and caching systems
+- Circuit breakers and error handling patterns
+- Performance monitoring and observability
+- Database optimization and connection pooling
+
+**Phase 4**: AI Integration & Automation Framework
+- BYOK AI integration with existing services
 - Semi-automated execution with user approval workflows
 - AI-enhanced opportunity analysis for user's chosen focus
+- CorrelationAnalysisService and DynamicConfigService
 - Integration with position management and dynamic configuration
 
-**Phase 4**: Subscription Model & Access Control
+**Phase 5**: Subscription Model & Access Control
 - Tiered subscription implementation (Free → Premium → Automation)
 - RBAC for administrative and institutional features
 - Feature gating based on subscription tier and user preferences
 - Payment processing and subscription management
 
-**Phase 5**: Advanced Features & Enterprise
+**Phase 6**: Advanced Features & Enterprise
 - Fully automated trading for premium tiers
 - Enterprise team management and white-label options
 - Advanced analytics and reporting per trading focus
 - AI marketplace and additional revenue streams
+- Regulatory compliance and audit systems
 
 **Future Scope** (Post-MVP):
 - Social trading and strategy marketplace
@@ -390,11 +400,34 @@ The Enhanced MVP will include:
 
 8. Implementation Priority
 
-**Phase 1**: User Choice & Trading Focus Foundation (Task 1.5)
-**Phase 2**: Hybrid Market Analysis System (Task 9)
-**Phase 3**: Advanced Analytics & Performance Dashboard (Task 10-11)
-**Phase 4**: Subscription Infrastructure & RBAC Implementation
-**Phase 5**: Automation & Enterprise Features
+**Phase 1**: User Choice & Core Services Foundation
+- Task 1.5: Trading Focus & Automation Preferences
+- Missing Core Services: ExchangeService, PositionsService, FundMonitoringService
+- Authentication middleware and security infrastructure
+
+**Phase 2**: Market Data & Opportunity System
+- Real-time market data pipeline implementation
+- GlobalOpportunityService and opportunity distribution
+- Task 9: Hybrid Market Analysis System
+
+**Phase 3**: Infrastructure & Performance
+- HTTP request layer and API architecture
+- Rate limiting, caching, and circuit breaker patterns
+- Monitoring and observability systems
+
+**Phase 4**: AI Integration & Automation
+- BYOK AI integration framework
+- CorrelationAnalysisService and DynamicConfigService
+- Semi-automated and automated execution systems
+
+**Phase 5**: Subscription & Access Control
+- Subscription Infrastructure & RBAC Implementation
+- Feature gating and access control systems
+
+**Phase 6**: Advanced Features & Enterprise
+- Task 10-11: Advanced Analytics & Performance Dashboard
+- Enterprise features and white-label solutions
+- Regulatory compliance systems
 
 9. Enhanced Success Metrics
 
@@ -435,3 +468,59 @@ Performance Based fees:
 
 VIP or Users Tier:
 - additional features & fees for users who pay a monthly fee
+
+## 6. Technical Architecture Requirements
+
+### 6.1 Core Service Architecture
+
+**FR6.1**: The system must implement comprehensive service layer architecture
+- **ExchangeService**: Real-time market data fetching with API rate limiting and connection pooling
+- **GlobalOpportunityService**: Fair distribution and queue management for opportunity delivery
+- **PositionsService**: Multi-exchange position tracking and management
+- **FundMonitoringService**: Real-time balance tracking and fund optimization
+- **CorrelationAnalysisService**: Cross-exchange market correlation analysis
+- **DynamicConfigService**: Runtime configuration management and validation
+
+**FR6.2**: The system must support production-grade infrastructure
+- **HTTP Request Layer**: RESTful API with proper request/response handling
+- **Authentication Middleware**: Secure user authentication and session management
+- **Rate Limiting**: API call throttling and fair usage enforcement
+- **Caching Layer**: Performance optimization with intelligent cache management
+- **Circuit Breakers**: Fault tolerance for external API dependencies
+
+**FR6.3**: The system must implement comprehensive error handling
+- **Network Failure Recovery**: Exponential backoff and retry logic
+- **Service Unavailable Fallbacks**: Graceful degradation when services are down
+- **API Rate Limit Handling**: Intelligent queuing and throttling
+- **Database Connection Failures**: Connection pooling and failover mechanisms
+- **Invalid Data Scenarios**: Input validation and sanitization
+
+### 6.2 Security & Compliance Architecture
+
+**FR6.4**: The system must provide enterprise-grade security
+- **API Key Encryption**: Secure storage and handling of user exchange API keys
+- **Request Signing**: Cryptographic validation of exchange API calls
+- **SQL Injection Prevention**: Parameterized queries and input validation
+- **Audit Logging**: Comprehensive audit trail for regulatory compliance
+- **Data Privacy**: GDPR-compliant user data handling
+
+**FR6.5**: The system must support monitoring and observability
+- **Performance Metrics**: Response time tracking and performance monitoring
+- **Error Rate Monitoring**: Real-time error detection and alerting
+- **Business Metrics**: Opportunity detection rates, trade success metrics
+- **Health Checks**: Service availability and dependency monitoring
+- **Logging**: Structured logging for debugging and analysis
+
+### 6.3 External Integration Architecture
+
+**FR6.6**: The system must integrate with external market data providers
+- **Multiple Exchange APIs**: Binance, Bybit, and other major exchanges
+- **Real-time Data Streams**: WebSocket connections for live market data
+- **Historical Data Access**: Past market data for analysis and backtesting
+- **API Versioning**: Support for multiple API versions and migrations
+
+**FR6.7**: The system must support AI and ML integrations
+- **BYOK AI Providers**: OpenAI, Anthropic, custom AI service integration
+- **Model Management**: AI model versioning and performance tracking
+- **Inference Pipeline**: Real-time AI analysis integration with trading decisions
+- **Training Data**: Market data preparation for ML model training
