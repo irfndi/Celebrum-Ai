@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 worker = { version = "0.5.0", features = ["d1"] }
@@ -37,4 +37,8 @@ reqwest = { version = "0.12.15", features = ["json"], default-features = false }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # HTTP client for native - reqwest with full features
 reqwest = { version = "0.12.15", features = ["json", "stream"], default-features = false }
-tokio = { version = "1.42", features = ["macros", "rt"] } 
+tokio = { version = "1.42", features = ["macros", "rt"] }
+
+[dev-dependencies]
+tokio = { version = "1.42", features = ["macros", "rt-multi-thread"] }
+tokio-test = "0.4" 

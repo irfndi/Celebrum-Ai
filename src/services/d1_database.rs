@@ -864,7 +864,14 @@ impl D1Service {
     // ============= GENERIC QUERY HELPERS =============
     
     #[cfg(target_arch = "wasm32")]
-    /// Execute a prepared statement with parameters (for INSERT, UPDATE, DELETE)
+    /// ⚠️ **SECURITY WARNING**: Execute a prepared statement with parameters (for INSERT, UPDATE, DELETE)
+    /// 
+    /// **SQL INJECTION RISK**: This method accepts raw SQL strings. Only use with:
+    /// - Hardcoded SQL statements 
+    /// - Properly parameterized queries using the `params` array
+    /// - Never pass user input directly in the `sql` parameter
+    /// 
+    /// Consider using specific typed methods instead of this generic query executor.
     pub async fn execute_query(&self, sql: &str, params: &[JsValue]) -> ArbitrageResult<()> {
         let stmt = self.db.prepare(sql);
         stmt.bind(params)
@@ -876,7 +883,14 @@ impl D1Service {
     }
     
     #[cfg(target_arch = "wasm32")]
-    /// Execute a query that returns results (for SELECT)
+    /// ⚠️ **SECURITY WARNING**: Execute a query that returns results (for SELECT)
+    /// 
+    /// **SQL INJECTION RISK**: This method accepts raw SQL strings. Only use with:
+    /// - Hardcoded SQL statements
+    /// - Properly parameterized queries using the `params` array  
+    /// - Never pass user input directly in the `sql` parameter
+    /// 
+    /// Consider using specific typed methods instead of this generic query executor.
     pub async fn query(&self, sql: &str, params: &[JsValue]) -> ArbitrageResult<QueryResult> {
         let stmt = self.db.prepare(sql);
         let result = stmt.bind(params)
@@ -892,7 +906,14 @@ impl D1Service {
     }
     
     #[cfg(target_arch = "wasm32")]
-    /// Execute a query that returns a single result (for SELECT with LIMIT 1)
+    /// ⚠️ **SECURITY WARNING**: Execute a query that returns a single result (for SELECT with LIMIT 1)
+    /// 
+    /// **SQL INJECTION RISK**: This method accepts raw SQL strings. Only use with:
+    /// - Hardcoded SQL statements
+    /// - Properly parameterized queries using the `params` array
+    /// - Never pass user input directly in the `sql` parameter
+    /// 
+    /// Consider using specific typed methods instead of this generic query executor.
     pub async fn query_first(&self, sql: &str, params: &[JsValue]) -> ArbitrageResult<Option<HashMap<String, Value>>> {
         let stmt = self.db.prepare(sql);
         let result = stmt.bind(params)

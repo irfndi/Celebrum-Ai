@@ -11,6 +11,27 @@ use arb_edge::utils::logger::{Logger, LogLevel};
 use std::sync::Arc;
 use std::collections::HashMap;
 
+// Mock service implementations for unit testing
+struct MockExchangeService;
+impl MockExchangeService {
+    fn new() -> Self { Self }
+}
+
+struct MockTelegramService;
+impl MockTelegramService {
+    fn new() -> Self { Self }
+}
+
+struct MockMarketAnalysisService;
+impl MockMarketAnalysisService {
+    fn new() -> Self { Self }
+}
+
+struct MockUserTradingPreferencesService;
+impl MockUserTradingPreferencesService {
+    fn new() -> Self { Self }
+}
+
 fn create_test_logger() -> Logger {
     Logger::new(LogLevel::Info)
 }
@@ -40,11 +61,11 @@ fn create_test_enhanced_opportunity_service() -> EnhancedOpportunityService {
     let config = create_test_config();
     let logger = create_test_logger();
     
-    // Create mock services
-    let exchange_service = Arc::new(ExchangeService::new());
-    let telegram_service = Some(Arc::new(TelegramService::new("test_token".to_string())));
-    let market_analysis_service = Arc::new(MarketAnalysisService::new());
-    let preferences_service = Arc::new(UserTradingPreferencesService::new());
+    // Create mock services for unit testing
+    let exchange_service = Arc::new(MockExchangeService::new());
+    let telegram_service = Some(Arc::new(MockTelegramService::new()));
+    let market_analysis_service = Arc::new(MockMarketAnalysisService::new());
+    let preferences_service = Arc::new(MockUserTradingPreferencesService::new());
 
     EnhancedOpportunityService::new(
         config,

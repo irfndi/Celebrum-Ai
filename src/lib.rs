@@ -1,9 +1,9 @@
 use worker::*;
 
 // Module declarations
-mod services;
-mod types;
-mod utils;
+pub mod services;
+pub mod types;
+pub mod utils;
 
 use serde_json::json;
 use services::exchange::{ExchangeInterface, ExchangeService};
@@ -347,7 +347,9 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
 async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> {
     let kv = env.kv("ArbEdgeKV")?;
     let d1_service = D1Service::new(&env)?;
-    let encryption_key = env.var("ENCRYPTION_KEY").map(|v| v.to_string()).unwrap_or_else(|_| "default_key".to_string());
+    let encryption_key = env.var("ENCRYPTION_KEY")
+        .map(|v| v.to_string())
+        .map_err(|_| worker::Error::RustError("ENCRYPTION_KEY environment variable is required".to_string()))?;
     let user_profile_service = UserProfileService::new(kv.clone(), d1_service, encryption_key);
     let positions_service = ProductionPositionsService::new(kv);
 

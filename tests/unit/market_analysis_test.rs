@@ -1,8 +1,8 @@
 // Task 9.1: Technical Indicators Foundation - Unit Tests
 // Tests for market analysis service and mathematical foundation
 
-use arbedge::services::market_analysis::*;
-use arbedge::utils::ArbitrageError;
+use arb_edge::services::market_analysis::*;
+use arb_edge::utils::ArbitrageError;
 
 #[tokio::test]
 async fn test_price_point_creation() {

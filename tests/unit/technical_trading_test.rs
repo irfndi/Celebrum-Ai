@@ -90,19 +90,19 @@ async fn test_rsi_confidence_calculation() {
     let moderately_oversold_confidence = service.calculate_rsi_confidence(30.0, TradingSignalType::Buy);
     let neutral_confidence = service.calculate_rsi_confidence(50.0, TradingSignalType::Buy);
     
-    assert_eq!(very_oversold_confidence, 0.9);
-    assert_eq!(strongly_oversold_confidence, 0.8);
-    assert_eq!(moderately_oversold_confidence, 0.7);
-    assert_eq!(neutral_confidence, 0.5);
+    assert!((very_oversold_confidence - 0.9).abs() < 1e-10);
+    assert!((strongly_oversold_confidence - 0.8).abs() < 1e-10);
+    assert!((moderately_oversold_confidence - 0.7).abs() < 1e-10);
+    assert!((neutral_confidence - 0.5).abs() < 1e-10);
     
     // Test sell signals (overbought RSI)
     let very_overbought_confidence = service.calculate_rsi_confidence(85.0, TradingSignalType::Sell);
     let strongly_overbought_confidence = service.calculate_rsi_confidence(75.0, TradingSignalType::Sell);
     let moderately_overbought_confidence = service.calculate_rsi_confidence(70.0, TradingSignalType::Sell);
     
-    assert_eq!(very_overbought_confidence, 0.9);
-    assert_eq!(strongly_overbought_confidence, 0.8);
-    assert_eq!(moderately_overbought_confidence, 0.7);
+    assert!((very_overbought_confidence - 0.9).abs() < 1e-10);
+    assert!((strongly_overbought_confidence - 0.8).abs() < 1e-10);
+    assert!((moderately_overbought_confidence - 0.7).abs() < 1e-10);
 }
 
 #[tokio::test]
@@ -111,15 +111,15 @@ async fn test_crossover_confidence_calculation() {
     
     // Test strong crossover (>2% difference)
     let strong_crossover = service.calculate_crossover_confidence(102.0, 100.0, TradingSignalType::Buy);
-    assert_eq!(strong_crossover, 0.8);
+    assert!((strong_crossover - 0.8).abs() < 1e-10);
     
     // Test moderate crossover (>1% difference)
     let moderate_crossover = service.calculate_crossover_confidence(101.0, 100.0, TradingSignalType::Buy);
-    assert_eq!(moderate_crossover, 0.7);
+    assert!((moderate_crossover - 0.7).abs() < 1e-10);
     
     // Test weak crossover (<1% difference)
     let weak_crossover = service.calculate_crossover_confidence(100.5, 100.0, TradingSignalType::Buy);
-    assert_eq!(weak_crossover, 0.6);
+    assert!((weak_crossover - 0.6).abs() < 1e-10);
 }
 
 #[tokio::test]
@@ -130,15 +130,15 @@ async fn test_bollinger_confidence_calculation() {
     let strong_buy_signal = service.calculate_bollinger_confidence(90.0, 95.0, 105.0, TradingSignalType::Buy);
     let weak_buy_signal = service.calculate_bollinger_confidence(94.0, 95.0, 105.0, TradingSignalType::Buy);
     
-    assert_eq!(strong_buy_signal, 0.8); // Well below lower band
-    assert_eq!(weak_buy_signal, 0.6);   // Just touching lower band
+    assert!((strong_buy_signal - 0.8).abs() < 1e-10); // Well below lower band
+    assert!((weak_buy_signal - 0.6).abs() < 1e-10);   // Just touching lower band
     
     // Test sell signal (price above upper band)
     let strong_sell_signal = service.calculate_bollinger_confidence(110.0, 95.0, 105.0, TradingSignalType::Sell);
     let weak_sell_signal = service.calculate_bollinger_confidence(106.0, 95.0, 105.0, TradingSignalType::Sell);
     
-    assert_eq!(strong_sell_signal, 0.8); // Well above upper band
-    assert_eq!(weak_sell_signal, 0.6);   // Just touching upper band
+    assert!((strong_sell_signal - 0.8).abs() < 1e-10); // Well above upper band
+    assert!((weak_sell_signal - 0.6).abs() < 1e-10);   // Just touching upper band
 }
 
 #[tokio::test]
@@ -147,15 +147,15 @@ async fn test_momentum_confidence_calculation() {
     
     // Test strong momentum (>5% change)
     let strong_momentum = service.calculate_momentum_confidence(0.06);
-    assert_eq!(strong_momentum, 0.8);
+    assert!((strong_momentum - 0.8).abs() < 1e-10);
     
     // Test moderate momentum (>3% change)
     let moderate_momentum = service.calculate_momentum_confidence(0.04);
-    assert_eq!(moderate_momentum, 0.7);
+    assert!((moderate_momentum - 0.7).abs() < 1e-10);
     
     // Test weak momentum (2-3% change)
     let weak_momentum = service.calculate_momentum_confidence(0.025);
-    assert_eq!(weak_momentum, 0.6);
+    assert!((weak_momentum - 0.6).abs() < 1e-10);
 }
 
 #[tokio::test]
@@ -174,8 +174,8 @@ async fn test_price_targets_calculation() {
     
     // Expected: stop_loss = 100 * (1 - 0.02) = 98.0
     // Expected: target = 100 * (1 + 0.02 * 2.0) = 104.0
-    assert_eq!(stop_loss, 98.0);
-    assert_eq!(target, 104.0);
+    assert!((stop_loss - 98.0).abs() < 1e-10);
+    assert!((target - 104.0).abs() < 1e-10);
     
     // Test sell signal price targets
     let (sell_target, sell_stop_loss) = service.calculate_price_targets(entry_price, &TradingSignalType::Sell);
@@ -188,8 +188,8 @@ async fn test_price_targets_calculation() {
     
     // Expected: stop_loss = 100 * (1 + 0.02) = 102.0
     // Expected: target = 100 * (1 - 0.02 * 2.0) = 96.0
-    assert_eq!(sell_stop_loss_price, 102.0);
-    assert_eq!(sell_target_price, 96.0);
+    assert!((sell_stop_loss_price - 102.0).abs() < 1e-10);
+    assert!((sell_target_price - 96.0).abs() < 1e-10);
     
     // Test hold signal (no targets)
     let (hold_target, hold_stop_loss) = service.calculate_price_targets(entry_price, &TradingSignalType::Hold);
@@ -271,10 +271,10 @@ async fn test_signal_to_opportunity_conversion() {
     assert_eq!(trading_opportunity.opportunity_type, OpportunityType::Technical);
     assert_eq!(trading_opportunity.trading_pair, test_signal.trading_pair);
     assert_eq!(trading_opportunity.exchanges, vec![test_signal.exchange_id]);
-    assert_eq!(trading_opportunity.entry_price, test_signal.entry_price);
+    assert!((trading_opportunity.entry_price - test_signal.entry_price).abs() < 1e-10);
     assert_eq!(trading_opportunity.target_price, test_signal.target_price);
     assert_eq!(trading_opportunity.stop_loss, test_signal.stop_loss);
-    assert_eq!(trading_opportunity.confidence_score, test_signal.confidence_score);
+    assert!((trading_opportunity.confidence_score - test_signal.confidence_score).abs() < 1e-10);
     assert_eq!(trading_opportunity.risk_level, RiskLevel::Medium); // Strong signal -> Medium risk
     assert_eq!(trading_opportunity.time_horizon, TimeHorizon::Short); // RSI -> Short term
     assert_eq!(trading_opportunity.indicators_used, vec![test_signal.indicator_source]);

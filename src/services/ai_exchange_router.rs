@@ -356,8 +356,14 @@ impl AiExchangeRouterService {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     last_error = Some(e);
-                    // For Cloudflare Workers, we don't need to add delay between retries
-                    // The ephemeral nature of workers makes immediate retries appropriate
+                    
+                    // Add minimal delay between retries to avoid overwhelming rate-limited AI APIs
+                    // Even in Cloudflare Workers, this prevents burst requests that could trigger rate limits
+                    if attempt < self.config.max_retries {
+                        // Minimal delay: 100-500ms to respect rate limits while staying responsive
+                        let delay_ms = 100 + ((attempt - 1) * 100); // 100ms, 200ms, 300ms progression
+                        self.delay_async(delay_ms).await;
+                    }
                 }
             }
         }
@@ -403,6 +409,22 @@ impl AiExchangeRouterService {
                   user_id, provider_name, processing_time_ms);
 
         Ok(())
+    }
+
+    /// Async delay for retry backoff in Cloudflare Workers environment
+    async fn delay_async(&self, delay_ms: u32) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Use worker's sleep for WASM environment
+            use worker::Delay;
+            Delay::from(std::time::Duration::from_millis(delay_ms as u64)).await;
+        }
+        
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Use tokio's sleep for native environment
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms as u64)).await;
+        }
     }
 
     /// Cache analysis result in KV store
