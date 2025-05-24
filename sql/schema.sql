@@ -27,6 +27,33 @@ DROP TABLE IF EXISTS ai_performance_insights;
 DROP TABLE IF EXISTS ai_parameter_suggestions;
 DROP TABLE IF EXISTS user_opportunity_preferences;
 
+-- Telegram Group/Channel Registrations Table
+CREATE TABLE telegram_group_registrations (
+    group_id TEXT PRIMARY KEY,
+    group_type TEXT NOT NULL CHECK (group_type IN ('group', 'supergroup', 'channel')),
+    group_title TEXT,
+    group_username TEXT,
+    member_count INTEGER,
+    admin_user_ids TEXT, -- JSON array of Telegram user IDs
+    bot_permissions TEXT, -- JSON array of bot permissions
+    enabled_features TEXT, -- JSON array of enabled features
+    global_opportunities_enabled BOOLEAN DEFAULT TRUE,
+    technical_analysis_enabled BOOLEAN DEFAULT FALSE,
+    
+    -- Rate limiting configuration (JSON object)
+    rate_limit_config TEXT,
+    
+    -- Activity tracking
+    registered_at INTEGER NOT NULL,
+    last_activity INTEGER NOT NULL,
+    total_messages_sent INTEGER DEFAULT 0,
+    last_member_count_update INTEGER,
+    
+    -- Timestamps
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- User Profiles Table
 CREATE TABLE user_profiles (
     user_id TEXT PRIMARY KEY NOT NULL,
@@ -582,6 +609,12 @@ CREATE INDEX idx_audit_log_user_id ON audit_log(user_id);
 CREATE INDEX idx_audit_log_action ON audit_log(action);
 CREATE INDEX idx_audit_log_resource_type ON audit_log(resource_type);
 CREATE INDEX idx_audit_log_timestamp ON audit_log(timestamp);
+
+-- Telegram Group Registrations indexes
+CREATE INDEX idx_telegram_group_registrations_group_type ON telegram_group_registrations(group_type);
+CREATE INDEX idx_telegram_group_registrations_opportunities_enabled ON telegram_group_registrations(global_opportunities_enabled);
+CREATE INDEX idx_telegram_group_registrations_registered_at ON telegram_group_registrations(registered_at);
+CREATE INDEX idx_telegram_group_registrations_last_activity ON telegram_group_registrations(last_activity);
 
 -- Insert default system configuration
 INSERT OR IGNORE INTO system_config (key, value_json, description, updated_at, updated_by) VALUES
