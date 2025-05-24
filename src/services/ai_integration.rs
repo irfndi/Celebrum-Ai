@@ -1,12 +1,12 @@
-use crate::types::{UserProfile, UserApiKey, ApiKeyProvider};
+use crate::types::{ApiKeyProvider, UserApiKey};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use worker::console_log;
-use worker::kv::KvStore;
+// use worker::console_log; // TODO: Re-enable when implementing logging integration
 use uuid;
+use worker::kv::KvStore;
 
 /// Configuration for AI integration service
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,16 +104,19 @@ impl AiIntegrationService {
         // Check if user has reached the maximum number of AI keys
         let existing_keys = self.get_user_ai_keys(user_id).await?;
         let ai_key_count = existing_keys.iter().filter(|key| key.is_ai_key()).count();
-        
+
         if ai_key_count >= self.config.max_ai_keys_per_user as usize {
-            return Err(ArbitrageError::validation_error(
-                &format!("Maximum AI keys limit ({}) reached", self.config.max_ai_keys_per_user)
-            ));
+            return Err(ArbitrageError::validation_error(format!(
+                "Maximum AI keys limit ({}) reached",
+                self.config.max_ai_keys_per_user
+            )));
         }
 
         // Validate provider is supported
         if !self.is_provider_supported(&provider) {
-            return Err(ArbitrageError::validation_error("AI provider not supported"));
+            return Err(ArbitrageError::validation_error(
+                "AI provider not supported",
+            ));
         }
 
         // Encrypt the API key
@@ -130,17 +133,22 @@ impl AiIntegrationService {
 
         // Store the key
         let key = format!("ai_key:{}:{}", user_id, api_key_id);
-        let serialized = serde_json::to_string(&user_api_key)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize AI key: {}", e)))?;
-        
-        self.kv_store.put(&key, &serialized)
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to prepare AI key storage: {}", e)))?
+        let serialized = serde_json::to_string(&user_api_key).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize AI key: {}", e))
+        })?;
+
+        self.kv_store
+            .put(&key, &serialized)
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to prepare AI key storage: {}", e))
+            })?
             .execute()
             .await
             .map_err(|e| ArbitrageError::storage_error(format!("Failed to store AI key: {}", e)))?;
 
         // Update user's AI key index
-        self.update_user_ai_key_index(user_id, &api_key_id, true).await?;
+        self.update_user_ai_key_index(user_id, &api_key_id, true)
+            .await?;
 
         Ok(api_key_id)
     }
@@ -153,12 +161,13 @@ impl AiIntegrationService {
     ) -> ArbitrageResult<bool> {
         // Remove from storage
         let key = format!("ai_key:{}:{}", user_id, api_key_id);
-        self.kv_store.delete(&key)
-            .await
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to delete AI key: {}", e)))?;
+        self.kv_store.delete(&key).await.map_err(|e| {
+            ArbitrageError::storage_error(format!("Failed to delete AI key: {}", e))
+        })?;
 
         // Update user's AI key index
-        self.update_user_ai_key_index(user_id, api_key_id, false).await?;
+        self.update_user_ai_key_index(user_id, api_key_id, false)
+            .await?;
 
         Ok(true)
     }
@@ -166,14 +175,12 @@ impl AiIntegrationService {
     /// Get all AI credentials for a user
     pub async fn get_user_ai_keys(&self, user_id: &str) -> ArbitrageResult<Vec<UserApiKey>> {
         let index_key = format!("ai_key_index:{}", user_id);
-        let index_data = self.kv_store.get(&index_key)
-            .text()
-            .await
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to get AI key index: {}", e)))?;
+        let index_data = self.kv_store.get(&index_key).text().await.map_err(|e| {
+            ArbitrageError::storage_error(format!("Failed to get AI key index: {}", e))
+        })?;
 
         let key_ids: Vec<String> = if let Some(data) = index_data {
-            serde_json::from_str(&data)
-                .unwrap_or_default()
+            serde_json::from_str(&data).unwrap_or_default()
         } else {
             Vec::new()
         };
@@ -199,7 +206,8 @@ impl AiIntegrationService {
     ) -> ArbitrageResult<bool> {
         // Get the AI key
         let ai_keys = self.get_user_ai_keys(user_id).await?;
-        let ai_key = ai_keys.iter()
+        let ai_key = ai_keys
+            .iter()
             .find(|key| key.id == api_key_id)
             .ok_or_else(|| ArbitrageError::not_found("AI key not found"))?;
 
@@ -216,7 +224,10 @@ impl AiIntegrationService {
             }
             Err(e) => {
                 // Return validation error with details
-                Err(ArbitrageError::validation_error(&format!("AI credentials validation failed: {}", e)))
+                Err(ArbitrageError::validation_error(format!(
+                    "AI credentials validation failed: {}",
+                    e
+                )))
             }
         }
     }
@@ -228,7 +239,8 @@ impl AiIntegrationService {
         provider_type: &ApiKeyProvider,
     ) -> ArbitrageResult<AiProvider> {
         let ai_keys = self.get_user_ai_keys(user_id).await?;
-        let ai_key = ai_keys.iter()
+        let ai_key = ai_keys
+            .iter()
             .find(|key| key.provider == *provider_type && key.is_active)
             .ok_or_else(|| ArbitrageError::not_found("Active AI key not found for provider"))?;
 
@@ -239,14 +251,26 @@ impl AiIntegrationService {
     /// Validate AI provider credentials
     pub async fn validate_ai_credentials(&self, provider: &AiProvider) -> ArbitrageResult<bool> {
         match provider {
-            AiProvider::OpenAI { api_key, base_url, .. } => {
-                self.validate_openai_credentials(api_key, base_url.as_deref()).await
+            AiProvider::OpenAI {
+                api_key, base_url, ..
+            } => {
+                self.validate_openai_credentials(api_key, base_url.as_deref())
+                    .await
             }
-            AiProvider::Anthropic { api_key, base_url, .. } => {
-                self.validate_anthropic_credentials(api_key, base_url.as_deref()).await
+            AiProvider::Anthropic {
+                api_key, base_url, ..
+            } => {
+                self.validate_anthropic_credentials(api_key, base_url.as_deref())
+                    .await
             }
-            AiProvider::Custom { api_key, base_url, headers, .. } => {
-                self.validate_custom_credentials(api_key, base_url, headers).await
+            AiProvider::Custom {
+                api_key,
+                base_url,
+                headers,
+                ..
+            } => {
+                self.validate_custom_credentials(api_key, base_url, headers)
+                    .await
             }
         }
     }
@@ -254,7 +278,8 @@ impl AiIntegrationService {
     /// Test connectivity to AI provider
     pub async fn test_ai_connectivity(&self, provider: &AiProvider) -> ArbitrageResult<String> {
         let test_request = AiAnalysisRequest {
-            prompt: "Test connectivity. Please respond with 'OK' if you receive this message.".to_string(),
+            prompt: "Test connectivity. Please respond with 'OK' if you receive this message."
+                .to_string(),
             market_data: json!({}),
             user_context: None,
             max_tokens: Some(10),
@@ -276,37 +301,76 @@ impl AiIntegrationService {
         }
 
         match provider {
-            AiProvider::OpenAI { api_key, base_url, model } => {
-                self.call_openai(api_key, base_url.as_deref(), model.as_deref(), request).await
+            AiProvider::OpenAI {
+                api_key,
+                base_url,
+                model,
+            } => {
+                self.call_openai(api_key, base_url.as_deref(), model.as_deref(), request)
+                    .await
             }
-            AiProvider::Anthropic { api_key, base_url, model } => {
-                self.call_anthropic(api_key, base_url.as_deref(), model.as_deref(), request).await
+            AiProvider::Anthropic {
+                api_key,
+                base_url,
+                model,
+            } => {
+                self.call_anthropic(api_key, base_url.as_deref(), model.as_deref(), request)
+                    .await
             }
-            AiProvider::Custom { api_key, base_url, headers, model } => {
-                self.call_custom_provider(api_key, base_url, headers, model.as_deref(), request).await
+            AiProvider::Custom {
+                api_key,
+                base_url,
+                headers,
+                model,
+            } => {
+                self.call_custom_provider(api_key, base_url, headers, model.as_deref(), request)
+                    .await
             }
         }
     }
 
     /// Create AI provider from user API key
+    #[allow(clippy::result_large_err)]
     pub fn create_ai_provider(&self, api_key: &UserApiKey) -> ArbitrageResult<AiProvider> {
         match api_key.provider {
             ApiKeyProvider::OpenAI => Ok(AiProvider::OpenAI {
                 api_key: api_key.encrypted_key.clone(),
-                base_url: api_key.metadata.get("base_url").and_then(|v| v.as_str()).map(String::from),
-                model: api_key.metadata.get("model").and_then(|v| v.as_str()).map(String::from),
+                base_url: api_key
+                    .metadata
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                model: api_key
+                    .metadata
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
             }),
             ApiKeyProvider::Anthropic => Ok(AiProvider::Anthropic {
                 api_key: api_key.encrypted_key.clone(),
-                base_url: api_key.metadata.get("base_url").and_then(|v| v.as_str()).map(String::from),
-                model: api_key.metadata.get("model").and_then(|v| v.as_str()).map(String::from),
+                base_url: api_key
+                    .metadata
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                model: api_key
+                    .metadata
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
             }),
             ApiKeyProvider::Custom => {
-                let base_url = api_key.metadata.get("base_url")
+                let base_url = api_key
+                    .metadata
+                    .get("base_url")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| ArbitrageError::validation_error("Custom provider requires base_url"))?;
-                
-                let headers = api_key.metadata.get("headers")
+                    .ok_or_else(|| {
+                        ArbitrageError::validation_error("Custom provider requires base_url")
+                    })?;
+
+                let headers = api_key
+                    .metadata
+                    .get("headers")
                     .and_then(|v| v.as_object())
                     .map(|obj| {
                         obj.iter()
@@ -319,12 +383,16 @@ impl AiIntegrationService {
                     api_key: api_key.encrypted_key.clone(),
                     base_url: base_url.to_string(),
                     headers,
-                    model: api_key.metadata.get("model").and_then(|v| v.as_str()).map(String::from),
+                    model: api_key
+                        .metadata
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                 })
             }
-            ApiKeyProvider::Exchange(_) => {
-                Err(ArbitrageError::validation_error("Cannot create AI provider from exchange API key"))
-            }
+            ApiKeyProvider::Exchange(_) => Err(ArbitrageError::validation_error(
+                "Cannot create AI provider from exchange API key",
+            )),
         }
     }
 
@@ -340,23 +408,39 @@ impl AiIntegrationService {
 
     // Private methods for specific AI providers
 
-    async fn validate_openai_credentials(&self, api_key: &str, base_url: Option<&str>) -> ArbitrageResult<bool> {
+    async fn validate_openai_credentials(
+        &self,
+        api_key: &str,
+        base_url: Option<&str>,
+    ) -> ArbitrageResult<bool> {
         let url = format!("{}/v1/models", base_url.unwrap_or("https://api.openai.com"));
-        
-        let response = self.http_client
+
+        let response = self
+            .http_client
             .get(&url)
             .header("Authorization", format!("Bearer {}", api_key))
-            .timeout(std::time::Duration::from_secs(self.config.default_timeout_seconds))
+            .timeout(std::time::Duration::from_secs(
+                self.config.default_timeout_seconds,
+            ))
             .send()
             .await
-            .map_err(|e| ArbitrageError::network_error(&format!("OpenAI validation failed: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::network_error(format!("OpenAI validation failed: {}", e))
+            })?;
 
         Ok(response.status().is_success())
     }
 
-    async fn validate_anthropic_credentials(&self, api_key: &str, base_url: Option<&str>) -> ArbitrageResult<bool> {
-        let url = format!("{}/v1/messages", base_url.unwrap_or("https://api.anthropic.com"));
-        
+    async fn validate_anthropic_credentials(
+        &self,
+        api_key: &str,
+        base_url: Option<&str>,
+    ) -> ArbitrageResult<bool> {
+        let url = format!(
+            "{}/v1/messages",
+            base_url.unwrap_or("https://api.anthropic.com")
+        );
+
         // Send a minimal test request
         let test_payload = json!({
             "model": "claude-3-haiku-20240307",
@@ -364,16 +448,21 @@ impl AiIntegrationService {
             "messages": [{"role": "user", "content": "test"}]
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .json(&test_payload)
-            .timeout(std::time::Duration::from_secs(self.config.default_timeout_seconds))
+            .timeout(std::time::Duration::from_secs(
+                self.config.default_timeout_seconds,
+            ))
             .send()
             .await
-            .map_err(|e| ArbitrageError::network_error(&format!("Anthropic validation failed: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::network_error(format!("Anthropic validation failed: {}", e))
+            })?;
 
         // Accept both success and rate limit as valid (credentials are correct)
         Ok(response.status().is_success() || response.status() == 429)
@@ -385,19 +474,21 @@ impl AiIntegrationService {
         base_url: &str,
         headers: &HashMap<String, String>,
     ) -> ArbitrageResult<bool> {
-        let mut request = self.http_client
+        let mut request = self
+            .http_client
             .get(base_url)
             .header("Authorization", format!("Bearer {}", api_key))
-            .timeout(std::time::Duration::from_secs(self.config.default_timeout_seconds));
+            .timeout(std::time::Duration::from_secs(
+                self.config.default_timeout_seconds,
+            ));
 
         for (key, value) in headers {
             request = request.header(key, value);
         }
 
-        let response = request
-            .send()
-            .await
-            .map_err(|e| ArbitrageError::network_error(&format!("Custom provider validation failed: {}", e)))?;
+        let response = request.send().await.map_err(|e| {
+            ArbitrageError::network_error(format!("Custom provider validation failed: {}", e))
+        })?;
 
         Ok(response.status().is_success())
     }
@@ -409,7 +500,10 @@ impl AiIntegrationService {
         model: Option<&str>,
         request: &AiAnalysisRequest,
     ) -> ArbitrageResult<AiAnalysisResponse> {
-        let url = format!("{}/v1/chat/completions", base_url.unwrap_or("https://api.openai.com"));
+        let url = format!(
+            "{}/v1/chat/completions",
+            base_url.unwrap_or("https://api.openai.com")
+        );
         let model_name = model.unwrap_or("gpt-3.5-turbo");
 
         let payload = json!({
@@ -428,23 +522,33 @@ impl AiIntegrationService {
             "temperature": request.temperature.unwrap_or(0.7)
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
             .json(&payload)
-            .timeout(std::time::Duration::from_secs(self.config.default_timeout_seconds))
+            .timeout(std::time::Duration::from_secs(
+                self.config.default_timeout_seconds,
+            ))
             .send()
             .await
-            .map_err(|e| ArbitrageError::network_error(&format!("OpenAI API call failed: {}", e)))?;
+            .map_err(|e| ArbitrageError::network_error(format!("OpenAI API call failed: {}", e)))?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(ArbitrageError::api_error(&format!("OpenAI API error: {}", error_text)));
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(ArbitrageError::api_error(format!(
+                "OpenAI API error: {}",
+                error_text
+            )));
         }
 
-        let response_data: Value = response.json().await
-            .map_err(|e| ArbitrageError::parse_error(&format!("Failed to parse OpenAI response: {}", e)))?;
+        let response_data: Value = response.json().await.map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to parse OpenAI response: {}", e))
+        })?;
 
         let analysis = response_data["choices"][0]["message"]["content"]
             .as_str()
@@ -466,7 +570,10 @@ impl AiIntegrationService {
         model: Option<&str>,
         request: &AiAnalysisRequest,
     ) -> ArbitrageResult<AiAnalysisResponse> {
-        let url = format!("{}/v1/messages", base_url.unwrap_or("https://api.anthropic.com"));
+        let url = format!(
+            "{}/v1/messages",
+            base_url.unwrap_or("https://api.anthropic.com")
+        );
         let model_name = model.unwrap_or("claude-3-haiku-20240307");
 
         let payload = json!({
@@ -480,24 +587,36 @@ impl AiIntegrationService {
             ]
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .json(&payload)
-            .timeout(std::time::Duration::from_secs(self.config.default_timeout_seconds))
+            .timeout(std::time::Duration::from_secs(
+                self.config.default_timeout_seconds,
+            ))
             .send()
             .await
-            .map_err(|e| ArbitrageError::network_error(&format!("Anthropic API call failed: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::network_error(format!("Anthropic API call failed: {}", e))
+            })?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(ArbitrageError::api_error(&format!("Anthropic API error: {}", error_text)));
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(ArbitrageError::api_error(format!(
+                "Anthropic API error: {}",
+                error_text
+            )));
         }
 
-        let response_data: Value = response.json().await
-            .map_err(|e| ArbitrageError::parse_error(&format!("Failed to parse Anthropic response: {}", e)))?;
+        let response_data: Value = response.json().await.map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to parse Anthropic response: {}", e))
+        })?;
 
         let analysis = response_data["content"][0]["text"]
             .as_str()
@@ -528,29 +647,38 @@ impl AiIntegrationService {
             "model": model
         });
 
-        let mut http_request = self.http_client
+        let mut http_request = self
+            .http_client
             .post(base_url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
             .json(&payload)
-            .timeout(std::time::Duration::from_secs(self.config.default_timeout_seconds));
+            .timeout(std::time::Duration::from_secs(
+                self.config.default_timeout_seconds,
+            ));
 
         for (key, value) in headers {
             http_request = http_request.header(key, value);
         }
 
-        let response = http_request
-            .send()
-            .await
-            .map_err(|e| ArbitrageError::network_error(&format!("Custom provider API call failed: {}", e)))?;
+        let response = http_request.send().await.map_err(|e| {
+            ArbitrageError::network_error(format!("Custom provider API call failed: {}", e))
+        })?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(ArbitrageError::api_error(&format!("Custom provider API error: {}", error_text)));
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(ArbitrageError::api_error(format!(
+                "Custom provider API error: {}",
+                error_text
+            )));
         }
 
-        let response_data: Value = response.json().await
-            .map_err(|e| ArbitrageError::parse_error(&format!("Failed to parse custom provider response: {}", e)))?;
+        let response_data: Value = response.json().await.map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to parse custom provider response: {}", e))
+        })?;
 
         // Try to extract analysis from common response formats
         let analysis = response_data["response"]
@@ -585,14 +713,12 @@ impl AiIntegrationService {
         add: bool,
     ) -> ArbitrageResult<()> {
         let index_key = format!("ai_key_index:{}", user_id);
-        let index_data = self.kv_store.get(&index_key)
-            .text()
-            .await
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to get AI key index: {}", e)))?;
+        let index_data = self.kv_store.get(&index_key).text().await.map_err(|e| {
+            ArbitrageError::storage_error(format!("Failed to get AI key index: {}", e))
+        })?;
 
         let mut key_ids: Vec<String> = if let Some(data) = index_data {
-            serde_json::from_str(&data)
-                .unwrap_or_default()
+            serde_json::from_str(&data).unwrap_or_default()
         } else {
             Vec::new()
         };
@@ -605,14 +731,23 @@ impl AiIntegrationService {
             key_ids.retain(|id| id != api_key_id);
         }
 
-        let serialized = serde_json::to_string(&key_ids)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize key index: {}", e)))?;
+        let serialized = serde_json::to_string(&key_ids).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize key index: {}", e))
+        })?;
 
-        self.kv_store.put(&index_key, &serialized)
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to prepare AI key index storage: {}", e)))?
+        self.kv_store
+            .put(&index_key, &serialized)
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!(
+                    "Failed to prepare AI key index storage: {}",
+                    e
+                ))
+            })?
             .execute()
             .await
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to update AI key index: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to update AI key index: {}", e))
+            })?;
 
         Ok(())
     }
@@ -626,20 +761,30 @@ impl AiIntegrationService {
         if let Ok(Some(data)) = self.kv_store.get(&key).text().await {
             if let Ok(mut api_key) = serde_json::from_str::<UserApiKey>(&data) {
                 api_key.update_last_used();
-                
-                let serialized = serde_json::to_string(&api_key)
-                    .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize AI key: {}", e)))?;
-                
-                self.kv_store.put(&key, &serialized)
-                    .map_err(|e| ArbitrageError::storage_error(format!("Failed to prepare AI key storage: {}", e)))?
+
+                let serialized = serde_json::to_string(&api_key).map_err(|e| {
+                    ArbitrageError::parse_error(format!("Failed to serialize AI key: {}", e))
+                })?;
+
+                self.kv_store
+                    .put(&key, &serialized)
+                    .map_err(|e| {
+                        ArbitrageError::storage_error(format!(
+                            "Failed to prepare AI key storage: {}",
+                            e
+                        ))
+                    })?
                     .execute()
                     .await
-                    .map_err(|e| ArbitrageError::storage_error(format!("Failed to update AI key: {}", e)))?;
+                    .map_err(|e| {
+                        ArbitrageError::storage_error(format!("Failed to update AI key: {}", e))
+                    })?;
             }
         }
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn create_ai_provider_from_key(
         &self,
         api_key: &UserApiKey,
@@ -648,20 +793,42 @@ impl AiIntegrationService {
         match api_key.provider {
             ApiKeyProvider::OpenAI => Ok(AiProvider::OpenAI {
                 api_key: decrypted_key.to_string(),
-                base_url: api_key.metadata.get("base_url").and_then(|v| v.as_str()).map(String::from),
-                model: api_key.metadata.get("model").and_then(|v| v.as_str()).map(String::from),
+                base_url: api_key
+                    .metadata
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                model: api_key
+                    .metadata
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
             }),
             ApiKeyProvider::Anthropic => Ok(AiProvider::Anthropic {
                 api_key: decrypted_key.to_string(),
-                base_url: api_key.metadata.get("base_url").and_then(|v| v.as_str()).map(String::from),
-                model: api_key.metadata.get("model").and_then(|v| v.as_str()).map(String::from),
+                base_url: api_key
+                    .metadata
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                model: api_key
+                    .metadata
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
             }),
             ApiKeyProvider::Custom => {
-                let base_url = api_key.metadata.get("base_url")
+                let base_url = api_key
+                    .metadata
+                    .get("base_url")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| ArbitrageError::validation_error("Custom provider requires base_url"))?;
-                
-                let headers = api_key.metadata.get("headers")
+                    .ok_or_else(|| {
+                        ArbitrageError::validation_error("Custom provider requires base_url")
+                    })?;
+
+                let headers = api_key
+                    .metadata
+                    .get("headers")
                     .and_then(|v| v.as_object())
                     .map(|obj| {
                         obj.iter()
@@ -674,18 +841,23 @@ impl AiIntegrationService {
                     api_key: decrypted_key.to_string(),
                     base_url: base_url.to_string(),
                     headers,
-                    model: api_key.metadata.get("model").and_then(|v| v.as_str()).map(String::from),
+                    model: api_key
+                        .metadata
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                 })
             }
-            ApiKeyProvider::Exchange(_) => {
-                Err(ArbitrageError::validation_error("Cannot create AI provider from exchange API key"))
-            }
+            ApiKeyProvider::Exchange(_) => Err(ArbitrageError::validation_error(
+                "Cannot create AI provider from exchange API key",
+            )),
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn encrypt_string(&self, plaintext: &str) -> ArbitrageResult<String> {
-        use base64::{Engine as _, engine::general_purpose};
-        
+        use base64::{engine::general_purpose, Engine as _};
+
         let key_bytes = self.encryption_key.as_bytes();
         let encrypted: Vec<u8> = plaintext
             .as_bytes()
@@ -693,26 +865,30 @@ impl AiIntegrationService {
             .enumerate()
             .map(|(i, &byte)| byte ^ key_bytes[i % key_bytes.len()])
             .collect();
-        
+
         Ok(general_purpose::STANDARD.encode(encrypted))
     }
 
+    #[allow(clippy::result_large_err)]
     fn decrypt_string(&self, ciphertext: &str) -> ArbitrageResult<String> {
-        use base64::{Engine as _, engine::general_purpose};
-        
-        let encrypted = general_purpose::STANDARD.decode(ciphertext).map_err(|e| {
-            ArbitrageError::parse_error(format!("Failed to decode base64: {}", e))
-        })?;
-        
+        use base64::{engine::general_purpose, Engine as _};
+
+        let encrypted = general_purpose::STANDARD
+            .decode(ciphertext)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to decode base64: {}", e)))?;
+
         let key_bytes = self.encryption_key.as_bytes();
         let decrypted: Vec<u8> = encrypted
             .iter()
             .enumerate()
             .map(|(i, &byte)| byte ^ key_bytes[i % key_bytes.len()])
             .collect();
-        
+
         String::from_utf8(decrypted).map_err(|e| {
-            ArbitrageError::parse_error(format!("Failed to convert decrypted bytes to string: {}", e))
+            ArbitrageError::parse_error(format!(
+                "Failed to convert decrypted bytes to string: {}",
+                e
+            ))
         })
     }
 }
@@ -724,10 +900,12 @@ mod tests {
 
     // Mock KV store for testing
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct MockKvStore {
         data: std::sync::Arc<std::sync::Mutex<HashMap<String, String>>>,
     }
 
+    #[allow(dead_code)]
     impl MockKvStore {
         fn new() -> Self {
             Self {
@@ -795,7 +973,11 @@ mod tests {
         };
 
         match provider {
-            AiProvider::OpenAI { api_key, base_url, model } => {
+            AiProvider::OpenAI {
+                api_key,
+                base_url,
+                model,
+            } => {
                 assert_eq!(api_key, "test-key");
                 assert_eq!(base_url, Some("https://api.openai.com".to_string()));
                 assert_eq!(model, Some("gpt-4".to_string()));
@@ -813,7 +995,11 @@ mod tests {
         };
 
         match provider {
-            AiProvider::Anthropic { api_key, base_url, model } => {
+            AiProvider::Anthropic {
+                api_key,
+                base_url,
+                model,
+            } => {
                 assert_eq!(api_key, "test-anthropic-key");
                 assert_eq!(base_url, None);
                 assert_eq!(model, Some("claude-3-sonnet".to_string()));
@@ -835,7 +1021,12 @@ mod tests {
         };
 
         match provider {
-            AiProvider::Custom { api_key, base_url, headers: provider_headers, model } => {
+            AiProvider::Custom {
+                api_key,
+                base_url,
+                headers: provider_headers,
+                model,
+            } => {
                 assert_eq!(api_key, "custom-api-key");
                 assert_eq!(base_url, "https://custom-ai.example.com");
                 assert_eq!(provider_headers, headers);
@@ -901,7 +1092,7 @@ mod tests {
     fn test_disabled_ai_integration() {
         let mut config = create_test_config();
         config.enabled = false;
-        
+
         // Test configuration
         assert!(!config.enabled);
         assert_eq!(config.max_ai_keys_per_user, 10);
@@ -927,13 +1118,13 @@ mod tests {
     fn test_encryption_decryption() {
         let service = create_test_service();
         let plaintext = "test-api-key-12345";
-        
+
         let encrypted = service.encrypt_string(plaintext).unwrap();
         assert_ne!(encrypted, plaintext);
-        
+
         let decrypted = service.decrypt_string(&encrypted).unwrap();
         assert_eq!(decrypted, plaintext);
-        
+
         // Forget the service to avoid drop issues
         std::mem::forget(service);
     }
@@ -941,17 +1132,19 @@ mod tests {
     #[test]
     fn test_supported_providers() {
         let service = create_test_service();
-        
+
         let providers = service.get_supported_providers();
         assert!(providers.contains(&ApiKeyProvider::OpenAI));
         assert!(providers.contains(&ApiKeyProvider::Anthropic));
         assert!(providers.contains(&ApiKeyProvider::Custom));
-        
+
         assert!(service.is_provider_supported(&ApiKeyProvider::OpenAI));
         assert!(service.is_provider_supported(&ApiKeyProvider::Anthropic));
         assert!(service.is_provider_supported(&ApiKeyProvider::Custom));
-        assert!(!service.is_provider_supported(&ApiKeyProvider::Exchange(crate::types::ExchangeIdEnum::Binance)));
-        
+        assert!(!service.is_provider_supported(&ApiKeyProvider::Exchange(
+            crate::types::ExchangeIdEnum::Binance
+        )));
+
         // Forget the service to avoid drop issues
         std::mem::forget(service);
     }
@@ -994,7 +1187,7 @@ mod tests {
     #[test]
     fn test_create_ai_provider_from_user_api_key() {
         let service = create_test_service();
-        
+
         // Test OpenAI provider creation
         let openai_key = UserApiKey::new_ai_key(
             "user123".to_string(),
@@ -1005,7 +1198,9 @@ mod tests {
 
         let provider = service.create_ai_provider(&openai_key).unwrap();
         match provider {
-            AiProvider::OpenAI { model, base_url, .. } => {
+            AiProvider::OpenAI {
+                model, base_url, ..
+            } => {
                 assert_eq!(model, Some("gpt-4".to_string()));
                 assert_eq!(base_url, Some("https://api.openai.com".to_string()));
             }
@@ -1042,14 +1237,19 @@ mod tests {
 
         let provider = service.create_ai_provider(&custom_key).unwrap();
         match provider {
-            AiProvider::Custom { base_url, model, headers, .. } => {
+            AiProvider::Custom {
+                base_url,
+                model,
+                headers,
+                ..
+            } => {
                 assert_eq!(base_url, "https://custom-ai.com/api");
                 assert_eq!(model, Some("custom-model".to_string()));
                 assert!(headers.contains_key("Authorization"));
             }
             _ => panic!("Expected Custom provider"),
         }
-        
+
         // Forget the service to avoid drop issues
         std::mem::forget(service);
     }
@@ -1057,7 +1257,7 @@ mod tests {
     #[test]
     fn test_create_ai_provider_custom_missing_base_url() {
         let service = create_test_service();
-        
+
         let custom_key = UserApiKey::new_ai_key(
             "user123".to_string(),
             ApiKeyProvider::Custom,
@@ -1067,8 +1267,11 @@ mod tests {
 
         let result = service.create_ai_provider(&custom_key);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Custom provider requires base_url"));
-        
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Custom provider requires base_url"));
+
         // Forget the service to avoid drop issues
         std::mem::forget(service);
     }
@@ -1076,7 +1279,7 @@ mod tests {
     #[test]
     fn test_create_ai_provider_from_exchange_key() {
         let service = create_test_service();
-        
+
         let exchange_key = UserApiKey::new_exchange_key(
             "user123".to_string(),
             crate::types::ExchangeIdEnum::Binance,
@@ -1087,9 +1290,12 @@ mod tests {
 
         let result = service.create_ai_provider(&exchange_key);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Cannot create AI provider from exchange API key"));
-        
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Cannot create AI provider from exchange API key"));
+
         // Forget the service to avoid drop issues
         std::mem::forget(service);
     }
-} 
+}

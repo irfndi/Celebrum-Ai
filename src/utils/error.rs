@@ -10,10 +10,11 @@ pub type ArbitrageResult<T> = Result<T, ArbitrageError>;
 pub type ErrorDetails = HashMap<String, serde_json::Value>;
 
 /// Main error type for the arbitrage application
+/// Optimized for size by boxing large fields
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbitrageError {
     pub message: String,
-    pub details: Option<ErrorDetails>,
+    pub details: Option<Box<ErrorDetails>>, // Boxed to reduce enum size
     pub status: Option<u16>,
     pub error_code: Option<String>,
     pub method: Option<String>,
@@ -62,7 +63,7 @@ impl ArbitrageError {
     }
 
     pub fn with_details(mut self, details: ErrorDetails) -> Self {
-        self.details = Some(details);
+        self.details = Some(Box::new(details));
         self
     }
 

@@ -1,11 +1,13 @@
 // src/services/fund_monitoring.rs
 
+use crate::services::{D1Service, ExchangeService};
 use crate::types::{Balance, Balances};
-use crate::services::{ExchangeService, D1Service, ExchangeInterface};
-use worker::*;
-use serde::{Serialize, Deserialize};
+use crate::ExchangeInterface;
+// use crate::utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}}; // TODO: Re-enable when implementing fund monitoring
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
+use worker::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FundMonitoringConfig {
@@ -18,10 +20,10 @@ pub struct FundMonitoringConfig {
 impl Default for FundMonitoringConfig {
     fn default() -> Self {
         Self {
-            update_interval_seconds: 30,  // Update every 30 seconds
-            cache_ttl_seconds: 300,       // Cache for 5 minutes
+            update_interval_seconds: 30, // Update every 30 seconds
+            cache_ttl_seconds: 300,      // Cache for 5 minutes
             enable_optimization: true,
-            min_balance_threshold: 0.01,  // Minimum balance to track
+            min_balance_threshold: 0.01, // Minimum balance to track
         }
     }
 }
@@ -98,19 +100,27 @@ impl FundMonitoringService {
         let timestamp = Date::now().as_millis();
 
         for exchange_id in exchange_ids {
-            match self.fetch_exchange_balance(user_id, exchange_id, timestamp).await {
+            match self
+                .fetch_exchange_balance(user_id, exchange_id, timestamp)
+                .await
+            {
                 Ok(snapshot) => {
                     balance_snapshots.insert(exchange_id.clone(), snapshot);
                 }
                 Err(e) => {
-                    console_error!("Failed to fetch balance for exchange {}: {:?}", exchange_id, e);
+                    console_error!(
+                        "Failed to fetch balance for exchange {}: {:?}",
+                        exchange_id,
+                        e
+                    );
                     // Continue with other exchanges even if one fails
                 }
             }
         }
 
         // Store snapshots in cache for quick access
-        self.cache_balance_snapshots(user_id, &balance_snapshots).await?;
+        self.cache_balance_snapshots(user_id, &balance_snapshots)
+            .await?;
 
         Ok(balance_snapshots)
     }
@@ -130,13 +140,34 @@ impl FundMonitoringService {
         }
 
         // Get credentials for the exchange
-        let credentials = self.exchange_service.get_api_key(exchange_id).await
-            .map_err(|e| Error::RustError(format!("Failed to get credentials for {}: {:?}", exchange_id, e)))?
-            .ok_or_else(|| Error::RustError(format!("No credentials found for exchange: {}", exchange_id)))?;
+        let credentials = self
+            .exchange_service
+            .get_api_key(exchange_id)
+            .await
+            .map_err(|e| {
+                Error::RustError(format!(
+                    "Failed to get credentials for {}: {:?}",
+                    exchange_id, e
+                ))
+            })?
+            .ok_or_else(|| {
+                Error::RustError(format!(
+                    "No credentials found for exchange: {}",
+                    exchange_id
+                ))
+            })?;
 
         // Fetch fresh data from exchange
-        let balance_data = self.exchange_service.get_balance(exchange_id, &credentials).await
-            .map_err(|e| Error::RustError(format!("Failed to get balance from {}: {:?}", exchange_id, e)))?;
+        let balance_data = self
+            .exchange_service
+            .get_balance(exchange_id, &credentials)
+            .await
+            .map_err(|e| {
+                Error::RustError(format!(
+                    "Failed to get balance from {}: {:?}",
+                    exchange_id, e
+                ))
+            })?;
 
         // Parse the balance data from JSON to our Balances type
         let balances = self.parse_balance_data(&balance_data)?;
@@ -170,16 +201,23 @@ impl FundMonitoringService {
             for balance_obj in balances_array {
                 if let (Some(asset), Some(free), Some(locked)) = (
                     balance_obj["asset"].as_str(),
-                    balance_obj["free"].as_str().and_then(|s| s.parse::<f64>().ok()),
-                    balance_obj["locked"].as_str().and_then(|s| s.parse::<f64>().ok()),
+                    balance_obj["free"]
+                        .as_str()
+                        .and_then(|s| s.parse::<f64>().ok()),
+                    balance_obj["locked"]
+                        .as_str()
+                        .and_then(|s| s.parse::<f64>().ok()),
                 ) {
                     let total = free + locked;
                     if total > self.config.min_balance_threshold {
-                        balances.insert(asset.to_string(), Balance {
-                            free,
-                            used: locked,
-                            total,
-                        });
+                        balances.insert(
+                            asset.to_string(),
+                            Balance {
+                                free,
+                                used: locked,
+                                total,
+                            },
+                        );
                     }
                 }
             }
@@ -190,13 +228,9 @@ impl FundMonitoringService {
                     let free = balance_obj["free"].as_f64().unwrap_or(0.0);
                     let used = balance_obj["used"].as_f64().unwrap_or(0.0);
                     let total = free + used;
-                    
+
                     if total > self.config.min_balance_threshold {
-                        balances.insert(asset.clone(), Balance {
-                            free,
-                            used,
-                            total,
-                        });
+                        balances.insert(asset.clone(), Balance { free, used, total });
                     }
                 }
             }
@@ -236,12 +270,14 @@ impl FundMonitoringService {
     /// Optimize fund allocation across exchanges
     pub async fn optimize_fund_allocation(
         &self,
-        user_id: &str,
+        _user_id: &str,
         balance_snapshots: &HashMap<String, ExchangeBalanceSnapshot>,
         target_allocation: &HashMap<String, f64>, // asset -> target percentage
     ) -> Result<FundOptimizationResult> {
         if !self.config.enable_optimization {
-            return Err(Error::RustError("Fund optimization is disabled".to_string()));
+            return Err(Error::RustError(
+                "Fund optimization is disabled".to_string(),
+            ));
         }
 
         let mut allocations = Vec::new();
@@ -280,9 +316,7 @@ impl FundMonitoringService {
 
             // For each exchange, calculate allocation
             for (exchange_id, snapshot) in balance_snapshots {
-                let current_amount = snapshot.balances.get(asset)
-                    .map(|b| b.total)
-                    .unwrap_or(0.0);
+                let current_amount = snapshot.balances.get(asset).map(|b| b.total).unwrap_or(0.0);
 
                 allocations.push(FundAllocation {
                     exchange_id: exchange_id.clone(),
@@ -314,9 +348,7 @@ impl FundMonitoringService {
             return 0.0;
         }
 
-        let total_variance: f64 = allocations.iter()
-            .map(|a| a.variance_percentage)
-            .sum();
+        let total_variance: f64 = allocations.iter().map(|a| a.variance_percentage).sum();
         let avg_variance = total_variance / allocations.len() as f64;
 
         // Score decreases as variance increases
@@ -327,7 +359,8 @@ impl FundMonitoringService {
     fn generate_recommendations(&self, allocations: &[FundAllocation]) -> Vec<String> {
         let mut recommendations = Vec::new();
 
-        let high_variance_count = allocations.iter()
+        let high_variance_count = allocations
+            .iter()
             .filter(|a| a.variance_percentage > 10.0)
             .count();
 
@@ -338,28 +371,32 @@ impl FundMonitoringService {
             ));
         }
 
-        let buy_needed: Vec<_> = allocations.iter()
+        let buy_needed: Vec<_> = allocations
+            .iter()
             .filter(|a| a.action_needed == "buy")
             .collect();
 
         if !buy_needed.is_empty() {
             recommendations.push(format!(
                 "Consider purchasing more of: {}",
-                buy_needed.iter()
+                buy_needed
+                    .iter()
                     .map(|a| format!("{} on {}", a.asset, a.exchange_id))
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
         }
 
-        let sell_needed: Vec<_> = allocations.iter()
+        let sell_needed: Vec<_> = allocations
+            .iter()
             .filter(|a| a.action_needed == "sell")
             .collect();
 
         if !sell_needed.is_empty() {
             recommendations.push(format!(
                 "Consider reducing positions in: {}",
-                sell_needed.iter()
+                sell_needed
+                    .iter()
                     .map(|a| format!("{} on {}", a.asset, a.exchange_id))
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -375,13 +412,12 @@ impl FundMonitoringService {
 
     /// Assess portfolio risk
     fn assess_portfolio_risk(&self, allocations: &[FundAllocation], total_value: f64) -> String {
-        let high_variance_count = allocations.iter()
+        let high_variance_count = allocations
+            .iter()
             .filter(|a| a.variance_percentage > 15.0)
             .count();
 
-        let total_variance: f64 = allocations.iter()
-            .map(|a| a.variance_percentage)
-            .sum();
+        let total_variance: f64 = allocations.iter().map(|a| a.variance_percentage).sum();
         let avg_variance = if !allocations.is_empty() {
             total_variance / allocations.len() as f64
         } else {
@@ -420,8 +456,11 @@ impl FundMonitoringService {
                 snapshot_id: snapshot_id.clone(),
             };
 
-            d1.store_balance_history(&history_entry).await
-                .map_err(|e| Error::RustError(format!("Failed to store balance history: {:?}", e)))?;
+            d1.store_balance_history(&history_entry)
+                .await
+                .map_err(|e| {
+                    Error::RustError(format!("Failed to store balance history: {:?}", e))
+                })?;
         }
 
         Ok(())
@@ -438,7 +477,8 @@ impl FundMonitoringService {
             let serialized = serde_json::to_string(snapshot)
                 .map_err(|e| Error::RustError(format!("Failed to serialize snapshot: {}", e)))?;
 
-            self.kv.put(&cache_key, serialized)?
+            self.kv
+                .put(&cache_key, serialized)?
                 .expiration_ttl(self.config.cache_ttl_seconds)
                 .execute()
                 .await?;
@@ -454,11 +494,13 @@ impl FundMonitoringService {
         exchange_id: &str,
     ) -> Result<Option<ExchangeBalanceSnapshot>> {
         let cache_key = format!("balance:{}:{}", user_id, exchange_id);
-        
+
         match self.kv.get(&cache_key).text().await? {
             Some(cached_data) => {
                 let snapshot: ExchangeBalanceSnapshot = serde_json::from_str(&cached_data)
-                    .map_err(|e| Error::RustError(format!("Failed to deserialize cached snapshot: {}", e)))?;
+                    .map_err(|e| {
+                        Error::RustError(format!("Failed to deserialize cached snapshot: {}", e))
+                    })?;
                 Ok(Some(snapshot))
             }
             None => Ok(None),
@@ -483,7 +525,8 @@ impl FundMonitoringService {
                 from_timestamp,
                 to_timestamp,
                 limit,
-            ).await
+            )
+            .await
             .map_err(|e| Error::RustError(format!("Failed to get balance history: {:?}", e)))
         } else {
             console_warn!("D1 service not available, returning empty history");
@@ -498,14 +541,9 @@ impl FundMonitoringService {
         days_back: u32,
     ) -> Result<BalanceAnalytics> {
         let from_timestamp = Date::now().as_millis() - (days_back as u64 * 24 * 60 * 60 * 1000);
-        let history = self.get_balance_history(
-            user_id,
-            None,
-            None,
-            Some(from_timestamp),
-            None,
-            None,
-        ).await?;
+        let history = self
+            .get_balance_history(user_id, None, None, Some(from_timestamp), None, None)
+            .await?;
 
         let analytics = BalanceAnalytics::from_history(&history);
         Ok(analytics)
@@ -534,14 +572,28 @@ impl BalanceAnalytics {
         let mut exchange_values: HashMap<String, Vec<f64>> = HashMap::new();
 
         for entry in history {
-            asset_values.entry(entry.asset.clone()).or_default().push(entry.usd_value);
-            exchange_values.entry(entry.exchange_id.clone()).or_default().push(entry.usd_value);
+            asset_values
+                .entry(entry.asset.clone())
+                .or_default()
+                .push(entry.usd_value);
+            exchange_values
+                .entry(entry.exchange_id.clone())
+                .or_default()
+                .push(entry.usd_value);
         }
 
         // Calculate metrics
-        let total_initial: f64 = history.iter().take(history.len() / 2).map(|e| e.usd_value).sum();
-        let total_final: f64 = history.iter().skip(history.len() / 2).map(|e| e.usd_value).sum();
-        
+        let total_initial: f64 = history
+            .iter()
+            .take(history.len() / 2)
+            .map(|e| e.usd_value)
+            .sum();
+        let total_final: f64 = history
+            .iter()
+            .skip(history.len() / 2)
+            .map(|e| e.usd_value)
+            .sum();
+
         let total_value_change = total_final - total_initial;
         let total_value_change_percentage = if total_initial > 0.0 {
             (total_value_change / total_initial) * 100.0
@@ -559,8 +611,12 @@ impl BalanceAnalytics {
             if values.len() >= 2 {
                 let initial = values[0];
                 let final_val = values[values.len() - 1];
-                let performance = if initial > 0.0 { (final_val - initial) / initial } else { 0.0 };
-                
+                let performance = if initial > 0.0 {
+                    (final_val - initial) / initial
+                } else {
+                    0.0
+                };
+
                 if performance > best_performance {
                     best_performance = performance;
                     best_asset = asset.clone();
@@ -582,7 +638,11 @@ impl BalanceAnalytics {
             if values.len() >= 2 {
                 let initial = values[0];
                 let final_val = values[values.len() - 1];
-                let performance = if initial > 0.0 { (final_val - initial) / initial * 100.0 } else { 0.0 };
+                let performance = if initial > 0.0 {
+                    (final_val - initial) / initial * 100.0
+                } else {
+                    0.0
+                };
                 exchange_performance.insert(exchange.clone(), performance);
             }
         }
@@ -604,10 +664,8 @@ impl BalanceAnalytics {
         }
 
         let mean = values.iter().sum::<f64>() / values.len() as f64;
-        let variance = values.iter()
-            .map(|v| (v - mean).powi(2))
-            .sum::<f64>() / values.len() as f64;
-        
+        let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
+
         variance.sqrt() / mean * 100.0 // As percentage
     }
 
@@ -627,12 +685,11 @@ impl BalanceAnalytics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
     fn test_optimization_score_calculation() {
         // Test the optimization score calculation directly
-        let allocations = vec![
+        let allocations = [
             FundAllocation {
                 exchange_id: "binance".to_string(),
                 asset: "BTC".to_string(),
@@ -652,50 +709,53 @@ mod tests {
         ];
 
         // Create a minimal config for testing
-        let config = FundMonitoringConfig::default();
-        
+        let _config = FundMonitoringConfig::default();
+
         // Test the calculation logic directly
-        let total_variance: f64 = allocations.iter().map(|a| a.variance_percentage.abs()).sum();
+        let total_variance: f64 = allocations
+            .iter()
+            .map(|a| a.variance_percentage.abs())
+            .sum();
         let avg_variance = total_variance / allocations.len() as f64;
         let score = 100.0 - (avg_variance * 2.0).min(100.0);
-        
-        assert!(score >= 0.0 && score <= 100.0);
+
+        assert!((0.0..=100.0).contains(&score));
         assert!(score > 80.0); // Should be high score with low variance
     }
 
     #[test]
     fn test_risk_assessment_logic() {
         // Test risk assessment logic directly
-        let low_risk_allocations = vec![
-            FundAllocation {
-                exchange_id: "binance".to_string(),
-                asset: "BTC".to_string(),
-                current_amount: 1.0,
-                optimal_amount: 1.05,
-                variance_percentage: 5.0,
-                action_needed: "hold".to_string(),
-            },
-        ];
+        let low_risk_allocations = [FundAllocation {
+            exchange_id: "binance".to_string(),
+            asset: "BTC".to_string(),
+            current_amount: 1.0,
+            optimal_amount: 1.05,
+            variance_percentage: 5.0,
+            action_needed: "hold".to_string(),
+        }];
 
-        let high_risk_allocations = vec![
-            FundAllocation {
-                exchange_id: "binance".to_string(),
-                asset: "BTC".to_string(),
-                current_amount: 1.0,
-                optimal_amount: 2.0,
-                variance_percentage: 25.0,
-                action_needed: "buy".to_string(),
-            },
-        ];
+        let high_risk_allocations = [FundAllocation {
+            exchange_id: "binance".to_string(),
+            asset: "BTC".to_string(),
+            current_amount: 1.0,
+            optimal_amount: 2.0,
+            variance_percentage: 25.0,
+            action_needed: "buy".to_string(),
+        }];
 
         // Test the risk assessment logic
-        let low_avg_variance: f64 = low_risk_allocations.iter()
+        let low_avg_variance: f64 = low_risk_allocations
+            .iter()
             .map(|a| a.variance_percentage.abs())
-            .sum::<f64>() / low_risk_allocations.len() as f64;
-        
-        let high_avg_variance: f64 = high_risk_allocations.iter()
+            .sum::<f64>()
+            / low_risk_allocations.len() as f64;
+
+        let high_avg_variance: f64 = high_risk_allocations
+            .iter()
             .map(|a| a.variance_percentage.abs())
-            .sum::<f64>() / high_risk_allocations.len() as f64;
+            .sum::<f64>()
+            / high_risk_allocations.len() as f64;
 
         assert!(low_avg_variance < 10.0);
         assert!(high_avg_variance > 20.0);
@@ -711,20 +771,18 @@ mod tests {
     #[test]
     fn test_recommendation_generation_logic() {
         // Test recommendation generation logic
-        let allocations = vec![
-            FundAllocation {
-                exchange_id: "binance".to_string(),
-                asset: "BTC".to_string(),
-                current_amount: 1.0,
-                optimal_amount: 1.5,
-                variance_percentage: 15.0,
-                action_needed: "buy".to_string(),
-            },
-        ];
+        let allocations = vec![FundAllocation {
+            exchange_id: "binance".to_string(),
+            asset: "BTC".to_string(),
+            current_amount: 1.0,
+            optimal_amount: 1.5,
+            variance_percentage: 15.0,
+            action_needed: "buy".to_string(),
+        }];
 
         // Test the logic for generating recommendations
         let mut recommendations = Vec::new();
-        
+
         for allocation in &allocations {
             if allocation.variance_percentage.abs() > 10.0 {
                 match allocation.action_needed.as_str() {
@@ -735,7 +793,7 @@ mod tests {
                             allocation.asset,
                             allocation.exchange_id
                         ));
-                    },
+                    }
                     "sell" => {
                         recommendations.push(format!(
                             "Consider selling {} {} on {} to reach optimal allocation",
@@ -743,7 +801,7 @@ mod tests {
                             allocation.asset,
                             allocation.exchange_id
                         ));
-                    },
+                    }
                     _ => {}
                 }
             }
@@ -773,4 +831,4 @@ mod tests {
         assert_eq!(analytics.volatility_score, 0.0);
         assert!(analytics.exchange_performance.is_empty());
     }
-} 
+}

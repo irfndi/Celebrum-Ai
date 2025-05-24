@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use thiserror::Error;
+// use thiserror::Error; // TODO: Re-enable when implementing custom error types
 
 /// Exchange identifiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -173,24 +173,24 @@ pub struct ArbitragePosition {
     pub updated_at: u64,
     pub calculated_size_usd: Option<f64>,
     pub risk_percentage_applied: Option<f64>,
-    
+
     // Advanced Risk Management Fields (Task 6)
     pub stop_loss_price: Option<f64>,
     pub take_profit_price: Option<f64>,
     pub trailing_stop_distance: Option<f64>, // Distance in price points for trailing stop
-    pub max_loss_usd: Option<f64>, // Maximum acceptable loss in USD
-    pub risk_reward_ratio: Option<f64>, // Target risk/reward ratio
-    
+    pub max_loss_usd: Option<f64>,           // Maximum acceptable loss in USD
+    pub risk_reward_ratio: Option<f64>,      // Target risk/reward ratio
+
     // Multi-Exchange Position Tracking (Task 6)
     pub related_positions: Vec<String>, // IDs of related positions on other exchanges
     pub hedge_position_id: Option<String>, // ID of hedge position if this is part of arbitrage
     pub position_group_id: Option<String>, // Group ID for coordinated multi-exchange positions
-    
+
     // Position Optimization (Task 6)
     pub optimization_score: Option<f64>, // AI-calculated optimization score
     pub recommended_action: Option<PositionAction>, // AI recommendation
     pub last_optimization_check: Option<u64>, // Timestamp of last optimization analysis
-    
+
     // Advanced Metrics (Task 6)
     pub max_drawdown: Option<f64>, // Maximum drawdown since position opened
     pub unrealized_pnl_percentage: Option<f64>, // PnL as percentage of entry value
@@ -407,7 +407,7 @@ impl Env {
     pub fn new(worker_env: worker::Env) -> Self {
         Self { worker_env }
     }
-    
+
     pub fn get_kv_store(&self, binding_name: &str) -> Option<worker::kv::KvStore> {
         self.worker_env.kv(binding_name).ok()
     }
@@ -448,6 +448,101 @@ pub enum SubscriptionTier {
     Basic,
     Premium,
     Enterprise,
+    SuperAdmin, // Super admin with system management access
+}
+
+/// User roles for RBAC (Role-Based Access Control)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UserRole {
+    User,       // Regular user (Free, Basic, Premium, Enterprise)
+    SuperAdmin, // Super administrator with system access
+    BetaUser,   // Beta user (all features during beta period)
+}
+
+/// Command permissions for RBAC
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandPermission {
+    // Basic commands (available to all)
+    BasicCommands,
+
+    // Trading commands (subscription-gated in future)
+    ManualTrading,
+    AutomatedTrading,
+
+    // Opportunity access levels
+    BasicOpportunities,      // Global arbitrage only
+    TechnicalAnalysis,       // Global + technical analysis
+    AIEnhancedOpportunities, // Premium AI features
+
+    // Admin commands (super admin only)
+    SystemAdministration,
+    UserManagement,
+    GlobalConfiguration,
+    GroupAnalytics, // Group/channel analytics access
+
+    // Future subscription-gated features
+    AdvancedAnalytics,
+    PremiumFeatures,
+}
+
+/// Trading modes for users
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TradingMode {
+    Manual,    // User executes trades manually with API keys
+    Automated, // Bot executes trades automatically
+    Advisory,  // Bot provides signals, user decides
+    Disabled,  // No trading functionality
+}
+
+/// Analytics tracking for bot usage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageAnalytics {
+    pub message_id: String,
+    pub user_id: Option<String>,
+    pub chat_id: String,
+    pub chat_type: String,       // "private", "group", "supergroup", "channel"
+    pub message_type: String,    // "command", "opportunity", "broadcast", "response"
+    pub command: Option<String>, // Command name if applicable
+    pub content_type: String,    // "global_arbitrage", "technical_analysis", "ai_enhanced", etc.
+    pub delivery_status: String, // "sent", "delivered", "failed", "rate_limited"
+    pub response_time_ms: Option<u64>, // Time to generate response
+    pub timestamp: u64,
+    pub metadata: serde_json::Value, // Additional tracking data
+}
+
+/// Group/Channel registration and tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupRegistration {
+    pub group_id: String,
+    pub group_type: String, // "group", "supergroup", "channel"
+    pub group_title: Option<String>,
+    pub group_username: Option<String>,
+    pub member_count: Option<u32>,
+    pub admin_user_ids: Vec<String>,   // Telegram user IDs of admins
+    pub bot_permissions: Vec<String>,  // What the bot can do in this group
+    pub enabled_features: Vec<String>, // Which features are enabled
+    pub global_opportunities_enabled: bool,
+    pub technical_analysis_enabled: bool,
+    pub rate_limit_config: GroupRateLimitConfig,
+    pub registered_at: u64,
+    pub last_activity: u64,
+    pub total_messages_sent: u32,
+    pub last_member_count_update: Option<u64>,
+}
+
+/// Rate limiting configuration for groups/channels
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupRateLimitConfig {
+    pub max_opportunities_per_hour: u32,
+    pub max_technical_signals_per_hour: u32,
+    pub max_broadcasts_per_day: u32,
+    pub cooldown_between_messages_minutes: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -479,10 +574,10 @@ pub struct UserConfiguration {
     pub max_entry_size_usdt: f64,
     pub min_entry_size_usdt: f64,
     pub risk_tolerance_percentage: f64, // 0.0 to 1.0
-    pub opportunity_threshold: f64, // Minimum rate difference to consider
+    pub opportunity_threshold: f64,     // Minimum rate difference to consider
     pub auto_trading_enabled: bool,
     pub notification_preferences: NotificationPreferences,
-    pub trading_pairs: Vec<String>, // Monitored trading pairs
+    pub trading_pairs: Vec<String>,  // Monitored trading pairs
     pub excluded_pairs: Vec<String>, // Excluded trading pairs
 }
 
@@ -504,7 +599,7 @@ impl Default for UserConfiguration {
             max_entry_size_usdt: 1000.0,
             min_entry_size_usdt: 50.0,
             risk_tolerance_percentage: 0.02, // 2%
-            opportunity_threshold: 0.001, // 0.1%
+            opportunity_threshold: 0.001,    // 0.1%
             auto_trading_enabled: false,
             notification_preferences: NotificationPreferences::default(),
             trading_pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
@@ -529,12 +624,12 @@ impl Default for NotificationPreferences {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserApiKey {
-    pub id: String, // Unique identifier for this API key
-    pub user_id: String, // User who owns this key
-    pub provider: ApiKeyProvider, // Which service this key is for
-    pub encrypted_key: String, // Encrypted API key
+    pub id: String,                       // Unique identifier for this API key
+    pub user_id: String,                  // User who owns this key
+    pub provider: ApiKeyProvider,         // Which service this key is for
+    pub encrypted_key: String,            // Encrypted API key
     pub encrypted_secret: Option<String>, // Optional secret (for exchanges)
-    pub metadata: serde_json::Value, // Additional configuration (models, base_urls, etc.)
+    pub metadata: serde_json::Value,      // Additional configuration (models, base_urls, etc.)
     pub is_active: bool,
     pub created_at: u64,
     pub last_used: Option<u64>,
@@ -588,7 +683,10 @@ impl UserApiKey {
     }
 
     pub fn is_ai_key(&self) -> bool {
-        matches!(self.provider, ApiKeyProvider::OpenAI | ApiKeyProvider::Anthropic | ApiKeyProvider::Custom)
+        matches!(
+            self.provider,
+            ApiKeyProvider::OpenAI | ApiKeyProvider::Anthropic | ApiKeyProvider::Custom
+        )
     }
 
     pub fn update_last_used(&mut self) {
@@ -602,7 +700,7 @@ impl UserApiKey {
 pub struct LegacyUserApiKey {
     pub exchange: ExchangeIdEnum,
     pub api_key_encrypted: String, // Encrypted with user-specific key
-    pub secret_encrypted: String, // Encrypted with user-specific key
+    pub secret_encrypted: String,  // Encrypted with user-specific key
     pub is_active: bool,
     pub created_at: u64,
     pub last_validated: Option<u64>,
@@ -613,7 +711,7 @@ pub struct LegacyUserApiKey {
 #[serde(rename_all = "camelCase")]
 pub struct UserProfile {
     pub user_id: String, // Primary identifier
-    pub telegram_user_id: i64,
+    pub telegram_user_id: Option<i64>,
     pub telegram_username: Option<String>,
     pub subscription: SubscriptionInfo,
     pub configuration: UserConfiguration,
@@ -628,10 +726,10 @@ pub struct UserProfile {
 }
 
 impl UserProfile {
-    pub fn new(telegram_user_id: i64, invitation_code: Option<String>) -> Self {
+    pub fn new(telegram_user_id: Option<i64>, invitation_code: Option<String>) -> Self {
         let now = chrono::Utc::now().timestamp_millis() as u64;
         let user_id = uuid::Uuid::new_v4().to_string();
-        
+
         Self {
             user_id,
             telegram_user_id,
@@ -647,6 +745,115 @@ impl UserProfile {
             total_trades: 0,
             total_pnl_usdt: 0.0,
         }
+    }
+
+    /// Get user role for RBAC
+    pub fn get_user_role(&self) -> UserRole {
+        match self.subscription.tier {
+            SubscriptionTier::SuperAdmin => UserRole::SuperAdmin,
+            _ => UserRole::User, // Regular user for all other tiers
+        }
+    }
+
+    /// Check if user has permission for a specific command
+    pub fn has_permission(&self, permission: CommandPermission) -> bool {
+        let user_role = self.get_user_role();
+
+        match permission {
+            CommandPermission::BasicCommands | CommandPermission::BasicOpportunities => true, // Everyone has basic access
+
+            CommandPermission::ManualTrading => {
+                // During beta: all users have access
+                // Future: require Basic+ subscription + API keys with trade permissions
+                true // Beta override - remove this when implementing subscription gates
+            }
+
+            CommandPermission::TechnicalAnalysis => {
+                // During beta: all users have access
+                // Future: require Basic+ subscription
+                true // Beta override
+            }
+
+            CommandPermission::AIEnhancedOpportunities => {
+                // During beta: all users have access
+                // Future: require Premium+ subscription
+                true // Beta override
+            }
+
+            CommandPermission::AutomatedTrading => {
+                // During beta: all users have access
+                // Future: require Premium+ subscription + risk management setup
+                true // Beta override
+            }
+
+            CommandPermission::SystemAdministration
+            | CommandPermission::UserManagement
+            | CommandPermission::GlobalConfiguration
+            | CommandPermission::GroupAnalytics => user_role == UserRole::SuperAdmin,
+
+            CommandPermission::AdvancedAnalytics | CommandPermission::PremiumFeatures => {
+                // During beta: all users have access
+                // Future: require Premium+ subscription
+                true // Beta override
+            }
+        }
+    }
+
+    /// Get user's trading mode
+    pub fn get_trading_mode(&self) -> TradingMode {
+        // TODO: Store this in user configuration
+        // For now, default to manual trading
+        TradingMode::Manual
+    }
+
+    /// Check if user has API keys with trading permissions
+    pub fn has_trading_api_keys(&self) -> bool {
+        self.api_keys.iter().any(|key| {
+            key.is_active && key.is_exchange_key() && key.permissions.contains(&"trade".to_string())
+        })
+    }
+
+    /// Check if user can use manual trading
+    pub fn can_use_manual_trading(&self) -> bool {
+        self.has_permission(CommandPermission::ManualTrading) && self.has_trading_api_keys()
+    }
+
+    /// Check if user can use automated trading
+    pub fn can_use_automated_trading(&self) -> bool {
+        self.has_permission(CommandPermission::AutomatedTrading)
+            && self.has_trading_api_keys()
+            && matches!(
+                self.get_trading_mode(),
+                TradingMode::Automated | TradingMode::Advisory
+            )
+    }
+
+    /// Check if user is super admin
+    pub fn is_super_admin(&self) -> bool {
+        self.subscription.tier == SubscriptionTier::SuperAdmin
+    }
+
+    /// Create super admin user profile
+    pub fn new_super_admin(telegram_user_id: Option<i64>) -> Self {
+        let mut profile = Self::new(telegram_user_id, None);
+        profile.subscription.tier = SubscriptionTier::SuperAdmin;
+        profile
+            .subscription
+            .features
+            .push("super_admin_access".to_string());
+        profile
+            .subscription
+            .features
+            .push("system_administration".to_string());
+        profile
+            .subscription
+            .features
+            .push("user_management".to_string());
+        profile
+            .subscription
+            .features
+            .push("global_configuration".to_string());
+        profile
     }
 
     pub fn update_last_active(&mut self) {
@@ -684,7 +891,7 @@ impl UserProfile {
             .filter(|key| key.is_active)
             .filter_map(|key| {
                 if let ApiKeyProvider::Exchange(exchange) = &key.provider {
-                    Some(exchange.clone())
+                    Some(*exchange)
                 } else {
                     None
                 }
@@ -718,8 +925,14 @@ pub struct InvitationCode {
 impl InvitationCode {
     pub fn new(purpose: String, max_uses: Option<u32>, expires_in_days: Option<u32>) -> Self {
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        let code = format!("ARB-{}", uuid::Uuid::new_v4().to_string().replace('-', "").to_uppercase()[..8].to_string());
-        
+        let code = format!(
+            "ARB-{}",
+            &uuid::Uuid::new_v4()
+                .to_string()
+                .replace('-', "")
+                .to_uppercase()[..8]
+        );
+
         let expires_at = expires_in_days.map(|days| {
             now + (days as u64 * 24 * 60 * 60 * 1000) // Convert days to milliseconds
         });
@@ -738,10 +951,10 @@ impl InvitationCode {
 
     pub fn can_be_used(&self) -> bool {
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         self.is_active
-            && self.expires_at.map_or(true, |exp| now < exp)
-            && self.max_uses.map_or(true, |max| self.current_uses < max)
+            && self.expires_at.is_none_or(|exp| now < exp)
+            && self.max_uses.is_none_or(|max| self.current_uses < max)
     }
 
     pub fn use_code(&mut self) -> bool {
@@ -807,15 +1020,14 @@ impl UserSession {
 }
 
 /// Global Opportunity System Types for Task 2
-
 /// Global opportunity with distribution metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalOpportunity {
     pub opportunity: ArbitrageOpportunity,
     pub detection_timestamp: u64,
     pub expiry_timestamp: u64,
-    pub priority_score: f64, // Higher means more urgent/profitable
-    pub distributed_to: Vec<String>, // User IDs who received this opportunity
+    pub priority_score: f64,           // Higher means more urgent/profitable
+    pub distributed_to: Vec<String>,   // User IDs who received this opportunity
     pub max_participants: Option<u32>, // Maximum number of users who can take this opportunity
     pub current_participants: u32,
     pub distribution_strategy: DistributionStrategy,
@@ -826,17 +1038,17 @@ pub struct GlobalOpportunity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DistributionStrategy {
     FirstComeFirstServe, // Simple queue-based
-    RoundRobin, // Fair rotation among active users
-    PriorityBased, // Based on user subscription tier and activity
-    Broadcast, // Send to all eligible users
+    RoundRobin,          // Fair rotation among active users
+    PriorityBased,       // Based on user subscription tier and activity
+    Broadcast,           // Send to all eligible users
 }
 
 /// Source of the opportunity
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OpportunitySource {
     SystemGenerated, // Generated by default strategy
-    UserAI(String), // Generated by user's AI with user_id
-    External, // From external sources
+    UserAI(String),  // Generated by user's AI with user_id
+    External,        // From external sources
 }
 
 /// Opportunity queue management
@@ -858,8 +1070,8 @@ pub struct UserOpportunityDistribution {
     pub total_opportunities_received: u32,
     pub opportunities_today: u32,
     pub last_daily_reset: u64, // timestamp for daily reset
-    pub priority_weight: f64, // User's priority in distribution
-    pub is_eligible: bool, // Whether user can receive opportunities
+    pub priority_weight: f64,  // User's priority in distribution
+    pub is_eligible: bool,     // Whether user can receive opportunities
 }
 
 /// Fairness algorithm configuration
@@ -869,7 +1081,7 @@ pub struct FairnessConfig {
     pub max_opportunities_per_user_per_hour: u32,
     pub max_opportunities_per_user_per_day: u32,
     pub tier_multipliers: std::collections::HashMap<String, f64>, // Subscription tier multipliers
-    pub activity_boost_factor: f64, // Boost for active users
+    pub activity_boost_factor: f64,                               // Boost for active users
     pub cooldown_period_minutes: u32, // Minimum time between opportunities for same user
 }
 
@@ -880,14 +1092,14 @@ impl Default for FairnessConfig {
         tier_multipliers.insert("Basic".to_string(), 1.5);
         tier_multipliers.insert("Premium".to_string(), 2.0);
         tier_multipliers.insert("Enterprise".to_string(), 3.0);
-        
+
         Self {
             rotation_interval_minutes: 15,
-            max_opportunities_per_user_per_hour: 10,
-            max_opportunities_per_user_per_day: 50,
+            max_opportunities_per_user_per_hour: 2, // Updated: max 2 opportunities per cycle
+            max_opportunities_per_user_per_day: 10, // Updated: max 10 daily
             tier_multipliers,
             activity_boost_factor: 1.2,
-            cooldown_period_minutes: 5,
+            cooldown_period_minutes: 240, // Updated: 4-hour cooldown (240 minutes)
         }
     }
 }
@@ -911,7 +1123,7 @@ impl Default for GlobalOpportunityConfig {
         Self {
             detection_interval_seconds: 30,
             min_threshold: 0.0005, // 0.05% minimum rate difference
-            max_threshold: 0.02, // 2% maximum rate difference (avoid unrealistic opportunities)
+            max_threshold: 0.02,   // 2% maximum rate difference (avoid unrealistic opportunities)
             max_queue_size: 100,
             opportunity_ttl_minutes: 10,
             distribution_strategy: DistributionStrategy::RoundRobin,
@@ -923,18 +1135,13 @@ impl Default for GlobalOpportunityConfig {
 }
 
 /// Risk tolerance levels for users
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum RiskTolerance {
     Low,
+    #[default]
     Medium,
     High,
     Custom,
-}
-
-impl Default for RiskTolerance {
-    fn default() -> Self {
-        RiskTolerance::Medium
-    }
 }
 
 impl std::fmt::Display for RiskTolerance {
@@ -963,18 +1170,13 @@ impl std::str::FromStr for RiskTolerance {
 }
 
 /// Account status for users
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum AccountStatus {
+    #[default]
     Active,
     Suspended,
     Pending,
     Disabled,
-}
-
-impl Default for AccountStatus {
-    fn default() -> Self {
-        AccountStatus::Active
-    }
 }
 
 impl std::fmt::Display for AccountStatus {
@@ -1003,18 +1205,13 @@ impl std::str::FromStr for AccountStatus {
 }
 
 /// Email verification status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum EmailVerificationStatus {
+    #[default]
     Pending,
     Verified,
     Failed,
     Expired,
-}
-
-impl Default for EmailVerificationStatus {
-    fn default() -> Self {
-        EmailVerificationStatus::Pending
-    }
 }
 
 impl std::fmt::Display for EmailVerificationStatus {
@@ -1043,18 +1240,13 @@ impl std::str::FromStr for EmailVerificationStatus {
 }
 
 /// User invitation types
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum InvitationType {
     Email,
     Telegram,
     Referral,
+    #[default]
     Direct,
-}
-
-impl Default for InvitationType {
-    fn default() -> Self {
-        InvitationType::Direct
-    }
 }
 
 impl std::fmt::Display for InvitationType {
@@ -1083,19 +1275,14 @@ impl std::str::FromStr for InvitationType {
 }
 
 /// Invitation status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum InvitationStatus {
+    #[default]
     Pending,
     Accepted,
     Expired,
     Cancelled,
     Failed,
-}
-
-impl Default for InvitationStatus {
-    fn default() -> Self {
-        InvitationStatus::Pending
-    }
 }
 
 impl std::fmt::Display for InvitationStatus {
@@ -1241,15 +1428,15 @@ impl TradingAnalytics {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PositionAction {
-    Hold,           // Keep position as is
-    IncreaseSize,   // Add to position
-    DecreaseSize,   // Reduce position size
-    Close,          // Close position immediately
-    SetStopLoss,    // Update stop loss
-    SetTakeProfit,  // Update take profit
+    Hold,               // Keep position as is
+    IncreaseSize,       // Add to position
+    DecreaseSize,       // Reduce position size
+    Close,              // Close position immediately
+    SetStopLoss,        // Update stop loss
+    SetTakeProfit,      // Update take profit
     EnableTrailingStop, // Enable trailing stop
-    Hedge,          // Create hedge position
-    Rebalance,      // Rebalance across exchanges
+    Hedge,              // Create hedge position
+    Rebalance,          // Rebalance across exchanges
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1296,8 +1483,8 @@ pub struct PositionOptimizationResult {
 pub struct RiskAssessment {
     pub risk_level: RiskLevel,
     pub volatility_score: f64,
-    pub correlation_risk: f64, // Risk from correlated positions
-    pub liquidity_risk: f64,   // Risk from low liquidity
+    pub correlation_risk: f64,   // Risk from correlated positions
+    pub liquidity_risk: f64,     // Risk from low liquidity
     pub concentration_risk: f64, // Risk from position concentration
     pub overall_risk_score: f64, // Combined risk score 0-100
 }

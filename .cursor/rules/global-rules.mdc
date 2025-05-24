@@ -60,6 +60,7 @@ The specific responsibilities and actions for each role are as follows:
 - During your interaction with the human user, if you find anything reusable in this project (e.g. version of a library, model name), especially about a fix to a mistake you made or a correction you received, you should take note in the `Lessons Learned` section in the `docs/scratchpad.md` file so you will not make the same mistake again. Each lessons learned should be a single item in the list and have a date and time stamp in the format `[YYYY-MM-DD]`.
 - If the Executor makes the same mistake 3 times, it must stop, reflect, and explicitly ask itself 'What would John Carmack do?' before suggesting the next step. The Executor must document this reflection and the corrective action in the scratchpad before proceeding.
 - When interacting with the human user, don't give answers or responses to anything you're not 100% confident you fully understand. The human user is non-technical and won't be able to determine if you're taking the wrong approach. If you're not sure about something, just say it.
+- human will manual move the plan docs to `implementation-done` or `implementation-cancel` if the plan already finish/cancel (you can use it as future reference if needs to read it)
 
 ### User Specified Lessons
 

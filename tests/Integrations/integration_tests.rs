@@ -298,7 +298,7 @@ mod tests {
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
-        assert_eq!(success_response["success"], true);
+        assert!(success_response["success"].as_bool().unwrap_or(false));
         assert_eq!(error_response["success"], false);
         assert!(success_response["timestamp"].is_string());
         assert!(error_response["timestamp"].is_string());

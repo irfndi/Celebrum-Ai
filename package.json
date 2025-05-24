@@ -11,9 +11,10 @@
   ],
   "main": "dist/index.js",
   "scripts": {
-    "build": "wrangler deploy --dry-run --outdir=dist",
+    "build": "chmod +x build.sh && ./build.sh",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "chmod +x setup-d1.sh && ./setup-d1.sh && wrangler deploy",
+    "setup-d1": "chmod +x setup-d1.sh && ./setup-d1.sh",
     "test": "cargo test",
     "lint": "cargo clippy",
     "format": "cargo fmt"
@@ -21,7 +22,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "wrangler": "^4.16.0"
+    "wrangler": "^4.16.1"
   },
   "pnpm": {
     "overrides": {}

@@ -1,11 +1,13 @@
 // src/services/opportunity.rs
 
 use crate::log_error;
+use crate::services::exchange::ExchangeInterface;
 use crate::services::exchange::ExchangeService;
 use crate::services::telegram::TelegramService;
-use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum, FundingRateInfo, StructuredTradingPair};
-use crate::utils::{ArbitrageError, ArbitrageResult};
-use crate::services::exchange::ExchangeInterface;
+use crate::types::{
+    ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum, FundingRateInfo, StructuredTradingPair,
+};
+use crate::utils::ArbitrageResult;
 use std::sync::Arc;
 
 use futures::future::join_all;
@@ -69,61 +71,71 @@ impl OpportunityService {
                     let result = exchange_service
                         .fetch_funding_rates(&exchange_id.to_string(), Some(&pair))
                         .await;
-                    
+
                     // Parse the result to extract FundingRateInfo
                     let funding_info = match result {
                         Ok(rates) => {
                             if let Some(rate_data) = rates.first() {
                                 // Extract funding rate from the response - handle parsing errors properly
                                 match rate_data["fundingRate"].as_str() {
-                                    Some(rate_str) => {
-                                        match rate_str.parse::<f64>() {
-                                            Ok(funding_rate) => Some(FundingRateInfo {
-                                                symbol: pair.clone(),
-                                                funding_rate,
-                                                timestamp: Some(chrono::Utc::now()),
-                                                datetime: Some(chrono::Utc::now().to_rfc3339()),
-                                                next_funding_time: None,
-                                                estimated_rate: None,
-                                            }),
-                                            Err(parse_err) => {
-                                                log_error!("Failed to parse funding rate", serde_json::json!({
+                                    Some(rate_str) => match rate_str.parse::<f64>() {
+                                        Ok(funding_rate) => Some(FundingRateInfo {
+                                            symbol: pair.clone(),
+                                            funding_rate,
+                                            timestamp: Some(chrono::Utc::now()),
+                                            datetime: Some(chrono::Utc::now().to_rfc3339()),
+                                            next_funding_time: None,
+                                            estimated_rate: None,
+                                        }),
+                                        Err(parse_err) => {
+                                            log_error!(
+                                                "Failed to parse funding rate",
+                                                serde_json::json!({
                                                     "exchange": exchange_id.to_string(),
                                                     "pair": pair,
                                                     "raw_value": rate_str,
                                                     "error": parse_err.to_string()
-                                                }));
-                                                None
-                                            }
+                                                })
+                                            );
+                                            None
                                         }
-                                    }
+                                    },
                                     None => {
-                                        log_error!("Missing fundingRate field in response", serde_json::json!({
-                                            "exchange": exchange_id.to_string(),
-                                            "pair": pair,
-                                            "response": rate_data
-                                        }));
+                                        log_error!(
+                                            "Missing fundingRate field in response",
+                                            serde_json::json!({
+                                                "exchange": exchange_id.to_string(),
+                                                "pair": pair,
+                                                "response": rate_data
+                                            })
+                                        );
                                         None
                                     }
                                 }
                             } else {
-                                log_error!("Empty funding rates response", serde_json::json!({
-                                    "exchange": exchange_id.to_string(),
-                                    "pair": pair
-                                }));
+                                log_error!(
+                                    "Empty funding rates response",
+                                    serde_json::json!({
+                                        "exchange": exchange_id.to_string(),
+                                        "pair": pair
+                                    })
+                                );
                                 None
                             }
                         }
                         Err(fetch_err) => {
-                            log_error!("Failed to fetch funding rates", serde_json::json!({
-                                "exchange": exchange_id.to_string(),
-                                "pair": pair,
-                                "error": fetch_err.to_string()
-                            }));
+                            log_error!(
+                                "Failed to fetch funding rates",
+                                serde_json::json!({
+                                    "exchange": exchange_id.to_string(),
+                                    "pair": pair,
+                                    "error": fetch_err.to_string()
+                                })
+                            );
                             None
                         }
                     };
-                    
+
                     (pair, exchange_id, funding_info)
                 });
                 funding_tasks.push(task);
@@ -254,11 +266,14 @@ impl OpportunityService {
                     .await
                 {
                     // Log error but don't fail the whole process
-                    log_error!("Failed to send Telegram notification", serde_json::json!({
-                        "error": e.to_string(),
-                        "opportunity_id": opportunity.id,
-                        "pair": opportunity.pair
-                    }));
+                    log_error!(
+                        "Failed to send Telegram notification",
+                        serde_json::json!({
+                            "error": e.to_string(),
+                            "opportunity_id": opportunity.id,
+                            "pair": opportunity.pair
+                        })
+                    );
                 }
             }
         }
