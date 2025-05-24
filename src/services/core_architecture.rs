@@ -525,7 +525,7 @@ impl CoreServiceArchitecture {
                         // Perform health check
                         let health_result = {
                             let start_time = std::time::Instant::now();
-                            
+
                             // Mock health check implementation
                             let is_healthy = match service_type_clone {
                                 ServiceType::TelegramService => true,
@@ -540,7 +540,11 @@ impl CoreServiceArchitecture {
                             let response_time = start_time.elapsed().as_millis() as u64;
 
                             if is_healthy {
-                                HealthCheckResult::healthy(service_type_clone.clone(), response_time).with_metadata(
+                                HealthCheckResult::healthy(
+                                    service_type_clone.clone(),
+                                    response_time,
+                                )
+                                .with_metadata(
                                     "last_check_type".to_string(),
                                     serde_json::json!("automated"),
                                 )
