@@ -11,7 +11,7 @@
   ],
   "main": "dist/index.js",
   "scripts": {
-    "build": "wrangler deploy --dry-run --outdir=dist",
+    "build": "chmod +x build.sh && ./build.sh",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "cargo test",
