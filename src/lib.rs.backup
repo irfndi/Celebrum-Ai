@@ -18,6 +18,12 @@ use types::{AccountInfo, ExchangeIdEnum, StructuredTradingPair};
 use utils::{ArbitrageError, ArbitrageResult};
 use uuid::Uuid;
 
+mod core_architecture;
+mod exchanges;
+mod utils;
+
+use core_architecture::worker_context::WorkerContext;
+use exchanges::exchange_factory::ExchangeFactory;
 
 // ===== TEMPORARY DURABLE OBJECT FOR MIGRATION =====
 // This PositionsManager class is temporarily added to satisfy existing Durable Object instances
