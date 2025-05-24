@@ -254,6 +254,7 @@ pub struct AiBetaIntegrationService {
     user_profiles: HashMap<String, AiTradingProfile>,
     market_sentiment_cache: HashMap<String, (MarketSentiment, u64)>, // (sentiment, timestamp)
     ai_model_metrics: AiModelMetrics,
+    active_predictions: HashMap<String, (f64, u64)>, // (ai_score, timestamp) for tracking predictions
 }
 
 impl AiBetaIntegrationService {
@@ -263,6 +264,7 @@ impl AiBetaIntegrationService {
             user_profiles: HashMap::new(),
             market_sentiment_cache: HashMap::new(),
             ai_model_metrics: AiModelMetrics::default(),
+            active_predictions: HashMap::new(),
         }
     }
 
@@ -281,6 +283,9 @@ impl AiBetaIntegrationService {
         opportunities: Vec<ArbitrageOpportunity>,
         user_id: &str,
     ) -> ArbitrageResult<Vec<AiEnhancedOpportunity>> {
+        // Clean up stale predictions (older than 24 hours)
+        self.cleanup_stale_predictions(24);
+        
         let mut enhanced_opportunities = Vec::new();
 
         for opportunity in opportunities {
@@ -348,6 +353,28 @@ impl AiBetaIntegrationService {
 
         // Update AI model metrics
         self.update_ai_metrics(ai_score);
+
+        // Track this prediction as active
+        #[cfg(target_arch = "wasm32")]
+        let timestamp = js_sys::Date::now() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        let timestamp = chrono::Utc::now().timestamp_millis() as u64;
+        
+        let opportunity_id = if opportunity.id.is_empty() {
+            format!("pred_{}", timestamp)
+        } else {
+            opportunity.id.clone()
+        };
+        
+        // Update the enhanced opportunity's ID if it was empty
+        if enhanced.base_opportunity.id.is_empty() {
+            enhanced.base_opportunity.id = opportunity_id.clone();
+        }
+        
+        self.active_predictions.insert(
+            opportunity_id,
+            (ai_score, timestamp)
+        );
 
         Ok(enhanced)
     }
@@ -735,23 +762,67 @@ impl AiBetaIntegrationService {
         }
     }
 
-    /// Mark a prediction as successful (to be called when an opportunity is executed profitably)
-    pub fn mark_prediction_successful(&mut self, opportunity_id: &str) {
-        // In production, this would track specific opportunity outcomes
-        // For now, increment successful predictions for high-confidence opportunities
-        self.ai_model_metrics.successful_predictions += 1;
-
-        // Recalculate accuracy rate
-        if self.ai_model_metrics.total_predictions > 0 {
-            self.ai_model_metrics.accuracy_rate = self.ai_model_metrics.successful_predictions
-                as f64
-                / self.ai_model_metrics.total_predictions as f64;
+    /// Clean up stale predictions older than specified age
+    pub fn cleanup_stale_predictions(&mut self, max_age_hours: u64) {
+        #[cfg(target_arch = "wasm32")]
+        let now = js_sys::Date::now() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        let now = chrono::Utc::now().timestamp_millis() as u64;
+        
+        let max_age_ms = max_age_hours * 60 * 60 * 1000; // Convert hours to milliseconds
+        
+        let stale_keys: Vec<String> = self
+            .active_predictions
+            .iter()
+            .filter(|(_id, (_score, timestamp))| {
+                now.saturating_sub(*timestamp) > max_age_ms
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        
+        for key in &stale_keys {
+            self.active_predictions.remove(key);
         }
+        
+        if !stale_keys.is_empty() {
+            log::info!("Cleaned up {} stale AI predictions", stale_keys.len());
+        }
+    }
 
-        log::info!(
-            "Marked AI prediction as successful for opportunity: {}",
-            opportunity_id
-        );
+    /// Mark a prediction as successful (to be called when an opportunity is executed profitably)
+    pub fn mark_prediction_successful(&mut self, opportunity_id: &str) -> ArbitrageResult<()> {
+        // Check if the opportunity_id exists in active predictions
+        if let Some((ai_score, _timestamp)) = self.active_predictions.remove(opportunity_id) {
+            // Only increment successful predictions if the prediction meets minimum confidence threshold
+            if ai_score >= self.config.min_confidence_threshold {
+                self.ai_model_metrics.successful_predictions += 1;
+                
+                // Recalculate accuracy rate
+                if self.ai_model_metrics.total_predictions > 0 {
+                    self.ai_model_metrics.accuracy_rate = self.ai_model_metrics.successful_predictions
+                        as f64
+                        / self.ai_model_metrics.total_predictions as f64;
+                }
+
+                log::info!(
+                    "Marked AI prediction as successful for opportunity: {} (ai_score: {:.3})",
+                    opportunity_id,
+                    ai_score
+                );
+                
+                Ok(())
+            } else {
+                Err(ArbitrageError::validation_error(format!(
+                    "Prediction {} did not meet minimum confidence threshold ({:.3} < {:.3})",
+                    opportunity_id, ai_score, self.config.min_confidence_threshold
+                )))
+            }
+        } else {
+            Err(ArbitrageError::validation_error(format!(
+                "No active AI prediction found for opportunity ID: {}. Prediction may have expired or never existed.",
+                opportunity_id
+            )))
+        }
     }
 
     /// Generate personalized AI recommendations
@@ -1000,5 +1071,61 @@ mod tests {
             .iter()
             .find(|r| r.recommendation_type == "risk_management");
         assert!(risk_rec.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_prediction_tracking_and_success_marking() {
+        let config = AiBetaConfig::default();
+        let mut service = AiBetaIntegrationService::new(config);
+
+        // Create and enhance an opportunity to generate a prediction
+        let opportunities = vec![create_test_opportunity()];
+        let enhanced = service
+            .enhance_opportunities(opportunities, "test_user")
+            .await
+            .unwrap();
+
+        assert!(!enhanced.is_empty());
+        
+        // Check that active predictions were recorded
+        assert!(!service.active_predictions.is_empty());
+        
+        // Get the opportunity ID
+        let opportunity_id = &enhanced[0].base_opportunity.id;
+        
+        // Test successful prediction marking
+        let result = service.mark_prediction_successful(opportunity_id);
+        assert!(result.is_ok());
+        
+        // Prediction should be removed from active predictions
+        assert!(!service.active_predictions.contains_key(opportunity_id));
+        
+        // Test marking non-existent prediction
+        let result = service.mark_prediction_successful("non_existent_id");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("No active AI prediction found"));
+    }
+
+    #[test]
+    fn test_stale_prediction_cleanup() {
+        let config = AiBetaConfig::default();
+        let mut service = AiBetaIntegrationService::new(config);
+        
+        // Add some test predictions with old timestamps
+        let old_timestamp = chrono::Utc::now().timestamp_millis() as u64 - (25 * 60 * 60 * 1000); // 25 hours ago
+        let recent_timestamp = chrono::Utc::now().timestamp_millis() as u64; // Now
+        
+        service.active_predictions.insert("old_prediction".to_string(), (0.8, old_timestamp));
+        service.active_predictions.insert("recent_prediction".to_string(), (0.9, recent_timestamp));
+        
+        assert_eq!(service.active_predictions.len(), 2);
+        
+        // Clean up predictions older than 24 hours
+        service.cleanup_stale_predictions(24);
+        
+        // Only recent prediction should remain
+        assert_eq!(service.active_predictions.len(), 1);
+        assert!(service.active_predictions.contains_key("recent_prediction"));
+        assert!(!service.active_predictions.contains_key("old_prediction"));
     }
 }
