@@ -11,6 +11,6 @@ pub use integrations::integration_test_basic;
 // pub use integrations::critical_service_integration_tests;
 
 // TODO: Re-enable service_integration_tests once MockD1Service trait implementation is stable
-// Issue: Requires consistent trait-based mocking for all services  
+// Issue: Requires consistent trait-based mocking for all services
 // Target: After integration test framework refactoring
-// pub use integrations::service_integration_tests; 
+// pub use integrations::service_integration_tests;

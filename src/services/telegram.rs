@@ -1,17 +1,16 @@
 // src/services/telegram.rs
 
-use crate::types::ArbitrageOpportunity;
-use crate::utils::{ArbitrageError, ArbitrageResult};
-use crate::utils::formatter::{
-    format_opportunity_message, 
-    format_categorized_opportunity_message,
-    format_ai_enhancement_message,
-    format_performance_insights_message,
-    format_parameter_suggestions_message,
-    escape_markdown_v2
+use crate::services::ai_intelligence::{
+    AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion,
 };
 use crate::services::opportunity_categorization::CategorizedOpportunity;
-use crate::services::ai_intelligence::{AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion};
+use crate::types::ArbitrageOpportunity;
+use crate::utils::formatter::{
+    escape_markdown_v2, format_ai_enhancement_message, format_categorized_opportunity_message,
+    format_opportunity_message, format_parameter_suggestions_message,
+    format_performance_insights_message,
+};
+use crate::utils::{ArbitrageError, ArbitrageResult};
 use reqwest::Client;
 use serde_json::{json, Value};
 
@@ -35,32 +34,45 @@ impl TelegramService {
     }
 
     pub async fn send_message(&self, text: &str) -> ArbitrageResult<()> {
-        let url = format!("https://api.telegram.org/bot{}/sendMessage", self.config.bot_token);
-        
+        let url = format!(
+            "https://api.telegram.org/bot{}/sendMessage",
+            self.config.bot_token
+        );
+
         let payload = json!({
             "chat_id": self.config.chat_id,
             "text": text,
             "parse_mode": "MarkdownV2"
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .json(&payload)
             .send()
             .await
-            .map_err(|e| ArbitrageError::network_error(format!("Failed to send Telegram message: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::network_error(format!("Failed to send Telegram message: {}", e))
+            })?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(ArbitrageError::telegram_error(format!("Telegram API error: {}", error_text)));
+            return Err(ArbitrageError::telegram_error(format!(
+                "Telegram API error: {}",
+                error_text
+            )));
         }
 
-        let result: Value = response.json().await
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse Telegram response: {}", e)))?;
+        let result: Value = response.json().await.map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to parse Telegram response: {}", e))
+        })?;
 
         if !result["ok"].as_bool().unwrap_or(false) {
             let error_description = result["description"].as_str().unwrap_or("Unknown error");
-            return Err(ArbitrageError::telegram_error(format!("Telegram API error: {}", error_description)));
+            return Err(ArbitrageError::telegram_error(format!(
+                "Telegram API error: {}",
+                error_description
+            )));
         }
 
         Ok(())
@@ -69,31 +81,46 @@ impl TelegramService {
     // ============= ENHANCED NOTIFICATION METHODS =============
 
     /// Send basic arbitrage opportunity notification (legacy support)
-    pub async fn send_opportunity_notification(&self, opportunity: &ArbitrageOpportunity) -> ArbitrageResult<()> {
+    pub async fn send_opportunity_notification(
+        &self,
+        opportunity: &ArbitrageOpportunity,
+    ) -> ArbitrageResult<()> {
         let message = format_opportunity_message(opportunity);
         self.send_message(&message).await
     }
 
     /// Send categorized opportunity notification (NEW)
-    pub async fn send_categorized_opportunity_notification(&self, categorized_opp: &CategorizedOpportunity) -> ArbitrageResult<()> {
+    pub async fn send_categorized_opportunity_notification(
+        &self,
+        categorized_opp: &CategorizedOpportunity,
+    ) -> ArbitrageResult<()> {
         let message = format_categorized_opportunity_message(categorized_opp);
         self.send_message(&message).await
     }
 
     /// Send AI enhancement analysis notification (NEW)
-    pub async fn send_ai_enhancement_notification(&self, enhancement: &AiOpportunityEnhancement) -> ArbitrageResult<()> {
+    pub async fn send_ai_enhancement_notification(
+        &self,
+        enhancement: &AiOpportunityEnhancement,
+    ) -> ArbitrageResult<()> {
         let message = format_ai_enhancement_message(enhancement);
         self.send_message(&message).await
     }
 
     /// Send AI performance insights notification (NEW)
-    pub async fn send_performance_insights_notification(&self, insights: &AiPerformanceInsights) -> ArbitrageResult<()> {
+    pub async fn send_performance_insights_notification(
+        &self,
+        insights: &AiPerformanceInsights,
+    ) -> ArbitrageResult<()> {
         let message = format_performance_insights_message(insights);
         self.send_message(&message).await
     }
 
     /// Send parameter optimization suggestions (NEW)
-    pub async fn send_parameter_suggestions_notification(&self, suggestions: &[ParameterSuggestion]) -> ArbitrageResult<()> {
+    pub async fn send_parameter_suggestions_notification(
+        &self,
+        suggestions: &[ParameterSuggestion],
+    ) -> ArbitrageResult<()> {
         let message = format_parameter_suggestions_message(suggestions);
         self.send_message(&message).await
     }
@@ -105,8 +132,13 @@ impl TelegramService {
         if let Some(message) = update["message"].as_object() {
             if let Some(text) = message["text"].as_str() {
                 // Properly handle missing user ID by returning an error instead of empty string
-                let user_id = message["from"]["id"].as_u64()
-                    .ok_or_else(|| ArbitrageError::validation_error("Missing user ID in webhook message".to_string()))?
+                let user_id = message["from"]["id"]
+                    .as_u64()
+                    .ok_or_else(|| {
+                        ArbitrageError::validation_error(
+                            "Missing user ID in webhook message".to_string(),
+                        )
+                    })?
                     .to_string();
                 return self.handle_command(text, &user_id).await;
             }
@@ -151,7 +183,8 @@ impl TelegramService {
         /categories \\- Manage opportunity categories\n\
         /preferences \\- View/update your trading preferences\n\
         /status \\- Check system status\n\n\
-        🚀 Get started with /opportunities to see what's available\\!".to_string()
+        🚀 Get started with /opportunities to see what's available\\!"
+            .to_string()
     }
 
     async fn get_help_message(&self) -> String {
@@ -189,9 +222,9 @@ impl TelegramService {
 
     async fn get_opportunities_message(&self, _user_id: &str, args: &[&str]) -> String {
         let filter_category = args.first();
-        
+
         let mut message = "📊 *Recent Trading Opportunities*\n\n".to_string();
-        
+
         if let Some(category) = filter_category {
             message.push_str(&format!(
                 "🏷️ Filtered by: `{}`\n\n",
@@ -215,7 +248,7 @@ impl TelegramService {
             • `arbitrage` \\- Low risk opportunities\n\
             • `technical` \\- Technical analysis signals\n\
             • `ai` \\- AI recommended trades\n\
-            • `beginner` \\- Beginner\\-friendly options"
+            • `beginner` \\- Beginner\\-friendly options",
         );
 
         message
@@ -234,7 +267,8 @@ impl TelegramService {
         🤖 AI Recommended \\- AI\\-validated opportunities\n\
         🌱 Beginner Friendly \\- Simple, low\\-risk trades\n\
         🎖️ Advanced Strategies \\- Complex trading strategies\n\n\
-        💡 Use /preferences to enable/disable categories based on your trading focus\\!".to_string()
+        💡 Use /preferences to enable/disable categories based on your trading focus\\!"
+            .to_string()
     }
 
     async fn get_ai_insights_message(&self, _user_id: &str) -> String {
@@ -250,7 +284,8 @@ impl TelegramService {
         💡 Consider reducing position sizes by 15%\n\n\
         📈 *Performance Score:* `82%`\n\
         🤖 *Automation Readiness:* `74%`\n\n\
-        💡 Use /risk\\_assessment for detailed portfolio analysis\\!".to_string()
+        💡 Use /risk\\_assessment for detailed portfolio analysis\\!"
+            .to_string()
     }
 
     async fn get_risk_assessment_message(&self, _user_id: &str) -> String {
@@ -268,7 +303,8 @@ impl TelegramService {
         🎯 *Recommendations:*\n\
         📝 Consider diversifying across more pairs\n\
         ⚠️ Monitor volatility in current positions\n\
-        💡 Maintain current risk levels".to_string()
+        💡 Maintain current risk levels"
+            .to_string()
     }
 
     async fn get_preferences_message(&self, _user_id: &str) -> String {
@@ -302,19 +338,24 @@ impl TelegramService {
         • AI Analysis: ✅ Enabled\n\
         • Performance Insights: ✅ Enabled\n\
         • Parameter Optimization: ✅ Enabled\n\n\
-        💡 Use /preferences to modify your trading focus and experience settings\\!".to_string()
+        💡 Use /preferences to modify your trading focus and experience settings\\!"
+            .to_string()
     }
 
     // ============= WEBHOOK SETUP =============
 
     pub async fn set_webhook(&self, webhook_url: &str) -> ArbitrageResult<()> {
-        let url = format!("https://api.telegram.org/bot{}/setWebhook", self.config.bot_token);
-        
+        let url = format!(
+            "https://api.telegram.org/bot{}/setWebhook",
+            self.config.bot_token
+        );
+
         let payload = json!({
             "url": webhook_url
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .json(&payload)
             .send()
@@ -323,7 +364,10 @@ impl TelegramService {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(ArbitrageError::telegram_error(format!("Failed to set webhook: {}", error_text)));
+            return Err(ArbitrageError::telegram_error(format!(
+                "Failed to set webhook: {}",
+                error_text
+            )));
         }
 
         Ok(())
@@ -370,9 +414,13 @@ impl TelegramService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::market_analysis::{
+        OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,
+    };
+    use crate::services::opportunity_categorization::{
+        AlertPriority, CategorizedOpportunity, OpportunityCategory, RiskIndicator,
+    };
     use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
-    use crate::services::opportunity_categorization::{CategorizedOpportunity, OpportunityCategory, RiskIndicator, AlertPriority};
-    use crate::services::market_analysis::{TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon};
     use serde_json::json;
     // use chrono::Datelike; // TODO: Re-enable when implementing date formatting
 
@@ -421,7 +469,10 @@ mod tests {
 
         CategorizedOpportunity {
             base_opportunity,
-            categories: vec![OpportunityCategory::LowRiskArbitrage, OpportunityCategory::BeginnerFriendly],
+            categories: vec![
+                OpportunityCategory::LowRiskArbitrage,
+                OpportunityCategory::BeginnerFriendly,
+            ],
             primary_category: OpportunityCategory::LowRiskArbitrage,
             risk_indicator: RiskIndicator::new(RiskLevel::Low, 0.85),
             user_suitability_score: 0.92,
@@ -444,16 +495,19 @@ mod tests {
         fn test_new_telegram_service() {
             let config = create_test_config();
             let service = TelegramService::new(config.clone());
-            
+
             // Service should be created successfully
-            assert_eq!(std::mem::size_of_val(&service), std::mem::size_of::<TelegramService>());
+            assert_eq!(
+                std::mem::size_of_val(&service),
+                std::mem::size_of::<TelegramService>()
+            );
         }
 
         #[test]
         fn test_telegram_service_is_send_sync() {
             fn assert_send<T: Send>() {}
             fn assert_sync<T: Sync>() {}
-            
+
             assert_send::<TelegramService>();
             assert_sync::<TelegramService>();
         }
@@ -461,7 +515,7 @@ mod tests {
         #[test]
         fn test_config_validation_valid() {
             let config = create_test_config();
-            
+
             assert!(!config.bot_token.is_empty());
             assert!(!config.chat_id.is_empty());
         }
@@ -481,12 +535,12 @@ mod tests {
         fn test_categorized_opportunity_message_structure() {
             let categorized_opp = create_test_categorized_opportunity();
             let message = format_categorized_opportunity_message(&categorized_opp);
-            
+
             // Check for categorized opportunity elements
             assert!(message.contains("Low Risk Arbitrage"));
             assert!(message.contains("BTCUSDT"));
             assert!(message.contains("Suitability Score"));
-            assert!(message.contains("92"));  // suitability score
+            assert!(message.contains("92")); // suitability score
             assert!(message.contains("Risk Assessment"));
         }
 
@@ -494,14 +548,14 @@ mod tests {
         fn test_enhanced_command_responses() {
             let config = create_test_config();
             let service = TelegramService::new(config);
-            
+
             // Test that new command responses are not empty
             let welcome = futures::executor::block_on(service.get_welcome_message());
             assert!(welcome.contains("ArbEdge AI Trading Bot"));
-            assert!(welcome.contains("AI\\-enhanced analysis"));  // Fixed to check escaped version
-            
+            assert!(welcome.contains("AI\\-enhanced analysis")); // Fixed to check escaped version
+
             let help = futures::executor::block_on(service.get_help_message());
-            assert!(help.contains("ai\\_insights"));   // Fixed to check escaped version
+            assert!(help.contains("ai\\_insights")); // Fixed to check escaped version
             assert!(help.contains("categories"));
         }
 
@@ -509,8 +563,9 @@ mod tests {
         fn test_ai_insights_response() {
             let config = create_test_config();
             let service = TelegramService::new(config);
-            
-            let insights = futures::executor::block_on(service.get_ai_insights_message("test_user"));
+
+            let insights =
+                futures::executor::block_on(service.get_ai_insights_message("test_user"));
             assert!(insights.contains("AI Analysis Summary"));
             assert!(insights.contains("confidence"));
             assert!(insights.contains("Performance Score"));
@@ -520,8 +575,9 @@ mod tests {
         fn test_risk_assessment_response() {
             let config = create_test_config();
             let service = TelegramService::new(config);
-            
-            let risk = futures::executor::block_on(service.get_risk_assessment_message("test_user"));
+
+            let risk =
+                futures::executor::block_on(service.get_risk_assessment_message("test_user"));
             assert!(risk.contains("Portfolio Risk Assessment"));
             assert!(risk.contains("Risk Breakdown"));
             assert!(risk.contains("Recommendations"));
@@ -531,7 +587,7 @@ mod tests {
         fn test_preferences_response() {
             let config = create_test_config();
             let service = TelegramService::new(config);
-            
+
             let prefs = futures::executor::block_on(service.get_preferences_message("test_user"));
             assert!(prefs.contains("Trading Preferences"));
             assert!(prefs.contains("Trading Focus"));
@@ -546,7 +602,7 @@ mod tests {
         #[test]
         fn test_bot_token_format() {
             let config = create_test_config();
-            
+
             // Basic token format validation
             assert!(config.bot_token.contains(':'));
             assert!(config.bot_token.len() > 10);
@@ -555,16 +611,19 @@ mod tests {
         #[test]
         fn test_chat_id_format() {
             let config = create_test_config();
-            
+
             // Chat ID should be numeric (with optional negative sign for groups)
-            assert!(config.chat_id.starts_with('-') || config.chat_id.chars().all(|c| c.is_ascii_digit()));
+            assert!(
+                config.chat_id.starts_with('-')
+                    || config.chat_id.chars().all(|c| c.is_ascii_digit())
+            );
         }
 
         #[test]
         fn test_webhook_url_validation() {
             let config = create_test_config();
             let _service = TelegramService::new(config);
-            
+
             // This is a placeholder test - in real implementation would validate URL format
             let webhook_url = "https://example.com/webhook";
             assert!(webhook_url.starts_with("https://"));
@@ -574,7 +633,7 @@ mod tests {
         fn test_optional_webhook() {
             let config = create_test_config();
             let _service = TelegramService::new(config);
-            
+
             // Service should work without webhook being set
             // Placeholder assertion - service creation successful
         }
@@ -615,10 +674,10 @@ mod tests {
         fn test_opportunity_message_components() {
             let opportunity = create_test_opportunity();
             let message = format_opportunity_message(&opportunity);
-            
+
             assert!(message.contains("BTCUSDT"));
-            assert!(message.contains("binance"));  // Fixed to check lowercase as returned by format_exchange
-            assert!(message.contains("bybit"));    // Fixed to check lowercase as returned by format_exchange
+            assert!(message.contains("binance")); // Fixed to check lowercase as returned by format_exchange
+            assert!(message.contains("bybit")); // Fixed to check lowercase as returned by format_exchange
         }
     }
 
@@ -628,7 +687,7 @@ mod tests {
         #[test]
         fn test_opportunity_data_extraction() {
             let opportunity = create_test_opportunity();
-            
+
             assert_eq!(opportunity.pair, "BTCUSDT");
             assert_eq!(opportunity.long_exchange, Some(ExchangeIdEnum::Binance));
             assert_eq!(opportunity.short_exchange, Some(ExchangeIdEnum::Bybit));
@@ -638,7 +697,7 @@ mod tests {
         #[test]
         fn test_profit_calculation_data() {
             let opportunity = create_test_opportunity();
-            
+
             if let Some(profit) = opportunity.potential_profit_value {
                 assert_eq!(profit, 18.0);
             } else {
@@ -649,7 +708,7 @@ mod tests {
         #[test]
         fn test_message_timestamp_handling() {
             let opportunity = create_test_opportunity();
-            
+
             // Timestamp should be valid
             assert!(opportunity.timestamp > 0);
             assert_eq!(opportunity.timestamp, 1640995200000); // Jan 1, 2022
@@ -671,7 +730,7 @@ mod tests {
                 bot_token: "".to_string(),
                 chat_id: "".to_string(),
             };
-            
+
             // Service should still be created (validation happens during use)
             let _service = TelegramService::new(invalid_config);
         }
@@ -682,7 +741,7 @@ mod tests {
                 bot_token: "valid_token:ABC123".to_string(),
                 chat_id: "invalid_chat_id".to_string(),
             };
-            
+
             let _service = TelegramService::new(config);
             // Service creation should succeed (validation during API calls)
         }
@@ -691,7 +750,7 @@ mod tests {
         fn test_disabled_service_handling() {
             let config = create_test_config();
             let _service = TelegramService::new(config);
-            
+
             // Service should handle being disabled gracefully
             // Placeholder - would test actual disabled behavior
         }
@@ -701,7 +760,7 @@ mod tests {
             let mut opportunity = create_test_opportunity();
             opportunity.details = None;
             opportunity.potential_profit_value = None;
-            
+
             let message = format_opportunity_message(&opportunity);
             // Should still generate valid message without optional fields
             assert!(message.contains("BTCUSDT"));
@@ -715,7 +774,7 @@ mod tests {
         fn test_telegram_api_url_construction() {
             let config = create_test_config();
             let _service = TelegramService::new(config.clone());
-            
+
             let expected_base = format!("https://api.telegram.org/bot{}/", config.bot_token);
             assert!(expected_base.contains(&config.bot_token));
         }
@@ -731,13 +790,13 @@ mod tests {
         fn test_message_payload_structure() {
             let config = create_test_config();
             let message_text = "Test message";
-            
+
             let payload = json!({
                 "chat_id": config.chat_id,
                 "text": message_text,
                 "parse_mode": "MarkdownV2"
             });
-            
+
             assert_eq!(payload["chat_id"], config.chat_id);
             assert_eq!(payload["text"], message_text);
             assert_eq!(payload["parse_mode"], "MarkdownV2");
@@ -768,7 +827,7 @@ mod tests {
                     "text": "/start"
                 }
             });
-            
+
             assert_eq!(webhook_data["message"]["text"], "/start");
             assert_eq!(webhook_data["message"]["from"]["id"], 987654321);
         }
@@ -777,7 +836,7 @@ mod tests {
         fn test_command_extraction() {
             let command_text = "/opportunities arbitrage";
             let parts: Vec<&str> = command_text.split_whitespace().collect();
-            
+
             assert_eq!(parts[0], "/opportunities");
             assert_eq!(parts[1], "arbitrage");
         }
@@ -792,7 +851,7 @@ mod tests {
                     "text": "/status"
                 }
             });
-            
+
             let user_id = webhook_data["message"]["from"]["id"].as_u64().unwrap();
             assert_eq!(user_id, 987654321);
         }
@@ -805,16 +864,19 @@ mod tests {
         fn test_service_configuration_access() {
             let config = create_test_config();
             let service = TelegramService::new(config.clone());
-            
+
             // Service should maintain access to configuration
-            assert_eq!(std::mem::size_of_val(&service), std::mem::size_of::<TelegramService>());
+            assert_eq!(
+                std::mem::size_of_val(&service),
+                std::mem::size_of::<TelegramService>()
+            );
         }
 
         #[test]
         fn test_exchange_name_formatting() {
             let exchange = Some(ExchangeIdEnum::Binance);
             let formatted = crate::utils::formatter::format_exchange(&exchange);
-            assert_eq!(formatted, "binance");  // Fixed to check actual output format
+            assert_eq!(formatted, "binance"); // Fixed to check actual output format
         }
 
         #[test]
@@ -840,7 +902,7 @@ mod tests {
             let config = create_test_config();
             let _service = TelegramService::new(config);
             let opportunity = create_test_opportunity();
-            
+
             let message = format_opportunity_message(&opportunity);
             assert!(!message.is_empty());
             assert!(message.contains("BTCUSDT"));
@@ -851,10 +913,10 @@ mod tests {
             let opp1 = create_test_opportunity();
             let mut opp2 = create_test_opportunity();
             opp2.pair = "ETHUSDT".to_string();
-            
+
             let msg1 = format_opportunity_message(&opp1);
             let msg2 = format_opportunity_message(&opp2);
-            
+
             assert!(msg1.contains("BTCUSDT"));
             assert!(msg2.contains("ETHUSDT"));
         }
@@ -863,9 +925,12 @@ mod tests {
         fn test_service_state_consistency() {
             let config = create_test_config();
             let service = TelegramService::new(config.clone());
-            
+
             // Service should maintain consistent state
-            assert_eq!(std::mem::size_of_val(&service), std::mem::size_of::<TelegramService>());
+            assert_eq!(
+                std::mem::size_of_val(&service),
+                std::mem::size_of::<TelegramService>()
+            );
         }
     }
-} 
+}

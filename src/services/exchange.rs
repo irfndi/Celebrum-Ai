@@ -8,9 +8,9 @@ use crate::types::*;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 
 // Exchange authentication helper
+use hex;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use hex;
 
 #[allow(dead_code)]
 pub trait ExchangeInterface {
@@ -116,16 +116,13 @@ impl ExchangeService {
     pub fn new(env: &Env) -> ArbitrageResult<Self> {
         let kv = env.get_kv_store("ARBITRAGE_KV").ok_or_else(|| {
             ArbitrageError::internal_error(
-                "Failed to get KV store: ARBITRAGE_KV binding not found".to_string()
+                "Failed to get KV store: ARBITRAGE_KV binding not found".to_string(),
             )
         })?;
 
         let client = Client::new();
 
-        Ok(Self {
-            client,
-            kv,
-        })
+        Ok(Self { client, kv })
     }
 
     #[allow(clippy::result_large_err)]
@@ -173,7 +170,7 @@ impl ExchangeService {
 
         // Collect all query parameters
         let mut query_params = Vec::new();
-        
+
         // Add query parameters from the params argument
         if let Some(params) = params {
             if let Some(obj) = params.as_object() {
@@ -190,10 +187,10 @@ impl ExchangeService {
         // Add authentication if provided
         if let Some(creds) = auth {
             let timestamp = Utc::now().timestamp_millis();
-            
+
             // Add timestamp to query parameters
             query_params.push(("timestamp".to_string(), timestamp.to_string()));
-            
+
             // Sort query parameters for consistent signature generation
             query_params.sort();
             let query_string = query_params
@@ -211,7 +208,7 @@ impl ExchangeService {
 
             // Add signature to query params
             query_params.push(("signature".to_string(), signature));
-            
+
             // Set query parameters
             request = request.query(&query_params);
             request = request.header("X-MBX-APIKEY", &creds.api_key);
@@ -265,7 +262,10 @@ impl ExchangeService {
                 "{}".to_string()
             };
 
-            let sign_str = format!("{}{}{}{}", timestamp, &creds.api_key, recv_window, param_str);
+            let sign_str = format!(
+                "{}{}{}{}",
+                timestamp, &creds.api_key, recv_window, param_str
+            );
 
             let mut mac = Hmac::<Sha256>::new_from_slice(creds.secret.as_bytes()).map_err(|e| {
                 ArbitrageError::authentication_error(format!("Invalid secret key: {}", e))
@@ -317,7 +317,8 @@ impl ExchangeInterface for ExchangeService {
             ArbitrageError::serialization_error(format!("Failed to serialize credentials: {}", e))
         })?;
 
-        self.kv.put(&key, value)
+        self.kv
+            .put(&key, value)
             .map_err(|e| {
                 ArbitrageError::database_error(format!("Failed to save credentials: {}", e))
             })?
@@ -332,36 +333,46 @@ impl ExchangeInterface for ExchangeService {
 
     async fn get_api_key(&self, exchange_id: &str) -> ArbitrageResult<Option<ExchangeCredentials>> {
         let key = format!("exchange_credentials_{}", exchange_id);
-        
+
         match self.kv.get(&key).text().await {
             Ok(Some(value)) => {
-                let credentials: ExchangeCredentials = serde_json::from_str(&value).map_err(|e| {
-                    ArbitrageError::parse_error(format!("Failed to deserialize credentials: {}", e))
-                })?;
+                let credentials: ExchangeCredentials =
+                    serde_json::from_str(&value).map_err(|e| {
+                        ArbitrageError::parse_error(format!(
+                            "Failed to deserialize credentials: {}",
+                            e
+                        ))
+                    })?;
                 Ok(Some(credentials))
             }
             Ok(None) => Ok(None),
-            Err(e) => Err(ArbitrageError::database_error(format!("Failed to get credentials: {}", e))),
+            Err(e) => Err(ArbitrageError::database_error(format!(
+                "Failed to get credentials: {}",
+                e
+            ))),
         }
     }
 
     async fn delete_api_key(&self, exchange_id: &str) -> ArbitrageResult<()> {
         let key = format!("exchange_credentials_{}", exchange_id);
-        self.kv.delete(&key)
-            .await
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to delete credentials: {}", e)))?;
+        self.kv.delete(&key).await.map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to delete credentials: {}", e))
+        })?;
         Ok(())
     }
 
     async fn get_markets(&self, exchange_id: &str) -> ArbitrageResult<Vec<Market>> {
         let markets = match exchange_id {
             "binance" => {
-                let response = self.binance_request("/api/v3/exchangeInfo", Method::GET, None, None).await?;
+                let response = self
+                    .binance_request("/api/v3/exchangeInfo", Method::GET, None, None)
+                    .await?;
                 let empty_vec = vec![];
                 let symbols = response["symbols"].as_array().unwrap_or(&empty_vec);
-                
-                symbols.iter().map(|symbol| {
-                    Market {
+
+                symbols
+                    .iter()
+                    .map(|symbol| Market {
                         id: symbol["symbol"].as_str().unwrap_or("").to_string(),
                         symbol: symbol["symbol"].as_str().unwrap_or("").to_string(),
                         base: symbol["baseAsset"].as_str().unwrap_or("").to_string(),
@@ -372,21 +383,38 @@ impl ExchangeInterface for ExchangeService {
                             price: symbol["quotePrecision"].as_i64().map(|x| x as i32),
                         },
                         limits: Limits {
-                            amount: MinMax { min: Some(0.0), max: None },
-                            price: MinMax { min: Some(0.0), max: None },
-                            cost: MinMax { min: Some(0.0), max: None },
+                            amount: MinMax {
+                                min: Some(0.0),
+                                max: None,
+                            },
+                            price: MinMax {
+                                min: Some(0.0),
+                                max: None,
+                            },
+                            cost: MinMax {
+                                min: Some(0.0),
+                                max: None,
+                            },
                         },
                         fees: None,
-                    }
-                }).collect()
+                    })
+                    .collect()
             }
             "bybit" => {
-                let response = self.bybit_request("/v5/market/instruments-info", Method::GET, Some(json!({"category": "spot"})), None).await?;
+                let response = self
+                    .bybit_request(
+                        "/v5/market/instruments-info",
+                        Method::GET,
+                        Some(json!({"category": "spot"})),
+                        None,
+                    )
+                    .await?;
                 let empty_vec = vec![];
                 let symbols = response["result"]["list"].as_array().unwrap_or(&empty_vec);
-                
-                symbols.iter().map(|symbol| {
-                    Market {
+
+                symbols
+                    .iter()
+                    .map(|symbol| Market {
                         id: symbol["symbol"].as_str().unwrap_or("").to_string(),
                         symbol: symbol["symbol"].as_str().unwrap_or("").to_string(),
                         base: symbol["baseCoin"].as_str().unwrap_or("").to_string(),
@@ -397,15 +425,29 @@ impl ExchangeInterface for ExchangeService {
                             price: None,
                         },
                         limits: Limits {
-                            amount: MinMax { min: Some(0.0), max: None },
-                            price: MinMax { min: Some(0.0), max: None },
-                            cost: MinMax { min: Some(0.0), max: None },
+                            amount: MinMax {
+                                min: Some(0.0),
+                                max: None,
+                            },
+                            price: MinMax {
+                                min: Some(0.0),
+                                max: None,
+                            },
+                            cost: MinMax {
+                                min: Some(0.0),
+                                max: None,
+                            },
                         },
                         fees: None,
-                    }
-                }).collect()
+                    })
+                    .collect()
             }
-            _ => return Err(ArbitrageError::validation_error(format!("Unsupported exchange: {}", exchange_id))),
+            _ => {
+                return Err(ArbitrageError::validation_error(format!(
+                    "Unsupported exchange: {}",
+                    exchange_id
+                )))
+            }
         };
 
         Ok(markets)
@@ -414,30 +456,40 @@ impl ExchangeInterface for ExchangeService {
     async fn get_ticker(&self, exchange_id: &str, symbol: &str) -> ArbitrageResult<Ticker> {
         match exchange_id {
             "binance" => {
-                let response = self.binance_request(
-                    "/api/v3/ticker/24hr",
-                    Method::GET,
-                    Some(json!({"symbol": symbol})),
-                    None,
-                ).await?;
+                let response = self
+                    .binance_request(
+                        "/api/v3/ticker/24hr",
+                        Method::GET,
+                        Some(json!({"symbol": symbol})),
+                        None,
+                    )
+                    .await?;
                 self.parse_binance_ticker(&response, symbol)
             }
             "bybit" => {
-                let response = self.bybit_request(
-                    "/v5/market/tickers",
-                    Method::GET,
-                    Some(json!({"category": "spot", "symbol": symbol})),
-                    None,
-                ).await?;
-                
+                let response = self
+                    .bybit_request(
+                        "/v5/market/tickers",
+                        Method::GET,
+                        Some(json!({"category": "spot", "symbol": symbol})),
+                        None,
+                    )
+                    .await?;
+
                 if let Some(list) = response["result"]["list"].as_array() {
                     if let Some(ticker_data) = list.first() {
                         return self.parse_bybit_ticker(ticker_data, symbol);
                     }
                 }
-                Err(ArbitrageError::not_found(format!("Ticker not found for symbol: {}", symbol)))
+                Err(ArbitrageError::not_found(format!(
+                    "Ticker not found for symbol: {}",
+                    symbol
+                )))
             }
-            _ => Err(ArbitrageError::validation_error(format!("Unsupported exchange: {}", exchange_id))),
+            _ => Err(ArbitrageError::validation_error(format!(
+                "Unsupported exchange: {}",
+                exchange_id
+            ))),
         }
     }
 
@@ -448,18 +500,21 @@ impl ExchangeInterface for ExchangeService {
         limit: Option<u32>,
     ) -> ArbitrageResult<OrderBook> {
         let limit = limit.unwrap_or(100);
-        
+
         match exchange_id {
             "binance" => {
-                let response = self.binance_request(
-                    "/api/v3/depth",
-                    Method::GET,
-                    Some(json!({"symbol": symbol, "limit": limit})),
-                    None,
-                ).await?;
-                
+                let response = self
+                    .binance_request(
+                        "/api/v3/depth",
+                        Method::GET,
+                        Some(json!({"symbol": symbol, "limit": limit})),
+                        None,
+                    )
+                    .await?;
+
                 let empty_vec = vec![];
-                let bids: Vec<[f64; 2]> = response["bids"].as_array()
+                let bids: Vec<[f64; 2]> = response["bids"]
+                    .as_array()
                     .unwrap_or(&empty_vec)
                     .iter()
                     .filter_map(|bid| {
@@ -468,13 +523,18 @@ impl ExchangeInterface for ExchangeService {
                                 let price = arr[0].as_str()?.parse().ok()?;
                                 let amount = arr[1].as_str()?.parse().ok()?;
                                 Some([price, amount])
-                            } else { None }
-                        } else { None }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
                     })
                     .collect();
-                
+
                 let empty_vec2 = vec![];
-                let asks: Vec<[f64; 2]> = response["asks"].as_array()
+                let asks: Vec<[f64; 2]> = response["asks"]
+                    .as_array()
                     .unwrap_or(&empty_vec2)
                     .iter()
                     .filter_map(|ask| {
@@ -483,11 +543,15 @@ impl ExchangeInterface for ExchangeService {
                                 let price = arr[0].as_str()?.parse().ok()?;
                                 let amount = arr[1].as_str()?.parse().ok()?;
                                 Some([price, amount])
-                            } else { None }
-                        } else { None }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
                     })
                     .collect();
-                
+
                 Ok(OrderBook {
                     symbol: symbol.to_string(),
                     bids,
@@ -496,7 +560,10 @@ impl ExchangeInterface for ExchangeService {
                     datetime: Some(Utc::now().to_rfc3339()),
                 })
             }
-            _ => Err(ArbitrageError::validation_error(format!("Unsupported exchange: {}", exchange_id))),
+            _ => Err(ArbitrageError::validation_error(format!(
+                "Unsupported exchange: {}",
+                exchange_id
+            ))),
         }
     }
 
@@ -511,21 +578,21 @@ impl ExchangeInterface for ExchangeService {
                 if let Some(s) = symbol {
                     params["symbol"] = json!(s);
                 }
-                
-                let response = self.binance_request(
-                    "/fapi/v1/premiumIndex",
-                    Method::GET,
-                    Some(params),
-                    None,
-                ).await?;
-                
+
+                let response = self
+                    .binance_request("/fapi/v1/premiumIndex", Method::GET, Some(params), None)
+                    .await?;
+
                 if response.is_array() {
                     Ok(response.as_array().unwrap().clone())
                 } else {
                     Ok(vec![response])
                 }
             }
-            _ => Err(ArbitrageError::validation_error(format!("Unsupported exchange: {}", exchange_id))),
+            _ => Err(ArbitrageError::validation_error(format!(
+                "Unsupported exchange: {}",
+                exchange_id
+            ))),
         }
     }
 
@@ -535,7 +602,7 @@ impl ExchangeInterface for ExchangeService {
         _credentials: &ExchangeCredentials,
     ) -> ArbitrageResult<Value> {
         Err(ArbitrageError::not_implemented(format!(
-            "get_balance not implemented for exchange: {}", 
+            "get_balance not implemented for exchange: {}",
             exchange_id
         )))
     }
@@ -550,7 +617,7 @@ impl ExchangeInterface for ExchangeService {
         _price: Option<f64>,
     ) -> ArbitrageResult<Value> {
         Err(ArbitrageError::not_implemented(format!(
-            "create_order not implemented for exchange: {}", 
+            "create_order not implemented for exchange: {}",
             exchange_id
         )))
     }
@@ -563,7 +630,7 @@ impl ExchangeInterface for ExchangeService {
         _symbol: &str,
     ) -> ArbitrageResult<Value> {
         Err(ArbitrageError::not_implemented(format!(
-            "cancel_order not implemented for exchange: {}", 
+            "cancel_order not implemented for exchange: {}",
             exchange_id
         )))
     }
@@ -575,7 +642,7 @@ impl ExchangeInterface for ExchangeService {
         _symbol: Option<&str>,
     ) -> ArbitrageResult<Vec<Value>> {
         Err(ArbitrageError::not_implemented(format!(
-            "get_open_orders not implemented for exchange: {}", 
+            "get_open_orders not implemented for exchange: {}",
             exchange_id
         )))
     }
@@ -587,7 +654,7 @@ impl ExchangeInterface for ExchangeService {
         _symbol: Option<&str>,
     ) -> ArbitrageResult<Vec<Value>> {
         Err(ArbitrageError::not_implemented(format!(
-            "get_open_positions not implemented for exchange: {}", 
+            "get_open_positions not implemented for exchange: {}",
             exchange_id
         )))
     }
@@ -600,7 +667,7 @@ impl ExchangeInterface for ExchangeService {
         _leverage: u32,
     ) -> ArbitrageResult<Value> {
         Err(ArbitrageError::not_implemented(format!(
-            "set_leverage not implemented for exchange: {}", 
+            "set_leverage not implemented for exchange: {}",
             exchange_id
         )))
     }
@@ -614,13 +681,15 @@ impl ExchangeInterface for ExchangeService {
         match exchange_id {
             "binance" => {
                 // Binance trading fees endpoint
-                let response = self.binance_request(
-                    "/api/v3/exchangeInfo",
-                    Method::GET,
-                    Some(json!({"symbol": symbol})),
-                    None,
-                ).await?;
-                
+                let response = self
+                    .binance_request(
+                        "/api/v3/exchangeInfo",
+                        Method::GET,
+                        Some(json!({"symbol": symbol})),
+                        None,
+                    )
+                    .await?;
+
                 // Extract trading fees from exchange info
                 if let Some(symbols) = response["symbols"].as_array() {
                     for symbol_info in symbols {
@@ -635,7 +704,7 @@ impl ExchangeInterface for ExchangeService {
                         }
                     }
                 }
-                
+
                 // Fallback to default fees
                 Ok(json!({
                     "symbol": symbol,
@@ -649,12 +718,12 @@ impl ExchangeInterface for ExchangeService {
                 Ok(json!({
                     "symbol": symbol,
                     "maker": 0.001,  // 0.1% default maker fee
-                    "taker": 0.001,  // 0.1% default taker fee  
+                    "taker": 0.001,  // 0.1% default taker fee
                     "exchange": "bybit"
                 }))
             }
             _ => Err(ArbitrageError::validation_error(format!(
-                "get_trading_fees not implemented for exchange: {}", 
+                "get_trading_fees not implemented for exchange: {}",
                 exchange_id
             ))),
         }
@@ -664,8 +733,8 @@ impl ExchangeInterface for ExchangeService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use chrono::Utc;
+    use serde_json::json;
     use std::collections::HashMap;
 
     // Mock environment for testing
@@ -677,9 +746,7 @@ mod tests {
     #[allow(dead_code)]
     impl MockEnv {
         fn new() -> Self {
-            Self {
-                kv: HashMap::new(),
-            }
+            Self { kv: HashMap::new() }
         }
 
         fn with_kv_data(mut self, key: &str, value: &str) -> Self {
@@ -730,9 +797,9 @@ mod tests {
         fn test_parse_binance_ticker_success() {
             // Create a mock service (we only need the parsing method)
             let _env = MockEnv::new();
-            // Note: We can't easily create ExchangeService without Worker KV, 
+            // Note: We can't easily create ExchangeService without Worker KV,
             // so we'll test the data parsing logic directly with mock data
-            
+
             let ticker_data = create_mock_binance_ticker_data();
             let _symbol = "BTCUSDT";
 
@@ -745,12 +812,24 @@ mod tests {
             assert_eq!(ticker_data["volume"], "1234.56");
 
             // Test individual field parsing
-            let bid = ticker_data["bidPrice"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let ask = ticker_data["askPrice"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let last = ticker_data["price"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let high = ticker_data["highPrice"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let low = ticker_data["lowPrice"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let volume = ticker_data["volume"].as_str().and_then(|s| s.parse::<f64>().ok());
+            let bid = ticker_data["bidPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let ask = ticker_data["askPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let last = ticker_data["price"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let high = ticker_data["highPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let low = ticker_data["lowPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let volume = ticker_data["volume"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
 
             assert_eq!(bid, Some(50000.50));
             assert_eq!(ask, Some(50001.00));
@@ -774,12 +853,24 @@ mod tests {
             assert_eq!(ticker_data["volume24h"], "1234.56");
 
             // Test individual field parsing (Bybit format)
-            let bid = ticker_data["bid1Price"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let ask = ticker_data["ask1Price"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let last = ticker_data["lastPrice"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let high = ticker_data["highPrice24h"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let low = ticker_data["lowPrice24h"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let volume = ticker_data["volume24h"].as_str().and_then(|s| s.parse::<f64>().ok());
+            let bid = ticker_data["bid1Price"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let ask = ticker_data["ask1Price"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let last = ticker_data["lastPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let high = ticker_data["highPrice24h"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let low = ticker_data["lowPrice24h"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let volume = ticker_data["volume24h"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
 
             assert_eq!(bid, Some(50000.50));
             assert_eq!(ask, Some(50001.00));
@@ -802,12 +893,24 @@ mod tests {
             });
 
             // Test parsing - invalid strings should return None
-            let bid = invalid_data["bidPrice"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let ask = invalid_data["askPrice"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let last = invalid_data["price"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let high = invalid_data["highPrice"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let low = invalid_data["lowPrice"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let volume = invalid_data["volume"].as_str().and_then(|s| s.parse::<f64>().ok());
+            let bid = invalid_data["bidPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let ask = invalid_data["askPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let last = invalid_data["price"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let high = invalid_data["highPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let low = invalid_data["lowPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let volume = invalid_data["volume"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
 
             assert_eq!(bid, None); // Invalid price string
             assert_eq!(ask, Some(50001.00)); // Valid price
@@ -825,9 +928,15 @@ mod tests {
                 // Missing other fields
             });
 
-            let bid = minimal_data["bidPrice"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let ask = minimal_data["askPrice"].as_str().and_then(|s| s.parse::<f64>().ok());
-            let last = minimal_data["price"].as_str().and_then(|s| s.parse::<f64>().ok());
+            let bid = minimal_data["bidPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let ask = minimal_data["askPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+            let last = minimal_data["price"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
 
             assert_eq!(bid, Some(50000.50));
             assert_eq!(ask, None); // Missing field
@@ -870,7 +979,8 @@ mod tests {
                 ("symbol".to_string(), "BTCUSDT".to_string()),
                 ("timestamp".to_string(), "1234567890".to_string()),
                 ("limit".to_string(), "100".to_string()),
-            ].to_vec();
+            ]
+            .to_vec();
 
             params.sort();
             let query_string = params
@@ -879,13 +989,16 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("&");
 
-            assert_eq!(query_string, "limit=100&symbol=BTCUSDT&timestamp=1234567890");
+            assert_eq!(
+                query_string,
+                "limit=100&symbol=BTCUSDT&timestamp=1234567890"
+            );
         }
 
         #[test]
         fn test_credentials_structure() {
             let creds = create_test_credentials();
-            
+
             assert_eq!(creds.api_key, "test_api_key");
             assert_eq!(creds.secret, "test_secret_key");
             assert_eq!(creds.default_leverage, 20);
@@ -895,12 +1008,12 @@ mod tests {
         #[test]
         fn test_credentials_serialization() {
             let credentials = create_test_credentials();
-            
+
             // Test that credentials can be serialized and deserialized
             let serialized = serde_json::to_string(&credentials)
                 .expect("Credentials should be serializable in tests");
             let deserialized: ExchangeCredentials = serde_json::from_str(&serialized).unwrap();
-            
+
             assert_eq!(credentials.api_key, deserialized.api_key);
             assert_eq!(credentials.secret, deserialized.secret);
             assert_eq!(credentials.default_leverage, deserialized.default_leverage);
@@ -1001,7 +1114,8 @@ mod tests {
 
             // Test bid parsing
             let empty_vec = vec![];
-            let bids: Vec<[f64; 2]> = orderbook_data["bids"].as_array()
+            let bids: Vec<[f64; 2]> = orderbook_data["bids"]
+                .as_array()
                 .unwrap_or(&empty_vec)
                 .iter()
                 .filter_map(|bid| {
@@ -1010,8 +1124,12 @@ mod tests {
                             let price = arr[0].as_str()?.parse().ok()?;
                             let amount = arr[1].as_str()?.parse().ok()?;
                             Some([price, amount])
-                        } else { None }
-                    } else { None }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
@@ -1022,7 +1140,8 @@ mod tests {
 
             // Test ask parsing
             let empty_vec2 = vec![];
-            let asks: Vec<[f64; 2]> = orderbook_data["asks"].as_array()
+            let asks: Vec<[f64; 2]> = orderbook_data["asks"]
+                .as_array()
                 .unwrap_or(&empty_vec2)
                 .iter()
                 .filter_map(|ask| {
@@ -1031,8 +1150,12 @@ mod tests {
                             let price = arr[0].as_str()?.parse().ok()?;
                             let amount = arr[1].as_str()?.parse().ok()?;
                             Some([price, amount])
-                        } else { None }
-                    } else { None }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
@@ -1056,7 +1179,8 @@ mod tests {
 
             // Test that malformed entries are filtered out
             let empty_vec = vec![];
-            let bids: Vec<[f64; 2]> = malformed_data["bids"].as_array()
+            let bids: Vec<[f64; 2]> = malformed_data["bids"]
+                .as_array()
                 .unwrap_or(&empty_vec)
                 .iter()
                 .filter_map(|bid| {
@@ -1065,8 +1189,12 @@ mod tests {
                             let price = arr[0].as_str()?.parse().ok()?;
                             let amount = arr[1].as_str()?.parse().ok()?;
                             Some([price, amount])
-                        } else { None }
-                    } else { None }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
@@ -1082,7 +1210,8 @@ mod tests {
             });
 
             let empty_vec = vec![];
-            let bids: Vec<[f64; 2]> = empty_data["bids"].as_array()
+            let bids: Vec<[f64; 2]> = empty_data["bids"]
+                .as_array()
                 .unwrap_or(&empty_vec)
                 .iter()
                 .filter_map(|bid| {
@@ -1091,13 +1220,18 @@ mod tests {
                             let price = arr[0].as_str()?.parse().ok()?;
                             let amount = arr[1].as_str()?.parse().ok()?;
                             Some([price, amount])
-                        } else { None }
-                    } else { None }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
             let empty_vec2 = vec![];
-            let asks: Vec<[f64; 2]> = empty_data["asks"].as_array()
+            let asks: Vec<[f64; 2]> = empty_data["asks"]
+                .as_array()
                 .unwrap_or(&empty_vec2)
                 .iter()
                 .filter_map(|ask| {
@@ -1106,8 +1240,12 @@ mod tests {
                             let price = arr[0].as_str()?.parse().ok()?;
                             let amount = arr[1].as_str()?.parse().ok()?;
                             Some([price, amount])
-                        } else { None }
-                    } else { None }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
@@ -1125,7 +1263,7 @@ mod tests {
             let funding_data = json!({
                 "symbol": "BTCUSDT",
                 "markPrice": "50000.12345678",
-                "indexPrice": "50000.01234567", 
+                "indexPrice": "50000.01234567",
                 "estimatedSettlePrice": "50000.01234567",
                 "lastFundingRate": "0.00010000",
                 "nextFundingTime": 1234567890000_u64,
@@ -1135,7 +1273,8 @@ mod tests {
 
             // Test that we can extract relevant funding rate information
             let symbol = funding_data["symbol"].as_str().unwrap_or("");
-            let funding_rate = funding_data["lastFundingRate"].as_str()
+            let funding_rate = funding_data["lastFundingRate"]
+                .as_str()
                 .and_then(|s| s.parse::<f64>().ok());
             let next_funding_time = funding_data["nextFundingTime"].as_u64();
 
@@ -1152,7 +1291,7 @@ mod tests {
                     "lastFundingRate": "0.00010000"
                 },
                 {
-                    "symbol": "ETHUSDT", 
+                    "symbol": "ETHUSDT",
                     "lastFundingRate": "0.00015000"
                 }
             ]);
@@ -1160,10 +1299,12 @@ mod tests {
             // Test array processing
             if let Some(arr) = funding_array.as_array() {
                 assert_eq!(arr.len(), 2);
-                
-                let btc_rate = arr[0]["lastFundingRate"].as_str()
+
+                let btc_rate = arr[0]["lastFundingRate"]
+                    .as_str()
                     .and_then(|s| s.parse::<f64>().ok());
-                let eth_rate = arr[1]["lastFundingRate"].as_str()
+                let eth_rate = arr[1]["lastFundingRate"]
+                    .as_str()
                     .and_then(|s| s.parse::<f64>().ok());
 
                 assert_eq!(btc_rate, Some(0.00010000));
@@ -1180,7 +1321,7 @@ mod tests {
         #[test]
         fn test_supported_exchanges() {
             let supported_exchanges = vec!["binance", "bybit"];
-            
+
             for exchange in supported_exchanges {
                 // These should not return validation errors for basic checks
                 assert!(!exchange.is_empty());
@@ -1191,7 +1332,7 @@ mod tests {
         #[test]
         fn test_unsupported_exchange_detection() {
             let unsupported_exchanges = vec!["coinbase", "kraken", "ftx", ""];
-            
+
             // Test that unsupported exchange names would trigger validation errors
             for exchange in unsupported_exchanges {
                 match exchange {
@@ -1234,14 +1375,14 @@ mod tests {
         fn test_kv_key_generation() {
             let exchange_id = "binance";
             let expected_key = format!("exchange_credentials_{}", exchange_id);
-            
+
             assert_eq!(expected_key, "exchange_credentials_binance");
         }
 
         #[test]
         fn test_kv_key_generation_different_exchanges() {
             let exchanges = vec!["binance", "bybit", "okx"];
-            
+
             for exchange in exchanges {
                 let key = format!("exchange_credentials_{}", exchange);
                 assert!(key.starts_with("exchange_credentials_"));
@@ -1260,7 +1401,8 @@ mod tests {
             let network_error = ArbitrageError::network_error("Connection failed".to_string());
             let api_error = ArbitrageError::api_error("API rate limit".to_string());
             let parse_error = ArbitrageError::parse_error("Invalid JSON".to_string());
-            let auth_error = ArbitrageError::authentication_error("Invalid credentials".to_string());
+            let auth_error =
+                ArbitrageError::authentication_error("Invalid credentials".to_string());
 
             // Verify error messages contain expected content
             assert!(network_error.to_string().contains("Connection failed"));
@@ -1274,7 +1416,7 @@ mod tests {
             // Test that not-implemented methods return appropriate errors
             let exchange_id = "binance";
             let error_msg = format!("get_balance not implemented for exchange: {}", exchange_id);
-            
+
             assert!(error_msg.contains("not implemented"));
             assert!(error_msg.contains(exchange_id));
         }
@@ -1306,12 +1448,24 @@ mod tests {
             // Simulate the ticker parsing logic
             let ticker = Ticker {
                 symbol: symbol.to_string(),
-                bid: mock_binance_response["bidPrice"].as_str().and_then(|s| s.parse().ok()),
-                ask: mock_binance_response["askPrice"].as_str().and_then(|s| s.parse().ok()),
-                last: mock_binance_response["price"].as_str().and_then(|s| s.parse().ok()),
-                high: mock_binance_response["highPrice"].as_str().and_then(|s| s.parse().ok()),
-                low: mock_binance_response["lowPrice"].as_str().and_then(|s| s.parse().ok()),
-                volume: mock_binance_response["volume"].as_str().and_then(|s| s.parse().ok()),
+                bid: mock_binance_response["bidPrice"]
+                    .as_str()
+                    .and_then(|s| s.parse().ok()),
+                ask: mock_binance_response["askPrice"]
+                    .as_str()
+                    .and_then(|s| s.parse().ok()),
+                last: mock_binance_response["price"]
+                    .as_str()
+                    .and_then(|s| s.parse().ok()),
+                high: mock_binance_response["highPrice"]
+                    .as_str()
+                    .and_then(|s| s.parse().ok()),
+                low: mock_binance_response["lowPrice"]
+                    .as_str()
+                    .and_then(|s| s.parse().ok()),
+                volume: mock_binance_response["volume"]
+                    .as_str()
+                    .and_then(|s| s.parse().ok()),
                 timestamp: Some(Utc::now()),
                 datetime: Some(Utc::now().to_rfc3339()),
             };
@@ -1342,9 +1496,18 @@ mod tests {
                     price: Some(8),
                 },
                 limits: Limits {
-                    amount: MinMax { min: Some(0.001), max: Some(1000.0) },
-                    price: MinMax { min: Some(0.01), max: Some(100000.0) },
-                    cost: MinMax { min: Some(10.0), max: None },
+                    amount: MinMax {
+                        min: Some(0.001),
+                        max: Some(1000.0),
+                    },
+                    price: MinMax {
+                        min: Some(0.01),
+                        max: Some(100000.0),
+                    },
+                    cost: MinMax {
+                        min: Some(10.0),
+                        max: None,
+                    },
                 },
                 fees: None,
             };
@@ -1363,14 +1526,8 @@ mod tests {
             // Test creating a complete OrderBook structure
             let orderbook = OrderBook {
                 symbol: "BTCUSDT".to_string(),
-                bids: vec![
-                    [50000.50, 1.5],
-                    [50000.00, 2.0],
-                ],
-                asks: vec![
-                    [50001.00, 1.2],
-                    [50001.50, 1.8],
-                ],
+                bids: vec![[50000.50, 1.5], [50000.00, 2.0]],
+                asks: vec![[50001.00, 1.2], [50001.50, 1.8]],
                 timestamp: Some(Utc::now()),
                 datetime: Some(Utc::now().to_rfc3339()),
             };
@@ -1388,34 +1545,43 @@ mod tests {
     mod service_integration_tests {
         use super::*;
 
-
         // Test the business logic without requiring actual worker environment
-        
+
         #[test]
         fn test_exchange_service_ticker_parsing_integration() {
             // Test binance ticker parsing logic
             let binance_data = create_mock_binance_ticker_data();
-            
+
             // Manually test the parsing logic that would be used in parse_binance_ticker
             let _symbol = "BTCUSDT";
-            let bid = binance_data["bidPrice"].as_str().and_then(|s| s.parse().ok());
-            let ask = binance_data["askPrice"].as_str().and_then(|s| s.parse().ok());
+            let bid = binance_data["bidPrice"]
+                .as_str()
+                .and_then(|s| s.parse().ok());
+            let ask = binance_data["askPrice"]
+                .as_str()
+                .and_then(|s| s.parse().ok());
             let last = binance_data["price"].as_str().and_then(|s| s.parse().ok());
-            
+
             // Update expected values to match the mock data
-            assert_eq!(bid, Some(50000.5));  // Changed from 50000.0 to 50000.5
-            assert_eq!(ask, Some(50001.0));  // Changed from 50050.0 to 50001.0
+            assert_eq!(bid, Some(50000.5)); // Changed from 50000.0 to 50000.5
+            assert_eq!(ask, Some(50001.0)); // Changed from 50050.0 to 50001.0
             assert_eq!(last, Some(50000.75)); // Changed from 50025.0 to 50000.75
-            
+
             // Test bybit ticker parsing logic
             let bybit_data = create_mock_bybit_ticker_data();
-            let bid = bybit_data["bid1Price"].as_str().and_then(|s| s.parse().ok());
-            let ask = bybit_data["ask1Price"].as_str().and_then(|s| s.parse().ok());
-            let last = bybit_data["lastPrice"].as_str().and_then(|s| s.parse().ok());
-            
-            // Update expected values to match the mock data  
-            assert_eq!(bid, Some(50000.5));  // Changed from 49999.0 to 50000.5
-            assert_eq!(ask, Some(50001.0));  // Same value
+            let bid = bybit_data["bid1Price"]
+                .as_str()
+                .and_then(|s| s.parse().ok());
+            let ask = bybit_data["ask1Price"]
+                .as_str()
+                .and_then(|s| s.parse().ok());
+            let last = bybit_data["lastPrice"]
+                .as_str()
+                .and_then(|s| s.parse().ok());
+
+            // Update expected values to match the mock data
+            assert_eq!(bid, Some(50000.5)); // Changed from 49999.0 to 50000.5
+            assert_eq!(ask, Some(50001.0)); // Same value
             assert_eq!(last, Some(50000.75)); // Changed from 50000.0 to 50000.75
         }
 
@@ -1425,7 +1591,7 @@ mod tests {
             let exchange_id = "binance";
             let expected_key = format!("exchange_credentials_{}", exchange_id);
             assert_eq!(expected_key, "exchange_credentials_binance");
-            
+
             let exchange_id = "bybit";
             let expected_key = format!("exchange_credentials_{}", exchange_id);
             assert_eq!(expected_key, "exchange_credentials_bybit");
@@ -1434,12 +1600,12 @@ mod tests {
         #[test]
         fn test_exchange_credentials_serialization() {
             let credentials = create_test_credentials();
-            
+
             // Test that credentials can be serialized and deserialized
             let serialized = serde_json::to_string(&credentials)
                 .expect("Credentials should be serializable in tests");
             let deserialized: ExchangeCredentials = serde_json::from_str(&serialized).unwrap();
-            
+
             assert_eq!(credentials.api_key, deserialized.api_key);
             assert_eq!(credentials.secret, deserialized.secret);
             assert_eq!(credentials.default_leverage, deserialized.default_leverage);
@@ -1461,9 +1627,10 @@ mod tests {
                     ["50003.00", "0.80"]
                 ]
             });
-            
+
             let empty_vec = vec![];
-            let bids: Vec<[f64; 2]> = orderbook_data["bids"].as_array()
+            let bids: Vec<[f64; 2]> = orderbook_data["bids"]
+                .as_array()
                 .unwrap_or(&empty_vec)
                 .iter()
                 .filter_map(|bid| {
@@ -1472,11 +1639,15 @@ mod tests {
                             let price = arr[0].as_str()?.parse().ok()?;
                             let amount = arr[1].as_str()?.parse().ok()?;
                             Some([price, amount])
-                        } else { None }
-                    } else { None }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 })
                 .collect();
-            
+
             assert_eq!(bids.len(), 3);
             assert_eq!(bids[0], [50000.0, 1.5]);
             assert_eq!(bids[1], [49999.0, 2.0]);
@@ -1497,13 +1668,22 @@ mod tests {
                     price: Some(2),
                 },
                 limits: Limits {
-                    amount: MinMax { min: Some(0.001), max: Some(1000.0) },
-                    price: MinMax { min: Some(0.01), max: Some(100000.0) },
-                    cost: MinMax { min: Some(10.0), max: None },
+                    amount: MinMax {
+                        min: Some(0.001),
+                        max: Some(1000.0),
+                    },
+                    price: MinMax {
+                        min: Some(0.01),
+                        max: Some(100000.0),
+                    },
+                    cost: MinMax {
+                        min: Some(10.0),
+                        max: None,
+                    },
                 },
                 fees: None,
             };
-            
+
             assert_eq!(market.symbol, "BTCUSDT");
             assert_eq!(market.base, "BTC");
             assert_eq!(market.quote, "USDT");
@@ -1522,15 +1702,15 @@ mod tests {
                 timestamp: Some(Utc::now()),
                 datetime: Some(Utc::now().to_rfc3339()),
             };
-            
+
             assert_eq!(orderbook.symbol, "BTCUSDT");
             assert_eq!(orderbook.bids.len(), 3);
             assert_eq!(orderbook.asks.len(), 3);
-            
+
             // Verify bid/ask ordering assumptions
             assert!(orderbook.bids[0][0] > orderbook.bids[1][0]); // Bids should be descending price
             assert!(orderbook.asks[0][0] < orderbook.asks[1][0]); // Asks should be ascending price
-            
+
             // Verify spread
             let best_bid = orderbook.bids[0][0];
             let best_ask = orderbook.asks[0][0];
@@ -1550,17 +1730,17 @@ mod tests {
                 timestamp: Some(Utc::now()),
                 datetime: Some(Utc::now().to_rfc3339()),
             };
-            
+
             assert_eq!(ticker.symbol, "BTCUSDT");
             assert!(ticker.bid.is_some());
             assert!(ticker.ask.is_some());
             assert!(ticker.last.is_some());
-            
+
             // Verify bid/ask relationship
             if let (Some(bid), Some(ask)) = (ticker.bid, ticker.ask) {
                 assert!(ask >= bid); // Ask should be >= bid
             }
-            
+
             // Verify high/low relationship
             if let (Some(high), Some(low), Some(last)) = (ticker.high, ticker.low, ticker.last) {
                 assert!(high >= low); // High should be >= low
@@ -1571,14 +1751,14 @@ mod tests {
         #[test]
         fn test_exchange_credentials_validation() {
             let credentials = create_test_credentials();
-            
+
             // Test that credentials have required fields
             assert!(!credentials.api_key.is_empty());
             assert!(!credentials.secret.is_empty());
-            
+
             // Test default leverage
             assert!(credentials.default_leverage > 0);
-            
+
             // Test exchange type
             assert!(!credentials.exchange_type.is_empty());
         }
@@ -1592,7 +1772,7 @@ mod tests {
                 "fundingTime": 1234567890000u64,
                 "nextFundingTime": 1234567890000u64 + 28800000
             });
-            
+
             assert_eq!(funding_rate_data["symbol"].as_str().unwrap(), "BTCUSDT");
             assert_eq!(funding_rate_data["fundingRate"].as_str().unwrap(), "0.0001");
             assert!(funding_rate_data["fundingTime"].as_u64().is_some());
@@ -1604,22 +1784,22 @@ mod tests {
             // Test parameter handling for API requests
             let symbol = "BTCUSDT";
             let limit = 100u32;
-            
+
             // Test Binance-style parameters
             let binance_params = json!({
                 "symbol": symbol,
                 "limit": limit
             });
-            
+
             assert_eq!(binance_params["symbol"].as_str().unwrap(), "BTCUSDT");
             assert_eq!(binance_params["limit"].as_u64().unwrap(), 100);
-            
+
             // Test Bybit-style parameters
             let bybit_params = json!({
                 "category": "spot",
                 "symbol": symbol
             });
-            
+
             assert_eq!(bybit_params["category"].as_str().unwrap(), "spot");
             assert_eq!(bybit_params["symbol"].as_str().unwrap(), "BTCUSDT");
         }
@@ -1627,26 +1807,28 @@ mod tests {
         #[test]
         fn test_exchange_error_handling_logic() {
             // Test error handling for various scenarios
-            
+
             // Test empty market data
             let empty_markets: Vec<Value> = vec![];
             assert_eq!(empty_markets.len(), 0);
-            
+
             // Test invalid ticker data
             let invalid_ticker = json!({
                 "symbol": "INVALID",
                 "price": "not_a_number"
             });
-            
-            let parsed_price = invalid_ticker["price"].as_str().and_then(|s| s.parse::<f64>().ok());
+
+            let parsed_price = invalid_ticker["price"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
             assert!(parsed_price.is_none());
-            
+
             // Test missing required fields
             let incomplete_data = json!({
                 "symbol": "BTCUSDT"
                 // Missing other required fields
             });
-            
+
             assert!(incomplete_data["bidPrice"].as_str().is_none());
             assert!(incomplete_data["askPrice"].as_str().is_none());
         }

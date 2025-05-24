@@ -1,22 +1,20 @@
 // AI Intelligence Service
 // Task 9.6: AI-Enhanced Opportunity Detection & Integration
 
-use crate::utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}};
 use crate::services::{
-    AiExchangeRouterService,
-    OpportunityCategorizationService,
-    PositionsService,
-    DynamicConfigService,
-    UserTradingPreferencesService,
-    CorrelationAnalysisService,
-    D1Service,
-    opportunity_categorization::CategorizedOpportunity,
-    user_trading_preferences::{UserTradingPreferences, TradingFocus},
-    market_analysis::{TradingOpportunity, RiskLevel},
     correlation_analysis::CorrelationMetrics,
     dynamic_config::UserConfigInstance,
+    market_analysis::{RiskLevel, TradingOpportunity},
+    opportunity_categorization::CategorizedOpportunity,
+    user_trading_preferences::{TradingFocus, UserTradingPreferences},
+    AiExchangeRouterService, CorrelationAnalysisService, D1Service, DynamicConfigService,
+    OpportunityCategorizationService, PositionsService, UserTradingPreferencesService,
 };
 use crate::types::{ArbitragePosition, GlobalOpportunity};
+use crate::utils::{
+    logger::{LogLevel, Logger},
+    ArbitrageError, ArbitrageResult,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::kv::KvStore;
@@ -28,41 +26,41 @@ use worker::kv::KvStore;
 pub struct AiOpportunityEnhancement {
     pub opportunity_id: String,
     pub user_id: String,
-    pub ai_confidence_score: f64,          // 0.0 to 1.0 - AI's confidence in the opportunity
+    pub ai_confidence_score: f64, // 0.0 to 1.0 - AI's confidence in the opportunity
     pub ai_risk_assessment: AiRiskAssessment,
-    pub ai_recommendations: Vec<String>,   // AI-generated recommendations
-    pub position_sizing_suggestion: f64,   // AI-suggested position size in USD
-    pub timing_score: f64,                 // 0.0 to 1.0 - optimal timing assessment
-    pub technical_confirmation: f64,       // 0.0 to 1.0 - technical analysis confirmation
-    pub portfolio_impact_score: f64,       // 0.0 to 1.0 - impact on overall portfolio
-    pub ai_provider_used: String,          // Which AI provider generated this
+    pub ai_recommendations: Vec<String>, // AI-generated recommendations
+    pub position_sizing_suggestion: f64, // AI-suggested position size in USD
+    pub timing_score: f64,               // 0.0 to 1.0 - optimal timing assessment
+    pub technical_confirmation: f64,     // 0.0 to 1.0 - technical analysis confirmation
+    pub portfolio_impact_score: f64,     // 0.0 to 1.0 - impact on overall portfolio
+    pub ai_provider_used: String,        // Which AI provider generated this
     pub analysis_timestamp: u64,
 }
 
 /// Comprehensive AI risk assessment
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiRiskAssessment {
-    pub overall_risk_score: f64,           // 0.0 to 1.0 - overall risk level
-    pub risk_factors: Vec<String>,         // Identified risk factors
-    pub portfolio_correlation_risk: f64,   // Risk from portfolio correlations
-    pub position_concentration_risk: f64,  // Risk from position concentration
-    pub market_condition_risk: f64,        // Risk from current market conditions
-    pub volatility_risk: f64,              // Risk from price volatility
-    pub liquidity_risk: f64,               // Risk from liquidity constraints
-    pub recommended_max_position: f64,     // AI-recommended maximum position size
+    pub overall_risk_score: f64,          // 0.0 to 1.0 - overall risk level
+    pub risk_factors: Vec<String>,        // Identified risk factors
+    pub portfolio_correlation_risk: f64,  // Risk from portfolio correlations
+    pub position_concentration_risk: f64, // Risk from position concentration
+    pub market_condition_risk: f64,       // Risk from current market conditions
+    pub volatility_risk: f64,             // Risk from price volatility
+    pub liquidity_risk: f64,              // Risk from liquidity constraints
+    pub recommended_max_position: f64,    // AI-recommended maximum position size
 }
 
 /// AI-driven performance insights and recommendations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiPerformanceInsights {
     pub user_id: String,
-    pub performance_score: f64,            // 0.0 to 1.0 - overall performance rating
-    pub strengths: Vec<String>,            // Identified strengths in trading
-    pub weaknesses: Vec<String>,           // Areas for improvement
+    pub performance_score: f64,  // 0.0 to 1.0 - overall performance rating
+    pub strengths: Vec<String>,  // Identified strengths in trading
+    pub weaknesses: Vec<String>, // Areas for improvement
     pub suggested_focus_adjustment: Option<TradingFocus>, // Suggested trading focus
     pub parameter_optimization_suggestions: Vec<ParameterSuggestion>,
     pub learning_recommendations: Vec<String>, // Educational recommendations
-    pub automation_readiness_score: f64,   // 0.0 to 1.0 - readiness for automation
+    pub automation_readiness_score: f64,       // 0.0 to 1.0 - readiness for automation
     pub generated_at: u64,
 }
 
@@ -73,19 +71,19 @@ pub struct ParameterSuggestion {
     pub current_value: String,
     pub suggested_value: String,
     pub rationale: String,
-    pub impact_assessment: f64,            // 0.0 to 1.0 - expected impact
-    pub confidence: f64,                   // 0.0 to 1.0 - AI's confidence in suggestion
+    pub impact_assessment: f64, // 0.0 to 1.0 - expected impact
+    pub confidence: f64,        // 0.0 to 1.0 - AI's confidence in suggestion
 }
 
 /// AI portfolio correlation analysis
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiPortfolioAnalysis {
     pub user_id: String,
-    pub correlation_risk_score: f64,       // 0.0 to 1.0 - portfolio correlation risk
-    pub concentration_risk_score: f64,     // 0.0 to 1.0 - position concentration risk
-    pub diversification_score: f64,        // 0.0 to 1.0 - portfolio diversification
+    pub correlation_risk_score: f64, // 0.0 to 1.0 - portfolio correlation risk
+    pub concentration_risk_score: f64, // 0.0 to 1.0 - position concentration risk
+    pub diversification_score: f64,  // 0.0 to 1.0 - portfolio diversification
     pub recommended_adjustments: Vec<String>, // AI recommendations for portfolio
-    pub overexposure_warnings: Vec<String>,  // Warnings about overexposure
+    pub overexposure_warnings: Vec<String>, // Warnings about overexposure
     pub optimal_allocation_suggestions: HashMap<String, f64>, // Suggested allocations
     pub analysis_timestamp: u64,
 }
@@ -94,9 +92,9 @@ pub struct AiPortfolioAnalysis {
 #[derive(Debug, Clone)]
 pub struct AiIntelligenceConfig {
     pub enabled: bool,
-    pub ai_confidence_threshold: f64,      // Minimum AI confidence for recommendations
-    pub max_ai_calls_per_hour: u32,       // Rate limiting for AI calls
-    pub cache_ttl_seconds: u64,            // Cache TTL for AI analysis results
+    pub ai_confidence_threshold: f64, // Minimum AI confidence for recommendations
+    pub max_ai_calls_per_hour: u32,   // Rate limiting for AI calls
+    pub cache_ttl_seconds: u64,       // Cache TTL for AI analysis results
     pub enable_performance_learning: bool, // Enable AI learning from performance
     pub enable_parameter_optimization: bool, // Enable AI parameter optimization
     pub risk_assessment_frequency_hours: u64, // How often to run risk assessment
@@ -106,9 +104,9 @@ impl Default for AiIntelligenceConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            ai_confidence_threshold: 0.6,     // 60% minimum confidence
-            max_ai_calls_per_hour: 100,       // Reasonable rate limit
-            cache_ttl_seconds: 1800,          // 30 minutes cache
+            ai_confidence_threshold: 0.6, // 60% minimum confidence
+            max_ai_calls_per_hour: 100,   // Reasonable rate limit
+            cache_ttl_seconds: 1800,      // 30 minutes cache
             enable_performance_learning: true,
             enable_parameter_optimization: true,
             risk_assessment_frequency_hours: 6, // Risk assessment every 6 hours
@@ -176,22 +174,26 @@ impl AiIntelligenceService {
         self.check_ai_rate_limit(user_id).await?;
 
         // Get categorized opportunity
-        let categorized_opp = self.categorization_service
+        let categorized_opp = self
+            .categorization_service
             .categorize_opportunity(opportunity.clone(), user_id)
             .await?;
 
         // Get user's current positions for context
-        let positions = self.positions_service
+        let positions = self
+            .positions_service
             .get_all_positions()
             .await
             .unwrap_or_default();
 
         // Get user preferences and configuration
-        let preferences = self.preferences_service
+        let preferences = self
+            .preferences_service
             .get_or_create_preferences(user_id)
             .await?;
-        
-        let user_config = self.config_service
+
+        let user_config = self
+            .config_service
             .get_user_config(user_id, "default")
             .await?;
 
@@ -206,18 +208,21 @@ impl AiIntelligenceService {
         // Call AI for analysis
         // Convert TradingOpportunity to GlobalOpportunity for AI router
         let global_opp = self.convert_to_global_opportunity(opportunity.clone());
-        let ai_response = self.ai_router
+        let ai_response = self
+            .ai_router
             .analyze_opportunities(user_id, &[global_opp], None)
             .await?;
 
         // Parse AI response into enhancement
-        let enhancement = self.parse_ai_opportunity_response(
-            user_id,
-            opportunity,
-            &categorized_opp,
-            ai_response.first().unwrap(),
-            &positions,
-        ).await?;
+        let enhancement = self
+            .parse_ai_opportunity_response(
+                user_id,
+                opportunity,
+                &categorized_opp,
+                ai_response.first().unwrap(),
+                &positions,
+            )
+            .await?;
 
         // Store AI enhancement for learning
         self.store_ai_enhancement(&enhancement).await?;
@@ -244,7 +249,8 @@ impl AiIntelligenceService {
         }
 
         // Get user's current positions
-        let positions = self.positions_service
+        let positions = self
+            .positions_service
             .get_all_positions()
             .await
             .unwrap_or_default();
@@ -256,27 +262,32 @@ impl AiIntelligenceService {
         // Get correlation data - use a mock exchange data for now
         let exchange_data = std::collections::HashMap::new();
         // TODO: In real implementation, fetch actual price data from exchanges
-        
-        // Get user preferences  
-        let preferences = self.preferences_service
+
+        // Get user preferences
+        let preferences = self
+            .preferences_service
             .get_or_create_preferences(user_id)
             .await?;
 
         // For now, skip correlation analysis if no data available
         let correlation_metrics = if !exchange_data.is_empty() {
-            Some(self.correlation_service
-                .generate_correlation_metrics("BTCUSDT", &exchange_data, &preferences)
-                .unwrap_or_else(|_| self.create_default_correlation_metrics()))
+            Some(
+                self.correlation_service
+                    .generate_correlation_metrics("BTCUSDT", &exchange_data, &preferences)
+                    .unwrap_or_else(|_| self.create_default_correlation_metrics()),
+            )
         } else {
             None
         };
 
         // Create AI risk assessment prompt
-        let _ai_prompt = self.create_portfolio_risk_prompt(&positions, &correlation_metrics, &preferences);
+        let _ai_prompt =
+            self.create_portfolio_risk_prompt(&positions, &correlation_metrics, &preferences);
 
         // Get AI analysis
         let market_snapshot = self.create_portfolio_market_snapshot(&positions);
-        let ai_response = self.ai_router
+        let ai_response = self
+            .ai_router
             .get_real_time_recommendations(user_id, &[], &market_snapshot)
             .await?;
 
@@ -307,14 +318,19 @@ impl AiIntelligenceService {
         analysis_period_days: u32,
     ) -> ArbitrageResult<AiPerformanceInsights> {
         if !self.config.enabled || !self.config.enable_performance_learning {
-            return Err(ArbitrageError::config_error("AI performance learning is disabled"));
+            return Err(ArbitrageError::config_error(
+                "AI performance learning is disabled",
+            ));
         }
 
         // Get user's trading history
-        let performance_data = self.get_user_performance_data(user_id, analysis_period_days).await?;
-        
+        let performance_data = self
+            .get_user_performance_data(user_id, analysis_period_days)
+            .await?;
+
         // Get user preferences and configuration
-        let preferences = self.preferences_service
+        let preferences = self
+            .preferences_service
             .get_or_create_preferences(user_id)
             .await?;
 
@@ -322,8 +338,13 @@ impl AiIntelligenceService {
         let ai_prompt = self.create_performance_analysis_prompt(&performance_data, &preferences);
 
         // Get AI insights
-        let ai_response = self.ai_router
-            .analyze_market_data(user_id, &self.create_performance_market_data(&performance_data), Some(ai_prompt))
+        let ai_response = self
+            .ai_router
+            .analyze_market_data(
+                user_id,
+                &self.create_performance_market_data(&performance_data),
+                Some(ai_prompt),
+            )
             .await?;
 
         // Parse AI response into performance insights
@@ -347,11 +368,14 @@ impl AiIntelligenceService {
         user_id: &str,
     ) -> ArbitrageResult<Vec<ParameterSuggestion>> {
         if !self.config.enabled || !self.config.enable_parameter_optimization {
-            return Err(ArbitrageError::config_error("AI parameter optimization is disabled"));
+            return Err(ArbitrageError::config_error(
+                "AI parameter optimization is disabled",
+            ));
         }
 
         // Get current user configuration
-        let current_config = self.config_service
+        let current_config = self
+            .config_service
             .get_user_config(user_id, "default")
             .await?;
 
@@ -359,7 +383,8 @@ impl AiIntelligenceService {
         let performance_data = self.get_user_performance_data(user_id, 30).await?;
 
         // Get user preferences
-        let preferences = self.preferences_service
+        let preferences = self
+            .preferences_service
             .get_or_create_preferences(user_id)
             .await?;
 
@@ -371,8 +396,13 @@ impl AiIntelligenceService {
         );
 
         // Get AI recommendations
-        let ai_response = self.ai_router
-            .analyze_market_data(user_id, &self.create_config_optimization_data(&current_config), Some(ai_prompt))
+        let ai_response = self
+            .ai_router
+            .analyze_market_data(
+                user_id,
+                &self.create_config_optimization_data(&current_config),
+                Some(ai_prompt),
+            )
             .await?;
 
         // Parse AI response into parameter suggestions
@@ -385,7 +415,8 @@ impl AiIntelligenceService {
 
         self.logger.info(&format!(
             "AI parameter optimization complete: user={}, suggestions={}",
-            user_id, suggestions.len()
+            user_id,
+            suggestions.len()
         ));
 
         Ok(suggestions)
@@ -415,25 +446,35 @@ impl AiIntelligenceService {
 
     /// Check AI rate limiting
     async fn check_ai_rate_limit(&self, user_id: &str) -> ArbitrageResult<()> {
-        let rate_key = format!("ai_intelligence_rate:{}:{}", user_id, chrono::Utc::now().format("%Y%m%d%H"));
-        
+        let rate_key = format!(
+            "ai_intelligence_rate:{}:{}",
+            user_id,
+            chrono::Utc::now().format("%Y%m%d%H")
+        );
+
         let current_count: u32 = match self.kv_store.get(&rate_key).text().await {
             Ok(Some(count_str)) => count_str.parse().unwrap_or(0),
             _ => 0,
         };
 
         if current_count >= self.config.max_ai_calls_per_hour {
-            return Err(ArbitrageError::rate_limit_error("AI Intelligence rate limit exceeded"));
+            return Err(ArbitrageError::rate_limit_error(
+                "AI Intelligence rate limit exceeded",
+            ));
         }
 
         // Update count
         self.kv_store
             .put(&rate_key, (current_count + 1).to_string())
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to update rate limit: {}", e)))?
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to update rate limit: {}", e))
+            })?
             .expiration_ttl(3600) // 1 hour
             .execute()
             .await
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to execute rate limit update: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to execute rate limit update: {}", e))
+            })?;
 
         Ok(())
     }
@@ -480,9 +521,7 @@ impl AiIntelligenceService {
         _correlation_metrics: &Option<CorrelationMetrics>,
         preferences: &UserTradingPreferences,
     ) -> String {
-        let total_value: f64 = positions.iter()
-            .filter_map(|p| p.calculated_size_usd)
-            .sum();
+        let total_value: f64 = positions.iter().filter_map(|p| p.calculated_size_usd).sum();
         let position_count = positions.len();
 
         format!(
@@ -501,10 +540,7 @@ impl AiIntelligenceService {
              6. Optimal allocation suggestions\n\
              \n\
              Focus on portfolio-level risks and diversification.",
-            total_value,
-            position_count,
-            preferences.risk_tolerance,
-            preferences.experience_level
+            total_value, position_count, preferences.risk_tolerance, preferences.experience_level
         )
     }
 
@@ -547,7 +583,8 @@ impl AiIntelligenceService {
         performance_data: &PerformanceData,
         preferences: &UserTradingPreferences,
     ) -> String {
-        let config_summary = current_config.as_ref()
+        let config_summary = current_config
+            .as_ref()
             .map(|c| format!("Configuration ID: {}", c.instance_id))
             .unwrap_or_else(|| "No configuration set".to_string());
 
@@ -586,13 +623,16 @@ impl AiIntelligenceService {
     ) -> ArbitrageResult<AiOpportunityEnhancement> {
         // Extract AI insights from analysis text
         let ai_confidence_score = ai_analysis.ai_score;
-        let technical_confirmation = self.calculate_technical_confirmation_from_analysis(&ai_analysis.viability_assessment);
-        let timing_score = self.extract_timing_score_from_analysis(&ai_analysis.viability_assessment);
+        let technical_confirmation =
+            self.calculate_technical_confirmation_from_analysis(&ai_analysis.viability_assessment);
+        let timing_score =
+            self.extract_timing_score_from_analysis(&ai_analysis.viability_assessment);
         let portfolio_impact_score = self.calculate_portfolio_impact(opportunity, positions);
 
         // Create AI risk assessment
         let ai_risk_assessment = AiRiskAssessment {
-            overall_risk_score: self.calculate_overall_risk_score(&ai_analysis.viability_assessment),
+            overall_risk_score: self
+                .calculate_overall_risk_score(&ai_analysis.viability_assessment),
             risk_factors: ai_analysis.risk_factors.clone(),
             portfolio_correlation_risk: self.calculate_correlation_risk(positions),
             position_concentration_risk: self.calculate_concentration_risk(positions),
@@ -627,7 +667,8 @@ impl AiIntelligenceService {
     ) -> AiPortfolioAnalysis {
         AiPortfolioAnalysis {
             user_id: user_id.to_string(),
-            correlation_risk_score: self.extract_correlation_risk_from_analysis(&ai_response.analysis),
+            correlation_risk_score: self
+                .extract_correlation_risk_from_analysis(&ai_response.analysis),
             concentration_risk_score: self.calculate_concentration_risk(positions),
             diversification_score: self.calculate_diversification_score(positions),
             recommended_adjustments: self.extract_portfolio_recommendations(&ai_response.analysis),
@@ -665,16 +706,19 @@ impl AiIntelligenceService {
     ) -> Vec<ParameterSuggestion> {
         // Parse AI response for parameter suggestions
         // This would be more sophisticated in a real implementation
-        ai_response.recommendations.iter().enumerate().map(|(i, rec)| {
-            ParameterSuggestion {
+        ai_response
+            .recommendations
+            .iter()
+            .enumerate()
+            .map(|(i, rec)| ParameterSuggestion {
                 parameter_name: format!("param_{}", i),
                 current_value: "current".to_string(),
                 suggested_value: "suggested".to_string(),
                 rationale: rec.clone(),
                 impact_assessment: 0.7,
                 confidence: 0.8,
-            }
-        }).collect()
+            })
+            .collect()
     }
 
     // ============= UTILITY METHODS =============
@@ -682,11 +726,20 @@ impl AiIntelligenceService {
     /// Extract technical confirmation score from AI analysis
     fn calculate_technical_confirmation_from_analysis(&self, analysis: &str) -> f64 {
         // Look for technical confirmation indicators in the AI analysis
-        if analysis.to_lowercase().contains("strong technical confirmation") {
+        if analysis
+            .to_lowercase()
+            .contains("strong technical confirmation")
+        {
             0.9
-        } else if analysis.to_lowercase().contains("moderate technical confirmation") {
+        } else if analysis
+            .to_lowercase()
+            .contains("moderate technical confirmation")
+        {
             0.7
-        } else if analysis.to_lowercase().contains("weak technical confirmation") {
+        } else if analysis
+            .to_lowercase()
+            .contains("weak technical confirmation")
+        {
             0.4
         } else {
             0.6 // Default moderate confirmation
@@ -707,7 +760,11 @@ impl AiIntelligenceService {
     }
 
     /// Calculate portfolio impact of new opportunity
-    fn calculate_portfolio_impact(&self, _opportunity: &TradingOpportunity, positions: &[ArbitragePosition]) -> f64 {
+    fn calculate_portfolio_impact(
+        &self,
+        _opportunity: &TradingOpportunity,
+        positions: &[ArbitragePosition],
+    ) -> f64 {
         if positions.is_empty() {
             0.9 // High impact for first position
         } else {
@@ -743,14 +800,13 @@ impl AiIntelligenceService {
         if positions.is_empty() {
             0.0
         } else {
-            let total_value: f64 = positions.iter()
-                .filter_map(|p| p.calculated_size_usd)
-                .sum();
-            let max_position = positions.iter()
+            let total_value: f64 = positions.iter().filter_map(|p| p.calculated_size_usd).sum();
+            let max_position = positions
+                .iter()
                 .filter_map(|p| p.calculated_size_usd)
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(0.0);
-            
+
             if total_value > 0.0 {
                 max_position / total_value // Concentration as percentage of largest position
             } else {
@@ -799,7 +855,11 @@ impl AiIntelligenceService {
     }
 
     /// Get user performance data
-    async fn get_user_performance_data(&self, _user_id: &str, _days: u32) -> ArbitrageResult<PerformanceData> {
+    async fn get_user_performance_data(
+        &self,
+        _user_id: &str,
+        _days: u32,
+    ) -> ArbitrageResult<PerformanceData> {
         // This would fetch actual performance data from D1
         Ok(PerformanceData {
             total_trades: 25,
@@ -810,8 +870,11 @@ impl AiIntelligenceService {
     }
 
     /// Create market snapshot for portfolio analysis
-    fn create_portfolio_market_snapshot(&self, positions: &[ArbitragePosition]) -> crate::services::ai_exchange_router::MarketDataSnapshot {
-        use crate::services::ai_exchange_router::{MarketDataSnapshot, MarketContext};
+    fn create_portfolio_market_snapshot(
+        &self,
+        positions: &[ArbitragePosition],
+    ) -> crate::services::ai_exchange_router::MarketDataSnapshot {
+        use crate::services::ai_exchange_router::{MarketContext, MarketDataSnapshot};
         use std::collections::HashMap;
 
         MarketDataSnapshot {
@@ -828,12 +891,18 @@ impl AiIntelligenceService {
     }
 
     /// Create performance market data
-    fn create_performance_market_data(&self, _performance_data: &PerformanceData) -> crate::services::ai_exchange_router::MarketDataSnapshot {
+    fn create_performance_market_data(
+        &self,
+        _performance_data: &PerformanceData,
+    ) -> crate::services::ai_exchange_router::MarketDataSnapshot {
         self.create_portfolio_market_snapshot(&[])
     }
 
     /// Create config optimization data
-    fn create_config_optimization_data(&self, _config: &Option<UserConfigInstance>) -> crate::services::ai_exchange_router::MarketDataSnapshot {
+    fn create_config_optimization_data(
+        &self,
+        _config: &Option<UserConfigInstance>,
+    ) -> crate::services::ai_exchange_router::MarketDataSnapshot {
         self.create_portfolio_market_snapshot(&[])
     }
 
@@ -953,50 +1022,83 @@ impl AiIntelligenceService {
 
     // ============= STORAGE METHODS =============
 
-    async fn store_ai_enhancement(&self, enhancement: &AiOpportunityEnhancement) -> ArbitrageResult<()> {
+    async fn store_ai_enhancement(
+        &self,
+        enhancement: &AiOpportunityEnhancement,
+    ) -> ArbitrageResult<()> {
         // Store in D1 for analytics
-        self.d1_service.store_ai_opportunity_enhancement(enhancement).await?;
+        self.d1_service
+            .store_ai_opportunity_enhancement(enhancement)
+            .await?;
         Ok(())
     }
 
-    async fn cache_ai_enhancement(&self, user_id: &str, enhancement: &AiOpportunityEnhancement) -> ArbitrageResult<()> {
+    async fn cache_ai_enhancement(
+        &self,
+        user_id: &str,
+        enhancement: &AiOpportunityEnhancement,
+    ) -> ArbitrageResult<()> {
         let cache_key = format!("ai_enhancement:{}:{}", user_id, enhancement.opportunity_id);
-        let serialized = serde_json::to_string(enhancement)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize enhancement: {}", e)))?;
+        let serialized = serde_json::to_string(enhancement).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize enhancement: {}", e))
+        })?;
 
         self.kv_store
             .put(&cache_key, serialized)
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to create cache put: {}", e)))?
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to create cache put: {}", e))
+            })?
             .expiration_ttl(self.config.cache_ttl_seconds)
             .execute()
             .await
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to cache enhancement: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to cache enhancement: {}", e))
+            })?;
 
         Ok(())
     }
 
-    async fn store_portfolio_analysis(&self, analysis: &AiPortfolioAnalysis) -> ArbitrageResult<()> {
+    async fn store_portfolio_analysis(
+        &self,
+        analysis: &AiPortfolioAnalysis,
+    ) -> ArbitrageResult<()> {
         // Store in D1 for tracking
-        self.d1_service.store_ai_portfolio_analysis(analysis).await?;
+        self.d1_service
+            .store_ai_portfolio_analysis(analysis)
+            .await?;
         Ok(())
     }
 
-    async fn store_performance_insights(&self, insights: &AiPerformanceInsights) -> ArbitrageResult<()> {
+    async fn store_performance_insights(
+        &self,
+        insights: &AiPerformanceInsights,
+    ) -> ArbitrageResult<()> {
         // Store in D1 for learning
-        self.d1_service.store_ai_performance_insights(insights).await?;
+        self.d1_service
+            .store_ai_performance_insights(insights)
+            .await?;
         Ok(())
     }
 
-    async fn store_parameter_suggestion(&self, user_id: &str, suggestion: &ParameterSuggestion) -> ArbitrageResult<()> {
+    async fn store_parameter_suggestion(
+        &self,
+        user_id: &str,
+        suggestion: &ParameterSuggestion,
+    ) -> ArbitrageResult<()> {
         // Store in D1 for tracking
-        self.d1_service.store_ai_parameter_suggestion(user_id, suggestion).await?;
+        self.d1_service
+            .store_ai_parameter_suggestion(user_id, suggestion)
+            .await?;
         Ok(())
     }
 
     /// Convert TradingOpportunity to GlobalOpportunity for AI router
     fn convert_to_global_opportunity(&self, trading_opp: TradingOpportunity) -> GlobalOpportunity {
-        use crate::types::{GlobalOpportunity, ArbitrageOpportunity, ArbitrageType, OpportunitySource, DistributionStrategy};
-        
+        use crate::types::{
+            ArbitrageOpportunity, ArbitrageType, DistributionStrategy, GlobalOpportunity,
+            OpportunitySource,
+        };
+
         // Create an ArbitrageOpportunity from TradingOpportunity
         let arb_opp = ArbitrageOpportunity::new(
             trading_opp.trading_pair.clone(),
@@ -1011,7 +1113,9 @@ impl AiIntelligenceService {
         GlobalOpportunity {
             opportunity: arb_opp,
             detection_timestamp: trading_opp.created_at,
-            expiry_timestamp: trading_opp.expires_at.unwrap_or(trading_opp.created_at + 3600000), // 1 hour default
+            expiry_timestamp: trading_opp
+                .expires_at
+                .unwrap_or(trading_opp.created_at + 3600000), // 1 hour default
             priority_score: trading_opp.confidence_score,
             distributed_to: Vec::new(),
             max_participants: Some(1),
@@ -1037,8 +1141,10 @@ struct PerformanceData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::market_analysis::{
+        OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,
+    };
     use crate::types::*;
-    use crate::services::market_analysis::{TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon};
 
     fn create_test_config() -> AiIntelligenceConfig {
         AiIntelligenceConfig {
@@ -1150,7 +1256,10 @@ mod tests {
 
         assert_eq!(insights.performance_score, 0.75);
         assert_eq!(insights.automation_readiness_score, 0.6);
-        assert_eq!(insights.suggested_focus_adjustment, Some(TradingFocus::Arbitrage));
+        assert_eq!(
+            insights.suggested_focus_adjustment,
+            Some(TradingFocus::Arbitrage)
+        );
     }
 
     #[test]
@@ -1201,7 +1310,7 @@ mod tests {
         let service = create_mock_service(config);
 
         let concentration_risk = service.calculate_concentration_risk(&positions);
-        
+
         // Largest position (1000) / Total (1800) = 0.555...
         assert!((concentration_risk - 0.555).abs() < 0.01);
     }
@@ -1213,8 +1322,11 @@ mod tests {
 
         // Test with different numbers of positions
         assert_eq!(service.calculate_diversification_score(&[]), 0.2);
-        assert_eq!(service.calculate_diversification_score(&[create_test_position(1000.0)]), 0.2);
-        
+        assert_eq!(
+            service.calculate_diversification_score(&[create_test_position(1000.0)]),
+            0.2
+        );
+
         let two_positions = vec![create_test_position(1000.0), create_test_position(500.0)];
         assert!((service.calculate_diversification_score(&two_positions) - 0.6).abs() < 0.0001);
 
@@ -1225,7 +1337,10 @@ mod tests {
             create_test_position(200.0),
             create_test_position(100.0),
         ];
-        assert_eq!(service.calculate_diversification_score(&five_positions), 0.8);
+        assert_eq!(
+            service.calculate_diversification_score(&five_positions),
+            0.8
+        );
     }
 
     #[test]
@@ -1254,7 +1369,10 @@ mod tests {
             average_pnl: 50.0,
             _total_pnl: 5000.0,
         };
-        assert_eq!(service.calculate_automation_readiness(&high_readiness_data), 0.8);
+        assert_eq!(
+            service.calculate_automation_readiness(&high_readiness_data),
+            0.8
+        );
 
         // Medium readiness: moderate win rate, some trades
         let medium_readiness_data = PerformanceData {
@@ -1263,7 +1381,10 @@ mod tests {
             average_pnl: 30.0,
             _total_pnl: 900.0,
         };
-        assert_eq!(service.calculate_automation_readiness(&medium_readiness_data), 0.6);
+        assert_eq!(
+            service.calculate_automation_readiness(&medium_readiness_data),
+            0.6
+        );
 
         // Low readiness: low win rate or few trades
         let low_readiness_data = PerformanceData {
@@ -1272,7 +1393,10 @@ mod tests {
             average_pnl: 20.0,
             _total_pnl: 200.0,
         };
-        assert_eq!(service.calculate_automation_readiness(&low_readiness_data), 0.3);
+        assert_eq!(
+            service.calculate_automation_readiness(&low_readiness_data),
+            0.3
+        );
     }
 
     // Helper functions for testing
@@ -1344,14 +1468,13 @@ mod tests {
             if positions.is_empty() {
                 0.0
             } else {
-                let total_value: f64 = positions.iter()
-                    .filter_map(|p| p.calculated_size_usd)
-                    .sum();
-                let max_position = positions.iter()
+                let total_value: f64 = positions.iter().filter_map(|p| p.calculated_size_usd).sum();
+                let max_position = positions
+                    .iter()
                     .filter_map(|p| p.calculated_size_usd)
                     .max_by(|a, b| a.partial_cmp(b).unwrap())
                     .unwrap_or(0.0);
-                
+
                 if total_value > 0.0 {
                     max_position / total_value
                 } else {
@@ -1388,4 +1511,4 @@ mod tests {
             }
         }
     }
-} 
+}

@@ -1,12 +1,16 @@
 // src/services/technical_trading.rs
 // Task 9.3: Technical Trading Opportunities Generation
 
-use crate::services::market_analysis::{MarketAnalysisService, TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon, PriceSeries};
-use crate::services::user_trading_preferences::{UserTradingPreferencesService, TradingFocus, ExperienceLevel, RiskTolerance};
+use crate::services::market_analysis::{
+    MarketAnalysisService, OpportunityType, PriceSeries, RiskLevel, TimeHorizon, TradingOpportunity,
+};
+use crate::services::user_trading_preferences::{
+    ExperienceLevel, RiskTolerance, TradingFocus, UserTradingPreferencesService,
+};
 use crate::types::ExchangeIdEnum;
-use crate::utils::{ArbitrageResult, logger::Logger};
+use crate::utils::{logger::Logger, ArbitrageResult};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TechnicalSignal {
@@ -34,10 +38,10 @@ pub enum TradingSignalType {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SignalStrength {
-    Weak,      // Low confidence signal
-    Moderate,  // Medium confidence signal
-    Strong,    // High confidence signal
-    Extreme,    // Extremely high confidence signal
+    Weak,     // Low confidence signal
+    Moderate, // Medium confidence signal
+    Strong,   // High confidence signal
+    Extreme,  // Extremely high confidence signal
 }
 
 #[derive(Clone)]
@@ -45,18 +49,18 @@ pub struct TechnicalTradingServiceConfig {
     pub exchanges: Vec<ExchangeIdEnum>,
     pub monitored_pairs: Vec<String>,
     // RSI Configuration
-    pub rsi_overbought_threshold: f64,    // Default: 70.0
-    pub rsi_oversold_threshold: f64,      // Default: 30.0
-    pub rsi_strong_threshold: f64,        // Default: 80.0/20.0 for very strong signals
+    pub rsi_overbought_threshold: f64, // Default: 70.0
+    pub rsi_oversold_threshold: f64,   // Default: 30.0
+    pub rsi_strong_threshold: f64,     // Default: 80.0/20.0 for very strong signals
     // Moving Average Configuration
-    pub ma_short_period: usize,           // Default: 10 (short-term MA)
-    pub ma_long_period: usize,            // Default: 20 (long-term MA)
+    pub ma_short_period: usize, // Default: 10 (short-term MA)
+    pub ma_long_period: usize,  // Default: 20 (long-term MA)
     // Bollinger Bands Configuration
-    pub bb_period: usize,                 // Default: 20
-    pub bb_std_dev: f64,                  // Default: 2.0
+    pub bb_period: usize, // Default: 20
+    pub bb_std_dev: f64,  // Default: 2.0
     // Signal Filtering
-    pub min_confidence_score: f64,        // Minimum confidence for signal generation
-    pub signal_expiry_minutes: u64,       // How long signals remain valid
+    pub min_confidence_score: f64, // Minimum confidence for signal generation
+    pub signal_expiry_minutes: u64, // How long signals remain valid
     // Risk Management
     pub default_stop_loss_percentage: f64, // Default stop-loss as percentage
     pub default_take_profit_ratio: f64,    // Risk/reward ratio for take profit
@@ -75,9 +79,9 @@ impl Default for TechnicalTradingServiceConfig {
             bb_period: 20,
             bb_std_dev: 2.0,
             min_confidence_score: 0.6,
-            signal_expiry_minutes: 60, // 1 hour signal validity
+            signal_expiry_minutes: 60,          // 1 hour signal validity
             default_stop_loss_percentage: 0.02, // 2% stop loss
-            default_take_profit_ratio: 2.0, // 2:1 reward/risk ratio
+            default_take_profit_ratio: 2.0,     // 2:1 reward/risk ratio
         }
     }
 }
@@ -130,7 +134,9 @@ impl TechnicalTradingService {
         // Skip technical trading if user preference is arbitrage-only
         if let Some(ref prefs) = user_preferences {
             if prefs.trading_focus == TradingFocus::Arbitrage {
-                self.logger.debug("User focus is arbitrage-only, skipping technical trading opportunities");
+                self.logger.debug(
+                    "User focus is arbitrage-only, skipping technical trading opportunities",
+                );
                 return Ok(opportunities);
             }
         }
@@ -138,7 +144,10 @@ impl TechnicalTradingService {
         // Generate technical signals for each exchange-pair combination
         for exchange_id in exchange_ids {
             for pair in pairs {
-                match self.generate_technical_signals_for_pair(exchange_id, pair).await {
+                match self
+                    .generate_technical_signals_for_pair(exchange_id, pair)
+                    .await
+                {
                     Ok(signals) => {
                         for signal in signals {
                             // Apply user preference filtering
@@ -153,7 +162,8 @@ impl TechnicalTradingService {
                                 Ok(opportunity) => opportunities.push(opportunity),
                                 Err(e) => {
                                     self.logger.warn(&format!(
-                                        "Failed to convert signal to opportunity: {}", e
+                                        "Failed to convert signal to opportunity: {}",
+                                        e
                                     ));
                                 }
                             }
@@ -161,7 +171,7 @@ impl TechnicalTradingService {
                     }
                     Err(e) => {
                         self.logger.warn(&format!(
-                            "Failed to generate signals for {}/{}: {}", 
+                            "Failed to generate signals for {}/{}: {}",
                             exchange_id, pair, e
                         ));
                     }
@@ -187,7 +197,10 @@ impl TechnicalTradingService {
         let exchange_str = exchange_id.to_string();
 
         // Get price series for the pair
-        if let Some(price_series) = self.market_analysis_service.get_price_series(&exchange_str, pair) {
+        if let Some(price_series) = self
+            .market_analysis_service
+            .get_price_series(&exchange_str, pair)
+        {
             // Generate different types of technical signals
             signals.extend(self.generate_rsi_signals(price_series)?);
             signals.extend(self.generate_moving_average_signals(price_series)?);
@@ -203,14 +216,16 @@ impl TechnicalTradingService {
 
     /// Generate RSI-based trading signals
     #[allow(clippy::result_large_err)]
-    fn generate_rsi_signals(&self, price_series: &PriceSeries) -> ArbitrageResult<Vec<TechnicalSignal>> {
+    fn generate_rsi_signals(
+        &self,
+        price_series: &PriceSeries,
+    ) -> ArbitrageResult<Vec<TechnicalSignal>> {
         let mut signals = Vec::new();
 
         // Calculate RSI using market analysis service
-        let indicators = self.market_analysis_service.calculate_indicators(
-            price_series,
-            &["rsi_14"]
-        )?;
+        let indicators = self
+            .market_analysis_service
+            .calculate_indicators(price_series, &["rsi_14"])?;
 
         if let Some(rsi_indicator) = indicators.iter().find(|i| i.indicator_name == "RSI_14") {
             if let Some(latest_rsi) = rsi_indicator.values.last() {
@@ -232,7 +247,8 @@ impl TechnicalTradingService {
                         SignalStrength::Moderate
                     };
 
-                    let confidence_score = self.calculate_rsi_confidence(rsi_value, TradingSignalType::Buy);
+                    let confidence_score =
+                        self.calculate_rsi_confidence(rsi_value, TradingSignalType::Buy);
 
                     signals.push(self.create_technical_signal(
                         price_series,
@@ -256,7 +272,8 @@ impl TechnicalTradingService {
                         SignalStrength::Moderate
                     };
 
-                    let confidence_score = self.calculate_rsi_confidence(rsi_value, TradingSignalType::Sell);
+                    let confidence_score =
+                        self.calculate_rsi_confidence(rsi_value, TradingSignalType::Sell);
 
                     signals.push(self.create_technical_signal(
                         price_series,
@@ -279,20 +296,26 @@ impl TechnicalTradingService {
 
     /// Generate moving average crossover signals
     #[allow(clippy::result_large_err)]
-    fn generate_moving_average_signals(&self, price_series: &PriceSeries) -> ArbitrageResult<Vec<TechnicalSignal>> {
+    fn generate_moving_average_signals(
+        &self,
+        price_series: &PriceSeries,
+    ) -> ArbitrageResult<Vec<TechnicalSignal>> {
         let mut signals = Vec::new();
 
         // Calculate both short and long-term moving averages
         let sma_short_name = format!("sma_{}", self.config.ma_short_period);
         let sma_long_name = format!("sma_{}", self.config.ma_long_period);
 
-        let indicators = self.market_analysis_service.calculate_indicators(
-            price_series,
-            &[&sma_short_name, &sma_long_name]
-        )?;
+        let indicators = self
+            .market_analysis_service
+            .calculate_indicators(price_series, &[&sma_short_name, &sma_long_name])?;
 
-        let short_ma = indicators.iter().find(|i| i.indicator_name == format!("sma_{}", self.config.ma_short_period));
-        let long_ma = indicators.iter().find(|i| i.indicator_name == format!("sma_{}", self.config.ma_long_period));
+        let short_ma = indicators
+            .iter()
+            .find(|i| i.indicator_name == format!("sma_{}", self.config.ma_short_period));
+        let long_ma = indicators
+            .iter()
+            .find(|i| i.indicator_name == format!("sma_{}", self.config.ma_long_period));
 
         if let (Some(short_indicator), Some(long_indicator)) = (short_ma, long_ma) {
             if short_indicator.values.len() >= 2 && long_indicator.values.len() >= 2 {
@@ -310,8 +333,12 @@ impl TechnicalTradingService {
                 // Check for crossover signals
                 if short_previous <= long_previous && short_current > long_current {
                     // Golden cross - bullish signal
-                    let confidence_score = self.calculate_crossover_confidence(short_current, long_current, TradingSignalType::Buy);
-                    
+                    let confidence_score = self.calculate_crossover_confidence(
+                        short_current,
+                        long_current,
+                        TradingSignalType::Buy,
+                    );
+
                     signals.push(self.create_technical_signal(
                         price_series,
                         TradingSignalType::Buy,
@@ -328,8 +355,12 @@ impl TechnicalTradingService {
                     )?);
                 } else if short_previous >= long_previous && short_current < long_current {
                     // Death cross - bearish signal
-                    let confidence_score = self.calculate_crossover_confidence(short_current, long_current, TradingSignalType::Sell);
-                    
+                    let confidence_score = self.calculate_crossover_confidence(
+                        short_current,
+                        long_current,
+                        TradingSignalType::Sell,
+                    );
+
                     signals.push(self.create_technical_signal(
                         price_series,
                         TradingSignalType::Sell,
@@ -353,17 +384,22 @@ impl TechnicalTradingService {
 
     /// Generate Bollinger Band signals
     #[allow(clippy::result_large_err)]
-    fn generate_bollinger_band_signals(&self, price_series: &PriceSeries) -> ArbitrageResult<Vec<TechnicalSignal>> {
+    fn generate_bollinger_band_signals(
+        &self,
+        price_series: &PriceSeries,
+    ) -> ArbitrageResult<Vec<TechnicalSignal>> {
         let mut signals = Vec::new();
 
         // Calculate Bollinger Bands
         let bb_name = format!("bb_{}", self.config.bb_period);
-        let indicators = self.market_analysis_service.calculate_indicators(
-            price_series,
-            &[&bb_name]
-        )?;
+        let indicators = self
+            .market_analysis_service
+            .calculate_indicators(price_series, &[&bb_name])?;
 
-        if let Some(bb_indicator) = indicators.iter().find(|i| i.indicator_name == format!("bb_{}", self.config.bb_period)) {
+        if let Some(bb_indicator) = indicators
+            .iter()
+            .find(|i| i.indicator_name == format!("bb_{}", self.config.bb_period))
+        {
             if let Some(latest_bb) = bb_indicator.values.last() {
                 let current_price = if let Some(latest_price) = price_series.data_points.last() {
                     latest_price.price
@@ -373,30 +409,36 @@ impl TechnicalTradingService {
 
                 // Proper Bollinger Band calculation using standard deviation of price data
                 let middle_band = latest_bb.value; // This should be the SMA
-                
+
                 // Calculate standard deviation of the recent price data
-                let recent_prices: Vec<f64> = price_series.data_points
+                let recent_prices: Vec<f64> = price_series
+                    .data_points
                     .iter()
                     .rev()
                     .take(self.config.bb_period)
                     .map(|p| p.price)
                     .collect();
-                
+
                 let std_deviation = if recent_prices.len() >= self.config.bb_period {
                     self.calculate_standard_deviation(&recent_prices, middle_band)
                 } else {
                     // Fallback for insufficient data - use simplified calculation
                     middle_band * 0.02 // 2% of middle band as fallback
                 };
-                
+
                 let upper_band = middle_band + (std_deviation * self.config.bb_std_dev);
                 let lower_band = middle_band - (std_deviation * self.config.bb_std_dev);
 
                 // Check for band touch signals
                 if current_price <= lower_band {
                     // Price touched lower band - potential buy signal
-                    let confidence_score = self.calculate_bollinger_confidence(current_price, lower_band, upper_band, TradingSignalType::Buy);
-                    
+                    let confidence_score = self.calculate_bollinger_confidence(
+                        current_price,
+                        lower_band,
+                        upper_band,
+                        TradingSignalType::Buy,
+                    );
+
                     signals.push(self.create_technical_signal(
                         price_series,
                         TradingSignalType::Buy,
@@ -413,8 +455,13 @@ impl TechnicalTradingService {
                     )?);
                 } else if current_price >= upper_band {
                     // Price touched upper band - potential sell signal
-                    let confidence_score = self.calculate_bollinger_confidence(current_price, lower_band, upper_band, TradingSignalType::Sell);
-                    
+                    let confidence_score = self.calculate_bollinger_confidence(
+                        current_price,
+                        lower_band,
+                        upper_band,
+                        TradingSignalType::Sell,
+                    );
+
                     signals.push(self.create_technical_signal(
                         price_series,
                         TradingSignalType::Sell,
@@ -438,7 +485,10 @@ impl TechnicalTradingService {
 
     /// Generate momentum-based signals
     #[allow(clippy::result_large_err)]
-    fn generate_momentum_signals(&self, price_series: &PriceSeries) -> ArbitrageResult<Vec<TechnicalSignal>> {
+    fn generate_momentum_signals(
+        &self,
+        price_series: &PriceSeries,
+    ) -> ArbitrageResult<Vec<TechnicalSignal>> {
         let mut signals = Vec::new();
 
         // Check if we have enough data for momentum analysis
@@ -447,15 +497,15 @@ impl TechnicalTradingService {
         }
 
         let prices: Vec<f64> = price_series.data_points.iter().map(|p| p.price).collect();
-        
+
         // Ensure we have enough data points (at least 6 for 5 periods ago calculation)
         if prices.len() < 6 {
             return Ok(signals);
         }
-        
+
         let current_price = prices[prices.len() - 1];
         let price_5_periods_ago = prices[prices.len() - 6]; // 5 periods ago
-        
+
         // Calculate price rate of change
         let price_change = (current_price - price_5_periods_ago) / price_5_periods_ago;
         let momentum_threshold = 0.02; // 2% change threshold
@@ -537,16 +587,26 @@ impl TechnicalTradingService {
     }
 
     /// Calculate price targets based on signal type and risk management rules
-    fn calculate_price_targets(&self, entry_price: f64, signal_type: &TradingSignalType) -> (Option<f64>, Option<f64>) {
+    fn calculate_price_targets(
+        &self,
+        entry_price: f64,
+        signal_type: &TradingSignalType,
+    ) -> (Option<f64>, Option<f64>) {
         match signal_type {
             TradingSignalType::Buy => {
                 let stop_loss = entry_price * (1.0 - self.config.default_stop_loss_percentage);
-                let target_price = entry_price * (1.0 + (self.config.default_stop_loss_percentage * self.config.default_take_profit_ratio));
+                let target_price = entry_price
+                    * (1.0
+                        + (self.config.default_stop_loss_percentage
+                            * self.config.default_take_profit_ratio));
                 (Some(target_price), Some(stop_loss))
             }
             TradingSignalType::Sell => {
                 let stop_loss = entry_price * (1.0 + self.config.default_stop_loss_percentage);
-                let target_price = entry_price * (1.0 - (self.config.default_stop_loss_percentage * self.config.default_take_profit_ratio));
+                let target_price = entry_price
+                    * (1.0
+                        - (self.config.default_stop_loss_percentage
+                            * self.config.default_take_profit_ratio));
                 (Some(target_price), Some(stop_loss))
             }
             TradingSignalType::Hold => (None, None),
@@ -587,21 +647,28 @@ impl TechnicalTradingService {
         if prices.is_empty() {
             return 0.0;
         }
-        
-        let variance = prices.iter()
+
+        let variance = prices
+            .iter()
             .map(|price| {
                 let diff = price - mean;
                 diff * diff
             })
-            .sum::<f64>() / prices.len() as f64;
-        
+            .sum::<f64>()
+            / prices.len() as f64;
+
         variance.sqrt()
     }
 
     /// Calculate confidence score for moving average crossover signals
-    fn calculate_crossover_confidence(&self, short_ma: f64, long_ma: f64, signal_type: TradingSignalType) -> f64 {
+    fn calculate_crossover_confidence(
+        &self,
+        short_ma: f64,
+        long_ma: f64,
+        signal_type: TradingSignalType,
+    ) -> f64 {
         let ma_diff_percentage = ((short_ma - long_ma) / long_ma).abs();
-        
+
         match signal_type {
             TradingSignalType::Buy | TradingSignalType::Sell => {
                 if ma_diff_percentage > 0.02 {
@@ -617,9 +684,15 @@ impl TechnicalTradingService {
     }
 
     /// Calculate confidence score for Bollinger Band signals
-    fn calculate_bollinger_confidence(&self, price: f64, lower_band: f64, upper_band: f64, signal_type: TradingSignalType) -> f64 {
+    fn calculate_bollinger_confidence(
+        &self,
+        price: f64,
+        lower_band: f64,
+        upper_band: f64,
+        signal_type: TradingSignalType,
+    ) -> f64 {
         let band_width = upper_band - lower_band;
-        
+
         match signal_type {
             TradingSignalType::Buy => {
                 let distance_below = (lower_band - price) / band_width;
@@ -660,7 +733,7 @@ impl TechnicalTradingService {
     ) -> bool {
         // Filter by experience level
         let min_confidence = match preferences.experience_level {
-            ExperienceLevel::Beginner => 0.8,    // High confidence required
+            ExperienceLevel::Beginner => 0.8,     // High confidence required
             ExperienceLevel::Intermediate => 0.6, // Moderate confidence
             ExperienceLevel::Advanced => 0.4,     // Lower confidence acceptable
         };
@@ -672,20 +745,22 @@ impl TechnicalTradingService {
         // Filter by risk tolerance
         match preferences.risk_tolerance {
             RiskTolerance::Conservative => {
-                signal.confidence_score >= 0.8 && 
-                matches!(signal.signal_strength, SignalStrength::Strong | SignalStrength::Extreme)
+                signal.confidence_score >= 0.8
+                    && matches!(
+                        signal.signal_strength,
+                        SignalStrength::Strong | SignalStrength::Extreme
+                    )
             }
-            RiskTolerance::Balanced => {
-                signal.confidence_score >= 0.6
-            }
-            RiskTolerance::Aggressive => {
-                signal.confidence_score >= 0.4
-            }
+            RiskTolerance::Balanced => signal.confidence_score >= 0.6,
+            RiskTolerance::Aggressive => signal.confidence_score >= 0.4,
         }
     }
 
     /// Convert TechnicalSignal to TradingOpportunity
-    async fn convert_signal_to_opportunity(&self, signal: TechnicalSignal) -> ArbitrageResult<TradingOpportunity> {
+    async fn convert_signal_to_opportunity(
+        &self,
+        signal: TechnicalSignal,
+    ) -> ArbitrageResult<TradingOpportunity> {
         let risk_level = match signal.signal_strength {
             SignalStrength::Extreme => RiskLevel::Low,
             SignalStrength::Strong => RiskLevel::Medium,
@@ -704,8 +779,12 @@ impl TechnicalTradingService {
         // Calculate expected return based on target price
         let expected_return = if let Some(target) = signal.target_price {
             match signal.signal_type {
-                TradingSignalType::Buy => ((target - signal.entry_price) / signal.entry_price) * 100.0,
-                TradingSignalType::Sell => ((signal.entry_price - target) / signal.entry_price) * 100.0,
+                TradingSignalType::Buy => {
+                    ((target - signal.entry_price) / signal.entry_price) * 100.0
+                }
+                TradingSignalType::Sell => {
+                    ((signal.entry_price - target) / signal.entry_price) * 100.0
+                }
                 TradingSignalType::Hold => 0.0,
             }
         } else {
@@ -739,4 +818,4 @@ impl TechnicalTradingService {
     pub fn get_config(&self) -> &TechnicalTradingServiceConfig {
         &self.config
     }
-} 
+}

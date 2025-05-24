@@ -1,9 +1,11 @@
 // src/utils/formatter.rs
 
-use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
-use crate::services::opportunity_categorization::{CategorizedOpportunity, OpportunityCategory};
-use crate::services::ai_intelligence::{AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion};
+use crate::services::ai_intelligence::{
+    AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion,
+};
 use crate::services::market_analysis::RiskLevel;
+use crate::services::opportunity_categorization::{CategorizedOpportunity, OpportunityCategory};
+use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
 #[cfg(not(test))]
 use chrono::{DateTime, Utc};
 
@@ -13,7 +15,7 @@ use chrono::{DateTime, Utc};
 pub fn get_category_emoji(category: &OpportunityCategory) -> &'static str {
     match category {
         OpportunityCategory::LowRiskArbitrage => "🛡️",
-        OpportunityCategory::HighConfidenceArbitrage => "🎯", 
+        OpportunityCategory::HighConfidenceArbitrage => "🎯",
         OpportunityCategory::TechnicalSignals => "📊",
         OpportunityCategory::MomentumTrading => "🚀",
         OpportunityCategory::MeanReversion => "🔄",
@@ -29,17 +31,22 @@ pub fn get_category_emoji(category: &OpportunityCategory) -> &'static str {
 pub fn get_risk_emoji(risk_level: &RiskLevel) -> &'static str {
     match risk_level {
         RiskLevel::Low => "🟢",
-        RiskLevel::Medium => "🟡", 
+        RiskLevel::Medium => "🟡",
         RiskLevel::High => "🔴",
     }
 }
 
 /// Get emoji for AI confidence level
 pub fn get_confidence_emoji(confidence: f64) -> &'static str {
-    if confidence >= 0.8 { "🌟" }
-    else if confidence >= 0.6 { "⭐" }
-    else if confidence >= 0.4 { "✨" }
-    else { "❓" }
+    if confidence >= 0.8 {
+        "🌟"
+    } else if confidence >= 0.6 {
+        "⭐"
+    } else if confidence >= 0.4 {
+        "✨"
+    } else {
+        "❓"
+    }
 }
 
 // ============= ENHANCED FORMATTERS =============
@@ -93,8 +100,7 @@ pub fn format_timestamp(timestamp: u64) -> String {
     }
     #[cfg(not(test))]
     {
-        let datetime =
-            DateTime::from_timestamp_millis(timestamp as i64).unwrap_or_else(Utc::now);
+        let datetime = DateTime::from_timestamp_millis(timestamp as i64).unwrap_or_else(Utc::now);
         datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string()
     }
 }
@@ -127,7 +133,7 @@ pub fn format_categorized_opportunity_message(categorized_opp: &CategorizedOppor
     let opportunity = &categorized_opp.base_opportunity;
     let primary_emoji = get_category_emoji(&categorized_opp.primary_category);
     let risk_emoji = get_risk_emoji(&categorized_opp.base_opportunity.risk_level);
-    
+
     // Header with primary category
     let mut message = format!(
         "{} *{}* {}\n\n📈 *Pair:* `{}`",
@@ -155,17 +161,27 @@ pub fn format_categorized_opportunity_message(categorized_opp: &CategorizedOppor
     message.push_str(&format!(
         "\n   • Volatility: `{}` {}",
         escape_markdown_v2(&risk_indicator.volatility_assessment),
-        if risk_indicator.volatility_assessment == "High" { "⚠️" } else { "✅" }
+        if risk_indicator.volatility_assessment == "High" {
+            "⚠️"
+        } else {
+            "✅"
+        }
     ));
     message.push_str(&format!(
         "\n   • Liquidity: `{}` {}",
         escape_markdown_v2(&risk_indicator.liquidity_risk),
-        if risk_indicator.liquidity_risk == "High" { "⚠️" } else { "✅" }
+        if risk_indicator.liquidity_risk == "High" {
+            "⚠️"
+        } else {
+            "✅"
+        }
     ));
 
     // Add categories if multiple
     if categorized_opp.categories.len() > 1 {
-        let category_list: Vec<String> = categorized_opp.categories.iter()
+        let category_list: Vec<String> = categorized_opp
+            .categories
+            .iter()
             .map(|cat| format!("{} {}", get_category_emoji(cat), cat.display_name()))
             .collect();
         message.push_str(&format!(
@@ -196,7 +212,7 @@ pub fn format_categorized_opportunity_message(categorized_opp: &CategorizedOppor
 /// Format AI Opportunity Enhancement results for Telegram
 pub fn format_ai_enhancement_message(enhancement: &AiOpportunityEnhancement) -> String {
     let confidence_emoji = get_confidence_emoji(enhancement.ai_confidence_score);
-    
+
     let mut message = format!(
         "🤖 *AI Analysis Results* {}\n\n🎯 *Opportunity:* `{}`",
         confidence_emoji,
@@ -215,7 +231,13 @@ pub fn format_ai_enhancement_message(enhancement: &AiOpportunityEnhancement) -> 
     message.push_str(&format!(
         "\n   • Overall Risk: `{:.1}%` {}",
         risk_assessment.overall_risk_score * 100.0,
-        if risk_assessment.overall_risk_score > 0.7 { "🔴" } else if risk_assessment.overall_risk_score > 0.4 { "🟡" } else { "🟢" }
+        if risk_assessment.overall_risk_score > 0.7 {
+            "🔴"
+        } else if risk_assessment.overall_risk_score > 0.4 {
+            "🟡"
+        } else {
+            "🟢"
+        }
     ));
     message.push_str(&format!(
         "\n   • Portfolio Impact: `{:.1}%`",
@@ -232,18 +254,20 @@ pub fn format_ai_enhancement_message(enhancement: &AiOpportunityEnhancement) -> 
     message.push_str(&format!(
         "\n⏰ *Timing Score:* `{:.1}%` {}",
         enhancement.timing_score * 100.0,
-        if enhancement.timing_score > 0.7 { "🟢" } else if enhancement.timing_score > 0.4 { "🟡" } else { "🔴" }
+        if enhancement.timing_score > 0.7 {
+            "🟢"
+        } else if enhancement.timing_score > 0.4 {
+            "🟡"
+        } else {
+            "🔴"
+        }
     ));
 
     // AI Recommendations
     if !enhancement.ai_recommendations.is_empty() {
         message.push_str("\n\n💡 *AI Recommendations:*");
         for (i, rec) in enhancement.ai_recommendations.iter().take(3).enumerate() {
-            message.push_str(&format!(
-                "\n   {}\\. {}",
-                i + 1,
-                escape_markdown_v2(rec)
-            ));
+            message.push_str(&format!("\n   {}\\. {}", i + 1, escape_markdown_v2(rec)));
         }
     }
 
@@ -251,10 +275,7 @@ pub fn format_ai_enhancement_message(enhancement: &AiOpportunityEnhancement) -> 
     if !risk_assessment.risk_factors.is_empty() {
         message.push_str("\n\n⚠️ *Risk Factors:*");
         for factor in risk_assessment.risk_factors.iter().take(3) {
-            message.push_str(&format!(
-                "\n   • {}",
-                escape_markdown_v2(factor)
-            ));
+            message.push_str(&format!("\n   • {}", escape_markdown_v2(factor)));
         }
     }
 
@@ -270,10 +291,15 @@ pub fn format_ai_enhancement_message(enhancement: &AiOpportunityEnhancement) -> 
 
 /// Format AI Performance Insights for Telegram
 pub fn format_performance_insights_message(insights: &AiPerformanceInsights) -> String {
-    let performance_emoji = if insights.performance_score > 0.8 { "🌟" } 
-                           else if insights.performance_score > 0.6 { "⭐" } 
-                           else if insights.performance_score > 0.4 { "✨" } 
-                           else { "📈" };
+    let performance_emoji = if insights.performance_score > 0.8 {
+        "🌟"
+    } else if insights.performance_score > 0.6 {
+        "⭐"
+    } else if insights.performance_score > 0.4 {
+        "✨"
+    } else {
+        "📈"
+    };
 
     let mut message = format!(
         "📊 *Performance Analysis* {}\n\n🎯 *Overall Score:* `{:.1}%`",
@@ -285,17 +311,18 @@ pub fn format_performance_insights_message(insights: &AiPerformanceInsights) -> 
     message.push_str(&format!(
         "\n🤖 *Automation Readiness:* `{:.1}%` {}",
         insights.automation_readiness_score * 100.0,
-        if insights.automation_readiness_score > 0.7 { "✅" } else { "⏳" }
+        if insights.automation_readiness_score > 0.7 {
+            "✅"
+        } else {
+            "⏳"
+        }
     ));
 
     // Strengths
     if !insights.strengths.is_empty() {
         message.push_str("\n\n💪 *Strengths:*");
         for strength in insights.strengths.iter().take(3) {
-            message.push_str(&format!(
-                "\n   ✅ {}",
-                escape_markdown_v2(strength)
-            ));
+            message.push_str(&format!("\n   ✅ {}", escape_markdown_v2(strength)));
         }
     }
 
@@ -303,10 +330,7 @@ pub fn format_performance_insights_message(insights: &AiPerformanceInsights) -> 
     if !insights.weaknesses.is_empty() {
         message.push_str("\n\n🎯 *Areas for Improvement:*");
         for weakness in insights.weaknesses.iter().take(3) {
-            message.push_str(&format!(
-                "\n   📝 {}",
-                escape_markdown_v2(weakness)
-            ));
+            message.push_str(&format!("\n   📝 {}", escape_markdown_v2(weakness)));
         }
     }
 
@@ -322,10 +346,7 @@ pub fn format_performance_insights_message(insights: &AiPerformanceInsights) -> 
     if !insights.learning_recommendations.is_empty() {
         message.push_str("\n\n📚 *Learning Recommendations:*");
         for rec in insights.learning_recommendations.iter().take(2) {
-            message.push_str(&format!(
-                "\n   📖 {}",
-                escape_markdown_v2(rec)
-            ));
+            message.push_str(&format!("\n   📖 {}", escape_markdown_v2(rec)));
         }
     }
 
@@ -350,7 +371,7 @@ pub fn format_parameter_suggestions_message(suggestions: &[ParameterSuggestion])
 
     for (i, suggestion) in suggestions.iter().take(5).enumerate() {
         let confidence_emoji = get_confidence_emoji(suggestion.confidence);
-        
+
         message.push_str(&format!(
             "\n{}*{}\\. {}* {}\n",
             if i > 0 { "\n" } else { "" },
@@ -358,22 +379,22 @@ pub fn format_parameter_suggestions_message(suggestions: &[ParameterSuggestion])
             escape_markdown_v2(&suggestion.parameter_name),
             confidence_emoji
         ));
-        
+
         message.push_str(&format!(
             "   Current: `{}`\n",
             escape_markdown_v2(&suggestion.current_value)
         ));
-        
+
         message.push_str(&format!(
             "   Suggested: `{}`\n",
             escape_markdown_v2(&suggestion.suggested_value)
         ));
-        
+
         message.push_str(&format!(
             "   Impact: `{:.1}%`\n",
             suggestion.impact_assessment * 100.0
         ));
-        
+
         message.push_str(&format!(
             "   💡 {}",
             escape_markdown_v2(&suggestion.rationale)
@@ -500,9 +521,18 @@ mod tests {
 
     #[test]
     fn test_category_emoji_mapping() {
-        assert_eq!(get_category_emoji(&OpportunityCategory::LowRiskArbitrage), "🛡️");
-        assert_eq!(get_category_emoji(&OpportunityCategory::AiRecommended), "🤖");
-        assert_eq!(get_category_emoji(&OpportunityCategory::TechnicalSignals), "📊");
+        assert_eq!(
+            get_category_emoji(&OpportunityCategory::LowRiskArbitrage),
+            "🛡️"
+        );
+        assert_eq!(
+            get_category_emoji(&OpportunityCategory::AiRecommended),
+            "🤖"
+        );
+        assert_eq!(
+            get_category_emoji(&OpportunityCategory::TechnicalSignals),
+            "📊"
+        );
     }
 
     #[test]

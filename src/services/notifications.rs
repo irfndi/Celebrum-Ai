@@ -1,9 +1,12 @@
 // Real-time Notifications & Alerts Service
 // Task 8: Multi-channel notification system with customizable alert triggers
 
-use crate::utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}};
-use crate::types::UserProfile;
 use crate::services::{D1Service, TelegramService};
+use crate::types::UserProfile;
+use crate::utils::{
+    logger::{LogLevel, Logger},
+    ArbitrageError, ArbitrageResult,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::*;
@@ -18,7 +21,7 @@ pub struct NotificationTemplate {
     pub category: String, // opportunity, risk, balance, system, custom
     pub title_template: String,
     pub message_template: String,
-    pub priority: String, // low, medium, high, critical
+    pub priority: String,      // low, medium, high, critical
     pub channels: Vec<String>, // ["telegram", "email", "push"]
     pub variables: Vec<String>,
     pub is_system_template: bool,
@@ -132,21 +135,32 @@ impl NotificationService {
 
     // ============= TEMPLATE MANAGEMENT =============
 
-    pub async fn create_notification_template(&self, template: &NotificationTemplate) -> ArbitrageResult<()> {
+    pub async fn create_notification_template(
+        &self,
+        template: &NotificationTemplate,
+    ) -> ArbitrageResult<()> {
         self.validate_template(template)?;
-        
-        self.d1_service.store_notification_template(template).await?;
-        
+
+        self.d1_service
+            .store_notification_template(template)
+            .await?;
+
         // Cache frequently used templates
         if template.is_system_template {
             self.cache_template(template).await?;
         }
 
-        self.logger.info(&format!("Created notification template: {}", template.template_id));
+        self.logger.info(&format!(
+            "Created notification template: {}",
+            template.template_id
+        ));
         Ok(())
     }
 
-    pub async fn get_notification_template(&self, template_id: &str) -> ArbitrageResult<Option<NotificationTemplate>> {
+    pub async fn get_notification_template(
+        &self,
+        template_id: &str,
+    ) -> ArbitrageResult<Option<NotificationTemplate>> {
         // Try cache first for system templates
         if let Some(cached) = self.get_cached_template(template_id).await? {
             return Ok(Some(cached));
@@ -169,7 +183,8 @@ impl NotificationService {
             self.create_notification_template(&template).await?;
         }
 
-        self.logger.info("Initialized system notification templates");
+        self.logger
+            .info("Initialized system notification templates");
         Ok(())
     }
 
@@ -177,13 +192,16 @@ impl NotificationService {
 
     pub async fn create_alert_trigger(&self, trigger: &AlertTrigger) -> ArbitrageResult<()> {
         self.validate_trigger(trigger).await?;
-        
+
         self.d1_service.store_alert_trigger(trigger).await?;
-        
+
         // Cache user's active triggers for fast evaluation
         self.cache_user_triggers(&trigger.user_id).await?;
 
-        self.logger.info(&format!("Created alert trigger: {} for user: {}", trigger.trigger_id, trigger.user_id));
+        self.logger.info(&format!(
+            "Created alert trigger: {} for user: {}",
+            trigger.trigger_id, trigger.user_id
+        ));
         Ok(())
     }
 
@@ -199,8 +217,13 @@ impl NotificationService {
         Ok(triggers)
     }
 
-    pub async fn evaluate_triggers(&self, context: &TriggerEvaluationContext) -> ArbitrageResult<Vec<AlertTrigger>> {
-        let user_triggers = self.get_user_triggers(&context.user_profile.user_id).await?;
+    pub async fn evaluate_triggers(
+        &self,
+        context: &TriggerEvaluationContext,
+    ) -> ArbitrageResult<Vec<AlertTrigger>> {
+        let user_triggers = self
+            .get_user_triggers(&context.user_profile.user_id)
+            .await?;
         let mut matched_triggers = Vec::new();
 
         for trigger in user_triggers {
@@ -231,51 +254,72 @@ impl NotificationService {
         // Send to each channel
         for channel in &notification.channels {
             let start_time = js_sys::Date::now() as u64;
-            
+
             let delivery_result = match channel.as_str() {
                 "telegram" => self.send_telegram_notification(notification).await,
                 "email" => self.send_email_notification(notification).await,
                 "push" => self.send_push_notification(notification).await,
-                _ => Err(ArbitrageError::validation_error(format!("Unsupported channel: {}", channel))),
+                _ => Err(ArbitrageError::validation_error(format!(
+                    "Unsupported channel: {}",
+                    channel
+                ))),
             };
 
             let delivery_time = js_sys::Date::now() as u64 - start_time;
-            
+
             // Record delivery history
             let history = NotificationHistory {
                 history_id: format!("hist_{}_{}", notification.notification_id, channel),
                 notification_id: notification.notification_id.clone(),
                 user_id: notification.user_id.clone(),
                 channel: channel.clone(),
-                delivery_status: if delivery_result.is_ok() { "success".to_string() } else { "failed".to_string() },
+                delivery_status: if delivery_result.is_ok() {
+                    "success".to_string()
+                } else {
+                    "failed".to_string()
+                },
                 response_data: HashMap::new(),
                 error_message: delivery_result.as_ref().err().map(|e| e.to_string()),
                 delivery_time_ms: Some(delivery_time),
                 retry_count: 0,
                 attempted_at: js_sys::Date::now() as u64,
-                delivered_at: if delivery_result.is_ok() { Some(js_sys::Date::now() as u64) } else { None },
+                delivered_at: if delivery_result.is_ok() {
+                    Some(js_sys::Date::now() as u64)
+                } else {
+                    None
+                },
             };
 
             self.d1_service.store_notification_history(&history).await?;
         }
 
         // Update notification status
-        let final_status = if notification.channels.iter().any(|c| self.was_delivery_successful(&notification.notification_id, c)) {
+        let final_status = if notification
+            .channels
+            .iter()
+            .any(|c| self.was_delivery_successful(&notification.notification_id, c))
+        {
             "sent"
         } else {
             "failed"
         };
 
-        self.d1_service.update_notification_status(
-            &notification.notification_id,
-            final_status,
-            Some(js_sys::Date::now() as u64)
-        ).await?;
+        self.d1_service
+            .update_notification_status(
+                &notification.notification_id,
+                final_status,
+                Some(js_sys::Date::now() as u64),
+            )
+            .await?;
 
         Ok(())
     }
 
-    pub async fn send_alert(&self, trigger: &AlertTrigger, context: &TriggerEvaluationContext) -> ArbitrageResult<()> {
+    pub async fn send_alert(
+        &self,
+        trigger: &AlertTrigger,
+        context: &TriggerEvaluationContext,
+    ) -> ArbitrageResult<()> {
         // Get or use default template
         let template = if let Some(template_id) = &trigger.template_id {
             self.get_notification_template(template_id).await?
@@ -283,12 +327,13 @@ impl NotificationService {
             Some(self.get_default_template_for_trigger_type(&trigger.trigger_type)?)
         };
 
-        let template = template.ok_or_else(|| 
+        let template = template.ok_or_else(|| {
             ArbitrageError::not_found("Template not found for alert trigger".to_string())
-        )?;
+        })?;
 
         // Generate notification content
-        let (title, message) = self.generate_notification_content(&template, &trigger.conditions, context)?;
+        let (title, message) =
+            self.generate_notification_content(&template, &trigger.conditions, context)?;
 
         let notification = Notification {
             notification_id: format!("notif_{}", uuid::Uuid::new_v4()),
@@ -311,12 +356,12 @@ impl NotificationService {
         self.send_notification(&notification).await?;
 
         // Update trigger last triggered time
-        self.d1_service.update_trigger_last_triggered(
-            &trigger.trigger_id,
-            js_sys::Date::now() as u64
-        ).await?;
+        self.d1_service
+            .update_trigger_last_triggered(&trigger.trigger_id, js_sys::Date::now() as u64)
+            .await?;
 
-        self.logger.info(&format!("Sent alert for trigger: {}", trigger.trigger_id));
+        self.logger
+            .info(&format!("Sent alert for trigger: {}", trigger.trigger_id));
         Ok(())
     }
 
@@ -325,41 +370,58 @@ impl NotificationService {
     async fn send_telegram_notification(&self, notification: &Notification) -> ArbitrageResult<()> {
         // Get user's telegram chat ID
         let user_profile = self.get_user_profile(&notification.user_id).await?;
-        
+
         if user_profile.telegram_user_id != 0 {
             let message = format!("{}\n\n{}", notification.title, notification.message);
             self.telegram_service.send_message(&message).await?;
             Ok(())
         } else {
-            Err(ArbitrageError::validation_error("User has no Telegram ID configured".to_string()))
+            Err(ArbitrageError::validation_error(
+                "User has no Telegram ID configured".to_string(),
+            ))
         }
     }
 
     async fn send_email_notification(&self, _notification: &Notification) -> ArbitrageResult<()> {
         // Email implementation would go here
         // For now, return not implemented
-        Err(ArbitrageError::not_implemented("Email notifications not yet implemented".to_string()))
+        Err(ArbitrageError::not_implemented(
+            "Email notifications not yet implemented".to_string(),
+        ))
     }
 
     async fn send_push_notification(&self, _notification: &Notification) -> ArbitrageResult<()> {
         // Push notification implementation would go here
         // For now, return not implemented
-        Err(ArbitrageError::not_implemented("Push notifications not yet implemented".to_string()))
+        Err(ArbitrageError::not_implemented(
+            "Push notifications not yet implemented".to_string(),
+        ))
     }
 
     // ============= ANALYTICS AND MANAGEMENT =============
 
-    pub async fn get_notification_analytics(&self, user_id: &str) -> ArbitrageResult<NotificationAnalytics> {
-        let history = self.d1_service.get_user_notification_history(user_id, Some(100)).await?;
-        
+    pub async fn get_notification_analytics(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<NotificationAnalytics> {
+        let history = self
+            .d1_service
+            .get_user_notification_history(user_id, Some(100))
+            .await?;
+
         let total_notifications = history.len() as u32;
-        let sent_count = history.iter().filter(|h| h.delivery_status == "success").count() as u32;
+        let sent_count = history
+            .iter()
+            .filter(|h| h.delivery_status == "success")
+            .count() as u32;
         let failed_count = total_notifications - sent_count;
-        
+
         let avg_delivery_time_ms = if !history.is_empty() {
-            history.iter()
+            history
+                .iter()
                 .filter_map(|h| h.delivery_time_ms)
-                .sum::<u64>() as f64 / history.len() as f64
+                .sum::<u64>() as f64
+                / history.len() as f64
         } else {
             0.0
         };
@@ -370,16 +432,19 @@ impl NotificationService {
         // Analyze categories and channels
         for entry in &history {
             // Category breakdown would need notification data
-            
+
             // Channel performance
-            let perf = channel_performance.entry(entry.channel.clone()).or_insert(ChannelPerformance {
-                channel: entry.channel.clone(),
-                total_sent: 0,
-                success_rate: 0.0,
-                avg_delivery_time_ms: 0.0,
-                last_failure: None,
-            });
-            
+            let perf =
+                channel_performance
+                    .entry(entry.channel.clone())
+                    .or_insert(ChannelPerformance {
+                        channel: entry.channel.clone(),
+                        total_sent: 0,
+                        success_rate: 0.0,
+                        avg_delivery_time_ms: 0.0,
+                        last_failure: None,
+                    });
+
             perf.total_sent += 1;
             if entry.delivery_status == "success" {
                 // Update success metrics
@@ -390,7 +455,8 @@ impl NotificationService {
 
         // Calculate success rates
         for perf in channel_performance.values_mut() {
-            let successes = history.iter()
+            let successes = history
+                .iter()
                 .filter(|h| h.channel == perf.channel && h.delivery_status == "success")
                 .count();
             perf.success_rate = if perf.total_sent > 0 {
@@ -416,15 +482,21 @@ impl NotificationService {
     #[allow(clippy::result_large_err)]
     fn validate_template(&self, template: &NotificationTemplate) -> ArbitrageResult<()> {
         if template.template_id.is_empty() {
-            return Err(ArbitrageError::validation_error("Template ID cannot be empty".to_string()));
+            return Err(ArbitrageError::validation_error(
+                "Template ID cannot be empty".to_string(),
+            ));
         }
-        
+
         if template.title_template.is_empty() || template.message_template.is_empty() {
-            return Err(ArbitrageError::validation_error("Title and message templates cannot be empty".to_string()));
+            return Err(ArbitrageError::validation_error(
+                "Title and message templates cannot be empty".to_string(),
+            ));
         }
 
         if template.channels.is_empty() {
-            return Err(ArbitrageError::validation_error("At least one channel must be specified".to_string()));
+            return Err(ArbitrageError::validation_error(
+                "At least one channel must be specified".to_string(),
+            ));
         }
 
         Ok(())
@@ -432,25 +504,33 @@ impl NotificationService {
 
     async fn validate_trigger(&self, trigger: &AlertTrigger) -> ArbitrageResult<()> {
         if trigger.trigger_id.is_empty() || trigger.user_id.is_empty() {
-            return Err(ArbitrageError::validation_error("Trigger ID and User ID cannot be empty".to_string()));
+            return Err(ArbitrageError::validation_error(
+                "Trigger ID and User ID cannot be empty".to_string(),
+            ));
         }
 
         if trigger.channels.is_empty() {
-            return Err(ArbitrageError::validation_error("At least one channel must be specified".to_string()));
+            return Err(ArbitrageError::validation_error(
+                "At least one channel must be specified".to_string(),
+            ));
         }
 
         // Validate trigger conditions based on type
         match trigger.trigger_type.as_str() {
             "opportunity_threshold" => {
                 if !trigger.conditions.contains_key("min_rate_difference") {
-                    return Err(ArbitrageError::validation_error("opportunity_threshold requires min_rate_difference".to_string()));
+                    return Err(ArbitrageError::validation_error(
+                        "opportunity_threshold requires min_rate_difference".to_string(),
+                    ));
                 }
-            },
+            }
             "balance_change" => {
                 if !trigger.conditions.contains_key("min_change_percentage") {
-                    return Err(ArbitrageError::validation_error("balance_change requires min_change_percentage".to_string()));
+                    return Err(ArbitrageError::validation_error(
+                        "balance_change requires min_change_percentage".to_string(),
+                    ));
                 }
-            },
+            }
             _ => {} // Custom triggers can have flexible conditions
         }
 
@@ -461,15 +541,16 @@ impl NotificationService {
         if let Some(last_triggered) = trigger.last_triggered_at {
             let now = js_sys::Date::now() as u64;
             let cooldown_ms = trigger.cooldown_minutes as u64 * 60 * 1000;
-            
+
             if now - last_triggered < cooldown_ms {
                 return Ok(true);
             }
         }
 
         // Check hourly limit
-        let cache_key = format!("trigger_hourly_count:{}:{}", 
-            trigger.trigger_id, 
+        let cache_key = format!(
+            "trigger_hourly_count:{}:{}",
+            trigger.trigger_id,
             (js_sys::Date::now() as u64) / (60 * 60 * 1000) // Current hour
         );
 
@@ -483,7 +564,11 @@ impl NotificationService {
         Ok(false)
     }
 
-    async fn evaluate_trigger_conditions(&self, trigger: &AlertTrigger, context: &TriggerEvaluationContext) -> ArbitrageResult<bool> {
+    async fn evaluate_trigger_conditions(
+        &self,
+        trigger: &AlertTrigger,
+        context: &TriggerEvaluationContext,
+    ) -> ArbitrageResult<bool> {
         match trigger.trigger_type.as_str() {
             "opportunity_threshold" => self.evaluate_opportunity_threshold(trigger, context).await,
             "balance_change" => self.evaluate_balance_change(trigger, context).await,
@@ -494,7 +579,11 @@ impl NotificationService {
         }
     }
 
-    async fn evaluate_opportunity_threshold(&self, trigger: &AlertTrigger, context: &TriggerEvaluationContext) -> ArbitrageResult<bool> {
+    async fn evaluate_opportunity_threshold(
+        &self,
+        trigger: &AlertTrigger,
+        context: &TriggerEvaluationContext,
+    ) -> ArbitrageResult<bool> {
         if let Some(min_rate_diff) = trigger.conditions.get("min_rate_difference") {
             if let Some(current_rate) = context.current_data.get("rate_difference") {
                 let min_rate = min_rate_diff.as_f64().unwrap_or(0.0);
@@ -505,7 +594,11 @@ impl NotificationService {
         Ok(false)
     }
 
-    async fn evaluate_balance_change(&self, trigger: &AlertTrigger, context: &TriggerEvaluationContext) -> ArbitrageResult<bool> {
+    async fn evaluate_balance_change(
+        &self,
+        trigger: &AlertTrigger,
+        context: &TriggerEvaluationContext,
+    ) -> ArbitrageResult<bool> {
         if let Some(min_change) = trigger.conditions.get("min_change_percentage") {
             if let Some(change_data) = context.current_data.get("balance_change") {
                 let min_change_pct = min_change.as_f64().unwrap_or(0.0);
@@ -516,17 +609,29 @@ impl NotificationService {
         Ok(false)
     }
 
-    async fn evaluate_price_alert(&self, _trigger: &AlertTrigger, _context: &TriggerEvaluationContext) -> ArbitrageResult<bool> {
+    async fn evaluate_price_alert(
+        &self,
+        _trigger: &AlertTrigger,
+        _context: &TriggerEvaluationContext,
+    ) -> ArbitrageResult<bool> {
         // Price alert implementation
         Ok(false)
     }
 
-    async fn evaluate_profit_loss(&self, _trigger: &AlertTrigger, _context: &TriggerEvaluationContext) -> ArbitrageResult<bool> {
+    async fn evaluate_profit_loss(
+        &self,
+        _trigger: &AlertTrigger,
+        _context: &TriggerEvaluationContext,
+    ) -> ArbitrageResult<bool> {
         // P&L alert implementation
         Ok(false)
     }
 
-    async fn evaluate_custom_trigger(&self, _trigger: &AlertTrigger, _context: &TriggerEvaluationContext) -> ArbitrageResult<bool> {
+    async fn evaluate_custom_trigger(
+        &self,
+        _trigger: &AlertTrigger,
+        _context: &TriggerEvaluationContext,
+    ) -> ArbitrageResult<bool> {
         // Custom trigger implementation with flexible conditions
         Ok(false)
     }
@@ -544,7 +649,7 @@ impl NotificationService {
         // Replace template variables
         for variable in &template.variables {
             let placeholder = format!("{{{{{}}}}}", variable);
-            
+
             let replacement = if let Some(value) = context.current_data.get(variable) {
                 value.to_string().trim_matches('"').to_string()
             } else if let Some(value) = conditions.get(variable) {
@@ -563,20 +668,25 @@ impl NotificationService {
     async fn cache_template(&self, template: &NotificationTemplate) -> ArbitrageResult<()> {
         let cache_key = format!("notification_template:{}", template.template_id);
         let template_json = serde_json::to_string(template)?;
-        
+
         self.kv_store
             .put(&cache_key, template_json)?
             .expiration_ttl(86400) // 24 hours
             .execute()
             .await
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to cache template: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to cache template: {}", e))
+            })?;
 
         Ok(())
     }
 
-    async fn get_cached_template(&self, template_id: &str) -> ArbitrageResult<Option<NotificationTemplate>> {
+    async fn get_cached_template(
+        &self,
+        template_id: &str,
+    ) -> ArbitrageResult<Option<NotificationTemplate>> {
         let cache_key = format!("notification_template:{}", template_id);
-        
+
         if let Some(template_str) = self.kv_store.get(&cache_key).text().await? {
             let template: NotificationTemplate = serde_json::from_str(&template_str)?;
             Ok(Some(template))
@@ -590,23 +700,32 @@ impl NotificationService {
         self.cache_triggers_list(user_id, &triggers).await
     }
 
-    async fn cache_triggers_list(&self, user_id: &str, triggers: &[AlertTrigger]) -> ArbitrageResult<()> {
+    async fn cache_triggers_list(
+        &self,
+        user_id: &str,
+        triggers: &[AlertTrigger],
+    ) -> ArbitrageResult<()> {
         let cache_key = format!("user_triggers:{}", user_id);
         let triggers_json = serde_json::to_string(triggers)?;
-        
+
         self.kv_store
             .put(&cache_key, triggers_json)?
             .expiration_ttl(1800) // 30 minutes
             .execute()
             .await
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to cache triggers: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to cache triggers: {}", e))
+            })?;
 
         Ok(())
     }
 
-    async fn get_cached_user_triggers(&self, user_id: &str) -> ArbitrageResult<Option<Vec<AlertTrigger>>> {
+    async fn get_cached_user_triggers(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<Option<Vec<AlertTrigger>>> {
         let cache_key = format!("user_triggers:{}", user_id);
-        
+
         if let Some(triggers_str) = self.kv_store.get(&cache_key).text().await? {
             let triggers: Vec<AlertTrigger> = serde_json::from_str(&triggers_str)?;
             Ok(Some(triggers))
@@ -616,8 +735,12 @@ impl NotificationService {
     }
 
     async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile> {
-        self.d1_service.get_user_profile(user_id).await?
-            .ok_or_else(|| ArbitrageError::not_found(format!("User profile not found: {}", user_id)))
+        self.d1_service
+            .get_user_profile(user_id)
+            .await?
+            .ok_or_else(|| {
+                ArbitrageError::not_found(format!("User profile not found: {}", user_id))
+            })
     }
 
     fn was_delivery_successful(&self, _notification_id: &str, _channel: &str) -> bool {
@@ -711,10 +834,16 @@ impl NotificationService {
             description: Some("Notification for system maintenance and updates".to_string()),
             category: "system".to_string(),
             title_template: "🔧 System Alert: {{alert_type}}".to_string(),
-            message_template: "ℹ️ {{message}}\n⏰ Time: {{timestamp}}\n📋 Details: {{details}}".to_string(),
+            message_template: "ℹ️ {{message}}\n⏰ Time: {{timestamp}}\n📋 Details: {{details}}"
+                .to_string(),
             priority: "low".to_string(),
             channels: vec!["telegram".to_string()],
-            variables: vec!["alert_type".to_string(), "message".to_string(), "timestamp".to_string(), "details".to_string()],
+            variables: vec![
+                "alert_type".to_string(),
+                "message".to_string(),
+                "timestamp".to_string(),
+                "details".to_string(),
+            ],
             is_system_template: true,
             is_active: true,
             created_at: js_sys::Date::now() as u64,
@@ -723,7 +852,10 @@ impl NotificationService {
     }
 
     #[allow(clippy::result_large_err)]
-    fn get_default_template_for_trigger_type(&self, trigger_type: &str) -> ArbitrageResult<NotificationTemplate> {
+    fn get_default_template_for_trigger_type(
+        &self,
+        trigger_type: &str,
+    ) -> ArbitrageResult<NotificationTemplate> {
         match trigger_type {
             "opportunity_threshold" => Ok(self.create_opportunity_alert_template()),
             "balance_change" => Ok(self.create_balance_alert_template()),
@@ -766,7 +898,10 @@ mod tests {
     #[test]
     fn test_alert_trigger_creation() {
         let mut conditions = HashMap::new();
-        conditions.insert("min_rate_difference".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(0.02).unwrap()));
+        conditions.insert(
+            "min_rate_difference".to_string(),
+            serde_json::Value::Number(serde_json::Number::from_f64(0.02).unwrap()),
+        );
 
         let trigger = AlertTrigger {
             trigger_id: "test_trigger".to_string(),
@@ -795,7 +930,10 @@ mod tests {
     #[test]
     fn test_notification_creation() {
         let mut notification_data = HashMap::new();
-        notification_data.insert("rate_difference".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(2.5).unwrap()));
+        notification_data.insert(
+            "rate_difference".to_string(),
+            serde_json::Value::Number(serde_json::Number::from_f64(2.5).unwrap()),
+        );
 
         let notification = Notification {
             notification_id: "notif_123".to_string(),
@@ -816,7 +954,9 @@ mod tests {
 
         assert_eq!(notification.status, "pending");
         assert_eq!(notification.priority, "medium");
-        assert!(notification.notification_data.contains_key("rate_difference"));
+        assert!(notification
+            .notification_data
+            .contains_key("rate_difference"));
     }
 
     #[test]
@@ -825,8 +965,16 @@ mod tests {
         let template_id = "tmpl_opportunity_alert";
         let category = "opportunity";
         let is_system = true;
-        let variables = ["pair", "rate_difference", "long_exchange", "short_exchange", "long_rate", "short_rate", "potential_profit"];
-        
+        let variables = [
+            "pair",
+            "rate_difference",
+            "long_exchange",
+            "short_exchange",
+            "long_rate",
+            "short_rate",
+            "potential_profit",
+        ];
+
         // Verify template properties (this is a unit test, not integration)
         assert_eq!(template_id, "tmpl_opportunity_alert");
         assert_eq!(category, "opportunity");
@@ -841,4 +989,4 @@ mod tests {
     //     // Implementation would use mock D1Service, TelegramService, and KvStore
     //     // NotificationService::new(mock_d1, mock_telegram, mock_kv)
     // }
-} 
+}

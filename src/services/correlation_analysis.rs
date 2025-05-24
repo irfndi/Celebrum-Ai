@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-use crate::services::market_analysis::{PriceSeries, MathUtils};
-use crate::services::user_trading_preferences::{UserTradingPreferences, TradingFocus};
+use crate::services::market_analysis::{MathUtils, PriceSeries};
+use crate::services::user_trading_preferences::{TradingFocus, UserTradingPreferences};
 // use crate::utils::ArbitrageResult; // TODO: Re-enable when implementing correlation analysis
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,7 +95,7 @@ impl CorrelationAnalysisService {
 
         // Align timestamps and extract price pairs
         let aligned_pairs = self.align_price_data(exchange_a_data, exchange_b_data)?;
-        
+
         if aligned_pairs.len() < self.config.min_data_points {
             return Err("Insufficient aligned data points".to_string());
         }
@@ -131,11 +131,9 @@ impl CorrelationAnalysisService {
 
         // Test different lag periods
         for lag_seconds in 0..=self.config.max_lag_seconds {
-            if let Ok(correlation_data) = self.calculate_lagged_correlation(
-                leader_data,
-                follower_data,
-                lag_seconds,
-            ) {
+            if let Ok(correlation_data) =
+                self.calculate_lagged_correlation(leader_data, follower_data, lag_seconds)
+            {
                 if correlation_data.correlation > best_correlation {
                     best_correlation = correlation_data.correlation;
                     best_lag = lag_seconds;
@@ -180,7 +178,7 @@ impl CorrelationAnalysisService {
             .map_err(|e| format!("RSI calculation error for exchange A: {}", e))?;
         let rsi_b = MathUtils::relative_strength_index(&prices_b, 14)
             .map_err(|e| format!("RSI calculation error for exchange B: {}", e))?;
-        
+
         // Calculate SMA for both exchanges
         let sma_a = MathUtils::simple_moving_average(&prices_a, 20)
             .map_err(|e| format!("SMA calculation error for exchange A: {}", e))?;
@@ -192,12 +190,10 @@ impl CorrelationAnalysisService {
         let momentum_b = self.calculate_momentum(&prices_b, 10)?;
 
         // Calculate correlations between technical indicators
-        let rsi_correlation = MathUtils::price_correlation(&rsi_a, &rsi_b)
-            .unwrap_or(0.0);
-        let sma_correlation = MathUtils::price_correlation(&sma_a, &sma_b)
-            .unwrap_or(0.0);
-        let momentum_correlation = MathUtils::price_correlation(&momentum_a, &momentum_b)
-            .unwrap_or(0.0);
+        let rsi_correlation = MathUtils::price_correlation(&rsi_a, &rsi_b).unwrap_or(0.0);
+        let sma_correlation = MathUtils::price_correlation(&sma_a, &sma_b).unwrap_or(0.0);
+        let momentum_correlation =
+            MathUtils::price_correlation(&momentum_a, &momentum_b).unwrap_or(0.0);
 
         // Calculate overall technical correlation as weighted average
         let overall_correlation = (rsi_correlation + sma_correlation + momentum_correlation) / 3.0;
@@ -243,30 +239,30 @@ impl CorrelationAnalysisService {
                 let data_b = &exchange_data[exchange_b];
 
                 // Price correlation
-                if let Ok(price_corr) = self.calculate_price_correlation(
-                    data_a, data_b, exchange_a, exchange_b,
-                ) {
+                if let Ok(price_corr) =
+                    self.calculate_price_correlation(data_a, data_b, exchange_a, exchange_b)
+                {
                     price_correlations.push(price_corr);
                 }
 
                 // Leadership analysis (both directions)
-                if let Ok(leadership_ab) = self.analyze_exchange_leadership(
-                    data_a, data_b, exchange_a, exchange_b,
-                ) {
+                if let Ok(leadership_ab) =
+                    self.analyze_exchange_leadership(data_a, data_b, exchange_a, exchange_b)
+                {
                     leadership_analysis.push(leadership_ab);
                 }
 
-                if let Ok(leadership_ba) = self.analyze_exchange_leadership(
-                    data_b, data_a, exchange_b, exchange_a,
-                ) {
+                if let Ok(leadership_ba) =
+                    self.analyze_exchange_leadership(data_b, data_a, exchange_b, exchange_a)
+                {
                     leadership_analysis.push(leadership_ba);
                 }
 
                 // Technical correlation (if user is interested in technical analysis)
                 if user_preferences.trading_focus != TradingFocus::Arbitrage {
-                    if let Ok(tech_corr) = self.calculate_technical_correlation(
-                        data_a, data_b, exchange_a, exchange_b,
-                    ) {
+                    if let Ok(tech_corr) =
+                        self.calculate_technical_correlation(data_a, data_b, exchange_a, exchange_b)
+                    {
                         technical_correlations.push(tech_corr);
                     }
                 }
@@ -328,13 +324,16 @@ impl CorrelationAnalysisService {
 
         for leader_point in &leader_data.data_points {
             let target_time = leader_point.timestamp as i64 + lag_ms;
-            
+
             // Find follower price closest to target time
-            if let Some(follower_point) = follower_data.data_points.iter()
+            if let Some(follower_point) = follower_data
+                .data_points
+                .iter()
                 .min_by_key(|p| (p.timestamp as i64 - target_time).abs())
             {
                 let time_diff = (follower_point.timestamp as i64 - target_time).abs();
-                if time_diff <= 30000 { // 30 second tolerance in milliseconds
+                if time_diff <= 30000 {
+                    // 30 second tolerance in milliseconds
                     leader_prices.push(leader_point.price);
                     follower_prices.push(follower_point.price);
                 }
@@ -347,7 +346,8 @@ impl CorrelationAnalysisService {
 
         let correlation = MathUtils::price_correlation(&leader_prices, &follower_prices)
             .map_err(|e| format!("Lag correlation calculation error: {}", e))?;
-        let confidence = self.calculate_lag_correlation_confidence(&leader_prices, &follower_prices);
+        let confidence =
+            self.calculate_lag_correlation_confidence(&leader_prices, &follower_prices);
 
         Ok(LaggeddCorrelationResult {
             correlation,
@@ -381,14 +381,14 @@ impl CorrelationAnalysisService {
     fn calculate_correlation_confidence(&self, aligned_pairs: &[(f64, f64)]) -> f64 {
         let data_points = aligned_pairs.len() as f64;
         let base_confidence = (data_points / (self.config.min_data_points as f64 * 2.0)).min(1.0);
-        
+
         // Adjust confidence based on price variance
         let prices_a: Vec<f64> = aligned_pairs.iter().map(|(a, _)| *a).collect();
         let prices_b: Vec<f64> = aligned_pairs.iter().map(|(_, b)| *b).collect();
-        
+
         if let (Ok(std_a), Ok(std_b)) = (
             MathUtils::standard_deviation(&prices_a),
-            MathUtils::standard_deviation(&prices_b)
+            MathUtils::standard_deviation(&prices_b),
         ) {
             let variance_factor = if std_a > 0.0 && std_b > 0.0 {
                 1.0 // Good variance
@@ -416,14 +416,16 @@ impl CorrelationAnalysisService {
     ) -> f64 {
         let correlations = [rsi_corr.abs(), sma_corr.abs(), momentum_corr.abs()];
         let avg_correlation = correlations.iter().sum::<f64>() / correlations.len() as f64;
-        let variance = correlations.iter()
+        let variance = correlations
+            .iter()
             .map(|&x| (x - avg_correlation).powi(2))
-            .sum::<f64>() / correlations.len() as f64;
-        
+            .sum::<f64>()
+            / correlations.len() as f64;
+
         // Higher average correlation and lower variance = higher confidence
         let correlation_factor = avg_correlation;
         let consistency_factor = 1.0 - variance.min(1.0);
-        
+
         (correlation_factor + consistency_factor) / 2.0
     }
 
@@ -439,27 +441,33 @@ impl CorrelationAnalysisService {
 
         // Price correlation confidence (weight: 0.5)
         if !price_correlations.is_empty() {
-            let avg_price_confidence: f64 = price_correlations.iter()
+            let avg_price_confidence: f64 = price_correlations
+                .iter()
                 .map(|pc| pc.confidence_level)
-                .sum::<f64>() / price_correlations.len() as f64;
+                .sum::<f64>()
+                / price_correlations.len() as f64;
             total_confidence += avg_price_confidence * 0.5;
             weight_sum += 0.5;
         }
 
         // Leadership analysis confidence (weight: 0.3)
         if !leadership_analysis.is_empty() {
-            let avg_leadership_confidence: f64 = leadership_analysis.iter()
+            let avg_leadership_confidence: f64 = leadership_analysis
+                .iter()
                 .map(|la| la.confidence)
-                .sum::<f64>() / leadership_analysis.len() as f64;
+                .sum::<f64>()
+                / leadership_analysis.len() as f64;
             total_confidence += avg_leadership_confidence * 0.3;
             weight_sum += 0.3;
         }
 
         // Technical correlation confidence (weight: 0.2)
         if !technical_correlations.is_empty() {
-            let avg_technical_confidence: f64 = technical_correlations.iter()
+            let avg_technical_confidence: f64 = technical_correlations
+                .iter()
                 .map(|tc| tc.confidence)
-                .sum::<f64>() / technical_correlations.len() as f64;
+                .sum::<f64>()
+                / technical_correlations.len() as f64;
             total_confidence += avg_technical_confidence * 0.2;
             weight_sum += 0.2;
         }
@@ -482,15 +490,28 @@ struct LaggeddCorrelationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use crate::services::market_analysis::{PricePoint, PriceSeries, TimeFrame};
-    use crate::services::user_trading_preferences::{UserTradingPreferences, TradingFocus, ExperienceLevel, RiskTolerance, AutomationLevel, AutomationScope};
+    use crate::services::user_trading_preferences::{
+        AutomationLevel, AutomationScope, ExperienceLevel, RiskTolerance, TradingFocus,
+        UserTradingPreferences,
+    };
+    use std::collections::HashMap;
 
     // Helper functions for testing
 
-    fn create_test_price_series(base_time: u64, prices: Vec<f64>, time_intervals_ms: u64, exchange_id: &str, trading_pair: &str) -> PriceSeries {
-        let mut price_series = PriceSeries::new(trading_pair.to_string(), exchange_id.to_string(), TimeFrame::OneMinute);
-        
+    fn create_test_price_series(
+        base_time: u64,
+        prices: Vec<f64>,
+        time_intervals_ms: u64,
+        exchange_id: &str,
+        trading_pair: &str,
+    ) -> PriceSeries {
+        let mut price_series = PriceSeries::new(
+            trading_pair.to_string(),
+            exchange_id.to_string(),
+            TimeFrame::OneMinute,
+        );
+
         for (i, price) in prices.iter().enumerate() {
             let timestamp = base_time + (i as u64 * time_intervals_ms);
             let price_point = PricePoint {
@@ -502,17 +523,22 @@ mod tests {
             };
             price_series.add_price_point(price_point);
         }
-        
+
         price_series
     }
 
-    fn create_correlated_price_series(base_series: &PriceSeries, correlation: f64, noise: f64, exchange_id: &str) -> PriceSeries {
+    fn create_correlated_price_series(
+        base_series: &PriceSeries,
+        correlation: f64,
+        noise: f64,
+        exchange_id: &str,
+    ) -> PriceSeries {
         let mut correlated_series = PriceSeries::new(
             base_series.trading_pair.clone(),
             exchange_id.to_string(),
             base_series.timeframe.clone(),
         );
-        
+
         for (i, point) in base_series.data_points.iter().enumerate() {
             let base_price = point.price;
             let correlated_price = base_price * correlation + (i as f64 * noise);
@@ -525,17 +551,21 @@ mod tests {
             };
             correlated_series.add_price_point(correlated_point);
         }
-        
+
         correlated_series
     }
 
-    fn create_lagged_price_series(base_series: &PriceSeries, lag_ms: u64, exchange_id: &str) -> PriceSeries {
+    fn create_lagged_price_series(
+        base_series: &PriceSeries,
+        lag_ms: u64,
+        exchange_id: &str,
+    ) -> PriceSeries {
         let mut lagged_series = PriceSeries::new(
             base_series.trading_pair.clone(),
             exchange_id.to_string(),
             base_series.timeframe.clone(),
         );
-        
+
         for point in &base_series.data_points {
             let lagged_timestamp = point.timestamp + lag_ms;
             let lagged_point = PricePoint {
@@ -547,7 +577,7 @@ mod tests {
             };
             lagged_series.add_price_point(lagged_point);
         }
-        
+
         lagged_series
     }
 
@@ -586,7 +616,7 @@ mod tests {
     fn test_create_correlation_analysis_service() {
         let config = CorrelationAnalysisConfig::default();
         let service = CorrelationAnalysisService::new(config);
-        
+
         // Service should be created successfully
         assert!(std::mem::size_of_val(&service) > 0);
     }
@@ -595,18 +625,22 @@ mod tests {
     fn test_calculate_price_correlation_high_correlation() {
         let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
         let base_time = 1672531200000; // 2024-01-01 00:00:00 UTC in milliseconds
-        
+
         // Create highly correlated price series
-        let prices_a = vec![100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0,
-                           110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0];
+        let prices_a = vec![
+            100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 111.0,
+            112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0,
+        ];
         let series_a = create_test_price_series(base_time, prices_a, 60000, "binance", "BTC/USDT");
-        
-        let prices_b = vec![99.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0,
-                           109.0, 110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0];
+
+        let prices_b = vec![
+            99.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0,
+            111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0,
+        ];
         let series_b = create_test_price_series(base_time, prices_b, 60000, "bybit", "BTC/USDT");
-        
+
         let result = service.calculate_price_correlation(&series_a, &series_b, "binance", "bybit");
-        
+
         assert!(result.is_ok());
         let correlation_data = result.unwrap();
         assert_eq!(correlation_data.exchange_a, "binance");
@@ -620,14 +654,15 @@ mod tests {
     fn test_calculate_price_correlation_insufficient_data() {
         let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
         let base_time = 1672531200000;
-        
+
         // Create series with insufficient data points
         let prices = vec![100.0, 101.0, 102.0]; // Only 3 points, need 20
-        let series_a = create_test_price_series(base_time, prices.clone(), 60000, "binance", "BTC/USDT");
+        let series_a =
+            create_test_price_series(base_time, prices.clone(), 60000, "binance", "BTC/USDT");
         let series_b = create_test_price_series(base_time, prices, 60000, "bybit", "BTC/USDT");
-        
+
         let result = service.calculate_price_correlation(&series_a, &series_b, "binance", "bybit");
-        
+
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Insufficient data points"));
     }
@@ -636,17 +671,25 @@ mod tests {
     fn test_analyze_exchange_leadership() {
         let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
         let base_time = 1672531200000;
-        
+
         // Create leader and follower series
-        let leader_prices = vec![100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0,
-                                110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0];
-        let leader_series = create_test_price_series(base_time, leader_prices, 60000, "binance", "BTC/USDT");
-        
+        let leader_prices = vec![
+            100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 111.0,
+            112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0,
+        ];
+        let leader_series =
+            create_test_price_series(base_time, leader_prices, 60000, "binance", "BTC/USDT");
+
         // Create follower series with 2-minute lag
         let follower_series = create_lagged_price_series(&leader_series, 120000, "bybit"); // 120000ms = 2 minutes
-        
-        let result = service.analyze_exchange_leadership(&leader_series, &follower_series, "binance", "bybit");
-        
+
+        let result = service.analyze_exchange_leadership(
+            &leader_series,
+            &follower_series,
+            "binance",
+            "bybit",
+        );
+
         assert!(result.is_ok());
         let leadership = result.unwrap();
         assert_eq!(leadership.leading_exchange, "binance");
@@ -659,16 +702,19 @@ mod tests {
     fn test_calculate_technical_correlation() {
         let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
         let base_time = 1672531200000;
-        
+
         // Create two highly correlated price series for technical analysis
-        let prices_a = vec![100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0,
-                           110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0, 121.0, 122.0,
-                           123.0, 124.0, 125.0, 126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 132.0, 133.0, 134.0];
+        let prices_a = vec![
+            100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 111.0,
+            112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0, 121.0, 122.0, 123.0,
+            124.0, 125.0, 126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 132.0, 133.0, 134.0,
+        ];
         let series_a = create_test_price_series(base_time, prices_a, 60000, "binance", "BTC/USDT");
         let series_b = create_correlated_price_series(&series_a, 0.98, 0.01, "bybit");
-        
-        let result = service.calculate_technical_correlation(&series_a, &series_b, "binance", "bybit");
-        
+
+        let result =
+            service.calculate_technical_correlation(&series_a, &series_b, "binance", "bybit");
+
         assert!(result.is_ok());
         let tech_correlation = result.unwrap();
         assert_eq!(tech_correlation.exchange_a, "binance");
@@ -685,21 +731,25 @@ mod tests {
         let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
         let base_time = 1672531200000;
         let user_preferences = create_test_user_preferences(TradingFocus::Arbitrage);
-        
+
         // Create exchange data
-        let prices = vec![100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0,
-                         110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0];
-        let binance_series = create_test_price_series(base_time, prices, 60000, "binance", "BTC/USDT");
+        let prices = vec![
+            100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 111.0,
+            112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0,
+        ];
+        let binance_series =
+            create_test_price_series(base_time, prices, 60000, "binance", "BTC/USDT");
         let bybit_series = create_correlated_price_series(&binance_series, 0.95, 0.02, "bybit");
         let okx_series = create_correlated_price_series(&binance_series, 0.90, 0.05, "okx");
-        
+
         let mut exchange_data = HashMap::new();
         exchange_data.insert("binance".to_string(), binance_series);
         exchange_data.insert("bybit".to_string(), bybit_series);
         exchange_data.insert("okx".to_string(), okx_series);
-        
-        let result = service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
-        
+
+        let result =
+            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+
         assert!(result.is_ok());
         let metrics = result.unwrap();
         assert_eq!(metrics.trading_pair, "BTC/USDT");
@@ -715,20 +765,24 @@ mod tests {
         let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
         let base_time = 1672531200000;
         let user_preferences = create_test_user_preferences(TradingFocus::Technical);
-        
+
         // Create exchange data with enough data for technical analysis
-        let prices = vec![100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0,
-                         110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0, 121.0, 122.0,
-                         123.0, 124.0, 125.0, 126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 132.0, 133.0, 134.0];
-        let binance_series = create_test_price_series(base_time, prices, 60000, "binance", "BTC/USDT");
+        let prices = vec![
+            100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 111.0,
+            112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0, 121.0, 122.0, 123.0,
+            124.0, 125.0, 126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 132.0, 133.0, 134.0,
+        ];
+        let binance_series =
+            create_test_price_series(base_time, prices, 60000, "binance", "BTC/USDT");
         let bybit_series = create_correlated_price_series(&binance_series, 0.95, 0.02, "bybit");
-        
+
         let mut exchange_data = HashMap::new();
         exchange_data.insert("binance".to_string(), binance_series);
         exchange_data.insert("bybit".to_string(), bybit_series);
-        
-        let result = service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
-        
+
+        let result =
+            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+
         assert!(result.is_ok());
         let metrics = result.unwrap();
         assert_eq!(metrics.trading_pair, "BTC/USDT");
@@ -743,17 +797,19 @@ mod tests {
     fn test_generate_correlation_metrics_insufficient_exchanges() {
         let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
         let user_preferences = create_test_user_preferences(TradingFocus::Arbitrage);
-        
+
         // Create exchange data with only one exchange
         let base_time = 1672531200000;
         let prices = vec![100.0, 101.0, 102.0];
-        let binance_series = create_test_price_series(base_time, prices, 60000, "binance", "BTC/USDT");
-        
+        let binance_series =
+            create_test_price_series(base_time, prices, 60000, "binance", "BTC/USDT");
+
         let mut exchange_data = HashMap::new();
         exchange_data.insert("binance".to_string(), binance_series);
-        
-        let result = service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
-        
+
+        let result =
+            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Need at least 2 exchanges"));
     }
@@ -761,7 +817,7 @@ mod tests {
     #[test]
     fn test_correlation_analysis_config_default() {
         let config = CorrelationAnalysisConfig::default();
-        
+
         assert_eq!(config.min_data_points, 20);
         assert_eq!(config.max_lag_seconds, 300);
         assert_eq!(config.correlation_threshold, 0.5);
@@ -780,9 +836,9 @@ mod tests {
             technical_correlation_weight: 0.5,
             confidence_threshold: 0.85,
         };
-        
+
         let service = CorrelationAnalysisService::new(config);
-        
+
         // Service should be created with custom config
         assert!(std::mem::size_of_val(&service) > 0);
     }
@@ -790,7 +846,8 @@ mod tests {
     #[test]
     fn test_exchange_correlation_data_serialization() {
         #[cfg(target_arch = "wasm32")]
-        let now = chrono::DateTime::from_timestamp_millis(js_sys::Date::now() as i64).unwrap_or_default();
+        let now =
+            chrono::DateTime::from_timestamp_millis(js_sys::Date::now() as i64).unwrap_or_default();
         #[cfg(not(target_arch = "wasm32"))]
         let now = chrono::Utc::now();
 
@@ -802,15 +859,16 @@ mod tests {
             data_points: 100,
             analysis_timestamp: now,
         };
-        
+
         // Test serialization
         let serialized = serde_json::to_string(&correlation_data);
         assert!(serialized.is_ok());
-        
+
         // Test deserialization
-        let deserialized: Result<ExchangeCorrelationData, _> = serde_json::from_str(&serialized.unwrap());
+        let deserialized: Result<ExchangeCorrelationData, _> =
+            serde_json::from_str(&serialized.unwrap());
         assert!(deserialized.is_ok());
-        
+
         let deserialized_data = deserialized.unwrap();
         assert_eq!(deserialized_data.exchange_a, "binance");
         assert_eq!(deserialized_data.exchange_b, "bybit");
@@ -821,18 +879,22 @@ mod tests {
     fn test_correlation_confidence_calculation() {
         let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
         let base_time = 1672531200000;
-        
+
         // Create data with good variance
-        let prices_a = vec![100.0, 105.0, 98.0, 110.0, 95.0, 112.0, 93.0, 115.0, 90.0, 118.0,
-                           88.0, 120.0, 85.0, 122.0, 83.0, 125.0, 80.0, 128.0, 78.0, 130.0, 75.0];
-        let prices_b = vec![101.0, 106.0, 99.0, 111.0, 96.0, 113.0, 94.0, 116.0, 91.0, 119.0,
-                           89.0, 121.0, 86.0, 123.0, 84.0, 126.0, 81.0, 129.0, 79.0, 131.0, 76.0];
-        
+        let prices_a = vec![
+            100.0, 105.0, 98.0, 110.0, 95.0, 112.0, 93.0, 115.0, 90.0, 118.0, 88.0, 120.0, 85.0,
+            122.0, 83.0, 125.0, 80.0, 128.0, 78.0, 130.0, 75.0,
+        ];
+        let prices_b = vec![
+            101.0, 106.0, 99.0, 111.0, 96.0, 113.0, 94.0, 116.0, 91.0, 119.0, 89.0, 121.0, 86.0,
+            123.0, 84.0, 126.0, 81.0, 129.0, 79.0, 131.0, 76.0,
+        ];
+
         let series_a = create_test_price_series(base_time, prices_a, 60000, "binance", "BTC/USDT");
         let series_b = create_test_price_series(base_time, prices_b, 60000, "bybit", "BTC/USDT");
-        
+
         let result = service.calculate_price_correlation(&series_a, &series_b, "binance", "bybit");
-        
+
         assert!(result.is_ok());
         let correlation_data = result.unwrap();
         // Should have reasonable confidence due to good data variance
@@ -844,27 +906,31 @@ mod tests {
         let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
         let base_time = 1672531200000;
         let user_preferences = create_test_user_preferences(TradingFocus::Technical);
-        
+
         // Create data for 4 exchanges with enough data for technical analysis
-        let base_prices = vec![100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0,
-                              110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0, 121.0, 122.0,
-                              123.0, 124.0, 125.0, 126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 132.0, 133.0, 134.0];
-        let binance_series = create_test_price_series(base_time, base_prices, 60000, "binance", "BTC/USDT");
+        let base_prices = vec![
+            100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 111.0,
+            112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0, 121.0, 122.0, 123.0,
+            124.0, 125.0, 126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 132.0, 133.0, 134.0,
+        ];
+        let binance_series =
+            create_test_price_series(base_time, base_prices, 60000, "binance", "BTC/USDT");
         let bybit_series = create_correlated_price_series(&binance_series, 0.95, 0.02, "bybit");
         let okx_series = create_correlated_price_series(&binance_series, 0.90, 0.05, "okx");
         let bitget_series = create_correlated_price_series(&binance_series, 0.85, 0.08, "bitget");
-        
+
         let mut exchange_data = HashMap::new();
         exchange_data.insert("binance".to_string(), binance_series);
         exchange_data.insert("bybit".to_string(), bybit_series);
         exchange_data.insert("okx".to_string(), okx_series);
         exchange_data.insert("bitget".to_string(), bitget_series);
-        
-        let result = service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
-        
+
+        let result =
+            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+
         assert!(result.is_ok());
         let metrics = result.unwrap();
-        
+
         // With 4 exchanges, we should have 6 price correlations (4 choose 2)
         assert_eq!(metrics.price_correlations.len(), 6);
         // We should have 12 leadership analyses (6 pairs × 2 directions)
@@ -873,4 +939,4 @@ mod tests {
         assert_eq!(metrics.technical_correlations.len(), 6);
         assert!(metrics.confidence_score > 0.0);
     }
-} 
+}

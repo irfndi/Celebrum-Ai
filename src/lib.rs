@@ -6,17 +6,17 @@ pub mod types;
 pub mod utils;
 
 use serde_json::json;
+use services::d1_database::D1Service;
 use services::exchange::{ExchangeInterface, ExchangeService};
 use services::opportunity::{OpportunityService, OpportunityServiceConfig};
 use services::positions::{CreatePositionData, ProductionPositionsService, UpdatePositionData};
 use services::telegram::TelegramService;
+use services::user_profile::UserProfileService;
+use std::collections::HashMap;
 use std::sync::Arc;
 use types::{AccountInfo, ExchangeIdEnum, StructuredTradingPair};
 use utils::{ArbitrageError, ArbitrageResult};
-use std::collections::HashMap;
 use uuid::Uuid;
-use services::user_profile::UserProfileService;
-use services::d1_database::D1Service;
 
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
@@ -125,7 +125,9 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
 
 /// Parse exchanges from environment string, returning error if less than two
 #[allow(clippy::result_large_err)]
-fn parse_exchanges_from_env(exchanges_str: &str) -> std::result::Result<Vec<ExchangeIdEnum>, ArbitrageError> {
+fn parse_exchanges_from_env(
+    exchanges_str: &str,
+) -> std::result::Result<Vec<ExchangeIdEnum>, ArbitrageError> {
     let exchanges: Vec<ExchangeIdEnum> = exchanges_str
         .split(',')
         .filter_map(|s| match s.trim() {
@@ -138,25 +140,33 @@ fn parse_exchanges_from_env(exchanges_str: &str) -> std::result::Result<Vec<Exch
         .collect();
 
     if exchanges.len() < 2 {
-        Err(ArbitrageError::config_error("At least two exchanges must be configured"))
+        Err(ArbitrageError::config_error(
+            "At least two exchanges must be configured",
+        ))
     } else {
         Ok(exchanges)
     }
 }
 
 /// Create OpportunityService by reading environment variables and initializing services
-async fn create_opportunity_service(custom_env: &types::Env) -> ArbitrageResult<OpportunityService> {
+async fn create_opportunity_service(
+    custom_env: &types::Env,
+) -> ArbitrageResult<OpportunityService> {
     // Parse configuration from environment
     let exchanges_str = custom_env.worker_env.var("EXCHANGES")?.to_string();
     let exchanges = parse_exchanges_from_env(&exchanges_str)?;
 
-    let monitored_pairs_str = custom_env.worker_env.var("MONITORED_PAIRS_CONFIG")?.to_string();
-    let monitored_pairs: Vec<StructuredTradingPair> =
-        serde_json::from_str(&monitored_pairs_str).map_err(|e| {
+    let monitored_pairs_str = custom_env
+        .worker_env
+        .var("MONITORED_PAIRS_CONFIG")?
+        .to_string();
+    let monitored_pairs: Vec<StructuredTradingPair> = serde_json::from_str(&monitored_pairs_str)
+        .map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to parse monitored pairs: {}", e))
         })?;
 
-    let threshold: f64 = custom_env.worker_env
+    let threshold: f64 = custom_env
+        .worker_env
         .var("ARBITRAGE_THRESHOLD")
         .map(|v| v.to_string())
         .unwrap_or_else(|_| "0.001".to_string())
@@ -166,9 +176,10 @@ async fn create_opportunity_service(custom_env: &types::Env) -> ArbitrageResult<
     // Create services
     let exchange_service = Arc::new(ExchangeService::new(custom_env)?);
 
-    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) =
-        (custom_env.worker_env.var("TELEGRAM_BOT_TOKEN"), custom_env.worker_env.var("TELEGRAM_CHAT_ID"))
-    {
+    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) = (
+        custom_env.worker_env.var("TELEGRAM_BOT_TOKEN"),
+        custom_env.worker_env.var("TELEGRAM_CHAT_ID"),
+    ) {
         Some(Arc::new(TelegramService::new(
             services::telegram::TelegramConfig {
                 bot_token: bot_token.to_string(),
@@ -185,7 +196,11 @@ async fn create_opportunity_service(custom_env: &types::Env) -> ArbitrageResult<
         threshold,
     };
 
-    Ok(OpportunityService::new(opportunity_config, exchange_service, telegram_service))
+    Ok(OpportunityService::new(
+        opportunity_config,
+        exchange_service,
+        telegram_service,
+    ))
 }
 
 // Handler implementations
@@ -250,16 +265,22 @@ async fn handle_get_ticker(req: Request, env: Env) -> Result<Response> {
 async fn handle_funding_rate(req: Request, env: Env) -> Result<Response> {
     let url = req.url()?;
     let query_params: HashMap<String, String> = url.query_pairs().into_owned().collect();
-    
-    let exchange_id = query_params.get("exchange").unwrap_or(&"binance".to_string()).clone();
-    let symbol = query_params.get("symbol").unwrap_or(&"BTCUSDT".to_string()).clone();
-    
+
+    let exchange_id = query_params
+        .get("exchange")
+        .unwrap_or(&"binance".to_string())
+        .clone();
+    let symbol = query_params
+        .get("symbol")
+        .unwrap_or(&"BTCUSDT".to_string())
+        .clone();
+
     let custom_env = types::Env::new(env);
     let exchange_service = match ExchangeService::new(&custom_env) {
         Ok(service) => service,
         Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500),
     };
-    
+
     match exchange_service
         .fetch_funding_rates(&exchange_id, Some(&symbol))
         .await
@@ -270,9 +291,9 @@ async fn handle_funding_rate(req: Request, env: Env) -> Result<Response> {
 }
 
 async fn handle_find_opportunities(mut req: Request, env: Env) -> Result<Response> {
-    // Create custom env first 
+    // Create custom env first
     let custom_env = types::Env::new(env);
-    
+
     // Parse request body for trading pairs (optional)
     let request_data: serde_json::Value = match req.json().await {
         Ok(data) => data,
@@ -292,14 +313,14 @@ async fn handle_find_opportunities(mut req: Request, env: Env) -> Result<Respons
         .filter_map(|v| v.as_str().map(|s| s.to_string()))
         .collect();
 
-    let _min_threshold = request_data["min_threshold"]
-        .as_f64()
-        .unwrap_or(0.01);
+    let _min_threshold = request_data["min_threshold"].as_f64().unwrap_or(0.01);
 
     // Create opportunity service using helper
     let opportunity_service = match create_opportunity_service(&custom_env).await {
         Ok(service) => service,
-        Err(e) => return Response::error(format!("Failed to create opportunity service: {}", e), 500),
+        Err(e) => {
+            return Response::error(format!("Failed to create opportunity service: {}", e), 500)
+        }
     };
 
     // Find opportunities
@@ -348,9 +369,12 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
 async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> {
     let kv = env.kv("ArbEdgeKV")?;
     let d1_service = D1Service::new(&env)?;
-    let encryption_key = env.var("ENCRYPTION_KEY")
+    let encryption_key = env
+        .var("ENCRYPTION_KEY")
         .map(|v| v.to_string())
-        .map_err(|_| worker::Error::RustError("ENCRYPTION_KEY environment variable is required".to_string()))?;
+        .map_err(|_| {
+            worker::Error::RustError("ENCRYPTION_KEY environment variable is required".to_string())
+        })?;
     let user_profile_service = UserProfileService::new(kv.clone(), d1_service, encryption_key);
     let positions_service = ProductionPositionsService::new(kv);
 
@@ -361,7 +385,9 @@ async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> 
         None => return Response::error("Missing user_id in request", 400),
     };
     let position_data: CreatePositionData = serde_json::from_value(position_data_json.clone())
-        .map_err(|e| worker::Error::RustError(format!("Failed to parse CreatePositionData: {}", e)))?;
+        .map_err(|e| {
+            worker::Error::RustError(format!("Failed to parse CreatePositionData: {}", e))
+        })?;
 
     // Fetch real account info from user profile
     let user_profile = match user_profile_service.get_user_profile(user_id).await {
@@ -373,7 +399,10 @@ async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> 
         total_balance_usd: user_profile.total_pnl_usdt, // TODO: Replace with real balance field when available
     };
 
-    match positions_service.create_position(position_data, &account_info).await {
+    match positions_service
+        .create_position(position_data, &account_info)
+        .await
+    {
         Ok(position) => Response::from_json(&position),
         Err(e) => match e.kind {
             crate::utils::error::ErrorKind::DatabaseError => Response::error(e.message, 500),
@@ -386,7 +415,7 @@ async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> 
                 Response::error(format!("Exchange error: {}", e.message), 500)
             }
             _ => Response::error(format!("Failed to create position: {}", e), 500),
-        }
+        },
     }
 }
 
@@ -437,7 +466,7 @@ async fn handle_close_position(_req: Request, env: Env, id: &str) -> Result<Resp
 
 async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
     let custom_env = types::Env::new(env);
-    
+
     // Create opportunity service using helper
     let opportunity_service = create_opportunity_service(&custom_env).await?;
 
@@ -465,7 +494,7 @@ mod tests {
     fn test_parse_exchanges_from_env_valid_input() {
         let exchanges_str = "binance,bybit,okx";
         let result = parse_exchanges_from_env(exchanges_str).unwrap();
-        
+
         assert_eq!(result.len(), 3);
         assert!(result.contains(&ExchangeIdEnum::Binance));
         assert!(result.contains(&ExchangeIdEnum::Bybit));
@@ -476,7 +505,7 @@ mod tests {
     fn test_parse_exchanges_from_env_with_whitespace() {
         let exchanges_str = " binance , bybit , okx ";
         let result = parse_exchanges_from_env(exchanges_str).unwrap();
-        
+
         assert_eq!(result.len(), 3);
         assert!(result.contains(&ExchangeIdEnum::Binance));
         assert!(result.contains(&ExchangeIdEnum::Bybit));
@@ -487,7 +516,7 @@ mod tests {
     fn test_parse_exchanges_from_env_invalid_exchange() {
         let exchanges_str = "binance,invalid_exchange,okx";
         let result = parse_exchanges_from_env(exchanges_str).unwrap();
-        
+
         // Should only contain valid exchanges
         assert_eq!(result.len(), 2);
         assert!(result.contains(&ExchangeIdEnum::Binance));
@@ -498,16 +527,19 @@ mod tests {
     fn test_parse_exchanges_from_env_insufficient_exchanges() {
         let exchanges_str = "binance";
         let result = parse_exchanges_from_env(exchanges_str);
-        
+
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("At least two exchanges must be configured"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("At least two exchanges must be configured"));
     }
 
     #[test]
     fn test_parse_exchanges_from_env_empty_string() {
         let exchanges_str = "";
         let result = parse_exchanges_from_env(exchanges_str);
-        
+
         assert!(result.is_err());
     }
 
@@ -515,7 +547,7 @@ mod tests {
     fn test_parse_exchanges_from_env_all_supported() {
         let exchanges_str = "binance,bybit,okx,bitget";
         let result = parse_exchanges_from_env(exchanges_str).unwrap();
-        
+
         assert_eq!(result.len(), 4);
         assert!(result.contains(&ExchangeIdEnum::Binance));
         assert!(result.contains(&ExchangeIdEnum::Bybit));
@@ -531,7 +563,7 @@ mod tests {
         fn test_health_endpoint_routing() {
             let method = Method::Get;
             let path = "/health";
-            
+
             match (method, path) {
                 (Method::Get, "/health") => {
                     // This should match the health endpoint
@@ -545,7 +577,7 @@ mod tests {
         fn test_kv_test_endpoint_routing() {
             let method = Method::Get;
             let path = "/kv-test";
-            
+
             match (method, path) {
                 (Method::Get, "/kv-test") => {
                     // KV test endpoint route matched
@@ -564,9 +596,9 @@ mod tests {
 
             for (method, path) in exchange_routes {
                 match (method, path) {
-                    (Method::Get, "/exchange/markets") |
-                    (Method::Get, "/exchange/ticker") |
-                    (Method::Get, "/exchange/funding") => {
+                    (Method::Get, "/exchange/markets")
+                    | (Method::Get, "/exchange/ticker")
+                    | (Method::Get, "/exchange/funding") => {
                         // Exchange endpoint matched
                     }
                     _ => panic!("Exchange endpoint should match for {}", path),
@@ -578,7 +610,7 @@ mod tests {
         fn test_opportunity_endpoint_routing() {
             let method = Method::Post;
             let path = "/find-opportunities";
-            
+
             match (method, path) {
                 (Method::Post, "/find-opportunities") => {
                     // Find opportunities endpoint matched
@@ -591,7 +623,7 @@ mod tests {
         fn test_telegram_webhook_routing() {
             let method = Method::Post;
             let path = "/webhook";
-            
+
             match (method, path) {
                 (Method::Post, "/webhook") => {
                     // Telegram webhook endpoint matched
@@ -605,15 +637,23 @@ mod tests {
             let position_routes = vec![
                 (Method::Post, "/positions"),
                 (Method::Get, "/positions"),
-                (Method::Get, "/positions/123e4567-e89b-12d3-a456-426614174000"),
-                (Method::Put, "/positions/123e4567-e89b-12d3-a456-426614174000"),
-                (Method::Delete, "/positions/123e4567-e89b-12d3-a456-426614174000"),
+                (
+                    Method::Get,
+                    "/positions/123e4567-e89b-12d3-a456-426614174000",
+                ),
+                (
+                    Method::Put,
+                    "/positions/123e4567-e89b-12d3-a456-426614174000",
+                ),
+                (
+                    Method::Delete,
+                    "/positions/123e4567-e89b-12d3-a456-426614174000",
+                ),
             ];
 
             for (method, path) in position_routes {
                 match (&method, path) {
-                    (Method::Post, "/positions") |
-                    (Method::Get, "/positions") => {
+                    (Method::Post, "/positions") | (Method::Get, "/positions") => {
                         // Positions endpoint matched
                     }
                     (Method::Get, path) if path.starts_with("/positions/") => {
@@ -664,15 +704,15 @@ mod tests {
 
             for (method, path) in unmatched_routes {
                 match (method, path) {
-                    (Method::Get, "/health") |
-                    (Method::Get, "/kv-test") |
-                    (Method::Get, "/exchange/markets") |
-                    (Method::Get, "/exchange/ticker") |
-                    (Method::Get, "/exchange/funding") |
-                    (Method::Post, "/find-opportunities") |
-                    (Method::Post, "/webhook") |
-                    (Method::Post, "/positions") |
-                    (Method::Get, "/positions") => {
+                    (Method::Get, "/health")
+                    | (Method::Get, "/kv-test")
+                    | (Method::Get, "/exchange/markets")
+                    | (Method::Get, "/exchange/ticker")
+                    | (Method::Get, "/exchange/funding")
+                    | (Method::Post, "/find-opportunities")
+                    | (Method::Post, "/webhook")
+                    | (Method::Post, "/positions")
+                    | (Method::Get, "/positions") => {
                         panic!("Route should not match known endpoints");
                     }
                     (Method::Get, path) if path.starts_with("/positions/") => {
@@ -697,10 +737,10 @@ mod tests {
         #[test]
         fn test_scheduled_cron_pattern_matching() {
             let cron_patterns = vec![
-                "* * * * *",      // Every minute (should match)
-                "0 * * * *",      // Every hour (should not match)
-                "0 0 * * *",      // Every day (should not match)
-                "invalid",        // Invalid pattern (should not match)
+                "* * * * *", // Every minute (should match)
+                "0 * * * *", // Every hour (should not match)
+                "0 0 * * *", // Every day (should not match)
+                "invalid",   // Invalid pattern (should not match)
             ];
 
             for cron in cron_patterns {
@@ -749,7 +789,8 @@ mod tests {
                 ("limit".to_string(), "100".to_string()),
             ];
 
-            let query_map: std::collections::HashMap<String, String> = query_params.into_iter().collect();
+            let query_map: std::collections::HashMap<String, String> =
+                query_params.into_iter().collect();
 
             assert_eq!(query_map.get("exchange"), Some(&"binance".to_string()));
             assert_eq!(query_map.get("symbol"), Some(&"BTCUSDT".to_string()));
@@ -800,9 +841,7 @@ mod tests {
                 "min_threshold": 0.05
             });
 
-            let min_threshold = request_data["min_threshold"]
-                .as_f64()
-                .unwrap_or(0.01);
+            let min_threshold = request_data["min_threshold"].as_f64().unwrap_or(0.01);
 
             assert_eq!(min_threshold, 0.05);
         }
@@ -832,7 +871,7 @@ mod tests {
         fn test_error_response_format() {
             let error_message = "Failed to create exchange service";
             let error_response = format!("Failed to create exchange service: {}", error_message);
-            
+
             assert!(error_response.contains("Failed to create exchange service"));
         }
     }
@@ -873,7 +912,8 @@ mod tests {
                 {"base": "ETH", "quote": "USDT", "type": "spot"}
             ]"#;
 
-            let parsed: std::result::Result<serde_json::Value, serde_json::Error> = serde_json::from_str(pairs_config);
+            let parsed: std::result::Result<serde_json::Value, serde_json::Error> =
+                serde_json::from_str(pairs_config);
             assert!(parsed.is_ok());
 
             let pairs = parsed.unwrap();
@@ -890,7 +930,7 @@ mod tests {
         fn test_url_path_extraction() {
             let path = "/positions/123e4567-e89b-12d3-a456-426614174000";
             let id = path.strip_prefix("/positions/").unwrap();
-            
+
             assert_eq!(id, "123e4567-e89b-12d3-a456-426614174000");
             assert!(Uuid::parse_str(id).is_ok());
         }

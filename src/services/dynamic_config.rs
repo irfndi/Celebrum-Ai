@@ -1,13 +1,13 @@
 // src/services/dynamic_config.rs
 
+use crate::services::D1Service;
 use crate::types::SubscriptionTier;
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use crate::services::D1Service;
-use worker::kv::KvStore;
-use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
+use worker::kv::KvStore;
 // use serde_json::json; // Conditionally imported in tests
 
 /// Dynamic Configuration Service for Task 7
@@ -77,7 +77,7 @@ pub enum ParameterType {
 pub struct ValidationRules {
     pub required: bool,
     pub custom_validation: Option<String>, // JSON schema or custom rules
-    pub depends_on: Option<String>, // Parameter key this depends on
+    pub depends_on: Option<String>,        // Parameter key this depends on
     pub min_subscription_tier: Option<SubscriptionTier>,
 }
 
@@ -178,10 +178,7 @@ impl DynamicConfigService {
     }
 
     /// Create a new configuration template
-    pub async fn create_template(
-        &self,
-        template: &DynamicConfigTemplate,
-    ) -> ArbitrageResult<()> {
+    pub async fn create_template(&self, template: &DynamicConfigTemplate) -> ArbitrageResult<()> {
         // Validate template structure
         self.validate_template(template)?;
 
@@ -189,18 +186,26 @@ impl DynamicConfigService {
         self.d1_service.store_config_template(template).await?;
 
         // Cache in KV for quick access
-        let template_json = serde_json::to_string(template)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize template: {}", e)))?;
+        let template_json = serde_json::to_string(template).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize template: {}", e))
+        })?;
         let cache_key = format!("config_template:{}", template.template_id);
-        self.kv_store.put(&cache_key, template_json)?
-            .execute().await
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to cache template: {}", e)))?;
+        self.kv_store
+            .put(&cache_key, template_json)?
+            .execute()
+            .await
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to cache template: {}", e))
+            })?;
 
         Ok(())
     }
 
     /// Get configuration template by ID
-    pub async fn get_template(&self, template_id: &str) -> ArbitrageResult<Option<DynamicConfigTemplate>> {
+    pub async fn get_template(
+        &self,
+        template_id: &str,
+    ) -> ArbitrageResult<Option<DynamicConfigTemplate>> {
         // Try cache first
         let cache_key = format!("config_template:{}", template_id);
         if let Ok(Some(cached)) = self.kv_store.get(&cache_key).text().await {
@@ -214,13 +219,22 @@ impl DynamicConfigService {
 
         if let Some(row) = result {
             if let Some(parameters_json) = row.get("parameters") {
-                let template: DynamicConfigTemplate = serde_json::from_str(&parameters_json.to_string())
-                    .map_err(|e| ArbitrageError::parse_error(format!("Failed to deserialize template: {}", e)))?;
-                
+                let template: DynamicConfigTemplate =
+                    serde_json::from_str(&parameters_json.to_string()).map_err(|e| {
+                        ArbitrageError::parse_error(format!(
+                            "Failed to deserialize template: {}",
+                            e
+                        ))
+                    })?;
+
                 // Cache for future requests
                 let template_json = serde_json::to_string(&template)?;
-                let _ = self.kv_store.put(&cache_key, template_json)?.execute().await;
-                
+                let _ = self
+                    .kv_store
+                    .put(&cache_key, template_json)?
+                    .execute()
+                    .await;
+
                 return Ok(Some(template));
             }
         }
@@ -252,13 +266,18 @@ impl DynamicConfigService {
         preset_id: Option<String>,
     ) -> ArbitrageResult<UserConfigInstance> {
         // Get template and validate parameters
-        let template = self.get_template(template_id).await?
+        let template = self
+            .get_template(template_id)
+            .await?
             .ok_or_else(|| ArbitrageError::not_found("Template not found"))?;
 
-        let validation_result = self.validate_user_config(&template, &parameter_values, user_id).await?;
+        let validation_result = self
+            .validate_user_config(&template, &parameter_values, user_id)
+            .await?;
         if !validation_result.is_valid {
             return Err(ArbitrageError::validation_error(format!(
-                "Configuration validation failed: {:?}", validation_result.errors
+                "Configuration validation failed: {:?}",
+                validation_result.errors
             )));
         }
 
@@ -288,19 +307,27 @@ impl DynamicConfigService {
 
         // Deactivate previous config
         if has_current_config {
-            self.d1_service.deactivate_user_config(user_id, template_id).await?;
+            self.d1_service
+                .deactivate_user_config(user_id, template_id)
+                .await?;
         }
 
         // Store new config
-        self.d1_service.store_user_config_instance(&instance).await?;
+        self.d1_service
+            .store_user_config_instance(&instance)
+            .await?;
 
         // Cache active config
         let cache_key = format!("user_config:{}:{}", user_id, template_id);
         let instance_json = serde_json::to_string(&instance)?;
-        self.kv_store.put(&cache_key, instance_json)?
+        self.kv_store
+            .put(&cache_key, instance_json)?
             .expiration_ttl(3600) // 1 hour cache
-            .execute().await
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to cache config: {}", e)))?;
+            .execute()
+            .await
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to cache config: {}", e))
+            })?;
 
         Ok(instance)
     }
@@ -320,62 +347,95 @@ impl DynamicConfigService {
         }
 
         // Query D1
-        let result = self.d1_service.get_user_config_instance(user_id, template_id).await?;
+        let result = self
+            .d1_service
+            .get_user_config_instance(user_id, template_id)
+            .await?;
 
         if let Some(row) = result {
             let config = UserConfigInstance {
-                instance_id: row.get("instance_id")
+                instance_id: row
+                    .get("instance_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid instance_id field"))?
+                    .ok_or_else(|| {
+                        ArbitrageError::parse_error("Missing or invalid instance_id field")
+                    })?
                     .to_string(),
-                user_id: row.get("user_id")
+                user_id: row
+                    .get("user_id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid user_id field"))?
                     .to_string(),
-                template_id: row.get("template_id")
+                template_id: row
+                    .get("template_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid template_id field"))?
+                    .ok_or_else(|| {
+                        ArbitrageError::parse_error("Missing or invalid template_id field")
+                    })?
                     .to_string(),
-                preset_id: row.get("preset_id")
+                preset_id: row
+                    .get("preset_id")
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string()),
                 parameter_values: {
-                    let param_str = row.get("parameter_values")
+                    let param_str = row
+                        .get("parameter_values")
                         .and_then(|v| v.as_str())
-                        .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid parameter_values field"))?;
-                    serde_json::from_str(param_str)
-                        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse parameter_values JSON: {}", e)))?
+                        .ok_or_else(|| {
+                            ArbitrageError::parse_error("Missing or invalid parameter_values field")
+                        })?;
+                    serde_json::from_str(param_str).map_err(|e| {
+                        ArbitrageError::parse_error(format!(
+                            "Failed to parse parameter_values JSON: {}",
+                            e
+                        ))
+                    })?
                 },
                 version: {
-                    let version_str = row.get("version")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid version field"))?;
-                    version_str.parse()
-                        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse version: {}", e)))?
+                    let version_str =
+                        row.get("version").and_then(|v| v.as_str()).ok_or_else(|| {
+                            ArbitrageError::parse_error("Missing or invalid version field")
+                        })?;
+                    version_str.parse().map_err(|e| {
+                        ArbitrageError::parse_error(format!("Failed to parse version: {}", e))
+                    })?
                 },
                 is_active: {
-                    let active_str = row.get("is_active")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid is_active field"))?;
-                    active_str.parse()
-                        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse is_active: {}", e)))?
+                    let active_str =
+                        row.get("is_active")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                ArbitrageError::parse_error("Missing or invalid is_active field")
+                            })?;
+                    active_str.parse().map_err(|e| {
+                        ArbitrageError::parse_error(format!("Failed to parse is_active: {}", e))
+                    })?
                 },
                 created_at: {
-                    let created_str = row.get("created_at")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid created_at field"))?;
-                    created_str.parse()
-                        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse created_at: {}", e)))?
+                    let created_str =
+                        row.get("created_at")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                ArbitrageError::parse_error("Missing or invalid created_at field")
+                            })?;
+                    created_str.parse().map_err(|e| {
+                        ArbitrageError::parse_error(format!("Failed to parse created_at: {}", e))
+                    })?
                 },
                 updated_at: {
-                    let updated_str = row.get("updated_at")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid updated_at field"))?;
-                    updated_str.parse()
-                        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse updated_at: {}", e)))?
+                    let updated_str =
+                        row.get("updated_at")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                ArbitrageError::parse_error("Missing or invalid updated_at field")
+                            })?;
+                    updated_str.parse().map_err(|e| {
+                        ArbitrageError::parse_error(format!("Failed to parse updated_at: {}", e))
+                    })?
                 },
-                rollback_data: row.get("rollback_data")
+                rollback_data: row
+                    .get("rollback_data")
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string()),
@@ -383,7 +443,12 @@ impl DynamicConfigService {
 
             // Cache for future requests
             let config_json = serde_json::to_string(&config)?;
-            let _ = self.kv_store.put(&cache_key, config_json)?.expiration_ttl(3600).execute().await;
+            let _ = self
+                .kv_store
+                .put(&cache_key, config_json)?
+                .expiration_ttl(3600)
+                .execute()
+                .await;
 
             return Ok(Some(config));
         }
@@ -397,19 +462,23 @@ impl DynamicConfigService {
         user_id: &str,
         template_id: &str,
     ) -> ArbitrageResult<Option<UserConfigInstance>> {
-        let current_config = self.get_user_config(user_id, template_id).await?
+        let current_config = self
+            .get_user_config(user_id, template_id)
+            .await?
             .ok_or_else(|| ArbitrageError::not_found("No active configuration found"))?;
 
         if let Some(rollback_data) = &current_config.rollback_data {
             let previous_config: UserConfigInstance = serde_json::from_str(rollback_data)?;
-            
+
             // Apply the previous configuration
-            let restored_config = self.apply_user_config(
-                user_id,
-                template_id,
-                previous_config.parameter_values,
-                previous_config.preset_id,
-            ).await?;
+            let restored_config = self
+                .apply_user_config(
+                    user_id,
+                    template_id,
+                    previous_config.parameter_values,
+                    previous_config.preset_id,
+                )
+                .await?;
 
             // Clear cache
             let cache_key = format!("user_config:{}:{}", user_id, template_id);
@@ -417,7 +486,9 @@ impl DynamicConfigService {
 
             Ok(Some(restored_config))
         } else {
-            Err(ArbitrageError::validation_error("No previous configuration available for rollback"))
+            Err(ArbitrageError::validation_error(
+                "No previous configuration available for rollback",
+            ))
         }
     }
 
@@ -445,14 +516,18 @@ impl DynamicConfigService {
                                     errors.push(ValidationError {
                                         parameter_key: param.key.clone(),
                                         error_type: ValidationErrorType::OutOfRange,
-                                        message: format!("Value {} is below minimum {}", num, min_val),
+                                        message: format!(
+                                            "Value {} is below minimum {}",
+                                            num, min_val
+                                        ),
                                         suggested_value: if min_val.is_finite() {
                                             serde_json::Number::from_f64(*min_val)
                                                 .map(serde_json::Value::Number)
                                                 .unwrap_or_else(|| param.default_value.clone())
                                         } else {
                                             param.default_value.clone()
-                                        }.into(),
+                                        }
+                                        .into(),
                                     });
                                 }
                             }
@@ -461,14 +536,18 @@ impl DynamicConfigService {
                                     errors.push(ValidationError {
                                         parameter_key: param.key.clone(),
                                         error_type: ValidationErrorType::OutOfRange,
-                                        message: format!("Value {} is above maximum {}", num, max_val),
+                                        message: format!(
+                                            "Value {} is above maximum {}",
+                                            num, max_val
+                                        ),
                                         suggested_value: if max_val.is_finite() {
                                             serde_json::Number::from_f64(*max_val)
                                                 .map(serde_json::Value::Number)
                                                 .unwrap_or_else(|| param.default_value.clone())
                                         } else {
                                             param.default_value.clone()
-                                        }.into(),
+                                        }
+                                        .into(),
                                     });
                                 }
                             }
@@ -480,7 +559,7 @@ impl DynamicConfigService {
                                 suggested_value: Some(param.default_value.clone()),
                             });
                         }
-                    },
+                    }
                     ParameterType::Boolean => {
                         if !value.is_boolean() {
                             errors.push(ValidationError {
@@ -490,7 +569,7 @@ impl DynamicConfigService {
                                 suggested_value: Some(param.default_value.clone()),
                             });
                         }
-                    },
+                    }
                     ParameterType::Percentage => {
                         if let Some(num) = value.as_f64() {
                             if !(0.0..=1.0).contains(&num) {
@@ -505,8 +584,8 @@ impl DynamicConfigService {
                                 });
                             }
                         }
-                    },
-                    _ => {}, // Other types can be added
+                    }
+                    _ => {} // Other types can be added
                 }
 
                 // Subscription requirement validation
@@ -552,7 +631,7 @@ impl DynamicConfigService {
         let risk_template = self.create_risk_management_template();
         self.create_template(&risk_template).await?;
 
-        // Create trading strategy template  
+        // Create trading strategy template
         let strategy_template = self.create_trading_strategy_template();
         self.create_template(&strategy_template).await?;
 
@@ -566,20 +645,29 @@ impl DynamicConfigService {
     #[allow(clippy::result_large_err)]
     fn validate_template(&self, template: &DynamicConfigTemplate) -> ArbitrageResult<()> {
         if template.name.is_empty() {
-            return Err(ArbitrageError::validation_error("Template name cannot be empty"));
+            return Err(ArbitrageError::validation_error(
+                "Template name cannot be empty",
+            ));
         }
         if template.parameters.is_empty() {
-            return Err(ArbitrageError::validation_error("Template must have at least one parameter"));
+            return Err(ArbitrageError::validation_error(
+                "Template must have at least one parameter",
+            ));
         }
         Ok(())
     }
 
     #[allow(clippy::result_large_err)]
-    fn validate_preset_against_template(&self, preset: &ConfigPreset, template: &DynamicConfigTemplate) -> ArbitrageResult<()> {
+    fn validate_preset_against_template(
+        &self,
+        preset: &ConfigPreset,
+        template: &DynamicConfigTemplate,
+    ) -> ArbitrageResult<()> {
         for param in &template.parameters {
             if param.is_required && !preset.parameter_values.contains_key(&param.key) {
                 return Err(ArbitrageError::validation_error(format!(
-                    "Required parameter '{}' missing in preset", param.key
+                    "Required parameter '{}' missing in preset",
+                    param.key
                 )));
             }
         }
@@ -665,7 +753,8 @@ impl DynamicConfigService {
                 ConfigParameter {
                     key: "auto_trading_enabled".to_string(),
                     name: "Enable Auto Trading".to_string(),
-                    description: "Automatically execute trades when opportunities are detected".to_string(),
+                    description: "Automatically execute trades when opportunities are detected"
+                        .to_string(),
                     parameter_type: ParameterType::Boolean,
                     default_value: serde_json::Value::Bool(false),
                     validation_rules: ValidationRules {
@@ -694,11 +783,18 @@ impl DynamicConfigService {
             description: "Low-risk trading configuration for beginners".to_string(),
             template_id: "risk_management_v1".to_string(),
             parameter_values: [
-                ("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(500))),
-                ("stop_loss_percentage".to_string(), serde_json::Number::from_f64(0.01)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0)))), // fallback to 0% if float conversion fails
-            ].into(),
+                (
+                    "max_position_size_usd".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(500)),
+                ),
+                (
+                    "stop_loss_percentage".to_string(),
+                    serde_json::Number::from_f64(0.01)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0))),
+                ), // fallback to 0% if float conversion fails
+            ]
+            .into(),
             risk_level: RiskLevel::Conservative,
             target_audience: "beginner".to_string(),
             created_at: Utc::now().timestamp_millis() as u64,
@@ -712,11 +808,18 @@ impl DynamicConfigService {
             description: "Moderate-risk trading configuration".to_string(),
             template_id: "risk_management_v1".to_string(),
             parameter_values: [
-                ("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(1000))),
-                ("stop_loss_percentage".to_string(), serde_json::Number::from_f64(0.02)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0)))), // fallback to 0% if float conversion fails
-            ].into(),
+                (
+                    "max_position_size_usd".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(1000)),
+                ),
+                (
+                    "stop_loss_percentage".to_string(),
+                    serde_json::Number::from_f64(0.02)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0))),
+                ), // fallback to 0% if float conversion fails
+            ]
+            .into(),
             risk_level: RiskLevel::Balanced,
             target_audience: "intermediate".to_string(),
             created_at: Utc::now().timestamp_millis() as u64,
@@ -730,11 +833,18 @@ impl DynamicConfigService {
             description: "High-risk trading configuration for experienced traders".to_string(),
             template_id: "risk_management_v1".to_string(),
             parameter_values: [
-                ("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(2000))),
-                ("stop_loss_percentage".to_string(), serde_json::Number::from_f64(0.05)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0)))), // fallback to 0% if float conversion fails
-            ].into(),
+                (
+                    "max_position_size_usd".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(2000)),
+                ),
+                (
+                    "stop_loss_percentage".to_string(),
+                    serde_json::Number::from_f64(0.05)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0))),
+                ), // fallback to 0% if float conversion fails
+            ]
+            .into(),
             risk_level: RiskLevel::Aggressive,
             target_audience: "advanced".to_string(),
             created_at: Utc::now().timestamp_millis() as u64,
@@ -753,7 +863,10 @@ impl DynamicConfigService {
         match self.d1_service.get_user_profile(user_id).await? {
             Some(profile) => {
                 // Check if user has premium tier subscription
-                Ok(matches!(profile.subscription.tier, crate::types::SubscriptionTier::Premium))
+                Ok(matches!(
+                    profile.subscription.tier,
+                    crate::types::SubscriptionTier::Premium
+                ))
             }
             None => {
                 // User not found, assume free tier
@@ -767,9 +880,9 @@ impl DynamicConfigService {
 mod tests {
     use super::*;
     use crate::types::SubscriptionTier;
-    use std::collections::HashMap;
     use chrono::Utc;
     use serde_json::json;
+    use std::collections::HashMap;
 
     // Test that demonstrates DynamicConfigService can be constructed and used
     // This addresses the "never constructed" warning
@@ -777,29 +890,35 @@ mod tests {
     async fn test_dynamic_config_service_functionality() {
         // Test service instantiation and method calls without actual D1/KV operations
         // We'll focus on testing the business logic that doesn't require external dependencies
-        
+
         // Test template creation methods
         let template = create_test_risk_management_template();
         assert_eq!(template.template_id, "risk_management_v1");
         assert_eq!(template.category, ConfigCategory::RiskManagement);
         assert!(!template.parameters.is_empty());
-        
+
         let strategy_template = create_test_trading_strategy_template();
         assert_eq!(strategy_template.template_id, "trading_strategy_v1");
         assert_eq!(strategy_template.category, ConfigCategory::TradingStrategy);
         assert!(!strategy_template.parameters.is_empty());
-        
+
         // Test validation logic
         let mut parameter_values = HashMap::new();
-        parameter_values.insert("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(1000)));
-        parameter_values.insert("stop_loss_percentage".to_string(), 
+        parameter_values.insert(
+            "max_position_size_usd".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(1000)),
+        );
+        parameter_values.insert(
+            "stop_loss_percentage".to_string(),
             serde_json::Number::from_f64(0.02)
                 .map(serde_json::Value::Number)
-                .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0)))); // fallback to 0% if float conversion fails
-        
-        let validation_result = validate_parameters_against_template(&template, &parameter_values, "test_user").await;
+                .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0))),
+        ); // fallback to 0% if float conversion fails
+
+        let validation_result =
+            validate_parameters_against_template(&template, &parameter_values, "test_user").await;
         assert!(validation_result.is_ok());
-        
+
         let result = validation_result.unwrap();
         assert!(result.is_valid);
         assert!(result.errors.is_empty());
@@ -811,13 +930,13 @@ mod tests {
         let valid_template = create_test_risk_management_template();
         let validation_result = validate_template_structure(&valid_template);
         assert!(validation_result.is_ok());
-        
+
         // Test invalid template (empty name)
         let mut invalid_template = valid_template.clone();
         invalid_template.name = "".to_string();
         let validation_result = validate_template_structure(&invalid_template);
         assert!(validation_result.is_err());
-        
+
         // Test invalid template (no parameters)
         let mut invalid_template2 = create_test_risk_management_template();
         invalid_template2.parameters.clear();
@@ -829,14 +948,19 @@ mod tests {
     async fn test_preset_validation_logic() {
         // Test preset validation against template
         let template = create_test_risk_management_template();
-        
+
         let mut preset_values = HashMap::new();
-        preset_values.insert("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(500)));
-        preset_values.insert("stop_loss_percentage".to_string(), 
+        preset_values.insert(
+            "max_position_size_usd".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(500)),
+        );
+        preset_values.insert(
+            "stop_loss_percentage".to_string(),
             serde_json::Number::from_f64(0.01)
                 .map(serde_json::Value::Number)
-                .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(1)))); // fallback to 1% as integer
-        
+                .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(1))),
+        ); // fallback to 1% as integer
+
         let preset = ConfigPreset {
             preset_id: "test_conservative".to_string(),
             name: "Test Conservative".to_string(),
@@ -848,7 +972,7 @@ mod tests {
             created_at: Utc::now().timestamp_millis() as u64,
             is_system_preset: false,
         };
-        
+
         // Test preset validation
         let validation_result = validate_preset_against_template_logic(&preset, &template);
         assert!(validation_result.is_ok());
@@ -934,7 +1058,8 @@ mod tests {
                 ConfigParameter {
                     key: "auto_trading_enabled".to_string(),
                     name: "Enable Auto Trading".to_string(),
-                    description: "Automatically execute trades when opportunities are detected".to_string(),
+                    description: "Automatically execute trades when opportunities are detected"
+                        .to_string(),
                     parameter_type: ParameterType::Boolean,
                     default_value: serde_json::Value::Bool(false),
                     validation_rules: ValidationRules {
@@ -977,7 +1102,10 @@ mod tests {
                                     errors.push(ValidationError {
                                         parameter_key: param.key.clone(),
                                         error_type: ValidationErrorType::OutOfRange,
-                                        message: format!("Value {} is below minimum {}", num, min_val),
+                                        message: format!(
+                                            "Value {} is below minimum {}",
+                                            num, min_val
+                                        ),
                                         suggested_value: serde_json::Number::from_f64(*min_val)
                                             .map(serde_json::Value::Number)
                                             .or_else(|| Some(param.default_value.clone())),
@@ -989,7 +1117,10 @@ mod tests {
                                     errors.push(ValidationError {
                                         parameter_key: param.key.clone(),
                                         error_type: ValidationErrorType::OutOfRange,
-                                        message: format!("Value {} is above maximum {}", num, max_val),
+                                        message: format!(
+                                            "Value {} is above maximum {}",
+                                            num, max_val
+                                        ),
                                         suggested_value: serde_json::Number::from_f64(*max_val)
                                             .map(serde_json::Value::Number)
                                             .or_else(|| Some(param.default_value.clone())),
@@ -1004,7 +1135,7 @@ mod tests {
                                 suggested_value: Some(param.default_value.clone()),
                             });
                         }
-                    },
+                    }
                     ParameterType::Boolean => {
                         if !value.is_boolean() {
                             errors.push(ValidationError {
@@ -1014,7 +1145,7 @@ mod tests {
                                 suggested_value: Some(param.default_value.clone()),
                             });
                         }
-                    },
+                    }
                     ParameterType::Percentage => {
                         if let Some(num) = value.as_f64() {
                             if !(0.0..=1.0).contains(&num) {
@@ -1024,12 +1155,16 @@ mod tests {
                                     message: "Percentage must be between 0.0 and 1.0".to_string(),
                                     suggested_value: serde_json::Number::from_f64(0.01)
                                         .map(serde_json::Value::Number)
-                                        .or_else(|| Some(serde_json::Value::Number(serde_json::Number::from(1)))),
+                                        .or_else(|| {
+                                            Some(serde_json::Value::Number(
+                                                serde_json::Number::from(1),
+                                            ))
+                                        }),
                                 });
                             }
                         }
-                    },
-                    _ => {}, // Other types can be added
+                    }
+                    _ => {} // Other types can be added
                 }
 
                 // Subscription requirement validation
@@ -1072,20 +1207,28 @@ mod tests {
     #[allow(clippy::result_large_err)]
     fn validate_template_structure(template: &DynamicConfigTemplate) -> ArbitrageResult<()> {
         if template.name.is_empty() {
-            return Err(ArbitrageError::validation_error("Template name cannot be empty"));
+            return Err(ArbitrageError::validation_error(
+                "Template name cannot be empty",
+            ));
         }
         if template.parameters.is_empty() {
-            return Err(ArbitrageError::validation_error("Template must have at least one parameter"));
+            return Err(ArbitrageError::validation_error(
+                "Template must have at least one parameter",
+            ));
         }
         Ok(())
     }
 
     #[allow(clippy::result_large_err)]
-    fn validate_preset_against_template_logic(preset: &ConfigPreset, template: &DynamicConfigTemplate) -> ArbitrageResult<()> {
+    fn validate_preset_against_template_logic(
+        preset: &ConfigPreset,
+        template: &DynamicConfigTemplate,
+    ) -> ArbitrageResult<()> {
         for param in &template.parameters {
             if param.is_required && !preset.parameter_values.contains_key(&param.key) {
                 return Err(ArbitrageError::validation_error(format!(
-                    "Required parameter '{}' missing in preset", param.key
+                    "Required parameter '{}' missing in preset",
+                    param.key
                 )));
             }
         }
@@ -1101,24 +1244,25 @@ mod tests {
             description: "Test configuration template".to_string(),
             version: "1.0".to_string(),
             category: ConfigCategory::RiskManagement,
-            parameters: vec![
-                ConfigParameter {
-                    key: "test_param".to_string(),
-                    name: "Test Parameter".to_string(),
-                    description: "A test parameter".to_string(),
-                    parameter_type: ParameterType::Number { min: Some(0.0), max: Some(100.0) },
-                    default_value: serde_json::Value::Number(serde_json::Number::from(10)),
-                    validation_rules: ValidationRules {
-                        required: true,
-                        custom_validation: None,
-                        depends_on: None,
-                        min_subscription_tier: None,
-                    },
-                    is_required: true,
-                    visible: true,
-                    group: "Test Group".to_string(),
-                }
-            ],
+            parameters: vec![ConfigParameter {
+                key: "test_param".to_string(),
+                name: "Test Parameter".to_string(),
+                description: "A test parameter".to_string(),
+                parameter_type: ParameterType::Number {
+                    min: Some(0.0),
+                    max: Some(100.0),
+                },
+                default_value: serde_json::Value::Number(serde_json::Number::from(10)),
+                validation_rules: ValidationRules {
+                    required: true,
+                    custom_validation: None,
+                    depends_on: None,
+                    min_subscription_tier: None,
+                },
+                is_required: true,
+                visible: true,
+                group: "Test Group".to_string(),
+            }],
             created_at: Utc::now().timestamp_millis() as u64,
             created_by: "test_user".to_string(),
             is_system_template: false,
@@ -1134,7 +1278,10 @@ mod tests {
     #[tokio::test]
     async fn test_config_preset_creation() {
         let mut parameter_values = HashMap::new();
-        parameter_values.insert("test_param".to_string(), serde_json::Value::Number(serde_json::Number::from(25)));
+        parameter_values.insert(
+            "test_param".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(25)),
+        );
 
         let preset = ConfigPreset {
             preset_id: "test_preset".to_string(),
@@ -1166,13 +1313,19 @@ mod tests {
         assert!(validation_rules.required);
         assert!(validation_rules.custom_validation.is_some());
         assert!(validation_rules.depends_on.is_some());
-        assert_eq!(validation_rules.min_subscription_tier, Some(SubscriptionTier::Premium));
+        assert_eq!(
+            validation_rules.min_subscription_tier,
+            Some(SubscriptionTier::Premium)
+        );
     }
 
     #[tokio::test]
     async fn test_parameter_type_validation() {
         // Test number parameter type
-        let number_param = ParameterType::Number { min: Some(0.0), max: Some(100.0) };
+        let number_param = ParameterType::Number {
+            min: Some(0.0),
+            max: Some(100.0),
+        };
         if let ParameterType::Number { min, max } = number_param {
             assert_eq!(min, Some(0.0));
             assert_eq!(max, Some(100.0));
@@ -1190,7 +1343,10 @@ mod tests {
     #[tokio::test]
     async fn test_user_config_instance() {
         let mut parameter_values = HashMap::new();
-        parameter_values.insert("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(1000)));
+        parameter_values.insert(
+            "max_position_size_usd".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(1000)),
+        );
 
         let config_instance = UserConfigInstance {
             instance_id: "test_instance".to_string(),
@@ -1209,7 +1365,9 @@ mod tests {
         assert_eq!(config_instance.template_id, "risk_management_v1");
         assert_eq!(config_instance.version, 1);
         assert!(config_instance.is_active);
-        assert!(config_instance.parameter_values.contains_key("max_position_size_usd"));
+        assert!(config_instance
+            .parameter_values
+            .contains_key("max_position_size_usd"));
     }
 
     #[tokio::test]
@@ -1222,7 +1380,10 @@ mod tests {
         };
 
         assert_eq!(required_error.parameter_key, "test_param");
-        assert!(matches!(required_error.error_type, ValidationErrorType::Required));
+        assert!(matches!(
+            required_error.error_type,
+            ValidationErrorType::Required
+        ));
         assert!(required_error.suggested_value.is_some());
 
         let range_error = ValidationError {
@@ -1232,7 +1393,10 @@ mod tests {
             suggested_value: None,
         };
 
-        assert!(matches!(range_error.error_type, ValidationErrorType::OutOfRange));
+        assert!(matches!(
+            range_error.error_type,
+            ValidationErrorType::OutOfRange
+        ));
         assert!(range_error.suggested_value.is_none());
     }
 
@@ -1279,21 +1443,17 @@ mod tests {
     async fn test_configuration_validation_result() {
         let validation_result = ConfigValidationResult {
             is_valid: false,
-            errors: vec![
-                ValidationError {
-                    parameter_key: "max_position_size_usd".to_string(),
-                    error_type: ValidationErrorType::OutOfRange,
-                    message: "Value too high".to_string(),
-                    suggested_value: Some(serde_json::Value::Number(serde_json::Number::from(1000))),
-                }
-            ],
-            warnings: vec![
-                ValidationWarning {
-                    parameter_key: "stop_loss_percentage".to_string(),
-                    message: "Consider a lower stop loss for better risk management".to_string(),
-                    recommendation: Some("Use 1% instead of 2%".to_string()),
-                }
-            ],
+            errors: vec![ValidationError {
+                parameter_key: "max_position_size_usd".to_string(),
+                error_type: ValidationErrorType::OutOfRange,
+                message: "Value too high".to_string(),
+                suggested_value: Some(serde_json::Value::Number(serde_json::Number::from(1000))),
+            }],
+            warnings: vec![ValidationWarning {
+                parameter_key: "stop_loss_percentage".to_string(),
+                message: "Consider a lower stop loss for better risk management".to_string(),
+                recommendation: Some("Use 1% instead of 2%".to_string()),
+            }],
             compliance_check: ComplianceResult {
                 risk_compliance: false,
                 subscription_compliance: true,
@@ -1318,24 +1478,22 @@ mod tests {
             description: "Test risk management template".to_string(),
             version: "1.0.0".to_string(),
             category: ConfigCategory::RiskManagement,
-            parameters: vec![
-                ConfigParameter {
-                    key: "max_position_size".to_string(),
-                    name: "Maximum Position Size".to_string(),
-                    description: "Maximum USD amount per position".to_string(),
-                    parameter_type: ParameterType::Currency,
-                    default_value: json!(1000.0),
-                    validation_rules: ValidationRules {
-                        required: true,
-                        custom_validation: None,
-                        depends_on: None,
-                        min_subscription_tier: Some(SubscriptionTier::Free),
-                    },
-                    is_required: true,
-                    visible: true,
-                    group: "risk".to_string(),
+            parameters: vec![ConfigParameter {
+                key: "max_position_size".to_string(),
+                name: "Maximum Position Size".to_string(),
+                description: "Maximum USD amount per position".to_string(),
+                parameter_type: ParameterType::Currency,
+                default_value: json!(1000.0),
+                validation_rules: ValidationRules {
+                    required: true,
+                    custom_validation: None,
+                    depends_on: None,
+                    min_subscription_tier: Some(SubscriptionTier::Free),
                 },
-            ],
+                is_required: true,
+                visible: true,
+                group: "risk".to_string(),
+            }],
             created_at: chrono::Utc::now().timestamp() as u64,
             created_by: "system".to_string(),
             is_system_template: true,
@@ -1348,4 +1506,4 @@ mod tests {
         assert_eq!(template.category, ConfigCategory::RiskManagement);
         assert!(template.is_system_template);
     }
-} 
+}
