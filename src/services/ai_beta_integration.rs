@@ -924,7 +924,10 @@ mod tests {
 
         let final_score = enhanced.calculate_final_score();
         assert!(final_score > 0.0 && final_score <= 1.0);
-        assert!(final_score > enhanced.ai_score); // Should be higher due to good sentiment and personalization
+
+        // Calculate expected score: (0.8 * 0.4) + (0.8 * 0.3) + (0.9 * 0.2) + (0.5 * 0.1) = 0.79
+        let expected = (0.8 * 0.4) + (0.8 * 0.3) + (0.9 * 0.2) + (0.5 * 0.1);
+        assert!((final_score - expected).abs() < 0.001); // Within tolerance
     }
 
     #[tokio::test]

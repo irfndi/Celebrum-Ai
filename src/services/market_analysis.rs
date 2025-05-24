@@ -583,58 +583,121 @@ impl MarketAnalysisService {
         Ok(opportunities)
     }
 
-    /// Detect arbitrage opportunities (enhanced with technical analysis)
+    /// Detect arbitrage opportunities with enhanced cross-exchange analysis
     async fn detect_arbitrage_opportunities(
         &self,
-
         preferences: &UserTradingPreferences,
     ) -> ArbitrageResult<Vec<TradingOpportunity>> {
-        // Basic arbitrage detection implementation
         let mut opportunities = Vec::new();
 
-        // Sample trading pairs for detection (in production, would fetch from cache)
-        let sample_pairs = vec!["BTC/USDT", "ETH/USDT", "ADA/USDT"];
+        // Define exchanges and trading pairs for cross-exchange arbitrage analysis
+        let exchanges = vec!["binance", "bybit", "kraken"];
+        let trading_pairs = vec!["BTC/USDT", "ETH/USDT", "ADA/USDT"];
 
-        for pair in sample_pairs {
-            // Check if we have price data for this pair
-            if let Some(_price_series) = self.get_price_series("binance", pair) {
-                // Create a sample arbitrage opportunity
+        for pair in &trading_pairs {
+            let mut exchange_prices = Vec::new();
+
+            // Collect price data from multiple exchanges
+            for exchange in &exchanges {
+                if let Some(price_series) = self.get_price_series(exchange, pair) {
+                    if let Some(latest_price) = price_series.latest_price() {
+                        exchange_prices.push((
+                            exchange,
+                            latest_price.price,
+                            latest_price.volume.unwrap_or(0.0),
+                        ));
+                    }
+                }
+            }
+
+            // Need at least 2 exchanges to detect arbitrage
+            if exchange_prices.len() < 2 {
+                continue;
+            }
+
+            // Find minimum and maximum prices
+            let (min_exchange, min_price, min_volume) = exchange_prices
+                .iter()
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap();
+            let (max_exchange, max_price, max_volume) = exchange_prices
+                .iter()
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap();
+
+            // Calculate spread percentage
+            let spread_percentage = ((max_price - min_price) / min_price) * 100.0;
+
+            // Only consider opportunities with spread > 0.1% (to cover transaction costs)
+            let min_spread_threshold = 0.1;
+            if spread_percentage <= min_spread_threshold {
+                continue;
+            }
+
+            // Calculate confidence based on spread size and volume
+            let volume_confidence = (min_volume.min(*max_volume) / 1000.0).min(1.0); // Normalize volume
+            let spread_confidence = (spread_percentage / 2.0).min(1.0); // Higher spreads = higher confidence
+            let base_confidence = 0.6 + (volume_confidence * 0.2) + (spread_confidence * 0.2);
+
+            // Incorporate transaction costs (approximately 0.075% per exchange)
+            let transaction_costs = 0.15; // 0.075% * 2 exchanges
+            let net_return = spread_percentage - transaction_costs;
+
+            // Only create opportunity if net return is positive
+            if net_return > 0.0 {
                 let opportunity = TradingOpportunity {
                     opportunity_id: format!(
-                        "arb_{}_{}",
+                        "arb_{}_{}_{}_{}",
                         pair.replace('/', ""),
+                        min_exchange,
+                        max_exchange,
                         uuid::Uuid::new_v4()
                     ),
                     opportunity_type: OpportunityType::Arbitrage,
                     trading_pair: pair.to_string(),
-                    exchanges: vec!["binance".to_string(), "bybit".to_string()],
-                    entry_price: 50000.0, // Sample price
-                    target_price: Some(50100.0),
-                    stop_loss: Some(49900.0),
-                    confidence_score: 0.75,
-                    risk_level: RiskLevel::Low,
-                    expected_return: 0.2, // 0.2%
-                    time_horizon: TimeHorizon::Short,
-                    indicators_used: vec!["price_difference".to_string()],
+                    exchanges: vec![min_exchange.to_string(), max_exchange.to_string()],
+                    entry_price: *min_price,
+                    target_price: Some(*max_price),
+                    stop_loss: Some(min_price * 0.995), // 0.5% stop loss
+                    confidence_score: base_confidence,
+                    risk_level: if spread_percentage > 1.0 {
+                        RiskLevel::Medium
+                    } else {
+                        RiskLevel::Low
+                    },
+                    expected_return: net_return,
+                    time_horizon: TimeHorizon::Immediate, // Arbitrage should be immediate
+                    indicators_used: vec![
+                        "cross_exchange_price_analysis".to_string(),
+                        "volume_analysis".to_string(),
+                    ],
                     analysis_data: serde_json::json!({
-                        "exchange_1": "binance",
-                        "exchange_2": "bybit",
-                        "price_diff": 0.2,
-                        "detection_method": "cross_exchange_analysis"
+                        "buy_exchange": min_exchange,
+                        "sell_exchange": max_exchange,
+                        "buy_price": min_price,
+                        "sell_price": max_price,
+                        "gross_spread_percent": spread_percentage,
+                        "transaction_costs_percent": transaction_costs,
+                        "net_return_percent": net_return,
+                        "min_volume": min_volume,
+                        "max_volume": max_volume,
+                        "detection_method": "enhanced_cross_exchange_analysis",
+                        "market_depth_checked": *min_volume > 0.0 && *max_volume > 0.0
                     }),
                     created_at: chrono::Utc::now().timestamp_millis() as u64,
                     expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + 300000), // 5 minutes
                 };
 
-                // Only include if it matches user preferences
-                if self.matches_user_risk_tolerance(&opportunity, preferences) {
+                // Only include if it matches user preferences and has sufficient volume
+                if self.matches_user_risk_tolerance(&opportunity, preferences) && *min_volume > 10.0
+                {
                     opportunities.push(opportunity);
                 }
             }
         }
 
         self.logger.info(&format!(
-            "Detected {} arbitrage opportunities",
+            "Detected {} arbitrage opportunities with enhanced cross-exchange analysis",
             opportunities.len()
         ));
         Ok(opportunities)
@@ -649,7 +712,7 @@ impl MarketAnalysisService {
         let mut opportunities = Vec::new();
 
         // Sample analysis for cached price series
-        for (_cache_key, price_series) in &self.price_cache {
+        for price_series in self.price_cache.values() {
             if price_series.data_points.len() < 20 {
                 continue; // Need enough data for technical analysis
             }
@@ -1034,61 +1097,73 @@ mod tests {
         assert_eq!(TimeFrame::OneDay.duration_ms(), 24 * 60 * 60 * 1000);
     }
 
-    // Async tests for service functionality
+    // Async tests for service functionality with minimal mock dependencies
     #[tokio::test]
     #[ignore] // Ignored until proper mock services are implemented
     async fn test_cache_ttl_expiration() {
-        // TODO: Implement proper mock services for testing
-        // Currently disabled due to complex service dependencies
+        // TODO: Comprehensive async test implementation requires mock D1Service, UserTradingPreferencesService, and Logger
+        // Current challenge: MarketAnalysisService constructor requires complex dependencies
+        //
+        // Planned test approach:
+        // 1. Create minimal mock services that satisfy the constructor
+        // 2. Configure cache with very short TTL (100ms)
+        // 3. Store price data and verify immediate cache hit
+        // 4. Wait for TTL expiration (150ms)
+        // 5. Verify cache entry is evicted by checking cache stats
+        // 6. Assert cache size decreased and expired_entries count increased
+        //
+        // Mock service requirements:
+        // - D1Service: Basic constructor that doesn't require Env/Database
+        // - UserTradingPreferencesService: Mock constructor with D1Service dependency
+        // - Logger: Simple mock that accepts log messages without external dependencies
     }
 
     #[tokio::test]
     #[ignore] // Ignored until proper mock services are implemented
     async fn test_cache_lru_eviction() {
-        // TODO: Implement proper mock services for testing
+        // TODO: Comprehensive async test implementation requires mock services
+        //
+        // Planned test approach:
+        // 1. Create market analysis service with cache_max_size = 3
+        // 2. Store 5 different price series to trigger LRU eviction
+        // 3. Verify cache size stays at max (3 entries)
+        // 4. Verify oldest entries are evicted (LRU behavior)
+        // 5. Test cache access patterns update LRU ordering
     }
 
     #[tokio::test]
     #[ignore] // Ignored until proper mock services are implemented
     async fn test_concurrent_price_data_storage() {
-        // TODO: Implement proper mock services for testing
+        // TODO: Concurrent operations test with minimal mock dependencies
+        //
+        // Planned test approach:
+        // 1. Create service with mock dependencies
+        // 2. Spawn multiple async tasks storing price data simultaneously
+        // 3. Verify all price data is stored correctly without data races
+        // 4. Check cache consistency and proper eviction under concurrent load
     }
 
     #[tokio::test]
     #[ignore] // Ignored until proper mock services are implemented
     async fn test_opportunity_generation_user_preferences() {
-        // TODO: Implement proper mock services for testing
+        // TODO: Integration test for opportunity generation with user preferences
+        //
+        // Planned test approach:
+        // 1. Create service with mock UserTradingPreferencesService
+        // 2. Set up different user preference profiles (Conservative, Balanced, Aggressive)
+        // 3. Generate opportunities for each profile type
+        // 4. Verify opportunity filtering matches user risk tolerance
+        // 5. Test that conservative users get only low-risk arbitrage opportunities
+        // 6. Test that aggressive users get broader opportunity selection
     }
 
     #[tokio::test]
     #[ignore] // Ignored until proper mock services are implemented
     async fn test_error_handling_invalid_inputs() {
         // TODO: Implement proper mock services for testing
-        return;
+        // Currently disabled due to complex service dependencies requiring Env parameter and Logger arguments
 
-        // Test invalid price data
-        let invalid_price_point = PricePoint {
-            timestamp: 0,                 // Invalid timestamp
-            price: -100.0,                // Negative price
-            volume: Some(-1.0),           // Negative volume
-            exchange_id: "".to_string(),  // Empty exchange ID
-            trading_pair: "".to_string(), // Empty trading pair
-        };
-
-        // Service should handle this gracefully
-        let result = service.store_price_data(invalid_price_point).await;
-
-        // Even with invalid data, storage should not panic
-        match result {
-            Ok(_) => {
-                // Service stored it (validation might be at higher level)
-            }
-            Err(_) => {
-                // Service rejected it (proper validation)
-            }
-        }
-
-        // Test mathematical functions with invalid inputs
+        // Test mathematical functions with invalid inputs that don't require service setup
         let empty_prices: Vec<f64> = vec![];
         let sma_result = MathUtils::simple_moving_average(&empty_prices, 5);
         assert!(sma_result.is_err());
@@ -1096,5 +1171,12 @@ mod tests {
         let insufficient_prices = vec![1.0, 2.0];
         let rsi_result = MathUtils::relative_strength_index(&insufficient_prices, 14);
         assert!(rsi_result.is_err());
+
+        // Test invalid input edge cases
+        let zero_period_sma = MathUtils::simple_moving_average(&[1.0, 2.0, 3.0], 0);
+        assert!(zero_period_sma.is_err());
+
+        let correlation_mismatched = MathUtils::price_correlation(&[1.0, 2.0], &[1.0]);
+        assert!(correlation_mismatched.is_err());
     }
 }
