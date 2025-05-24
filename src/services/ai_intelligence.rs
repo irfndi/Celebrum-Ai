@@ -119,6 +119,14 @@ impl Default for AiIntelligenceConfig {
 
 /// AI Intelligence Service - The brain of the platform
 /// Integrates all existing services with AI-enhanced decision making
+/// 
+/// TODO: REFACTOR - This service violates single responsibility principle
+/// Suggested approach: Split into smaller focused services:
+/// - AiOpportunityAnalysisService: analyze_opportunity_with_ai()
+/// - AiPortfolioRiskService: assess_portfolio_risk_with_ai()  
+/// - AiPerformanceService: generate_performance_insights()
+/// - AiParameterOptimizationService: optimize_trading_parameters()
+///   And implement builder pattern for cleaner dependency management
 pub struct AiIntelligenceService {
     config: AiIntelligenceConfig,
     ai_router: AiExchangeRouterService,

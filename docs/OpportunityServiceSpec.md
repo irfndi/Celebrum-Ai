@@ -139,16 +139,12 @@ Opportunity distribution implements fair access controls:
 + 4. Log the number of opportunities via `logger.info`.
 + 5. Return the resulting `ArbitrageOpportunity[]`.
 
-### sendSecureNotification(
-  `opportunity: ArbitrageOpportunity`,
-  `userId: string`,
-  `chatContext: ChatContext`
-): `Promise<boolean>`
+### `sendSecureNotification(opportunity: ArbitrageOpportunity, userId: string, chatContext: ChatContext): Promise<boolean>`
 
 **Behavior:**
 1. **Context Validation**: Check `chatContext.type` to determine if chat is private or group/channel.
 2. **Private Chat Only**: If `chatContext.type === 'private'`, proceed with notification.
-3. **Group/Channel Block**: If `chatContext.type` in ['group', 'supergroup', 'channel']`, log warning and return `false` without sending.
+3. **Group/Channel Block**: If `chatContext.type` in `['group', 'supergroup', 'channel']`, log warning and return `false` without sending.
 4. **Opportunity Formatting**: Format opportunity data for private notification with trading details.
 5. **Rate Limit Check**: Verify user hasn't exceeded distribution limits (2 opportunities, 4-hour cooldown, 10 daily).
 6. **Secure Delivery**: Send notification via `telegramService.sendPrivateMessage()` with opportunity details.

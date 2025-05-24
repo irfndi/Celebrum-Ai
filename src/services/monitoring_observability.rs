@@ -326,6 +326,8 @@ pub struct MonitoringObservabilityService {
     performance_metrics: Arc<RwLock<HashMap<String, PerformanceMetrics>>>,
     trace_spans: Arc<RwLock<Vec<TraceSpan>>>,
     dashboards: Arc<RwLock<Vec<DashboardConfig>>>,
+    // Store response time samples for percentile calculation
+    response_time_samples: Arc<RwLock<HashMap<String, Vec<u64>>>>,
     enabled: bool,
 }
 
@@ -338,6 +340,7 @@ impl MonitoringObservabilityService {
             performance_metrics: Arc::new(RwLock::new(HashMap::new())),
             trace_spans: Arc::new(RwLock::new(Vec::new())),
             dashboards: Arc::new(RwLock::new(Vec::new())),
+            response_time_samples: Arc::new(RwLock::new(HashMap::new())),
             enabled: true,
         }
     }
@@ -455,6 +458,18 @@ impl MonitoringObservabilityService {
 
     /// Record performance metrics for a service operation
     pub async fn record_performance(&self, operation: &str, response_time_ms: u64, is_error: bool) -> ArbitrageResult<()> {
+        // Store the response time sample for percentile calculation
+        {
+            let mut samples = self.response_time_samples.write().await;
+            let operation_samples = samples.entry(operation.to_string()).or_insert_with(Vec::new);
+            operation_samples.push(response_time_ms);
+            
+            // Keep only last 1000 samples to prevent unbounded growth
+            if operation_samples.len() > 1000 {
+                operation_samples.remove(0);
+            }
+        }
+
         {
             let mut perf_metrics = self.performance_metrics.write().await;
             let metrics = perf_metrics.entry(operation.to_string()).or_insert_with(PerformanceMetrics::default);
@@ -469,10 +484,11 @@ impl MonitoringObservabilityService {
             metrics.avg_response_time_ms = metrics.total_response_time_ms as f64 / metrics.request_count as f64;
             metrics.error_rate = metrics.error_count as f64 / metrics.request_count as f64;
             
-            // Mock percentile calculations
-            metrics.p50_response_time_ms = metrics.avg_response_time_ms * 0.8;
-            metrics.p95_response_time_ms = metrics.avg_response_time_ms * 1.5;
-            metrics.p99_response_time_ms = metrics.avg_response_time_ms * 2.0;
+            // Calculate actual percentiles from response time samples
+            let percentiles = self.calculate_percentiles(operation).await;
+            metrics.p50_response_time_ms = percentiles.0;
+            metrics.p95_response_time_ms = percentiles.1;
+            metrics.p99_response_time_ms = percentiles.2;
             
             metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
         }
@@ -740,7 +756,33 @@ impl MonitoringObservabilityService {
                         false
                     }
                 }
-                _ => false, // Other condition types not implemented in this demo
+                AlertCondition::Rate { metric: rate_metric, operator, value, window_seconds } => {
+                    if *rate_metric == metric.metric_type {
+                        // Calculate rate over the specified time window
+                        let rate = self.calculate_metric_rate(&metric.metric_type, *window_seconds).await;
+                        match operator.as_str() {
+                            ">" => rate > *value,
+                            "<" => rate < *value,
+                            ">=" => rate >= *value,
+                            "<=" => rate <= *value,
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    }
+                }
+                AlertCondition::Anomaly { metric: anomaly_metric, sensitivity } => {
+                    if *anomaly_metric == metric.metric_type {
+                        // Apply statistical anomaly detection
+                        self.detect_anomaly(&metric.metric_type, metric.value.as_f64(), *sensitivity).await
+                    } else {
+                        false
+                    }
+                }
+                AlertCondition::ServiceDown { service_name } => {
+                    // Check service health status
+                    self.check_service_health(service_name).await
+                }
             };
 
             if should_alert {
@@ -829,6 +871,138 @@ impl MonitoringObservabilityService {
     fn get_uptime_hours(&self) -> f64 {
         // Mock uptime - in production, track actual service start time
         72.5
+    }
+
+    /// Calculate metric rate over time window
+    async fn calculate_metric_rate(&self, metric_type: &MetricType, window_seconds: u64) -> f64 {
+        let metrics = self.get_metrics(metric_type, window_seconds / 3600).await;
+        
+        if metrics.len() < 2 {
+            return 0.0;
+        }
+
+        // Calculate rate as the difference between latest and earliest values divided by time window
+        let latest = metrics.last().unwrap();
+        let earliest = metrics.first().unwrap();
+        
+        let time_diff = (latest.timestamp - earliest.timestamp) as f64 / 1000.0; // Convert to seconds
+        if time_diff > 0.0 {
+            (latest.value.as_f64() - earliest.value.as_f64()) / time_diff
+        } else {
+            0.0
+        }
+    }
+
+    /// Detect anomalies using statistical analysis
+    async fn detect_anomaly(&self, metric_type: &MetricType, current_value: f64, sensitivity: f64) -> bool {
+        let historical_metrics = self.get_metrics(metric_type, 24).await; // Get 24 hours of data
+        
+        if historical_metrics.len() < 10 {
+            return false; // Need enough data for statistical analysis
+        }
+
+        // Calculate mean and standard deviation
+        let values: Vec<f64> = historical_metrics.iter().map(|m| m.value.as_f64()).collect();
+        let mean = values.iter().sum::<f64>() / values.len() as f64;
+        let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
+        let std_dev = variance.sqrt();
+
+        // Anomaly if current value is more than sensitivity * std_dev away from mean
+        let threshold = sensitivity * std_dev;
+        (current_value - mean).abs() > threshold
+    }
+
+    /// Check service health status
+    async fn check_service_health(&self, service_name: &str) -> bool {
+        // In production, this would check actual service status
+        // For now, simulate based on service name and some logic
+        match service_name {
+            "database" => {
+                // Check if database queries are failing
+                let error_rate_metrics = self.get_metrics(&MetricType::ErrorRate, 1).await;
+                if let Some(latest) = error_rate_metrics.last() {
+                    latest.value.as_f64() > 0.1 // Alert if error rate > 10%
+                } else {
+                    false
+                }
+            }
+            "telegram_service" => {
+                // Check if telegram messages are being sent
+                let telegram_metrics = self.get_metrics(&MetricType::TelegramMessagesPerHour, 1).await;
+                if let Some(latest) = telegram_metrics.last() {
+                    latest.value.as_f64() == 0.0 // Alert if no messages in last hour
+                } else {
+                    true // Alert if no metrics available
+                }
+            }
+            "exchange_api" => {
+                // Check if exchange API calls are responding
+                let api_metrics = self.get_metrics(&MetricType::ExchangeApiCalls, 1).await;
+                if let Some(latest) = api_metrics.last() {
+                    latest.value.as_f64() == 0.0 // Alert if no API calls in last hour
+                } else {
+                    true // Alert if no metrics available
+                }
+            }
+            _ => {
+                log::warn!("Unknown service for health check: {}", service_name);
+                false
+            }
+        }
+    }
+
+    /// Calculate percentiles from response time samples
+    async fn calculate_percentiles(&self, operation: &str) -> (f64, f64, f64) {
+        let samples = self.response_time_samples.read().await;
+        
+        if let Some(operation_samples) = samples.get(operation) {
+            if operation_samples.is_empty() {
+                return (0.0, 0.0, 0.0);
+            }
+
+            // Clone and sort the samples for percentile calculation
+            let mut sorted_samples = operation_samples.clone();
+            sorted_samples.sort_unstable();
+
+            let len = sorted_samples.len();
+            
+            // Calculate percentiles using linear interpolation
+            let p50 = calculate_percentile(&sorted_samples, 50.0);
+            let p95 = calculate_percentile(&sorted_samples, 95.0);
+            let p99 = calculate_percentile(&sorted_samples, 99.0);
+
+            (p50, p95, p99)
+        } else {
+            (0.0, 0.0, 0.0)
+        }
+    }
+}
+
+/// Calculate a specific percentile from sorted samples
+fn calculate_percentile(sorted_samples: &[u64], percentile: f64) -> f64 {
+    if sorted_samples.is_empty() {
+        return 0.0;
+    }
+
+    let len = sorted_samples.len();
+    if len == 1 {
+        return sorted_samples[0] as f64;
+    }
+
+    // Calculate the index for the percentile
+    let index = (percentile / 100.0) * (len - 1) as f64;
+    let lower_index = index.floor() as usize;
+    let upper_index = index.ceil() as usize;
+
+    if lower_index == upper_index {
+        sorted_samples[lower_index] as f64
+    } else {
+        // Linear interpolation between the two nearest values
+        let lower_value = sorted_samples[lower_index] as f64;
+        let upper_value = sorted_samples[upper_index] as f64;
+        let weight = index - lower_index as f64;
+        
+        lower_value + weight * (upper_value - lower_value)
     }
 }
 

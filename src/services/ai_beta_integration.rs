@@ -290,11 +290,18 @@ impl AiBetaIntegrationService {
             }
         }
 
-        // Sort by final AI score
+        // Sort by final AI score with proper NaN handling
         enhanced_opportunities.sort_by(|a, b| {
-            b.calculate_final_score()
-                .partial_cmp(&a.calculate_final_score())
-                .unwrap_or(std::cmp::Ordering::Equal)
+            let score_a = a.calculate_final_score();
+            let score_b = b.calculate_final_score();
+            
+            // Handle NaN values explicitly - treat NaN as less than any number
+            match (score_a.is_nan(), score_b.is_nan()) {
+                (true, true) => std::cmp::Ordering::Equal,
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                (false, false) => score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal),
+            }
         });
 
         // Limit to configured maximum
@@ -365,7 +372,9 @@ impl AiBetaIntegrationService {
         }
 
         // Random factor to simulate ML uncertainty
-        let random_factor = (opportunity.timestamp % 100) as f64 / 1000.0;
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let random_factor: f64 = rng.gen_range(0.0..0.1);
         score += random_factor;
 
         score.min(1.0)
