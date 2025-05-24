@@ -14,6 +14,72 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use reqwest::Client;
 use serde_json::{json, Value};
 
+// ============= CHAT CONTEXT DETECTION TYPES =============
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChatType {
+    Private,
+    Group,
+    SuperGroup,
+    Channel,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChatContext {
+    pub chat_id: String,
+    pub chat_type: ChatType,
+    pub user_id: Option<String>,
+    pub is_bot_admin: bool,
+}
+
+impl ChatContext {
+    pub fn new(chat_id: String, chat_type: ChatType, user_id: Option<String>) -> Self {
+        Self {
+            chat_id,
+            chat_type,
+            user_id,
+            is_bot_admin: false,
+        }
+    }
+
+    pub fn is_private(&self) -> bool {
+        matches!(self.chat_type, ChatType::Private)
+    }
+
+    pub fn is_group_or_channel(&self) -> bool {
+        matches!(self.chat_type, ChatType::Group | ChatType::SuperGroup | ChatType::Channel)
+    }
+
+    pub fn from_telegram_update(update: &Value) -> ArbitrageResult<Self> {
+        let message = update["message"].as_object()
+            .ok_or_else(|| ArbitrageError::validation_error("Missing message in update".to_string()))?;
+
+        let chat = message["chat"].as_object()
+            .ok_or_else(|| ArbitrageError::validation_error("Missing chat in message".to_string()))?;
+
+        let chat_id = chat["id"].as_i64()
+            .ok_or_else(|| ArbitrageError::validation_error("Missing chat ID".to_string()))?
+            .to_string();
+
+        let chat_type_str = chat["type"].as_str()
+            .ok_or_else(|| ArbitrageError::validation_error("Missing chat type".to_string()))?;
+
+        let chat_type = match chat_type_str {
+            "private" => ChatType::Private,
+            "group" => ChatType::Group,
+            "supergroup" => ChatType::SuperGroup,
+            "channel" => ChatType::Channel,
+            _ => return Err(ArbitrageError::validation_error(
+                format!("Unknown chat type: {}", chat_type_str)
+            )),
+        };
+
+        let user_id = message["from"]["id"].as_u64().map(|id| id.to_string());
+
+        Ok(ChatContext::new(chat_id, chat_type, user_id))
+    }
+}
+
 #[derive(Clone)]
 pub struct TelegramConfig {
     pub bot_token: String,
@@ -78,15 +144,121 @@ impl TelegramService {
         Ok(())
     }
 
+    // ============= SECURE NOTIFICATION METHODS =============
+
+    /// Send notification with context awareness - PRIVATE ONLY for trading data
+    pub async fn send_secure_notification(
+        &self,
+        message: &str,
+        chat_context: &ChatContext,
+        is_trading_data: bool,
+    ) -> ArbitrageResult<bool> {
+        // Security Check: Block trading data in groups/channels
+        if is_trading_data && chat_context.is_group_or_channel() {
+            // Log warning about blocked notification (would use log::warn! in production)
+            println!(
+                "WARNING: Blocked trading data notification to {}: {} (type: {:?})",
+                chat_context.chat_id,
+                message.chars().take(50).collect::<String>(),
+                chat_context.chat_type
+            );
+            return Ok(false);
+        }
+
+        // Context-aware messaging
+        let final_message = if chat_context.is_group_or_channel() {
+            self.get_group_safe_message()
+        } else {
+            message.to_string()
+        };
+
+        let url = format!(
+            "https://api.telegram.org/bot{}/sendMessage",
+            self.config.bot_token
+        );
+
+        let payload = json!({
+            "chat_id": chat_context.chat_id,
+            "text": final_message,
+            "parse_mode": "MarkdownV2"
+        });
+
+        let response = self
+            .http_client
+            .post(&url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| {
+                ArbitrageError::network_error(format!("Failed to send secure message: {}", e))
+            })?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(ArbitrageError::telegram_error(format!(
+                "Telegram API error: {}",
+                error_text
+            )));
+        }
+
+        let result: Value = response.json().await.map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to parse Telegram response: {}", e))
+        })?;
+
+        if !result["ok"].as_bool().unwrap_or(false) {
+            let error_description = result["description"].as_str().unwrap_or("Unknown error");
+            return Err(ArbitrageError::telegram_error(format!(
+                "Telegram API error: {}",
+                error_description
+            )));
+        }
+
+        Ok(true)
+    }
+
+    /// Send message exclusively to private chats
+    pub async fn send_private_message(
+        &self,
+        message: &str,
+        user_id: &str,
+    ) -> ArbitrageResult<()> {
+        let chat_context = ChatContext::new(
+            user_id.to_string(),
+            ChatType::Private,
+            Some(user_id.to_string()),
+        );
+
+        self.send_secure_notification(message, &chat_context, true).await?;
+        Ok(())
+    }
+
+    /// Get group-safe message (no trading data)
+    fn get_group_safe_message(&self) -> String {
+        "🤖 *ArbEdge Bot*\n\n\
+        For trading opportunities and sensitive information, please message me privately\\.\n\n\
+        📚 *Available Commands in Groups:*\n\
+        /help \\- Show available commands\n\
+        /settings \\- Bot configuration info\n\n\
+        🔒 *Security Notice:* Trading data is only shared in private chats for your security\\."
+            .to_string()
+    }
+
     // ============= ENHANCED NOTIFICATION METHODS =============
 
-    /// Send basic arbitrage opportunity notification (legacy support)
+    /// Send basic arbitrage opportunity notification (legacy support) - PRIVATE ONLY
     pub async fn send_opportunity_notification(
         &self,
         opportunity: &ArbitrageOpportunity,
     ) -> ArbitrageResult<()> {
+        // Legacy method - assume private chat context
         let message = format_opportunity_message(opportunity);
-        self.send_message(&message).await
+        let chat_context = ChatContext::new(
+            self.config.chat_id.clone(),
+            ChatType::Private,
+            None,
+        );
+        self.send_secure_notification(&message, &chat_context, true).await?;
+        Ok(())
     }
 
     /// Send categorized opportunity notification (NEW)
@@ -127,10 +299,13 @@ impl TelegramService {
 
     // ============= ENHANCED BOT COMMAND HANDLERS =============
 
-    /// Bot command handlers (for webhook mode)
+    /// Bot command handlers (for webhook mode) with context awareness
     pub async fn handle_webhook(&self, update: Value) -> ArbitrageResult<Option<String>> {
         if let Some(message) = update["message"].as_object() {
             if let Some(text) = message["text"].as_str() {
+                // Get chat context for security checking
+                let chat_context = ChatContext::from_telegram_update(&update)?;
+                
                 // Properly handle missing user ID by returning an error instead of empty string
                 let user_id = message["from"]["id"]
                     .as_u64()
@@ -140,29 +315,67 @@ impl TelegramService {
                         )
                     })?
                     .to_string();
-                return self.handle_command(text, &user_id).await;
+                
+                return self.handle_command_with_context(text, &user_id, &chat_context).await;
             }
         }
         Ok(None)
     }
 
-    async fn handle_command(&self, text: &str, user_id: &str) -> ArbitrageResult<Option<String>> {
+    async fn handle_command_with_context(
+        &self,
+        text: &str,
+        user_id: &str,
+        chat_context: &ChatContext,
+    ) -> ArbitrageResult<Option<String>> {
         let parts: Vec<&str> = text.split_whitespace().collect();
         let command = parts.first().unwrap_or(&"");
         let args = &parts[1..];
 
-        match *command {
-            "/start" => Ok(Some(self.get_welcome_message().await)),
-            "/help" => Ok(Some(self.get_help_message().await)),
-            "/status" => Ok(Some(self.get_status_message(user_id).await)),
-            "/opportunities" => Ok(Some(self.get_opportunities_message(user_id, args).await)),
-            "/categories" => Ok(Some(self.get_categories_message(user_id).await)),
-            "/ai_insights" => Ok(Some(self.get_ai_insights_message(user_id).await)),
-            "/risk_assessment" => Ok(Some(self.get_risk_assessment_message(user_id).await)),
-            "/preferences" => Ok(Some(self.get_preferences_message(user_id).await)),
-            "/settings" => Ok(Some(self.get_settings_message(user_id).await)),
-            _ => Ok(None), // Unknown command, no response
+        // Group/Channel Command Restrictions - Only basic commands allowed
+        if chat_context.is_group_or_channel() {
+            match *command {
+                "/help" => Ok(Some(self.get_help_message().await)),
+                "/settings" => Ok(Some(self.get_settings_message(user_id).await)),
+                "/start" => Ok(Some(self.get_group_welcome_message().await)),
+                _ => Ok(Some(
+                    "🔒 *Security Notice*\n\n\
+                    Trading commands are only available in private chats\\.\n\
+                    Please message me directly for:\n\
+                    • /opportunities\n\
+                    • /ai\\_insights\n\
+                    • /preferences\n\
+                    • /risk\\_assessment\n\n\
+                    Available in groups: /help, /settings"
+                        .to_string(),
+                )),
+            }
+        } else {
+            // Private chat - full command access
+            match *command {
+                "/start" => Ok(Some(self.get_welcome_message().await)),
+                "/help" => Ok(Some(self.get_help_message().await)),
+                "/status" => Ok(Some(self.get_status_message(user_id).await)),
+                "/opportunities" => Ok(Some(self.get_opportunities_message(user_id, args).await)),
+                "/categories" => Ok(Some(self.get_categories_message(user_id).await)),
+                "/ai_insights" => Ok(Some(self.get_ai_insights_message(user_id).await)),
+                "/risk_assessment" => Ok(Some(self.get_risk_assessment_message(user_id).await)),
+                "/preferences" => Ok(Some(self.get_preferences_message(user_id).await)),
+                "/settings" => Ok(Some(self.get_settings_message(user_id).await)),
+                _ => Ok(None), // Unknown command, no response
+            }
         }
+    }
+
+    // Legacy method for backward compatibility
+    async fn handle_command(&self, text: &str, user_id: &str) -> ArbitrageResult<Option<String>> {
+        // Assume private chat context for legacy calls
+        let chat_context = ChatContext::new(
+            user_id.to_string(),
+            ChatType::Private,
+            Some(user_id.to_string()),
+        );
+        self.handle_command_with_context(text, user_id, &chat_context).await
     }
 
     // ============= ENHANCED COMMAND RESPONSES =============
@@ -184,6 +397,24 @@ impl TelegramService {
         /preferences \\- View/update your trading preferences\n\
         /status \\- Check system status\n\n\
         🚀 Get started with /opportunities to see what's available\\!"
+            .to_string()
+    }
+
+    async fn get_group_welcome_message(&self) -> String {
+        "🤖 *Welcome to ArbEdge AI Trading Bot\\!*\n\n\
+        I'm now active in this group\\!\n\n\
+        🔒 *Security Notice:*\n\
+        For your protection, trading opportunities and sensitive data are only shared in private chats\\.\n\n\
+        📚 *Available Commands in Groups:*\n\
+        /help \\- Show available commands\n\
+        /settings \\- Bot configuration info\n\n\
+        💬 *For Trading Features:*\n\
+        Please message me privately for:\n\
+        • Trading opportunities\n\
+        • AI insights and analysis\n\
+        • Portfolio management\n\
+        • Risk assessments\n\n\
+        🔗 *Get Started:* Click my username to start a private chat\\!"
             .to_string()
     }
 

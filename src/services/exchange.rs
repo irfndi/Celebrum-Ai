@@ -106,9 +106,76 @@ pub trait ExchangeInterface {
     ) -> ArbitrageResult<Value>;
 }
 
+// ============= SUPER ADMIN API CONFIGURATION =============
+
+#[derive(Debug, Clone)]
+pub struct SuperAdminApiConfig {
+    pub exchange_id: String,
+    pub read_only_credentials: ExchangeCredentials,
+    pub is_trading_enabled: bool, // Should always be false for global opportunity data
+}
+
+impl SuperAdminApiConfig {
+    pub fn new_read_only(exchange_id: String, credentials: ExchangeCredentials) -> Self {
+        Self {
+            exchange_id,
+            read_only_credentials: credentials,
+            is_trading_enabled: false, // Enforced read-only
+        }
+    }
+
+    pub fn can_trade(&self) -> bool {
+        self.is_trading_enabled
+    }
+
+    pub fn validate_read_only(&self) -> ArbitrageResult<()> {
+        if self.is_trading_enabled {
+            return Err(ArbitrageError::validation_error(
+                "Super admin API must be read-only for global opportunity generation".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ApiKeySource {
+    SuperAdminReadOnly(SuperAdminApiConfig),
+    UserTrading(ExchangeCredentials),
+}
+
+impl ApiKeySource {
+    pub fn get_credentials(&self) -> &ExchangeCredentials {
+        match self {
+            ApiKeySource::SuperAdminReadOnly(config) => &config.read_only_credentials,
+            ApiKeySource::UserTrading(creds) => creds,
+        }
+    }
+
+    pub fn can_execute_trades(&self) -> bool {
+        match self {
+            ApiKeySource::SuperAdminReadOnly(_) => false, // Never allow trading with admin keys
+            ApiKeySource::UserTrading(_) => true,
+        }
+    }
+
+    pub fn validate_for_operation(&self, operation: &str) -> ArbitrageResult<()> {
+        let trading_operations = ["create_order", "cancel_order", "set_leverage"];
+        
+        if trading_operations.contains(&operation) && !self.can_execute_trades() {
+            return Err(ArbitrageError::validation_error(
+                format!("Operation '{}' not allowed with read-only super admin keys", operation)
+            ));
+        }
+        
+        Ok(())
+    }
+}
+
 pub struct ExchangeService {
     client: Client,
     kv: worker::kv::KvStore,
+    super_admin_configs: std::collections::HashMap<String, SuperAdminApiConfig>,
 }
 
 impl ExchangeService {
@@ -122,7 +189,67 @@ impl ExchangeService {
 
         let client = Client::new();
 
-        Ok(Self { client, kv })
+        Ok(Self { 
+            client, 
+            kv,
+            super_admin_configs: std::collections::HashMap::new(),
+        })
+    }
+
+    /// Configure super admin read-only API keys for global opportunity generation
+    pub fn configure_super_admin_api(
+        &mut self,
+        exchange_id: String,
+        credentials: ExchangeCredentials,
+    ) -> ArbitrageResult<()> {
+        let config = SuperAdminApiConfig::new_read_only(exchange_id.clone(), credentials);
+        config.validate_read_only()?;
+        
+        self.super_admin_configs.insert(exchange_id, config);
+        Ok(())
+    }
+
+    /// Get market data using super admin read-only keys
+    pub async fn get_global_market_data(
+        &self,
+        exchange_id: &str,
+        symbol: &str,
+    ) -> ArbitrageResult<Ticker> {
+        if let Some(config) = self.super_admin_configs.get(exchange_id) {
+            config.validate_read_only()?;
+            // Use read-only credentials for market data
+            self.get_ticker(exchange_id, symbol).await
+        } else {
+            Err(ArbitrageError::validation_error(
+                format!("No super admin configuration found for exchange: {}", exchange_id)
+            ))
+        }
+    }
+
+    /// Get funding rates using super admin read-only keys
+    pub async fn get_global_funding_rates(
+        &self,
+        exchange_id: &str,
+        symbol: Option<&str>,
+    ) -> ArbitrageResult<Vec<Value>> {
+        if let Some(config) = self.super_admin_configs.get(exchange_id) {
+            config.validate_read_only()?;
+            // Use read-only credentials for funding rate data
+            self.fetch_funding_rates(exchange_id, symbol).await
+        } else {
+            Err(ArbitrageError::validation_error(
+                format!("No super admin configuration found for exchange: {}", exchange_id)
+            ))
+        }
+    }
+
+    /// Validate operation against API key source
+    pub fn validate_operation_permission(
+        &self,
+        api_source: &ApiKeySource,
+        operation: &str,
+    ) -> ArbitrageResult<()> {
+        api_source.validate_for_operation(operation)
     }
 
     #[allow(clippy::result_large_err)]

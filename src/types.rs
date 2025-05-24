@@ -891,11 +891,11 @@ impl Default for FairnessConfig {
 
         Self {
             rotation_interval_minutes: 15,
-            max_opportunities_per_user_per_hour: 10,
-            max_opportunities_per_user_per_day: 50,
+            max_opportunities_per_user_per_hour: 2,  // Updated: max 2 opportunities per cycle
+            max_opportunities_per_user_per_day: 10,  // Updated: max 10 daily
             tier_multipliers,
             activity_boost_factor: 1.2,
-            cooldown_period_minutes: 5,
+            cooldown_period_minutes: 240,  // Updated: 4-hour cooldown (240 minutes)
         }
     }
 }

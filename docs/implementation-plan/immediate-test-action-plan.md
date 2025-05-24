@@ -778,6 +778,7 @@ let mock_telegram = json!({
 
 **Point 6: Technical Analysis Global Access** ✅ **PLANNED**
 - **Future Model**: Technical analysis global and free (currently beta access for all)
+- **Notifications**: Sent to group & channel for opportunity and has same limits as global opportunities abritrage
 - **Implementation**: Service optimization for high user volume, free tier rate limiting
 
 ### **📋 TASK-BASED IMPLEMENTATION PLAN**
