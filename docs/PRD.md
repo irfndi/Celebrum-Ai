@@ -452,36 +452,115 @@ The Enhanced MVP will include:
 - Regulatory compliance and institutional features
 - International expansion and localization
 
-8. Implementation Priority
+8. Task-Based Implementation Plan
 
-**Phase 1**: User Choice & Core Services Foundation
-- Task 1.5: Trading Focus & Automation Preferences
-- Missing Core Services: ExchangeService, PositionsService, FundMonitoringService
-- Authentication middleware and security infrastructure
+### 8.1 Critical Architecture Fixes
 
-**Phase 2**: Market Data & Opportunity System
-- Real-time market data pipeline implementation
-- GlobalOpportunityService and opportunity distribution
-- Task 9: Hybrid Market Analysis System
+**Task A1: Notification Security Implementation**
+- **Objective**: Implement private-only trading alerts and group context detection
+- **Deliverables**: 
+  - Context-aware TelegramService with private vs group detection
+  - Private-only routing for trading opportunities and sensitive information
+  - Group command restrictions (/help, /settings only)
+  - Marketing message privacy controls
+- **Dependencies**: None (critical security fix)
+- **Acceptance Criteria**: No trading data sent to groups/channels, all sensitive info private-only
 
-**Phase 3**: Infrastructure & Performance
-- HTTP request layer and API architecture
-- Rate limiting, caching, and circuit breaker patterns
-- Monitoring and observability systems
+**Task A2: Opportunity Distribution Limits**
+- **Objective**: Update opportunity limits to match business requirements
+- **Deliverables**:
+  - FairnessConfig update: max 2 opportunities, 10 daily, 4-hour cooldown
+  - GlobalOpportunityService distribution logic updates
+  - User opportunity tracking and enforcement
+- **Dependencies**: None (configuration change)
+- **Acceptance Criteria**: Users receive max 2 opportunities with 4-hour cooldown, 10 daily max
 
-**Phase 4**: AI Integration & Automation
-- BYOK AI integration framework
-- CorrelationAnalysisService and DynamicConfigService
-- Semi-automated and automated execution systems
+**Task A3: Super Admin API Architecture**
+- **Objective**: Implement secure super admin read-only API for global opportunity data
+- **Deliverables**:
+  - Read-only API key management for global data generation
+  - API isolation ensuring no trading capabilities in global system
+  - Separate super admin trading API configuration
+  - Risk isolation documentation and testing
+- **Dependencies**: ExchangeService refactoring
+- **Acceptance Criteria**: Global opportunities generated from admin read-only API, complete isolation from user trading
 
-**Phase 5**: Subscription & Access Control
-- Subscription Infrastructure & RBAC Implementation
-- Feature gating and access control systems
+### 8.2 Core System Implementation
 
-**Phase 6**: Advanced Features & Enterprise
-- Task 10-11: Advanced Analytics & Performance Dashboard
-- Enterprise features and white-label solutions
-- Regulatory compliance systems
+**Task B1: Manual Trading Commands (WIP)**
+- **Objective**: Implement manual trade execution through Telegram bot
+- **Status**: Documented as Work In Progress - implement after test coverage completion
+- **Deliverables**:
+  - Exchange API trading methods (create_order, cancel_order, get_balance)
+  - Telegram trading commands (/buy, /sell, /balance, /orders)
+  - User API key secure storage and validation
+  - Risk management for manual trades
+- **Dependencies**: Task A3 (API architecture), Test coverage completion
+- **Acceptance Criteria**: Users can execute trades through bot using their own API keys
+
+**Task B2: Technical Analysis Global Access**
+- **Objective**: Prepare technical analysis for global free access
+- **Deliverables**:
+  - Technical analysis service optimization for high user volume
+  - Free tier rate limiting for technical analysis features
+  - Global technical analysis opportunity distribution
+  - Performance monitoring for free tier usage
+- **Dependencies**: Task A2 (opportunity distribution)
+- **Acceptance Criteria**: All users can access technical analysis features during beta
+
+**Task B3: AI Integration Beta Access**
+- **Objective**: Make BYOK AI features accessible to all beta users
+- **Deliverables**:
+  - Remove subscription gates for AI features during beta
+  - BYOK AI API key management for all users
+  - Global + AI enhancement model (Option 1) implementation
+  - Fallback to global opportunities when AI unavailable
+- **Dependencies**: Existing AI services
+- **Acceptance Criteria**: All beta users can integrate personal AI APIs, seamless global+AI experience
+
+### 8.3 Infrastructure & Performance
+
+**Task C1: Core Service Architecture**
+- **Objective**: Implement missing core services for production readiness
+- **Deliverables**:
+  - ExchangeService, PositionsService, FundMonitoringService completion
+  - HTTP request layer and RESTful API implementation
+  - Authentication middleware and security infrastructure
+  - Rate limiting, caching, and circuit breaker patterns
+- **Dependencies**: Task A3 (API architecture)
+- **Acceptance Criteria**: All core services operational with production-grade infrastructure
+
+**Task C2: Monitoring & Observability**
+- **Objective**: Implement comprehensive monitoring for production deployment
+- **Deliverables**:
+  - Performance metrics and error rate monitoring
+  - Business metrics tracking (opportunity rates, user engagement)
+  - Health checks and service availability monitoring
+  - Structured logging and debugging capabilities
+- **Dependencies**: Task C1 (core services)
+- **Acceptance Criteria**: Full observability stack operational with real-time monitoring
+
+### 8.4 Advanced Features
+
+**Task D1: Automated Trading Framework**
+- **Objective**: Implement automated trading capabilities for premium features
+- **Deliverables**:
+  - Semi-automated execution with user approval workflows
+  - Fully automated trading for premium tiers (future)
+  - Risk management and kill switch mechanisms
+  - Performance tracking and reporting
+- **Dependencies**: Task B1 (manual trading), Task C1 (core services)
+- **Acceptance Criteria**: Users can progress from manual to automated trading safely
+
+**Task D2: Advanced Analytics & Reporting**
+- **Objective**: Implement comprehensive performance dashboard
+- **Deliverables**:
+  - Multi-timeframe performance reporting
+  - Trading focus-specific analytics (arbitrage vs technical)
+  - AI enhancement effectiveness metrics
+  - User portfolio optimization insights
+- **Dependencies**: Task D1 (automated trading)
+- **Acceptance Criteria**: Users have detailed performance insights for optimization
 
 9. Enhanced Success Metrics
 
@@ -525,55 +604,79 @@ VIP or Users Tier:
 
 ## 6. Technical Architecture Requirements
 
-### 6.1 Core Service Architecture
+### 6.1 Data Source & Global Opportunity Architecture
 
-**FR6.1**: The system must implement comprehensive service layer architecture
+**FR6.1**: The system must implement secure super admin API architecture
+- **Super Admin Read-Only API**: Platform admin provides read-only exchange API keys for global opportunity data generation
+- **API Isolation**: Global opportunity service consumes only read-only market data, cannot execute trades
+- **User Trading Separation**: Individual user API keys remain completely separate from global data APIs
+- **Admin Trading API**: Super admin uses separate API keys with trading capabilities for personal automated trading
+- **Risk Isolation**: No risk of users accessing super admin trading capabilities through global opportunity system
+
+**FR6.2**: The system must implement comprehensive service layer architecture
 - **ExchangeService**: Real-time market data fetching with API rate limiting and connection pooling
-- **GlobalOpportunityService**: Fair distribution and queue management for opportunity delivery
+- **GlobalOpportunityService**: Fair distribution and queue management for opportunity delivery (max 2 opportunities, 10 daily, 4-hour cooldown)
 - **PositionsService**: Multi-exchange position tracking and management
 - **FundMonitoringService**: Real-time balance tracking and fund optimization
 - **CorrelationAnalysisService**: Cross-exchange market correlation analysis
 - **DynamicConfigService**: Runtime configuration management and validation
 
-**FR6.2**: The system must support production-grade infrastructure
+### 6.2 Notification Security & Privacy Architecture
+
+**FR6.3**: The system must implement secure notification routing
+- **Private-Only Trading Alerts**: Opportunities and trading information sent exclusively to private user chats
+- **Group Context Detection**: Bot must identify private vs group/channel contexts
+- **Group Command Restrictions**: Groups/channels limited to bot commands (/help, /settings) only
+- **Marketing Message Privacy**: Marketing and promotional content restricted to private chats
+- **Context-Aware Messaging**: Dynamic message content based on chat context (private vs group)
+
+**FR6.4**: The system must support production-grade infrastructure
 - **HTTP Request Layer**: RESTful API with proper request/response handling
 - **Authentication Middleware**: Secure user authentication and session management
 - **Rate Limiting**: API call throttling and fair usage enforcement
 - **Caching Layer**: Performance optimization with intelligent cache management
 - **Circuit Breakers**: Fault tolerance for external API dependencies
 
-**FR6.3**: The system must implement comprehensive error handling
+**FR6.5**: The system must implement comprehensive error handling
 - **Network Failure Recovery**: Exponential backoff and retry logic
 - **Service Unavailable Fallbacks**: Graceful degradation when services are down
 - **API Rate Limit Handling**: Intelligent queuing and throttling
 - **Database Connection Failures**: Connection pooling and failover mechanisms
 - **Invalid Data Scenarios**: Input validation and sanitization
 
-### 6.2 Security & Compliance Architecture
+### 6.3 Beta Public Access & AI Integration
 
-**FR6.4**: The system must provide enterprise-grade security
+**FR6.6**: The system must support beta public access model
+- **Technical Analysis Global Access**: Technical analysis features available to all users during beta (future: free tier)
+- **AI Integration Beta Access**: BYOK AI features accessible to all beta users (future: subscription-gated)
+- **Global + AI Enhancement Model**: Implementation of Option 1 - Global opportunities enhanced by user AI where available
+- **Fallback Strategy**: Global opportunities when user AI unavailable or disabled
+
+### 6.4 Security & Compliance Architecture
+
+**FR6.7**: The system must provide enterprise-grade security
 - **API Key Encryption**: Secure storage and handling of user exchange API keys
 - **Request Signing**: Cryptographic validation of exchange API calls
 - **SQL Injection Prevention**: Parameterized queries and input validation
 - **Audit Logging**: Comprehensive audit trail for regulatory compliance
 - **Data Privacy**: GDPR-compliant user data handling
 
-**FR6.5**: The system must support monitoring and observability
+**FR6.8**: The system must support monitoring and observability
 - **Performance Metrics**: Response time tracking and performance monitoring
 - **Error Rate Monitoring**: Real-time error detection and alerting
 - **Business Metrics**: Opportunity detection rates, trade success metrics
 - **Health Checks**: Service availability and dependency monitoring
 - **Logging**: Structured logging for debugging and analysis
 
-### 6.3 External Integration Architecture
+### 6.5 External Integration Architecture
 
-**FR6.6**: The system must integrate with external market data providers
+**FR6.9**: The system must integrate with external market data providers
 - **Multiple Exchange APIs**: Binance, Bybit, and other major exchanges
 - **Real-time Data Streams**: WebSocket connections for live market data
 - **Historical Data Access**: Past market data for analysis and backtesting
 - **API Versioning**: Support for multiple API versions and migrations
 
-**FR6.7**: The system must support AI and ML integrations
+**FR6.10**: The system must support AI and ML integrations
 - **BYOK AI Providers**: OpenAI, Anthropic, custom AI service integration
 - **Model Management**: AI model versioning and performance tracking
 - **Inference Pipeline**: Real-time AI analysis integration with trading decisions

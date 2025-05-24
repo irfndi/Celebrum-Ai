@@ -1,17 +1,57 @@
 # Opportunity Service Specification
 
 ## Overview
-`OpportunityService` detects arbitrage opportunities based on funding rates and trading fees across multiple exchanges.
+`OpportunityService` detects arbitrage opportunities based on funding rates and trading fees across multiple exchanges. The service implements secure data sourcing architecture with super admin read-only APIs for global opportunity generation and fair distribution limits.
 
 ## Configuration
 `OpportunityServiceConfig`:
-- `exchangeService: ExchangeService` – external service for fetching rates/fees.
-- `telegramService: TelegramService | null` – optional, sends notifications.
+- `exchangeService: ExchangeService` – external service for fetching rates/fees via super admin read-only APIs.
+- `telegramService: TelegramService | null` – optional, sends notifications (private chat only).
 - `logger: Logger` – logs info, warnings, errors.
 - `monitoredPairs: StructuredTradingPair[]` – list of trading pairs to monitor, derived from the user's configured API key pairs (requires at least two).
 - `exchanges: ExchangeId[]` – list of exchange IDs to check.
 - `mode: 'manual' | 'auto'` – operation mode for this service instance.
 - `autoConfig?: { threshold: number; maxMarginAllocation: number; slippageTolerance: number; }` – parameters for Automated Mode (required if `mode` is `auto`).
+- `distributionLimits: FairnessConfig` – opportunity distribution limits (max 2 opportunities, 10 daily, 4-hour cooldown).
+- `dataSource: 'global' | 'user'` – whether to use global opportunities from super admin APIs or user-provided APIs.
+
+## Data Source Architecture
+
+### Super Admin Read-Only API Configuration
+The system implements secure data sourcing for global opportunities:
+
+**Global Data Generation**:
+- Super admin provides read-only exchange API keys for market data collection
+- ExchangeService consumes only market data (funding rates, trading fees) - NO trading capabilities
+- Global opportunities generated from aggregated market data across exchanges
+- Complete isolation from individual user trading APIs
+
+**User Trading APIs**:
+- Individual users provide their own exchange API keys for personal trading
+- User APIs remain completely separate from global data collection
+- Manual trading commands use user APIs: `/buy`, `/sell`, `/balance`, `/orders`
+- Automated trading (future feature) uses user APIs only
+
+**Risk Isolation**:
+- Global opportunity service cannot access user trading functions
+- Users cannot access super admin trading capabilities
+- Super admin uses separate trading-enabled APIs for personal automated trading
+- Clear separation ensures no cross-contamination of trading authority
+
+### Distribution Limits Architecture
+Opportunity distribution implements fair access controls:
+
+**Per-User Limits**:
+- Maximum 2 opportunities per distribution cycle
+- Maximum 10 opportunities per day (24-hour rolling window)
+- Minimum 4-hour cooldown between opportunity deliveries
+- Limits apply globally across all opportunity types (arbitrage + technical analysis)
+
+**Fair Distribution Queue**:
+- Global opportunity pool shared among all eligible users
+- Queue-based distribution prevents spam and ensures fairness
+- Opportunities distributed based on user subscription tier and activity
+- Rate limiting prevents system abuse and ensures stable performance
 
 ## Types
 ### ArbitrageOpportunity
@@ -98,6 +138,27 @@
 + 3. Invoke `findOpportunities(exchangeIds, pairs, threshold)`.
 + 4. Log the number of opportunities via `logger.info`.
 + 5. Return the resulting `ArbitrageOpportunity[]`.
+
+### sendSecureNotification(
+  `opportunity: ArbitrageOpportunity`,
+  `userId: string`,
+  `chatContext: ChatContext`
+): `Promise<boolean>`
+
+**Behavior:**
+1. **Context Validation**: Check `chatContext.type` to determine if chat is private or group/channel.
+2. **Private Chat Only**: If `chatContext.type === 'private'`, proceed with notification.
+3. **Group/Channel Block**: If `chatContext.type` in ['group', 'supergroup', 'channel']`, log warning and return `false` without sending.
+4. **Opportunity Formatting**: Format opportunity data for private notification with trading details.
+5. **Rate Limit Check**: Verify user hasn't exceeded distribution limits (2 opportunities, 4-hour cooldown, 10 daily).
+6. **Secure Delivery**: Send notification via `telegramService.sendPrivateMessage()` with opportunity details.
+7. **Tracking**: Update user's opportunity delivery tracking for rate limiting.
+
+**Security Features:**
+- **No Group Leakage**: Trading opportunities never sent to groups/channels
+- **Context-Aware**: Different message content based on chat context
+- **Rate Limited**: Prevents spam and ensures fair distribution
+- **Privacy Focused**: Sensitive trading data only in private chats
 
 ## Usage Example
 ```ts
