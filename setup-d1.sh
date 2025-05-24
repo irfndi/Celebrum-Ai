@@ -11,6 +11,10 @@ if ! command -v wrangler &> /dev/null; then
     exit 1
 fi
 
+# Get script directory for relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
+
 # Use existing D1 database
 DB_NAME="prod-arb-edge"
 DB_ID="879bf844-93b2-433d-9319-6e6065bbfdfd"
@@ -19,21 +23,26 @@ echo "📋 Using existing D1 database:"
 echo "   Name: $DB_NAME"
 echo "   ID: $DB_ID"
 
-# Verify database exists
+# Verify database exists - fail fast if not found
 echo "🔍 Verifying database exists..."
 if wrangler d1 list | grep -q "$DB_NAME"; then
     echo "✅ Database '$DB_NAME' found"
 else
-    echo "⚠️  Database '$DB_NAME' not found in list, but continuing with configured ID"
+    echo "❌ Error: Database '$DB_NAME' not found in Cloudflare account" >&2
+    echo "💡 Please create the database first or check the database name" >&2
+    exit 1
 fi
 
-# Initialize database schema if available
+# Initialize database schema if available using absolute path
+SCHEMA_FILE="$PROJECT_ROOT/sql/schema.sql"
 echo "🏗️ Initializing database schema..."
-if [[ -f "sql/schema.sql" ]]; then
-    wrangler d1 execute "$DB_NAME" --file=sql/schema.sql
+if [[ -f "$SCHEMA_FILE" ]]; then
+    echo "📄 Using schema file: $SCHEMA_FILE"
+    wrangler d1 execute "$DB_NAME" --file="$SCHEMA_FILE"
     echo "✅ Database schema initialized"
 else
-    echo "⚠️  sql/schema.sql not found - skipping schema initialization"
+    echo "⚠️  Schema file not found at: $SCHEMA_FILE"
+    echo "⚠️  Skipping schema initialization"
 fi
 
 echo "✅ D1 Database setup completed!"
