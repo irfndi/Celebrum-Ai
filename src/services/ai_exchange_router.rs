@@ -1,11 +1,16 @@
 use worker::{Request, Response, Env};
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use crate::types::{UserProfile, UserApiKey, GlobalOpportunity, ArbitrageOpportunity, ExchangeIdEnum};
-use crate::utils::{ArbitrageError, ArbitrageResult};
-use crate::services::{
-    AiIntegrationService, AiProvider, AiAnalysisRequest, AiAnalysisResponse,
-    D1Service, UserProfileService
+use crate::{
+    services::{
+        AiIntegrationService, 
+        ai_integration::{AiProvider, AiAnalysisRequest, AiAnalysisResponse},
+        UserTradingPreferencesService,
+        UserProfileService,
+        D1Service,
+    },
+    types::{UserProfile, UserApiKey, GlobalOpportunity, ArbitrageOpportunity, ExchangeIdEnum},
+    utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}},
 };
 use worker::kv::KvStore;
 use reqwest::Client;

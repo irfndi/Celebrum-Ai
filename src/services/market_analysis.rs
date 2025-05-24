@@ -177,7 +177,7 @@ pub struct TradingOpportunity {
 }
 
 /// Risk level assessment
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub enum RiskLevel {
     #[serde(rename = "low")]
     Low,        // Conservative, arbitrage-focused
