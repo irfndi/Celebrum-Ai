@@ -315,10 +315,11 @@ async fn test_user_registration_service_interface_validation() {
 
     // Verify D1Service data format compatibility
     assert_eq!(d1_user_data["user_id"], service_user.user_id);
-    assert_eq!(
-        d1_user_data["telegram_user_id"],
-        service_user.telegram_user_id
-    );
+    // Compare telegram_user_id handling Option<i64>
+    match service_user.telegram_user_id {
+        Some(id) => assert_eq!(d1_user_data["telegram_user_id"], id),
+        None => assert_eq!(d1_user_data["telegram_user_id"], 0),
+    }
     assert_eq!(d1_preferences_data["user_id"], service_user.user_id);
     assert_eq!(
         d1_preferences_data["preference_id"],
@@ -358,7 +359,7 @@ async fn test_user_registration_service_interface_validation() {
 
     // Verify types are as expected (compile-time check)
     fn verify_types(
-        _telegram_id: i64,
+        _telegram_id: Option<i64>,
         _invitation_code: Option<String>,
         _username: Option<String>,
         _user_profile: &UserProfile,

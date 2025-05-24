@@ -878,7 +878,7 @@ mod tests {
     fn create_test_user_profile(user_id: &str, tier: SubscriptionTier) -> UserProfile {
         UserProfile {
             user_id: user_id.to_string(),
-            telegram_user_id: 12345,
+            telegram_user_id: Some(12345),
             telegram_username: Some("testuser".to_string()),
             subscription: SubscriptionInfo {
                 tier,

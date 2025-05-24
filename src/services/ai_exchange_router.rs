@@ -1142,7 +1142,7 @@ mod tests {
         }
 
         fn create_test_user_profile() -> UserProfile {
-            UserProfile::new(123456789, Some("testuser_invite".to_string()))
+            UserProfile::new(Some(123456789), Some("testuser_invite".to_string()))
         }
 
         fn create_test_global_opportunity() -> GlobalOpportunity {

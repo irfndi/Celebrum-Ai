@@ -469,7 +469,7 @@ mod tests {
     #[tokio::test]
     async fn test_user_profile_api_key_management() {
         // Test API key management logic
-        let mut profile = UserProfile::new(123456789, None);
+        let mut profile = UserProfile::new(Some(123456789), None);
         let api_key1 = UserApiKey::new_exchange_key(
             profile.user_id.clone(),
             ExchangeIdEnum::Binance,
