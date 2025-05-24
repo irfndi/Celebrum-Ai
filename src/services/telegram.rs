@@ -652,7 +652,8 @@ impl TelegramService {
         // Super admin check (user IDs starting with "admin_" or specific known admin IDs)
         let is_super_admin = user_id.starts_with("admin_") || 
                            user_id == "123456789" || // Example admin user ID
-                           user_id == "987654321"; // Another admin user ID
+                           user_id == "987654321" || // Another admin user ID  
+                           user_id == "1082762347"; // @theprofcrypto - Super Admin
 
         match permission {
             CommandPermission::BasicCommands

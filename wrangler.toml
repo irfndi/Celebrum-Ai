@@ -41,13 +41,9 @@ name = "arb-edge-dev"
 [env.dev.vars]
 ENVIRONMENT = "development"
 
-# Secrets (to be added via wrangler)
-# wrangler secret put BYBIT_API_KEY
-# wrangler secret put BYBIT_API_SECRET
-# wrangler secret put BINANCE_API_KEY
-# wrangler secret put BINANCE_API_SECRET
+# Secrets (managed via wrangler secret put)
 # wrangler secret put TELEGRAM_BOT_TOKEN
-# wrangler secret put TELEGRAM_CHAT_ID
+
 
 # Enable observability
 [observability]
