@@ -32,6 +32,8 @@ wasm-bindgen = "0.2.93"
 wasm-bindgen-futures = "0.4.43"
 js-sys = "0.3.70"
 web-sys = "0.3.70"
+# Fix for getrandom WASM compatibility
+getrandom = { version = "0.2", features = ["js"] }
 # HTTP client for WASM - reqwest with WASM features
 reqwest = { version = "0.12.15", features = ["json"], default-features = false }
 

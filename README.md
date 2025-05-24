@@ -1,3 +1,5 @@
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/irfndi/ArbEdge?utm_source=oss&utm_medium=github&utm_campaign=irfndi%2FArbEdge&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+
 # ArbEdge - Rust Implementation
 
 A high-performance arbitrage detection and trading system built with Rust and deployed on Cloudflare Workers.

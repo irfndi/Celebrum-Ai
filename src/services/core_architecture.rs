@@ -306,13 +306,14 @@ impl CoreServiceArchitecture {
 
         #[cfg(target_arch = "wasm32")]
         {
-            // Use browser-compatible sleep for WASM
-            let _ = js_sys::Promise::new(&mut |resolve, _| {
+            // Use browser-compatible sleep for WASM with proper await
+            let promise = js_sys::Promise::new(&mut |resolve, _| {
                 web_sys::window()
                     .unwrap()
                     .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100)
                     .unwrap();
             });
+            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
         }
 
         {
@@ -352,13 +353,14 @@ impl CoreServiceArchitecture {
 
         #[cfg(target_arch = "wasm32")]
         {
-            // Use browser-compatible sleep for WASM
-            let _ = js_sys::Promise::new(&mut |resolve, _| {
+            // Use browser-compatible sleep for WASM with proper await
+            let promise = js_sys::Promise::new(&mut |resolve, _| {
                 web_sys::window()
                     .unwrap()
                     .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 50)
                     .unwrap();
             });
+            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
         }
 
         {
@@ -409,13 +411,14 @@ impl CoreServiceArchitecture {
 
         #[cfg(target_arch = "wasm32")]
         {
-            // Use browser-compatible sleep for WASM
-            let _ = js_sys::Promise::new(&mut |resolve, _| {
+            // Use browser-compatible sleep for WASM with proper await
+            let promise = js_sys::Promise::new(&mut |resolve, _| {
                 web_sys::window()
                     .unwrap()
                     .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100)
                     .unwrap();
             });
+            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
         }
 
         self.start_service(service_type).await
@@ -593,71 +596,101 @@ impl CoreServiceArchitecture {
         }
     }
 
-    /// Calculate service startup order based on dependencies
+    /// Calculate service startup order based on dependencies using iterative topological sort
     async fn calculate_startup_order(&mut self) -> ArbitrageResult<()> {
         let registry = read_lock!(self.service_registry);
         let mut order = Vec::new();
-        let mut visited = std::collections::HashSet::new();
-        let mut visiting = std::collections::HashSet::new();
+        let mut in_degree = std::collections::HashMap::new();
+        let mut graph = std::collections::HashMap::new();
 
-        for service_type in registry.keys() {
-            if !visited.contains(service_type) {
-                self.visit_service_for_order(
-                    service_type,
-                    &registry,
-                    &mut order,
-                    &mut visited,
-                    &mut visiting,
-                )?;
+        // Build dependency graph and calculate in-degrees
+        for (service_type, _entry) in registry.iter() {
+            in_degree.insert(service_type.clone(), 0);
+            graph.insert(service_type.clone(), Vec::new());
+        }
+
+        // Calculate in-degrees and build adjacency list
+        for (_service_type, entry) in registry.iter() {
+            let mut deps = entry.config.dependencies.clone();
+            deps.sort_by_key(|d| d.start_order);
+
+            for dep in deps {
+                // Dependency -> Current service edge
+                if let Some(dependents) = graph.get_mut(&dep.service_type) {
+                    dependents.push(entry.config.service_type.clone());
+                }
+                if let Some(degree) = in_degree.get_mut(&entry.config.service_type) {
+                    *degree += 1;
+                }
             }
+        }
+
+        // Kahn's algorithm for topological sorting
+        let mut queue = std::collections::VecDeque::new();
+
+        // Start with services that have no dependencies
+        for (service_type, &degree) in &in_degree {
+            if degree == 0 {
+                queue.push_back(service_type.clone());
+            }
+        }
+
+        while let Some(current) = queue.pop_front() {
+            order.push(current.clone());
+
+            // Process all services that depend on the current service
+            if let Some(dependents) = graph.get(&current) {
+                for dependent in dependents {
+                    if let Some(degree) = in_degree.get_mut(dependent) {
+                        *degree -= 1;
+                        if *degree == 0 {
+                            queue.push_back(dependent.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check for circular dependencies
+        if order.len() != registry.len() {
+            return Err(ArbitrageError::internal_error(
+                "Circular dependency detected in service configuration".to_string(),
+            ));
         }
 
         self.startup_order = order;
         Ok(())
     }
 
-    /// Recursive function for topological sort of services
-    #[allow(clippy::only_used_in_recursion)]
-    fn visit_service_for_order(
-        &self,
-        service_type: &ServiceType,
-        registry: &HashMap<ServiceType, ServiceRegistryEntry>,
-        order: &mut Vec<ServiceType>,
-        visited: &mut std::collections::HashSet<ServiceType>,
-        visiting: &mut std::collections::HashSet<ServiceType>,
-    ) -> ArbitrageResult<()> {
-        if visiting.contains(service_type) {
-            return Err(ArbitrageError::internal_error(format!(
-                "Circular dependency detected involving service {:?}",
-                service_type
-            )));
-        }
+    /// Validate service configurations for logical consistency
+    pub fn validate_service_configs(configs: &[ServiceConfig]) -> ArbitrageResult<()> {
+        use std::collections::HashSet;
 
-        if visited.contains(service_type) {
-            return Ok(());
-        }
+        // Track existing service types
+        let existing_services: HashSet<ServiceType> = configs
+            .iter()
+            .map(|config| config.service_type.clone())
+            .collect();
 
-        visiting.insert(service_type.clone());
+        for config in configs {
+            // Check for self-dependency
+            for dependency in &config.dependencies {
+                if dependency.service_type == config.service_type {
+                    return Err(ArbitrageError::validation_error(format!(
+                        "Service {:?} cannot depend on itself",
+                        config.service_type
+                    )));
+                }
 
-        if let Some(entry) = registry.get(service_type) {
-            // Sort dependencies by start_order
-            let mut deps = entry.config.dependencies.clone();
-            deps.sort_by_key(|d| d.start_order);
-
-            for dep in deps {
-                self.visit_service_for_order(
-                    &dep.service_type,
-                    registry,
-                    order,
-                    visited,
-                    visiting,
-                )?;
+                // Check that dependency exists in the configuration set
+                if !existing_services.contains(&dependency.service_type) {
+                    return Err(ArbitrageError::validation_error(format!(
+                        "Service {:?} depends on {:?} which is not defined in the configuration",
+                        config.service_type, dependency.service_type
+                    )));
+                }
             }
         }
-
-        visiting.remove(service_type);
-        visited.insert(service_type.clone());
-        order.push(service_type.clone());
 
         Ok(())
     }
@@ -952,5 +985,186 @@ mod tests {
         assert_eq!(dep.service_type, ServiceType::D1DatabaseService);
         assert!(dep.required);
         assert_eq!(dep.start_order, 1);
+    }
+
+    #[tokio::test]
+    async fn test_circular_dependency_detection() {
+        let mut architecture = CoreServiceArchitecture::new();
+
+        // Create services with circular dependencies: A -> B -> C -> A
+        let config_a = ServiceConfig {
+            service_type: ServiceType::TelegramService,
+            enabled: true,
+            dependencies: vec![ServiceDependency {
+                service_type: ServiceType::NotificationService,
+                required: true,
+                start_order: 1,
+            }],
+            health_check_interval_seconds: 30,
+            restart_on_failure: true,
+            max_restart_attempts: 3,
+            configuration: serde_json::json!({}),
+        };
+
+        let config_b = ServiceConfig {
+            service_type: ServiceType::NotificationService,
+            enabled: true,
+            dependencies: vec![ServiceDependency {
+                service_type: ServiceType::ExchangeService,
+                required: true,
+                start_order: 1,
+            }],
+            health_check_interval_seconds: 30,
+            restart_on_failure: true,
+            max_restart_attempts: 3,
+            configuration: serde_json::json!({}),
+        };
+
+        let config_c = ServiceConfig {
+            service_type: ServiceType::ExchangeService,
+            enabled: true,
+            dependencies: vec![ServiceDependency {
+                service_type: ServiceType::TelegramService, // Circular dependency!
+                required: true,
+                start_order: 1,
+            }],
+            health_check_interval_seconds: 30,
+            restart_on_failure: true,
+            max_restart_attempts: 3,
+            configuration: serde_json::json!({}),
+        };
+
+        architecture.register_service(config_a).await.unwrap();
+        architecture.register_service(config_b).await.unwrap();
+        architecture.register_service(config_c).await.unwrap();
+
+        // This should detect the circular dependency
+        let result = architecture.calculate_startup_order().await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Circular dependency detected"));
+    }
+
+    #[tokio::test]
+    async fn test_service_validation() {
+        // Test self-dependency validation
+        let configs_with_self_dep = vec![ServiceConfig {
+            service_type: ServiceType::TelegramService,
+            enabled: true,
+            dependencies: vec![ServiceDependency {
+                service_type: ServiceType::TelegramService, // Self-dependency
+                required: true,
+                start_order: 1,
+            }],
+            health_check_interval_seconds: 30,
+            restart_on_failure: true,
+            max_restart_attempts: 3,
+            configuration: serde_json::json!({}),
+        }];
+
+        let result = CoreServiceArchitecture::validate_service_configs(&configs_with_self_dep);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("cannot depend on itself"));
+
+        // Test missing dependency validation
+        let configs_with_missing_dep = vec![ServiceConfig {
+            service_type: ServiceType::TelegramService,
+            enabled: true,
+            dependencies: vec![ServiceDependency {
+                service_type: ServiceType::NotificationService, // Missing service
+                required: true,
+                start_order: 1,
+            }],
+            health_check_interval_seconds: 30,
+            restart_on_failure: true,
+            max_restart_attempts: 3,
+            configuration: serde_json::json!({}),
+        }];
+
+        let result = CoreServiceArchitecture::validate_service_configs(&configs_with_missing_dep);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not defined in the configuration"));
+
+        // Test valid configuration
+        let valid_configs = vec![
+            ServiceConfig {
+                service_type: ServiceType::D1DatabaseService,
+                enabled: true,
+                dependencies: vec![],
+                health_check_interval_seconds: 30,
+                restart_on_failure: true,
+                max_restart_attempts: 3,
+                configuration: serde_json::json!({}),
+            },
+            ServiceConfig {
+                service_type: ServiceType::TelegramService,
+                enabled: true,
+                dependencies: vec![ServiceDependency {
+                    service_type: ServiceType::D1DatabaseService,
+                    required: true,
+                    start_order: 1,
+                }],
+                health_check_interval_seconds: 30,
+                restart_on_failure: true,
+                max_restart_attempts: 3,
+                configuration: serde_json::json!({}),
+            },
+        ];
+
+        let result = CoreServiceArchitecture::validate_service_configs(&valid_configs);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_service_operations() {
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+
+        let architecture = Arc::new(Mutex::new(CoreServiceArchitecture::new()));
+        let mut handles = vec![];
+
+        // Test concurrent service registration
+        for i in 0..5 {
+            let arch_clone = Arc::clone(&architecture);
+            let handle = tokio::spawn(async move {
+                let mut arch = arch_clone.lock().await;
+                let config = ServiceConfig {
+                    service_type: match i {
+                        0 => ServiceType::D1DatabaseService,
+                        1 => ServiceType::ExchangeService,
+                        2 => ServiceType::TelegramService,
+                        3 => ServiceType::NotificationService,
+                        _ => ServiceType::UserProfileService,
+                    },
+                    enabled: true,
+                    dependencies: vec![],
+                    health_check_interval_seconds: 30,
+                    restart_on_failure: true,
+                    max_restart_attempts: 3,
+                    configuration: serde_json::json!({}),
+                };
+                arch.register_service(config).await
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all concurrent operations to complete
+        for handle in handles {
+            let result = handle.await.unwrap();
+            assert!(result.is_ok());
+        }
+
+        // Verify all services were registered
+        let arch = architecture.lock().await;
+        let health = arch.get_system_health().await;
+        assert_eq!(health.total_services, 5);
     }
 }

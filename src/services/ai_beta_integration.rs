@@ -346,6 +346,9 @@ impl AiBetaIntegrationService {
         enhanced.optimal_position_size = self.calculate_optimal_position_size(&enhanced, user_id);
         enhanced.time_sensitivity = self.assess_time_sensitivity(&enhanced);
 
+        // Update AI model metrics
+        self.update_ai_metrics(ai_score);
+
         Ok(enhanced)
     }
 
@@ -703,6 +706,52 @@ impl AiBetaIntegrationService {
     /// Get AI statistics and metrics
     pub fn get_ai_metrics(&self) -> &AiModelMetrics {
         &self.ai_model_metrics
+    }
+
+    /// Update AI model metrics after making a prediction
+    fn update_ai_metrics(&mut self, confidence: f64) {
+        self.ai_model_metrics.total_predictions += 1;
+
+        // Update average confidence using running average
+        let total = self.ai_model_metrics.total_predictions as f64;
+        self.ai_model_metrics.average_confidence =
+            ((self.ai_model_metrics.average_confidence * (total - 1.0)) + confidence) / total;
+
+        // Update accuracy rate based on current successful predictions
+        if self.ai_model_metrics.total_predictions > 0 {
+            self.ai_model_metrics.accuracy_rate = self.ai_model_metrics.successful_predictions
+                as f64
+                / self.ai_model_metrics.total_predictions as f64;
+        }
+
+        // Update timestamp
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.ai_model_metrics.last_updated = js_sys::Date::now() as u64;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.ai_model_metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        }
+    }
+
+    /// Mark a prediction as successful (to be called when an opportunity is executed profitably)
+    pub fn mark_prediction_successful(&mut self, opportunity_id: &str) {
+        // In production, this would track specific opportunity outcomes
+        // For now, increment successful predictions for high-confidence opportunities
+        self.ai_model_metrics.successful_predictions += 1;
+
+        // Recalculate accuracy rate
+        if self.ai_model_metrics.total_predictions > 0 {
+            self.ai_model_metrics.accuracy_rate = self.ai_model_metrics.successful_predictions
+                as f64
+                / self.ai_model_metrics.total_predictions as f64;
+        }
+
+        log::info!(
+            "Marked AI prediction as successful for opportunity: {}",
+            opportunity_id
+        );
     }
 
     /// Generate personalized AI recommendations
