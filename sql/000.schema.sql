@@ -276,12 +276,12 @@ CREATE TABLE notifications (
     sent_at TEXT,
     
     -- Partitioning Strategy: Add date partition key for time-based partitioning
-    date_partition TEXT GENERATED ALWAYS AS (date(created_at)) STORED,
+    date_partition TEXT DEFAULT (date('now')),
     
     -- Foreign key references
     FOREIGN KEY (user_id) REFERENCES user_profiles(user_id),
     FOREIGN KEY (trigger_id) REFERENCES alert_triggers(trigger_id),
-    FOREIGN KEY (template_id) REFERENCES notification_templates(template_id),
+    FOREIGN KEY (template_id) REFERENCES notification_templates(template_id)
     
     -- Retention Policy Note: Consider implementing automated cleanup for notifications older than 90 days
     -- This should be implemented as a scheduled job: DELETE FROM notifications WHERE date(created_at) < date('now', '-90 days')
