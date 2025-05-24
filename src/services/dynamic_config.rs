@@ -394,9 +394,8 @@ impl DynamicConfigService {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
 
-        // Get user profile for subscription checks
-        // Note: This would need UserProfileService integration
-        let user_has_premium = true; // Placeholder - would check actual user profile
+        // Get user subscription status via D1 database
+        let user_has_premium = self.check_user_subscription_status(user_id).await?;
 
         for param in &template.parameters {
             if let Some(value) = parameter_values.get(&param.key) {
@@ -684,6 +683,20 @@ impl DynamicConfigService {
 
         Ok(())
     }
+
+    /// Check user subscription status via D1 database
+    async fn check_user_subscription_status(&self, user_id: &str) -> ArbitrageResult<bool> {
+        match self.d1_service.get_user_profile(user_id).await? {
+            Some(profile) => {
+                // Check if user has premium tier subscription
+                Ok(matches!(profile.subscription.tier, crate::types::SubscriptionTier::Premium))
+            }
+            None => {
+                // User not found, assume free tier
+                Ok(false)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -875,8 +888,8 @@ mod tests {
         let mut errors = Vec::new();
         let warnings = Vec::new();
 
-        // Get user profile for subscription checks (mock)
-        let user_has_premium = true; // Placeholder - would check actual user profile
+        // Get user profile for subscription checks (mock for testing)
+        let user_has_premium = false; // Realistic default: most users are free tier
 
         for param in &template.parameters {
             if let Some(value) = parameter_values.get(&param.key) {

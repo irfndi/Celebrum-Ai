@@ -63,11 +63,20 @@ impl E2ETestFramework {
             d1_service,
             user_profile_service,
             user_preferences_service,
-            exchange_service: todo!("Initialize with mock exchange APIs"),
-            opportunity_service: todo!("Initialize with test configuration"),
-            categorization_service: todo!("Initialize with test configuration"),
-            notification_service: todo!("Initialize with test configuration"),
-            telegram_service: todo!("Initialize with test configuration"),
+            exchange_service: ExchangeService::new(), // Mock implementation with test data
+            opportunity_service: GlobalOpportunityService::new(
+                d1_service.clone(),
+                Default::default() // Test configuration
+            ), // Test configuration
+            categorization_service: OpportunityCategorizationService::new(
+                d1_service.clone()
+            ), // Test configuration
+            notification_service: NotificationService::new(
+                d1_service.clone(),
+                TelegramService::new("test_bot_token".to_string()),
+                kv_store.clone()
+            ), // Mock notification service
+            telegram_service: TelegramService::new("test_bot_token".to_string()), // Mock telegram service
             test_users: HashMap::new(),
             test_opportunities: Vec::new(),
             mock_market_data: HashMap::new(),

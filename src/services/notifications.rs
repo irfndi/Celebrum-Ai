@@ -618,9 +618,14 @@ impl NotificationService {
             .ok_or_else(|| ArbitrageError::not_found(format!("User profile not found: {}", user_id)))
     }
 
-    fn was_delivery_successful(&self, _notification_id: &str, _channel: &str) -> bool {
-        // Implementation would check delivery status from history
-        true // Placeholder
+    fn was_delivery_successful(&self, notification_id: &str, channel: &str) -> bool {
+        // TODO: Implement async version - this should check D1 notification_history table
+        // For now, return false for more realistic behavior since delivery can fail
+        // In production, this would query the notification_history table:
+        // self.d1_service.get_notification_history(notification_id, channel).await
+        //     .map(|history| history.delivery_status == "success")
+        //     .unwrap_or(false)
+        false // More realistic default - notifications can fail
     }
 
     // ============= SYSTEM TEMPLATE FACTORIES =============
@@ -827,9 +832,10 @@ mod tests {
         assert!(variables.contains(&"rate_difference"));
     }
 
+    // Helper function to create mock notification service for testing
     // fn create_mock_notification_service() -> NotificationService {
-    //     // This would create a mock service for testing
-    //     // Implementation depends on available mocking utilities
-    //     todo!("Mock service creation for tests")
+    //     // This would create a mock service for testing with proper dependencies
+    //     // Implementation would use mock D1Service, TelegramService, and KvStore
+    //     // NotificationService::new(mock_d1, mock_telegram, mock_kv)
     // }
 } 
