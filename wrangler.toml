@@ -19,10 +19,11 @@ binding = "ArbEdgeD1"
 database_name = "prod-arb-edge"
 database_id = "879bf844-93b2-433d-9319-6e6065bbfdfd"
 
-# Durable Object migrations
+# Durable Object migrations - Delete old PositionsManager
 [[migrations]]
 tag = "v1"
-deleted_classes = ["PositionsManager"]
+new_tag = "v2"
+delete_classes = ["PositionsManager"]
 
 # Cron Triggers for scheduled tasks
 [triggers]
