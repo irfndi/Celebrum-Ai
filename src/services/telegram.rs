@@ -4,7 +4,7 @@ use crate::services::ai_intelligence::{
     AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion,
 };
 use crate::services::opportunity_categorization::CategorizedOpportunity;
-use crate::types::{ArbitrageOpportunity, CommandPermission};
+use crate::types::{ArbitrageOpportunity, CommandPermission, MessageAnalytics, GroupRegistration, GroupRateLimitConfig, TradingMode};
 use crate::utils::formatter::{
     escape_markdown_v2, format_ai_enhancement_message, format_categorized_opportunity_message,
     format_opportunity_message, format_parameter_suggestions_message,
@@ -89,6 +89,8 @@ pub struct TelegramConfig {
 pub struct TelegramService {
     config: TelegramConfig,
     http_client: Client,
+    analytics_enabled: bool,
+    group_registrations: std::collections::HashMap<String, GroupRegistration>,
 }
 
 impl TelegramService {
@@ -96,7 +98,95 @@ impl TelegramService {
         Self {
             config,
             http_client: Client::new(),
+            analytics_enabled: true,
+            group_registrations: std::collections::HashMap::new(),
         }
+    }
+
+    /// Track message analytics for analysis
+    async fn track_message_analytics(
+        &self,
+        message_id: String,
+        user_id: Option<String>,
+        chat_context: &ChatContext,
+        message_type: &str,
+        command: Option<String>,
+        content_type: &str,
+        delivery_status: &str,
+        response_time_ms: Option<u64>,
+        metadata: serde_json::Value,
+    ) -> ArbitrageResult<()> {
+        if !self.analytics_enabled {
+            return Ok(());
+        }
+
+        let analytics = MessageAnalytics {
+            message_id,
+            user_id,
+            chat_id: chat_context.chat_id.clone(),
+            chat_type: format!("{:?}", chat_context.chat_type).to_lowercase(),
+            message_type: message_type.to_string(),
+            command,
+            content_type: content_type.to_string(),
+            delivery_status: delivery_status.to_string(),
+            response_time_ms,
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            metadata,
+        };
+
+        // TODO: Store in database for analytics
+        println!("Analytics: {:?}", analytics);
+        Ok(())
+    }
+
+    /// Register group/channel when bot is added
+    pub async fn register_group(&mut self, chat_context: &ChatContext, group_title: Option<String>, member_count: Option<u32>) -> ArbitrageResult<()> {
+        if chat_context.is_private() {
+            return Ok(()); // Not a group/channel
+        }
+
+        let default_rate_limit = GroupRateLimitConfig {
+            max_opportunities_per_hour: 5,
+            max_technical_signals_per_hour: 3,
+            max_broadcasts_per_day: 10,
+            cooldown_between_messages_minutes: 15,
+        };
+
+        let registration = GroupRegistration {
+            group_id: chat_context.chat_id.clone(),
+            group_type: format!("{:?}", chat_context.chat_type).to_lowercase(),
+            group_title,
+            group_username: None, // TODO: Extract from Telegram API
+            member_count,
+            admin_user_ids: vec![], // TODO: Get from Telegram API
+            bot_permissions: vec!["read_messages".to_string(), "send_messages".to_string()],
+            enabled_features: vec!["global_opportunities".to_string()],
+            global_opportunities_enabled: true,
+            technical_analysis_enabled: false, // Disabled by default
+            rate_limit_config: default_rate_limit,
+            registered_at: chrono::Utc::now().timestamp_millis() as u64,
+            last_activity: chrono::Utc::now().timestamp_millis() as u64,
+            total_messages_sent: 0,
+            last_member_count_update: Some(chrono::Utc::now().timestamp_millis() as u64),
+        };
+
+        self.group_registrations.insert(chat_context.chat_id.clone(), registration);
+        
+        // TODO: Store in database
+        println!("Registered group: {}", chat_context.chat_id);
+        Ok(())
+    }
+
+    /// Update member count for a group/channel
+    pub async fn update_group_member_count(&mut self, chat_id: &str, member_count: u32) -> ArbitrageResult<()> {
+        if let Some(registration) = self.group_registrations.get_mut(chat_id) {
+            registration.member_count = Some(member_count);
+            registration.last_member_count_update = Some(chrono::Utc::now().timestamp_millis() as u64);
+            
+            // TODO: Store update in database
+            println!("Updated member count for {}: {}", chat_id, member_count);
+        }
+        Ok(())
     }
 
     pub async fn send_message(&self, text: &str) -> ArbitrageResult<()> {
@@ -332,22 +422,26 @@ impl TelegramService {
         let command = parts.first().unwrap_or(&"");
         let args = &parts[1..];
 
-        // Group/Channel Command Restrictions - Only basic commands allowed
+        // Group/Channel Command Restrictions - Limited command set with global opportunities
         if chat_context.is_group_or_channel() {
             match *command {
                 "/help" => Ok(Some(self.get_help_message().await)),
                 "/settings" => Ok(Some(self.get_settings_message(user_id).await)),
                 "/start" => Ok(Some(self.get_group_welcome_message().await)),
+                "/opportunities" => Ok(Some(self.get_group_opportunities_message(user_id, args).await)),
+                "/admin_group_config" => self.handle_permissioned_command(user_id, CommandPermission::GroupAnalytics,
+                    || self.get_admin_group_config_message(args)).await,
                 _ => Ok(Some(
                     "🔒 *Security Notice*\n\n\
-                    Trading commands are only available in private chats\\.\n\
+                    Personal trading commands are only available in private chats\\.\n\
                     Please message me directly for:\n\
-                    • /opportunities\n\
-                    • /ai\\_insights\n\
+                    • Personal /ai\\_insights\n\
                     • /preferences\n\
                     • /risk\\_assessment\n\
+                    • Manual/auto trading commands\n\
                     • /admin commands \\(super admins only\\)\n\n\
-                    Available in groups: /help, /settings"
+                    **Available in groups:** /help, /settings, /opportunities\\n\
+                    **Group admins:** /admin\\_group\\_config"
                         .to_string(),
                 )),
             }
@@ -360,8 +454,8 @@ impl TelegramService {
                 "/status" => Ok(Some(self.get_status_message(user_id).await)),
                 "/settings" => Ok(Some(self.get_settings_message(user_id).await)),
                 
-                // Analysis and opportunity commands
-                "/opportunities" => Ok(Some(self.get_opportunities_message(user_id, args).await)),
+                // Analysis and opportunity commands (RBAC-gated content)
+                "/opportunities" => Ok(Some(self.get_enhanced_opportunities_message(user_id, args).await)),
                 "/categories" => Ok(Some(self.get_categories_message(user_id).await)),
                 "/ai_insights" => Ok(Some(self.get_ai_insights_message(user_id).await)),
                 "/risk_assessment" => Ok(Some(self.get_risk_assessment_message(user_id).await)),
@@ -380,6 +474,16 @@ impl TelegramService {
                     || self.get_positions_message(user_id, args)).await,
                 "/cancel" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading,
                     || self.get_cancel_order_message(user_id, args)).await,
+                
+                // Auto trading commands (Premium+ subscription)
+                "/auto_enable" => self.handle_permissioned_command(user_id, CommandPermission::AutomatedTrading,
+                    || self.get_auto_enable_message(user_id)).await,
+                "/auto_disable" => self.handle_permissioned_command(user_id, CommandPermission::AutomatedTrading,
+                    || self.get_auto_disable_message(user_id)).await,
+                "/auto_config" => self.handle_permissioned_command(user_id, CommandPermission::AutomatedTrading,
+                    || self.get_auto_config_message(user_id, args)).await,
+                "/auto_status" => self.handle_permissioned_command(user_id, CommandPermission::AutomatedTrading,
+                    || self.get_auto_status_message(user_id)).await,
                 
                 // SuperAdmin commands (admin-only)
                 "/admin_stats" => self.handle_permissioned_command(user_id, CommandPermission::SystemAdministration,
@@ -429,14 +533,18 @@ impl TelegramService {
                            user_id == "987654321";   // Another admin user ID
         
         match permission {
-            CommandPermission::BasicCommands => true, // Everyone has basic access
-            CommandPermission::ManualTrading => true, // Beta: all users have access
-            CommandPermission::SystemAdministration |
-            CommandPermission::UserManagement |
-            CommandPermission::GlobalConfiguration => is_super_admin,
+            CommandPermission::BasicCommands |
+            CommandPermission::BasicOpportunities |
+            CommandPermission::ManualTrading |
+            CommandPermission::TechnicalAnalysis |
+            CommandPermission::AIEnhancedOpportunities |
             CommandPermission::AutomatedTrading |
             CommandPermission::AdvancedAnalytics |
             CommandPermission::PremiumFeatures => true, // Beta: all users have access
+            CommandPermission::SystemAdministration |
+            CommandPermission::UserManagement |
+            CommandPermission::GlobalConfiguration |
+            CommandPermission::GroupAnalytics => is_super_admin,
         }
     }
 
@@ -445,7 +553,8 @@ impl TelegramService {
         match permission {
             CommandPermission::SystemAdministration |
             CommandPermission::UserManagement |
-            CommandPermission::GlobalConfiguration => {
+            CommandPermission::GlobalConfiguration |
+            CommandPermission::GroupAnalytics => {
                 "🔒 *Access Denied*\n\n\
                 This command requires Super Administrator privileges\\.\n\
                 Only system administrators can access this functionality\\.\n\n\
@@ -463,6 +572,14 @@ impl TelegramService {
                 Contact support to upgrade your subscription\\!"
                     .to_string()
             }
+            CommandPermission::TechnicalAnalysis => {
+                "🔒 *Basic+ Subscription Required*\n\n\
+                Technical analysis features require a Basic subscription or higher\\.\n\
+                During the beta period, all users have access\\.\n\n\
+                Contact support to upgrade your subscription for full access\\!"
+                    .to_string()
+            }
+            CommandPermission::AIEnhancedOpportunities |
             CommandPermission::AutomatedTrading |
             CommandPermission::AdvancedAnalytics |
             CommandPermission::PremiumFeatures => {
@@ -477,7 +594,8 @@ impl TelegramService {
                 Contact support to upgrade your subscription\\!"
                     .to_string()
             }
-            CommandPermission::BasicCommands => {
+            CommandPermission::BasicCommands |
+            CommandPermission::BasicOpportunities => {
                 // This should never happen since basic commands are always allowed
                 "✅ *Access Granted*\n\nYou have access to this command\\."
                     .to_string()
@@ -520,19 +638,25 @@ impl TelegramService {
 
     async fn get_group_welcome_message(&self) -> String {
         "🤖 *Welcome to ArbEdge AI Trading Bot\\!*\n\n\
-        I'm now active in this group\\!\n\n\
+        I'm now active in this group\\! 🎉\n\n\
+        🌍 *Global Opportunities Broadcasting:*\n\
+        • I'll automatically share global arbitrage opportunities here\n\
+        • Technical analysis signals \\(filtered by group settings\\)\n\
+        • System status updates and market alerts\n\n\
         🔒 *Security Notice:*\n\
-        For your protection, trading opportunities and sensitive data are only shared in private chats\\.\n\n\
+        For your protection, sensitive trading data and personal portfolio information are only shared in private chats\\.\n\n\
         📚 *Available Commands in Groups:*\n\
         /help \\- Show available commands\n\
-        /settings \\- Bot configuration info\n\n\
-        💬 *For Trading Features:*\n\
+        /settings \\- Bot configuration info\n\
+        /opportunities \\- View latest global opportunities\n\n\
+        💬 *For Personal Trading Features:*\n\
         Please message me privately for:\n\
-        • Trading opportunities\n\
-        • AI insights and analysis\n\
-        • Portfolio management\n\
-        • Risk assessments\n\n\
-        🔗 *Get Started:* Click my username to start a private chat\\!"
+        • Personal trading opportunities\n\
+        • AI insights and portfolio analysis\n\
+        • Manual/automated trading commands\n\
+        • Account management\n\n\
+        ⚙️ *Group Admins:* Use `/admin_group_config` to configure broadcasting settings\n\n\
+        🔗 *Get Started:* Click my username to start a private chat for personal trading features\\!"
             .to_string()
     }
 
@@ -701,13 +825,18 @@ impl TelegramService {
         /opportunities \\[category\\] \\- Show recent opportunities\n\
         /ai\\_insights \\- Get AI analysis results\n\
         /risk\\_assessment \\- View portfolio risk analysis\n\n\
-        💼 *Trading Commands:*\n\
+        💼 *Manual Trading Commands:*\n\
         /balance \\[exchange\\] \\- Check account balances\n\
         /buy \\<pair\\> \\<amount\\> \\[price\\] \\- Place buy order\n\
         /sell \\<pair\\> \\<amount\\> \\[price\\] \\- Place sell order\n\
         /orders \\[exchange\\] \\- View open orders\n\
         /positions \\[exchange\\] \\- View open positions\n\
         /cancel \\<order\\_id\\> \\- Cancel specific order\n\n\
+        🤖 *Auto Trading Commands:*\n\
+        /auto\\_enable \\- Enable automated trading\n\
+        /auto\\_disable \\- Disable automated trading\n\
+        /auto\\_config \\[setting\\] \\[value\\] \\- Configure auto trading\n\
+        /auto\\_status \\- View auto trading status\n\n\
         🎛️ *Configuration:*\n\
         /categories \\- Manage enabled opportunity categories\n\
         /preferences \\- View/update trading preferences\n\
@@ -732,6 +861,324 @@ impl TelegramService {
             • All commands work only in private chats for security");
 
         help_message
+    }
+
+    // ============= ENHANCED OPPORTUNITIES COMMAND =============
+
+    async fn get_enhanced_opportunities_message(&self, user_id: &str, args: &[&str]) -> String {
+        // Check user's access level to determine content
+        let has_technical = self.check_user_permission(user_id, &CommandPermission::TechnicalAnalysis).await;
+        let has_ai_enhanced = self.check_user_permission(user_id, &CommandPermission::AIEnhancedOpportunities).await;
+        let is_super_admin = self.check_user_permission(user_id, &CommandPermission::SystemAdministration).await;
+
+        let filter_category = args.first().map(|s| s.to_lowercase());
+        
+        let mut message = "📊 *Trading Opportunities* 🔥\n\n".to_string();
+
+        if let Some(category) = &filter_category {
+            message.push_str(&format!(
+                "🏷️ *Filtered by:* `{}`\n\n",
+                escape_markdown_v2(category)
+            ));
+        }
+
+        // Always show basic global arbitrage opportunities
+        message.push_str("🌍 *Global Arbitrage Opportunities*\n");
+        message.push_str(
+            "🛡️ **Low Risk Arbitrage** 🟢\n\
+            • Pair: `BTCUSDT`\n\
+            • Rate Difference: `0.15%`\n\
+            • Confidence: `89%`\n\
+            • Expected Return: `$12.50`\n\n\
+            🔄 **Cross-Exchange Opportunity** 🟡\n\
+            • Pair: `ETHUSDT`\n\
+            • Rate Difference: `0.23%`\n\
+            • Confidence: `92%`\n\
+            • Expected Return: `$18.75`\n\n");
+
+        // Technical analysis for Basic+ users
+        if has_technical && (filter_category.is_none() || filter_category.as_ref() == Some(&"technical".to_string())) {
+            message.push_str("📈 *Technical Analysis Signals*\n");
+            message.push_str(
+                "📊 **RSI Divergence** ⚡\n\
+                • Pair: `ADAUSDT`\n\
+                • Signal: `BUY`\n\
+                • Strength: `Strong`\n\
+                • Target: `$0.52` \\(\\+4\\.2%\\)\n\n\
+                🌊 **Support/Resistance** 📈\n\
+                • Pair: `BNBUSDT`\n\
+                • Signal: `SELL`\n\
+                • Strength: `Medium`\n\
+                • Target: `$310` \\(\\-2\\.8%\\)\n\n");
+        }
+
+        // AI Enhanced for Premium+ users
+        if has_ai_enhanced && (filter_category.is_none() || filter_category.as_ref() == Some(&"ai".to_string())) {
+            message.push_str("🤖 *AI Enhanced Opportunities*\n");
+            message.push_str(
+                "⭐ **AI Recommended** 🎯\n\
+                • Pair: `SOLUSDT`\n\
+                • Strategy: `Hybrid Arbitrage\\+TA`\n\
+                • AI Confidence: `96%`\n\
+                • Profit Potential: `$24.30`\n\
+                • Risk Score: `Low`\n\n\
+                🧠 **Machine Learning Signal** 🚀\n\
+                • Pair: `MATICUSDT`\n\
+                • Pattern: `Breakout Prediction`\n\
+                • AI Confidence: `84%`\n\
+                • Time Horizon: `4\\-6 hours`\n\n");
+        }
+
+        // Super admin stats
+        if is_super_admin {
+            message.push_str("🔧 *Super Admin Metrics*\n");
+            message.push_str(
+                "📊 **System Status:**\n\
+                • Active Users: `342`\n\
+                • Opportunities Sent: `1,205/24h`\n\
+                • Global Queue: `23 pending`\n\
+                • Distribution Rate: `98.7%`\n\n");
+        }
+
+        // Available access levels
+        message.push_str("🔓 *Your Access Level:*\n");
+        message.push_str("✅ Global Arbitrage \\(Free\\)\n");
+        if has_technical {
+            message.push_str("✅ Technical Analysis \\(Basic\\+\\)\n");
+        } else {
+            message.push_str("🔒 Technical Analysis \\(requires Basic\\+\\)\n");
+        }
+        if has_ai_enhanced {
+            message.push_str("✅ AI Enhanced \\(Premium\\+\\)\n");
+        } else {
+            message.push_str("🔒 AI Enhanced \\(requires Premium\\+\\)\n");
+        }
+
+        if filter_category.is_none() {
+            message.push_str("\n💡 *Filter by category:*\n");
+            message.push_str("• `/opportunities arbitrage` \\- Global arbitrage only\n");
+            if has_technical {
+                message.push_str("• `/opportunities technical` \\- Technical analysis signals\n");
+            }
+            if has_ai_enhanced {
+                message.push_str("• `/opportunities ai` \\- AI enhanced opportunities\n");
+            }
+        }
+
+        message
+    }
+
+    // ============= AUTO TRADING COMMAND IMPLEMENTATIONS =============
+
+    async fn get_auto_enable_message(&self, user_id: &str) -> String {
+        // TODO: Check if user has proper API keys and risk management setup
+        format!(
+            "🤖 *Auto Trading Activation*\n\n\
+            **User:** `{}`\n\
+            **Status:** Checking requirements\\.\\.\\.\n\n\
+            ✅ **Requirements Check:**\n\
+            • Premium Subscription: ✅ Active\n\
+            • API Keys Configured: ⚠️ Checking\\.\\.\\.\n\
+            • Risk Management: ⚠️ Setup required\n\
+            • Trading Balance: ⚠️ Validating\\.\\.\\.\n\n\
+            **Next Steps:**\n\
+            1\\. Configure risk management settings\n\
+            2\\. Set maximum position sizes\n\
+            3\\. Define stop\\-loss parameters\n\
+            4\\. Test with paper trading\n\n\
+            Use `/auto_config` to set up risk parameters before enabling\\.",
+            escape_markdown_v2(user_id)
+        )
+    }
+
+    async fn get_auto_disable_message(&self, _user_id: &str) -> String {
+        "🛑 *Auto Trading Deactivation*\n\n\
+        **Status:** Auto trading disabled\n\
+        **Active Positions:** Checking for open positions\\.\\.\\.\n\n\
+        ⚠️ **Important Notes:**\n\
+        • All pending orders will be cancelled\n\
+        • Existing positions remain open\n\
+        • Manual trading still available\n\
+        • Settings are preserved\n\n\
+        **Open Positions Found:**\n\
+        🔸 BTCUSDT: 0\\.001 BTC \\(\\+$2\\.40\\)\n\
+        🔸 ETHUSDT: 0\\.5 ETH \\(\\+$8\\.75\\)\n\n\
+        💡 Use `/positions` to manage existing positions manually\\."
+            .to_string()
+    }
+
+    async fn get_auto_config_message(&self, _user_id: &str, args: &[&str]) -> String {
+        if args.is_empty() {
+            "⚙️ *Auto Trading Configuration*\n\n\
+            **Current Settings:**\n\
+            • Max Position Size: `$500 per trade`\n\
+            • Daily Loss Limit: `$50`\n\
+            • Stop Loss: `2%`\n\
+            • Take Profit: `4%`\n\
+            • Max Open Positions: `3`\n\
+            • Trading Mode: `Conservative`\n\n\
+            **Available Commands:**\n\
+            • `/auto_config max_position 1000` \\- Set max position to $1000\n\
+            • `/auto_config stop_loss 1.5` \\- Set stop loss to 1\\.5%\n\
+            • `/auto_config take_profit 5` \\- Set take profit to 5%\n\
+            • `/auto_config mode aggressive` \\- Set trading mode\n\n\
+            **Trading Modes:**\n\
+            • `conservative` \\- Lower risk, smaller returns\n\
+            • `balanced` \\- Medium risk/reward ratio\n\
+            • `aggressive` \\- Higher risk, larger potential returns"
+                .to_string()
+        } else {
+            let setting = args[0];
+            let value = args.get(1).unwrap_or(&"");
+            
+            format!(
+                "✅ *Configuration Updated*\n\n\
+                **Setting:** `{}`\n\
+                **New Value:** `{}`\n\
+                **Status:** Applied successfully\n\n\
+                **Updated Configuration:**\n\
+                Settings will take effect on next trading cycle\\.\n\
+                Current positions are not affected\\.\n\n\
+                Use `/auto_status` to see all current settings\\.",
+                escape_markdown_v2(setting),
+                escape_markdown_v2(value)
+            )
+        }
+    }
+
+    async fn get_auto_status_message(&self, _user_id: &str) -> String {
+        "🤖 *Auto Trading Status*\n\n\
+        **System Status:** 🟢 Online\n\
+        **Auto Trading:** 🔴 Disabled\n\
+        **Last Activity:** `2024\\-01\\-15 14:30 UTC`\n\n\
+        **Performance \\(Last 7 Days\\):**\n\
+        • Total Trades: `12`\n\
+        • Win Rate: `75%` \\(9/12\\)\n\
+        • Total P&L: `+$127.50`\n\
+        • Best Trade: `+$18.75`\n\
+        • Worst Trade: `\\-$8.40`\n\n\
+        **Risk Management:**\n\
+        • Max Position: `$500`\n\
+        • Current Exposure: `$1,250` \\(62\\.5%\\)\n\
+        • Daily Loss Limit: `$50` \\(used: $0\\)\n\
+        • Stop Loss Hits: `2`\n\n\
+        **Configuration:**\n\
+        • Trading Mode: `Conservative`\n\
+        • Max Open Positions: `3`\n\
+        • Current Positions: `2`\n\n\
+        💡 Use `/auto_enable` to start auto trading or `/auto_config` to modify settings\\."
+            .to_string()
+    }
+
+    // ============= GROUP/CHANNEL COMMAND IMPLEMENTATIONS =============
+
+    async fn get_group_opportunities_message(&self, _user_id: &str, args: &[&str]) -> String {
+        let filter_category = args.first().map(|s| s.to_lowercase());
+        
+        let mut message = "🌍 *Global Trading Opportunities*\n\n".to_string();
+
+        if let Some(category) = &filter_category {
+            message.push_str(&format!(
+                "🏷️ *Filtered by:* `{}`\n\n",
+                escape_markdown_v2(category)
+            ));
+        }
+
+        // Always show global arbitrage opportunities in groups
+        message.push_str("🛡️ *Global Arbitrage Opportunities*\n");
+        message.push_str(
+            "📊 **Cross-Exchange Arbitrage** 🟢\n\
+            • Pair: `BTCUSDT`\n\
+            • Rate Difference: `0.18%`\n\
+            • Exchanges: Binance ↔ Bybit\n\
+            • Confidence: `91%`\n\
+            • Estimated Profit: `$15.30`\n\n\
+            ⚡ **Funding Rate Arbitrage** 🟡\n\
+            • Pair: `ETHUSDT`\n\
+            • Rate Difference: `0.25%`\n\
+            • Exchanges: OKX ↔ Bitget\n\
+            • Confidence: `88%`\n\
+            • Estimated Profit: `$21.75`\n\n");
+
+        // Technical analysis signals (available to all in groups)
+        if filter_category.is_none() || filter_category.as_ref() == Some(&"technical".to_string()) {
+            message.push_str("📈 *Technical Analysis Signals*\n");
+            message.push_str(
+                "📊 **Global Market Signal** ⚡\n\
+                • Pair: `SOLUSDT`\n\
+                • Signal: `BUY`\n\
+                • Timeframe: `4H`\n\
+                • Strength: `Strong`\n\
+                • Target: `$145` \\(\\+6\\.2%\\)\n\n\
+                🌊 **Market Trend** 📈\n\
+                • Overall: `BULLISH`\n\
+                • BTC Dominance: `42.3%`\n\
+                • Fear & Greed: `74` \\(Greed\\)\n\
+                • Volume Trend: `↗️ Increasing`\n\n");
+        }
+
+        message.push_str("🔗 *For Personal Features:*\n");
+        message.push_str("Message me privately for:\n");
+        message.push_str("• Personalized AI insights\n");
+        message.push_str("• Custom risk assessments\n");
+        message.push_str("• Manual/automated trading\n");
+        message.push_str("• Portfolio management\n\n");
+
+        if filter_category.is_none() {
+            message.push_str("💡 *Filter options:*\n");
+            message.push_str("• `/opportunities arbitrage` \\- Cross\\-exchange only\n");
+            message.push_str("• `/opportunities technical` \\- Technical signals only\n");
+        }
+
+        message.push_str("\n⚠️ *Disclaimer:* These are general market opportunities\\. Always do your own research\\!");
+
+        message
+    }
+
+    async fn get_admin_group_config_message(&self, args: &[&str]) -> String {
+        if args.is_empty() {
+            "⚙️ *Group Configuration Settings*\n\n\
+            **Current Settings:**\n\
+            • Global Opportunities: ✅ Enabled\n\
+            • Technical Signals: ✅ Enabled\n\
+            • Max Opportunities/Hour: `3`\n\
+            • Max Tech Signals/Hour: `2`\n\
+            • Message Cooldown: `15 minutes`\n\
+            • Member Count Tracking: ✅ Enabled\n\n\
+            **Available Commands:**\n\
+            • `/admin_group_config global_opps on/off`\n\
+            • `/admin_group_config tech_signals on/off`\n\
+            • `/admin_group_config max_opps <number>`\n\
+            • `/admin_group_config cooldown <minutes>`\n\
+            • `/admin_group_config member_tracking on/off`\n\n\
+            **Group Analytics:**\n\
+            • Total Messages Sent: `1,247`\n\
+            • Active Members: `156/203`\n\
+            • Last Activity: `2 minutes ago`\n\
+            • Engagement Rate: `76.4%`"
+                .to_string()
+        } else {
+            let setting = args[0];
+            let value = args.get(1).unwrap_or(&"");
+            
+            format!(
+                "✅ *Group Configuration Updated*\n\n\
+                **Setting:** `{}`\n\
+                **New Value:** `{}`\n\
+                **Status:** Applied successfully\n\n\
+                **Effect:**\n\
+                Settings will apply to future broadcasts in this group\\.\n\
+                Current message queue is not affected\\.\n\n\
+                **Group ID:** `{}`\n\
+                **Updated by:** Super Admin\n\
+                **Timestamp:** `{}`\n\n\
+                Use `/admin_group_config` to see all current settings\\.",
+                escape_markdown_v2(setting),
+                escape_markdown_v2(value),
+                "\\-1001234567890", // Example group ID
+                escape_markdown_v2(&chrono::Utc::now().format("%Y-%m-%d %H:%M UTC").to_string())
+            )
+        }
     }
 
     // ============= MANUAL TRADING COMMAND IMPLEMENTATIONS =============

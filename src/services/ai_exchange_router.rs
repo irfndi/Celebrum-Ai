@@ -1,4 +1,4 @@
-// use worker::{Request, Response, Env}; // TODO: Re-enable when implementing worker integration
+// use worker::{Request, Response, Env}; // TODO: Re-enable when implementing worker integration [Tracked: PR-24, Comment 94]
 use crate::{
     services::{
         ai_integration::{AiAnalysisRequest, AiAnalysisResponse, AiProvider},
@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use worker::console_log;
 use worker::kv::KvStore;
-// use regex::Regex; // TODO: Re-enable when implementing text parsing features
+// use regex::Regex; // TODO: Re-enable when implementing text parsing features [Tracked: PR-24, Comment 94]
 
 /// Configuration for AI-Exchange Router
 #[derive(Debug, Clone)]
@@ -513,7 +513,6 @@ impl AiExchangeRouterService {
     }
 
     /// Create user context for AI analysis
-    #[allow(clippy::result_large_err)]
     fn create_user_context(&self, user_profile: &UserProfile) -> ArbitrageResult<Value> {
         Ok(json!({
             "user_id": user_profile.user_id,
@@ -527,7 +526,6 @@ impl AiExchangeRouterService {
     }
 
     /// Create opportunity-specific analysis request
-    #[allow(clippy::result_large_err)]
     fn create_opportunity_analysis_request(
         &self,
         opportunity: &GlobalOpportunity,
@@ -558,7 +556,6 @@ impl AiExchangeRouterService {
     }
 
     /// Parse AI response into structured opportunity analysis
-    #[allow(clippy::result_large_err)]
     fn parse_ai_opportunity_response(
         &self,
         user_id: &str,

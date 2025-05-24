@@ -262,6 +262,14 @@ impl MathUtils {
     }
 
     /// Calculate Relative Strength Index (RSI)
+    /// Calculate Relative Strength Index (RSI) using Cutler's method
+    /// 
+    /// This implementation uses simple moving averages for gain/loss calculation (Cutler's method)
+    /// rather than exponential moving averages (Wilder's method). Cutler's method is more responsive
+    /// to recent price changes and is commonly used in modern trading platforms.
+    /// 
+    /// Formula: RSI = 100 - (100 / (1 + RS))
+    /// Where RS = Average Gain / Average Loss over the specified period
     #[allow(clippy::result_large_err)]
     pub fn relative_strength_index(prices: &[f64], period: usize) -> ArbitrageResult<Vec<f64>> {
         if prices.len() < period + 1 {
@@ -375,6 +383,8 @@ pub struct MarketAnalysisService {
     preferences_service: UserTradingPreferencesService,
     logger: Logger,
     price_cache: HashMap<String, PriceSeries>, // In-memory cache for recent price data
+    cache_max_size: usize, // Maximum number of cached series
+    cache_ttl_ms: u64, // Time-to-live for cache entries in milliseconds
 }
 
 impl MarketAnalysisService {
@@ -388,12 +398,22 @@ impl MarketAnalysisService {
             preferences_service,
             logger,
             price_cache: HashMap::new(),
+            cache_max_size: 1000, // Default: cache up to 1000 price series
+            cache_ttl_ms: 24 * 60 * 60 * 1000, // Default: 24 hours TTL
         }
     }
 
     /// Store price data for analysis
     pub async fn store_price_data(&mut self, price_point: PricePoint) -> ArbitrageResult<()> {
         let cache_key = format!("{}_{}", price_point.exchange_id, price_point.trading_pair);
+
+        // Evict expired entries before adding new data
+        self.evict_expired_cache_entries();
+
+        // Check if cache is at capacity and evict LRU entries if needed
+        if self.price_cache.len() >= self.cache_max_size && !self.price_cache.contains_key(&cache_key) {
+            self.evict_lru_cache_entries(1);
+        }
 
         // Update in-memory cache
         match self.price_cache.get_mut(&cache_key) {
@@ -423,6 +443,85 @@ impl MarketAnalysisService {
     pub fn get_price_series(&self, exchange_id: &str, trading_pair: &str) -> Option<&PriceSeries> {
         let cache_key = format!("{}_{}", exchange_id, trading_pair);
         self.price_cache.get(&cache_key)
+    }
+
+    /// Evict expired cache entries based on TTL
+    fn evict_expired_cache_entries(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        let now = js_sys::Date::now() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let expired_keys: Vec<String> = self
+            .price_cache
+            .iter()
+            .filter(|(_, series)| {
+                now.saturating_sub(series.last_updated) > self.cache_ttl_ms
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+
+        for key in expired_keys {
+            self.price_cache.remove(&key);
+            self.logger.debug(&format!("Evicted expired cache entry: {}", key));
+        }
+    }
+
+    /// Evict least recently used cache entries
+    fn evict_lru_cache_entries(&mut self, count: usize) {
+        // Find the oldest entries by last_updated timestamp
+        let mut entries: Vec<(String, u64)> = self
+            .price_cache
+            .iter()
+            .map(|(key, series)| (key.clone(), series.last_updated))
+            .collect();
+
+        // Sort by last_updated (oldest first)
+        entries.sort_by_key(|(_, timestamp)| *timestamp);
+
+        // Remove the oldest entries
+        for (key, _) in entries.into_iter().take(count) {
+            self.price_cache.remove(&key);
+            self.logger.debug(&format!("Evicted LRU cache entry: {}", key));
+        }
+    }
+
+    /// Configure cache settings
+    pub fn configure_cache(&mut self, max_size: usize, ttl_ms: u64) {
+        self.cache_max_size = max_size;
+        self.cache_ttl_ms = ttl_ms;
+        self.logger.info(&format!(
+            "Cache configured: max_size={}, ttl_ms={}",
+            max_size, ttl_ms
+        ));
+    }
+
+    /// Get cache statistics
+    pub fn get_cache_stats(&self) -> HashMap<String, serde_json::Value> {
+        let mut stats = HashMap::new();
+        stats.insert("cache_size".to_string(), serde_json::Value::Number(serde_json::Number::from(self.price_cache.len())));
+        stats.insert("cache_max_size".to_string(), serde_json::Value::Number(serde_json::Number::from(self.cache_max_size)));
+        stats.insert("cache_ttl_ms".to_string(), serde_json::Value::Number(serde_json::Number::from(self.cache_ttl_ms)));
+        
+        #[cfg(target_arch = "wasm32")]
+        let now = js_sys::Date::now() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let expired_count = self
+            .price_cache
+            .values()
+            .filter(|series| now.saturating_sub(series.last_updated) > self.cache_ttl_ms)
+            .count();
+
+        stats.insert("expired_entries".to_string(), serde_json::Value::Number(serde_json::Number::from(expired_count)));
+        stats
     }
 
     /// Generate trading opportunities based on user preferences

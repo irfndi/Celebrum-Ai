@@ -15,6 +15,7 @@ use crate::utils::{
     logger::{LogLevel, Logger},
     ArbitrageError, ArbitrageResult,
 };
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::kv::KvStore;
@@ -210,7 +211,11 @@ impl AiIntelligenceService {
         let global_opp = self.convert_to_global_opportunity(opportunity.clone());
         let ai_response = self
             .ai_router
-            .analyze_opportunities(user_id, &[global_opp], Some(serde_json::Value::String(ai_prompt)))
+            .analyze_opportunities(
+                user_id,
+                &[global_opp],
+                Some(serde_json::Value::String(ai_prompt)),
+            )
             .await?;
 
         // Parse AI response into enhancement
@@ -758,13 +763,17 @@ impl AiIntelligenceService {
         }
     }
 
-    /// Extract timing score from AI analysis
+    /// Extract timing score from AI analysis using regex patterns
     fn extract_timing_score_from_analysis(&self, analysis: &str) -> f64 {
-        if analysis.to_lowercase().contains("excellent timing") {
+        let excellent_timing = Regex::new(r"(?i)\b(excellent|outstanding|perfect)\s+timing\b").unwrap();
+        let good_timing = Regex::new(r"(?i)\b(good|solid|decent)\s+timing\b").unwrap();
+        let poor_timing = Regex::new(r"(?i)\b(poor|bad|terrible)\s+timing\b").unwrap();
+        
+        if excellent_timing.is_match(analysis) {
             0.9
-        } else if analysis.to_lowercase().contains("good timing") {
+        } else if good_timing.is_match(analysis) {
             0.7
-        } else if analysis.to_lowercase().contains("poor timing") {
+        } else if poor_timing.is_match(analysis) {
             0.3
         } else {
             0.6 // Default moderate timing
@@ -785,13 +794,17 @@ impl AiIntelligenceService {
         }
     }
 
-    /// Calculate overall risk score from AI analysis
+    /// Calculate overall risk score from AI analysis using regex patterns
     fn calculate_overall_risk_score(&self, analysis: &str) -> f64 {
-        if analysis.to_lowercase().contains("high risk") {
+        let high_risk = Regex::new(r"(?i)\b(high|elevated|extreme|significant)\s+risk\b").unwrap();
+        let moderate_risk = Regex::new(r"(?i)\b(moderate|medium|balanced)\s+risk\b").unwrap();
+        let low_risk = Regex::new(r"(?i)\b(low|minimal|negligible)\s+risk\b").unwrap();
+        
+        if high_risk.is_match(analysis) {
             0.8
-        } else if analysis.to_lowercase().contains("moderate risk") {
+        } else if moderate_risk.is_match(analysis) {
             0.5
-        } else if analysis.to_lowercase().contains("low risk") {
+        } else if low_risk.is_match(analysis) {
             0.2
         } else {
             0.5 // Default moderate risk
@@ -827,11 +840,14 @@ impl AiIntelligenceService {
         }
     }
 
-    /// Extract market risk from AI analysis
+    /// Extract market risk from AI analysis using regex patterns
     fn extract_market_risk(&self, analysis: &str) -> f64 {
-        if analysis.to_lowercase().contains("volatile market") {
+        let volatile_market = Regex::new(r"(?i)\b(volatile|turbulent|unstable|chaotic)\s+(market|conditions)\b").unwrap();
+        let stable_market = Regex::new(r"(?i)\b(stable|steady|calm|consolidated)\s+(market|conditions)\b").unwrap();
+        
+        if volatile_market.is_match(analysis) {
             0.7
-        } else if analysis.to_lowercase().contains("stable market") {
+        } else if stable_market.is_match(analysis) {
             0.3
         } else {
             0.5 // Default moderate market risk
@@ -891,7 +907,6 @@ impl AiIntelligenceService {
             .iter()
             .filter(|a| a.metric_type == "trade_executed" && a.metric_value > 0.0)
             .count() as u32;
-        
         let win_rate = if total_trades > 0 {
             profitable_trades as f64 / total_trades as f64
         } else {
@@ -955,11 +970,14 @@ impl AiIntelligenceService {
         self.create_portfolio_market_snapshot(&[])
     }
 
-    // Additional parsing methods
+    // Additional parsing methods using regex patterns
     fn extract_correlation_risk_from_analysis(&self, analysis: &str) -> f64 {
-        if analysis.to_lowercase().contains("high correlation") {
+        let high_correlation = Regex::new(r"(?i)\b(high|strong|significant)\s+correlation\b").unwrap();
+        let low_correlation = Regex::new(r"(?i)\b(low|weak|minimal)\s+correlation\b").unwrap();
+        
+        if high_correlation.is_match(analysis) {
             0.8
-        } else if analysis.to_lowercase().contains("low correlation") {
+        } else if low_correlation.is_match(analysis) {
             0.2
         } else {
             0.5
@@ -978,10 +996,13 @@ impl AiIntelligenceService {
 
     fn extract_portfolio_recommendations(&self, analysis: &str) -> Vec<String> {
         let mut recommendations = Vec::new();
-        if analysis.to_lowercase().contains("diversify") {
+        let diversify_pattern = Regex::new(r"(?i)\b(diversify|spread|distribute)\b").unwrap();
+        let reduce_position_pattern = Regex::new(r"(?i)\b(reduce|decrease|limit)\s+(position|size|exposure)\b").unwrap();
+        
+        if diversify_pattern.is_match(analysis) {
             recommendations.push("Consider diversifying across more trading pairs".to_string());
         }
-        if analysis.to_lowercase().contains("reduce position") {
+        if reduce_position_pattern.is_match(analysis) {
             recommendations.push("Consider reducing position sizes".to_string());
         }
         if recommendations.is_empty() {
@@ -1073,7 +1094,9 @@ impl AiIntelligenceService {
     async fn fetch_exchange_data_for_positions(
         &self,
         _positions: &[ArbitragePosition],
-    ) -> ArbitrageResult<std::collections::HashMap<String, crate::services::market_analysis::PriceSeries>> {
+    ) -> ArbitrageResult<
+        std::collections::HashMap<String, crate::services::market_analysis::PriceSeries>,
+    > {
         // This would interface with ExchangeService to fetch actual price data
         // For now, return an error to indicate feature not implemented
         Err(ArbitrageError::not_implemented(

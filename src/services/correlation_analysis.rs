@@ -317,7 +317,7 @@ impl CorrelationAnalysisService {
         leader_data: &PriceSeries,
         follower_data: &PriceSeries,
         lag_seconds: i64,
-    ) -> Result<LaggeddCorrelationResult, String> {
+    ) -> Result<LaggedCorrelationResult, String> {
         let lag_ms = lag_seconds * 1000; // Convert to milliseconds
         let mut leader_prices = Vec::new();
         let mut follower_prices = Vec::new();
@@ -349,7 +349,7 @@ impl CorrelationAnalysisService {
         let confidence =
             self.calculate_lag_correlation_confidence(&leader_prices, &follower_prices);
 
-        Ok(LaggeddCorrelationResult {
+        Ok(LaggedCorrelationResult {
             correlation,
             confidence,
             _data_points: leader_prices.len(),
@@ -481,7 +481,7 @@ impl CorrelationAnalysisService {
 }
 
 #[derive(Debug)]
-struct LaggeddCorrelationResult {
+struct LaggedCorrelationResult {
     correlation: f64,
     confidence: f64,
     _data_points: usize,

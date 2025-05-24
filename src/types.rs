@@ -469,16 +469,80 @@ pub enum CommandPermission {
     
     // Trading commands (subscription-gated in future)
     ManualTrading,
+    AutomatedTrading,
+    
+    // Opportunity access levels
+    BasicOpportunities,     // Global arbitrage only
+    TechnicalAnalysis,      // Global + technical analysis
+    AIEnhancedOpportunities, // Premium AI features
     
     // Admin commands (super admin only)
     SystemAdministration,
     UserManagement,
     GlobalConfiguration,
+    GroupAnalytics,         // Group/channel analytics access
     
     // Future subscription-gated features
-    AutomatedTrading,
     AdvancedAnalytics,
     PremiumFeatures,
+}
+
+/// Trading modes for users
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TradingMode {
+    Manual,      // User executes trades manually with API keys
+    Automated,   // Bot executes trades automatically
+    Advisory,    // Bot provides signals, user decides
+    Disabled,    // No trading functionality
+}
+
+/// Analytics tracking for bot usage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageAnalytics {
+    pub message_id: String,
+    pub user_id: Option<String>,
+    pub chat_id: String,
+    pub chat_type: String,           // "private", "group", "supergroup", "channel"
+    pub message_type: String,        // "command", "opportunity", "broadcast", "response"
+    pub command: Option<String>,     // Command name if applicable
+    pub content_type: String,        // "global_arbitrage", "technical_analysis", "ai_enhanced", etc.
+    pub delivery_status: String,     // "sent", "delivered", "failed", "rate_limited"
+    pub response_time_ms: Option<u64>, // Time to generate response
+    pub timestamp: u64,
+    pub metadata: serde_json::Value, // Additional tracking data
+}
+
+/// Group/Channel registration and tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupRegistration {
+    pub group_id: String,
+    pub group_type: String,          // "group", "supergroup", "channel"
+    pub group_title: Option<String>,
+    pub group_username: Option<String>,
+    pub member_count: Option<u32>,
+    pub admin_user_ids: Vec<String>, // Telegram user IDs of admins
+    pub bot_permissions: Vec<String>, // What the bot can do in this group
+    pub enabled_features: Vec<String>, // Which features are enabled
+    pub global_opportunities_enabled: bool,
+    pub technical_analysis_enabled: bool,
+    pub rate_limit_config: GroupRateLimitConfig,
+    pub registered_at: u64,
+    pub last_activity: u64,
+    pub total_messages_sent: u32,
+    pub last_member_count_update: Option<u64>,
+}
+
+/// Rate limiting configuration for groups/channels
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupRateLimitConfig {
+    pub max_opportunities_per_hour: u32,
+    pub max_technical_signals_per_hour: u32,
+    pub max_broadcasts_per_day: u32,
+    pub cooldown_between_messages_minutes: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -696,28 +760,75 @@ impl UserProfile {
         let user_role = self.get_user_role();
         
         match permission {
-            CommandPermission::BasicCommands => true, // Everyone has basic access
+            CommandPermission::BasicCommands |
+            CommandPermission::BasicOpportunities => true, // Everyone has basic access
             
             CommandPermission::ManualTrading => {
                 // During beta: all users have access
-                // Future: require Basic+ subscription
+                // Future: require Basic+ subscription + API keys with trade permissions
                 true // Beta override - remove this when implementing subscription gates
+            }
+            
+            CommandPermission::TechnicalAnalysis => {
+                // During beta: all users have access
+                // Future: require Basic+ subscription
+                true // Beta override
+            }
+            
+            CommandPermission::AIEnhancedOpportunities => {
+                // During beta: all users have access
+                // Future: require Premium+ subscription
+                true // Beta override
+            }
+            
+            CommandPermission::AutomatedTrading => {
+                // During beta: all users have access
+                // Future: require Premium+ subscription + risk management setup
+                true // Beta override
             }
             
             CommandPermission::SystemAdministration |
             CommandPermission::UserManagement |
-            CommandPermission::GlobalConfiguration => {
+            CommandPermission::GlobalConfiguration |
+            CommandPermission::GroupAnalytics => {
                 user_role == UserRole::SuperAdmin
             }
             
-            CommandPermission::AutomatedTrading |
             CommandPermission::AdvancedAnalytics |
             CommandPermission::PremiumFeatures => {
                 // During beta: all users have access
                 // Future: require Premium+ subscription
-                true // Beta override - remove this when implementing subscription gates
+                true // Beta override
             }
         }
+    }
+
+    /// Get user's trading mode
+    pub fn get_trading_mode(&self) -> TradingMode {
+        // TODO: Store this in user configuration
+        // For now, default to manual trading
+        TradingMode::Manual
+    }
+
+    /// Check if user has API keys with trading permissions
+    pub fn has_trading_api_keys(&self) -> bool {
+        self.api_keys.iter().any(|key| {
+            key.is_active && 
+            key.is_exchange_key() && 
+            key.permissions.contains(&"trade".to_string())
+        })
+    }
+
+    /// Check if user can use manual trading
+    pub fn can_use_manual_trading(&self) -> bool {
+        self.has_permission(CommandPermission::ManualTrading) && self.has_trading_api_keys()
+    }
+
+    /// Check if user can use automated trading
+    pub fn can_use_automated_trading(&self) -> bool {
+        self.has_permission(CommandPermission::AutomatedTrading) && 
+        self.has_trading_api_keys() &&
+        matches!(self.get_trading_mode(), TradingMode::Automated | TradingMode::Advisory)
     }
 
     /// Check if user is super admin

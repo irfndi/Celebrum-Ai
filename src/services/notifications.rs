@@ -11,6 +11,34 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::*;
 
+/// Notification Channel Types  
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NotificationChannel {
+    Telegram,
+    Email,
+    Push,
+}
+
+impl NotificationChannel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NotificationChannel::Telegram => "telegram",
+            NotificationChannel::Email => "email", 
+            NotificationChannel::Push => "push",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "telegram" => Some(NotificationChannel::Telegram),
+            "email" => Some(NotificationChannel::Email),
+            "push" => Some(NotificationChannel::Push),
+            _ => None,
+        }
+    }
+}
+
 // ============= NOTIFICATION TYPES =============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,7 +50,7 @@ pub struct NotificationTemplate {
     pub title_template: String,
     pub message_template: String,
     pub priority: String,      // low, medium, high, critical
-    pub channels: Vec<String>, // ["telegram", "email", "push"]
+    pub channels: Vec<NotificationChannel>,
     pub variables: Vec<String>,
     pub is_system_template: bool,
     pub is_active: bool,
@@ -41,7 +69,7 @@ pub struct AlertTrigger {
     pub template_id: Option<String>,
     pub is_active: bool,
     pub priority: String,
-    pub channels: Vec<String>,
+    pub channels: Vec<NotificationChannel>,
     pub cooldown_minutes: u32,
     pub max_alerts_per_hour: u32,
     pub created_at: u64,
@@ -60,7 +88,7 @@ pub struct Notification {
     pub category: String,
     pub priority: String,
     pub notification_data: HashMap<String, serde_json::Value>,
-    pub channels: Vec<String>,
+    pub channels: Vec<NotificationChannel>,
     pub status: String, // pending, sent, failed, cancelled
     pub created_at: u64,
     pub scheduled_at: Option<u64>,
@@ -261,7 +289,7 @@ impl NotificationService {
                 "push" => self.send_push_notification(notification).await,
                 _ => Err(ArbitrageError::validation_error(format!(
                     "Unsupported channel: {}",
-                    channel
+                    channel.as_str()
                 ))),
             };
 
@@ -269,10 +297,10 @@ impl NotificationService {
 
             // Record delivery history
             let history = NotificationHistory {
-                history_id: format!("hist_{}_{}", notification.notification_id, channel),
+                history_id: format!("hist_{}_{}", notification.notification_id, channel.as_str()),
                 notification_id: notification.notification_id.clone(),
                 user_id: notification.user_id.clone(),
-                channel: channel.clone(),
+                channel: channel.as_str().to_string(),
                 delivery_status: if delivery_result.is_ok() {
                     "success".to_string()
                 } else {
@@ -782,12 +810,12 @@ impl NotificationService {
     async fn check_any_delivery_successful(
         &self,
         notification_id: &str,
-        channels: &[String],
+        channels: &[NotificationChannel],
     ) -> ArbitrageResult<bool> {
         for channel in channels {
             if let Ok(history) = self
                 .d1_service
-                .get_notification_history(notification_id, channel)
+                .get_notification_history(notification_id, channel.as_str())
                 .await
             {
                 if let Some(delivery_record) = history {
@@ -800,11 +828,7 @@ impl NotificationService {
         Ok(false) // No successful deliveries found
     }
 
-    fn was_delivery_successful(&self, _notification_id: &str, _channel: &str) -> bool {
-        // Deprecated: Use check_any_delivery_successful for async D1 database queries
-        // For now, return false for more realistic behavior since delivery can fail
-        false // More realistic default - notifications can fail
-    }
+
 
     // ============= SYSTEM TEMPLATE FACTORIES =============
 
@@ -817,7 +841,7 @@ impl NotificationService {
             title_template: "🚀 Arbitrage Opportunity: {{pair}}".to_string(),
             message_template: "💰 Found {{rate_difference}}% opportunity on {{pair}}\n📈 Long: {{long_exchange}} ({{long_rate}}%)\n📉 Short: {{short_exchange}} ({{short_rate}}%)\n💵 Potential Profit: ${{potential_profit}}".to_string(),
             priority: "high".to_string(),
-            channels: vec!["telegram".to_string()],
+            channels: vec![NotificationChannel::Telegram],
             variables: vec!["pair".to_string(), "rate_difference".to_string(), "long_exchange".to_string(), "short_exchange".to_string(), "long_rate".to_string(), "short_rate".to_string(), "potential_profit".to_string()],
             is_system_template: true,
             is_active: true,
@@ -835,7 +859,7 @@ impl NotificationService {
             title_template: "⚠️ Balance Alert: {{asset}}".to_string(),
             message_template: "💼 Your {{asset}} balance changed by {{change_amount}} ({{change_percentage}}%)\n🏦 Exchange: {{exchange}}\n💰 New Balance: {{new_balance}}".to_string(),
             priority: "medium".to_string(),
-            channels: vec!["telegram".to_string()],
+            channels: vec![NotificationChannel::Telegram],
             variables: vec!["asset".to_string(), "change_amount".to_string(), "change_percentage".to_string(), "exchange".to_string(), "new_balance".to_string()],
             is_system_template: true,
             is_active: true,
@@ -853,7 +877,7 @@ impl NotificationService {
             title_template: "🛡️ Risk Alert: {{risk_type}}".to_string(),
             message_template: "⚠️ {{message}}\n📊 Current Risk Level: {{risk_level}}\n💡 Recommendation: {{recommendation}}".to_string(),
             priority: "critical".to_string(),
-            channels: vec!["telegram".to_string()],
+            channels: vec![NotificationChannel::Telegram],
             variables: vec!["risk_type".to_string(), "message".to_string(), "risk_level".to_string(), "recommendation".to_string()],
             is_system_template: true,
             is_active: true,
@@ -871,7 +895,7 @@ impl NotificationService {
             title_template: "📊 P&L Alert: {{milestone_type}}".to_string(),
             message_template: "💹 {{message}}\n💰 Current P&L: {{current_pnl}}\n📈 Change: {{pnl_change}} ({{change_percentage}}%)".to_string(),
             priority: "medium".to_string(),
-            channels: vec!["telegram".to_string()],
+            channels: vec![NotificationChannel::Telegram],
             variables: vec!["milestone_type".to_string(), "message".to_string(), "current_pnl".to_string(), "pnl_change".to_string(), "change_percentage".to_string()],
             is_system_template: true,
             is_active: true,
@@ -890,7 +914,7 @@ impl NotificationService {
             message_template: "ℹ️ {{message}}\n⏰ Time: {{timestamp}}\n📋 Details: {{details}}"
                 .to_string(),
             priority: "low".to_string(),
-            channels: vec!["telegram".to_string()],
+            channels: vec![NotificationChannel::Telegram],
             variables: vec![
                 "alert_type".to_string(),
                 "message".to_string(),
@@ -934,7 +958,7 @@ mod tests {
             title_template: "Test: {{variable}}".to_string(),
             message_template: "Message: {{variable}}".to_string(),
             priority: "medium".to_string(),
-            channels: vec!["telegram".to_string()],
+            channels: vec![NotificationChannel::Telegram],
             variables: vec!["variable".to_string()],
             is_system_template: false,
             is_active: true,
@@ -966,7 +990,7 @@ mod tests {
             template_id: Some("tmpl_test".to_string()),
             is_active: true,
             priority: "high".to_string(),
-            channels: vec!["telegram".to_string()],
+            channels: vec![NotificationChannel::Telegram],
             cooldown_minutes: 5,
             max_alerts_per_hour: 10,
             created_at: 1640995200000,
@@ -998,7 +1022,7 @@ mod tests {
             category: "test".to_string(),
             priority: "medium".to_string(),
             notification_data,
-            channels: vec!["telegram".to_string()],
+            channels: vec![NotificationChannel::Telegram],
             status: "pending".to_string(),
             created_at: 1640995200000,
             scheduled_at: None,

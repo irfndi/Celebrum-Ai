@@ -1,0 +1,837 @@
+use crate::utils::{ArbitrageError, ArbitrageResult};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+/// Service Health Status
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceStatus {
+    Healthy,
+    Degraded,
+    Unhealthy,
+    Starting,
+    Stopping,
+    Stopped,
+}
+
+/// Service Type Identifiers
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceType {
+    TelegramService,
+    GlobalOpportunityService,
+    TechnicalAnalysisService,
+    AiBetaIntegrationService,
+    NotificationService,
+    ExchangeService,
+    UserProfileService,
+    MarketAnalysisService,
+    OpportunityCategorizationService,
+    D1DatabaseService,
+    CorrelationAnalysisService,
+    FundMonitoringService,
+}
+
+/// Service Health Check Result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckResult {
+    pub service_type: ServiceType,
+    pub status: ServiceStatus,
+    pub response_time_ms: Option<u64>,
+    pub last_check: u64,
+    pub error_message: Option<String>,
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+impl HealthCheckResult {
+    pub fn healthy(service_type: ServiceType, response_time_ms: u64) -> Self {
+        Self {
+            service_type,
+            status: ServiceStatus::Healthy,
+            response_time_ms: Some(response_time_ms),
+            last_check: chrono::Utc::now().timestamp_millis() as u64,
+            error_message: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    pub fn unhealthy(service_type: ServiceType, error: String) -> Self {
+        Self {
+            service_type,
+            status: ServiceStatus::Unhealthy,
+            response_time_ms: None,
+            last_check: chrono::Utc::now().timestamp_millis() as u64,
+            error_message: Some(error),
+            metadata: HashMap::new(),
+        }
+    }
+
+    pub fn with_metadata(mut self, key: String, value: serde_json::Value) -> Self {
+        self.metadata.insert(key, value);
+        self
+    }
+}
+
+/// Service Health Check Trait
+#[async_trait::async_trait]
+pub trait HealthCheckable {
+    async fn health_check(&self) -> HealthCheckResult;
+    fn service_type(&self) -> ServiceType;
+}
+
+/// Service Lifecycle Management Trait
+#[async_trait::async_trait]
+pub trait ServiceLifecycle {
+    async fn start(&mut self) -> ArbitrageResult<()>;
+    async fn stop(&mut self) -> ArbitrageResult<()>;
+    async fn restart(&mut self) -> ArbitrageResult<()> {
+        self.stop().await?;
+        self.start().await
+    }
+    fn is_running(&self) -> bool;
+}
+
+/// Service Dependencies Configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceDependency {
+    pub service_type: ServiceType,
+    pub required: bool, // If true, this service cannot start without this dependency
+    pub start_order: u32, // Lower numbers start first
+}
+
+/// Service Configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceConfig {
+    pub service_type: ServiceType,
+    pub enabled: bool,
+    pub dependencies: Vec<ServiceDependency>,
+    pub health_check_interval_seconds: u64,
+    pub restart_on_failure: bool,
+    pub max_restart_attempts: u32,
+    pub configuration: serde_json::Value,
+}
+
+impl Default for ServiceConfig {
+    fn default() -> Self {
+        Self {
+            service_type: ServiceType::TelegramService,
+            enabled: true,
+            dependencies: Vec::new(),
+            health_check_interval_seconds: 30,
+            restart_on_failure: true,
+            max_restart_attempts: 3,
+            configuration: serde_json::Value::Object(serde_json::Map::new()),
+        }
+    }
+}
+
+/// Service Registry Entry
+#[derive(Debug)]
+pub struct ServiceRegistryEntry {
+    pub config: ServiceConfig,
+    pub status: ServiceStatus,
+    pub last_health_check: Option<HealthCheckResult>,
+    pub restart_attempts: u32,
+    pub started_at: Option<u64>,
+    pub stopped_at: Option<u64>,
+}
+
+impl ServiceRegistryEntry {
+    pub fn new(config: ServiceConfig) -> Self {
+        Self {
+            config,
+            status: ServiceStatus::Stopped,
+            last_health_check: None,
+            restart_attempts: 0,
+            started_at: None,
+            stopped_at: None,
+        }
+    }
+}
+
+/// Core Service Architecture Manager
+pub struct CoreServiceArchitecture {
+    service_registry: Arc<RwLock<HashMap<ServiceType, ServiceRegistryEntry>>>,
+    health_check_tasks: HashMap<ServiceType, tokio::task::JoinHandle<()>>,
+    system_status: ServiceStatus,
+    startup_order: Vec<ServiceType>,
+}
+
+impl CoreServiceArchitecture {
+    pub fn new() -> Self {
+        Self {
+            service_registry: Arc::new(RwLock::new(HashMap::new())),
+            health_check_tasks: HashMap::new(),
+            system_status: ServiceStatus::Stopped,
+            startup_order: Vec::new(),
+        }
+    }
+
+    /// Initialize the service architecture with default configurations
+    pub async fn initialize(&mut self) -> ArbitrageResult<()> {
+        let default_configs = self.create_default_service_configs();
+        
+        for config in default_configs {
+            self.register_service(config).await?;
+        }
+
+        self.calculate_startup_order().await?;
+        Ok(())
+    }
+
+    /// Register a service in the architecture
+    pub async fn register_service(&mut self, config: ServiceConfig) -> ArbitrageResult<()> {
+        let service_type = config.service_type.clone();
+        let entry = ServiceRegistryEntry::new(config);
+        
+        {
+            let mut registry = self.service_registry.write().await;
+            registry.insert(service_type, entry);
+        }
+
+        Ok(())
+    }
+
+    /// Start all services in dependency order
+    pub async fn start_all_services(&mut self) -> ArbitrageResult<()> {
+        self.system_status = ServiceStatus::Starting;
+
+        for service_type in &self.startup_order {
+            if let Err(e) = self.start_service(service_type.clone()).await {
+                log::error!("Failed to start service {:?}: {}", service_type, e);
+                self.system_status = ServiceStatus::Degraded;
+                // Continue starting other services
+            }
+        }
+
+        // Start health check tasks
+        self.start_health_checks().await?;
+
+        self.system_status = ServiceStatus::Healthy;
+        Ok(())
+    }
+
+    /// Start a specific service
+    pub async fn start_service(&mut self, service_type: ServiceType) -> ArbitrageResult<()> {
+        {
+            let mut registry = self.service_registry.write().await;
+            if let Some(entry) = registry.get_mut(&service_type) {
+                if !entry.config.enabled {
+                    return Ok(()); // Service is disabled
+                }
+
+                // Check dependencies
+                for dep in &entry.config.dependencies {
+                    if dep.required {
+                        if let Some(dep_entry) = registry.get(&dep.service_type) {
+                            if dep_entry.status != ServiceStatus::Healthy {
+                                return Err(ArbitrageError::service_error(format!(
+                                    "Required dependency {:?} is not healthy for service {:?}",
+                                    dep.service_type, service_type
+                                )));
+                            }
+                        } else {
+                            return Err(ArbitrageError::service_error(format!(
+                                "Required dependency {:?} not found for service {:?}",
+                                dep.service_type, service_type
+                            )));
+                        }
+                    }
+                }
+
+                entry.status = ServiceStatus::Starting;
+                entry.started_at = Some(chrono::Utc::now().timestamp_millis() as u64);
+                entry.restart_attempts = 0;
+            }
+        }
+
+        // TODO: In production, this would actually start the service instance
+        // For now, simulate service startup
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        {
+            let mut registry = self.service_registry.write().await;
+            if let Some(entry) = registry.get_mut(&service_type) {
+                entry.status = ServiceStatus::Healthy;
+            }
+        }
+
+        log::info!("Service {:?} started successfully", service_type);
+        Ok(())
+    }
+
+    /// Stop a specific service
+    pub async fn stop_service(&mut self, service_type: ServiceType) -> ArbitrageResult<()> {
+        {
+            let mut registry = self.service_registry.write().await;
+            if let Some(entry) = registry.get_mut(&service_type) {
+                entry.status = ServiceStatus::Stopping;
+            }
+        }
+
+        // Stop health check task if running
+        if let Some(task) = self.health_check_tasks.remove(&service_type) {
+            task.abort();
+        }
+
+        // TODO: In production, this would actually stop the service instance
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        {
+            let mut registry = self.service_registry.write().await;
+            if let Some(entry) = registry.get_mut(&service_type) {
+                entry.status = ServiceStatus::Stopped;
+                entry.stopped_at = Some(chrono::Utc::now().timestamp_millis() as u64);
+            }
+        }
+
+        log::info!("Service {:?} stopped successfully", service_type);
+        Ok(())
+    }
+
+    /// Stop all services in reverse dependency order
+    pub async fn stop_all_services(&mut self) -> ArbitrageResult<()> {
+        self.system_status = ServiceStatus::Stopping;
+
+        // Stop health checks first
+        for (_, task) in self.health_check_tasks.drain() {
+            task.abort();
+        }
+
+        // Stop services in reverse order
+        for service_type in self.startup_order.iter().rev() {
+            if let Err(e) = self.stop_service(service_type.clone()).await {
+                log::error!("Failed to stop service {:?}: {}", service_type, e);
+            }
+        }
+
+        self.system_status = ServiceStatus::Stopped;
+        Ok(())
+    }
+
+    /// Restart a specific service
+    pub async fn restart_service(&mut self, service_type: ServiceType) -> ArbitrageResult<()> {
+        self.stop_service(service_type.clone()).await?;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        self.start_service(service_type).await
+    }
+
+    /// Get system health overview
+    pub async fn get_system_health(&self) -> SystemHealthOverview {
+        let registry = self.service_registry.read().await;
+        let mut healthy_count = 0;
+        let mut unhealthy_count = 0;
+        let mut degraded_count = 0;
+        let mut stopped_count = 0;
+        let mut service_statuses = HashMap::new();
+
+        for (service_type, entry) in registry.iter() {
+            match entry.status {
+                ServiceStatus::Healthy => healthy_count += 1,
+                ServiceStatus::Unhealthy => unhealthy_count += 1,
+                ServiceStatus::Degraded => degraded_count += 1,
+                ServiceStatus::Stopped => stopped_count += 1,
+                _ => degraded_count += 1,
+            }
+            service_statuses.insert(service_type.clone(), entry.status.clone());
+        }
+
+        let overall_status = if unhealthy_count > 0 {
+            ServiceStatus::Unhealthy
+        } else if degraded_count > 0 {
+            ServiceStatus::Degraded
+        } else if healthy_count > 0 {
+            ServiceStatus::Healthy
+        } else {
+            ServiceStatus::Stopped
+        };
+
+        SystemHealthOverview {
+            overall_status,
+            total_services: registry.len(),
+            healthy_count,
+            unhealthy_count,
+            degraded_count,
+            stopped_count,
+            service_statuses,
+            last_updated: chrono::Utc::now().timestamp_millis() as u64,
+        }
+    }
+
+    /// Get detailed service information
+    pub async fn get_service_info(&self, service_type: &ServiceType) -> Option<ServiceInfo> {
+        let registry = self.service_registry.read().await;
+        if let Some(entry) = registry.get(service_type) {
+            Some(ServiceInfo {
+                service_type: entry.config.service_type.clone(),
+                status: entry.status.clone(),
+                enabled: entry.config.enabled,
+                dependencies: entry.config.dependencies.clone(),
+                last_health_check: entry.last_health_check.clone(),
+                restart_attempts: entry.restart_attempts,
+                started_at: entry.started_at,
+                stopped_at: entry.stopped_at,
+                uptime_seconds: entry.started_at.map(|start| {
+                    (chrono::Utc::now().timestamp_millis() as u64 - start) / 1000
+                }),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Start health check monitoring for all services
+    async fn start_health_checks(&mut self) -> ArbitrageResult<()> {
+        let registry = self.service_registry.clone();
+        
+        // Get enabled services
+        let services_to_monitor: Vec<ServiceType> = {
+            let reg = registry.read().await;
+            reg.iter()
+                .filter(|(_, entry)| entry.config.enabled)
+                .map(|(service_type, _)| service_type.clone())
+                .collect()
+        };
+
+        for service_type in services_to_monitor {
+            let registry_clone = registry.clone();
+            let service_type_clone = service_type.clone();
+            
+            let task = tokio::spawn(async move {
+                loop {
+                    let interval = {
+                        let reg = registry_clone.read().await;
+                        if let Some(entry) = reg.get(&service_type_clone) {
+                            entry.config.health_check_interval_seconds
+                        } else {
+                            break; // Service removed
+                        }
+                    };
+
+                    tokio::time::sleep(tokio::time::Duration::from_secs(interval)).await;
+                    
+                    // Perform health check
+                    let health_result = Self::perform_health_check(&service_type_clone).await;
+                    
+                    // Update registry
+                    {
+                        let mut reg = registry_clone.write().await;
+                        if let Some(entry) = reg.get_mut(&service_type_clone) {
+                            entry.last_health_check = Some(health_result.clone());
+                            
+                            // Update status based on health check
+                            match health_result.status {
+                                ServiceStatus::Healthy => {
+                                    if entry.status == ServiceStatus::Degraded || entry.status == ServiceStatus::Unhealthy {
+                                        entry.status = ServiceStatus::Healthy;
+                                        entry.restart_attempts = 0;
+                                    }
+                                }
+                                ServiceStatus::Unhealthy => {
+                                    entry.status = ServiceStatus::Unhealthy;
+                                    entry.restart_attempts += 1;
+                                }
+                                ServiceStatus::Degraded => {
+                                    if entry.status == ServiceStatus::Healthy {
+                                        entry.status = ServiceStatus::Degraded;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            });
+
+            self.health_check_tasks.insert(service_type, task);
+        }
+
+        Ok(())
+    }
+
+    /// Perform health check for a service (mock implementation)
+    async fn perform_health_check(service_type: &ServiceType) -> HealthCheckResult {
+        let start_time = std::time::Instant::now();
+        
+        // TODO: In production, this would call the actual service's health check method
+        // For now, simulate different health check scenarios
+        
+        let is_healthy = match service_type {
+            ServiceType::TelegramService => true,
+            ServiceType::GlobalOpportunityService => true,
+            ServiceType::D1DatabaseService => {
+                // Simulate occasional database issues
+                (chrono::Utc::now().timestamp() % 10) != 0
+            }
+            _ => true,
+        };
+
+        let response_time = start_time.elapsed().as_millis() as u64;
+
+        if is_healthy {
+            HealthCheckResult::healthy(service_type.clone(), response_time)
+                .with_metadata("last_check_type".to_string(), serde_json::json!("automated"))
+        } else {
+            HealthCheckResult::unhealthy(
+                service_type.clone(),
+                "Service failed health check".to_string(),
+            )
+        }
+    }
+
+    /// Calculate service startup order based on dependencies
+    async fn calculate_startup_order(&mut self) -> ArbitrageResult<()> {
+        let registry = self.service_registry.read().await;
+        let mut order = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        let mut visiting = std::collections::HashSet::new();
+
+        for service_type in registry.keys() {
+            if !visited.contains(service_type) {
+                self.visit_service_for_order(
+                    service_type,
+                    &registry,
+                    &mut order,
+                    &mut visited,
+                    &mut visiting,
+                )?;
+            }
+        }
+
+        self.startup_order = order;
+        Ok(())
+    }
+
+    /// Recursive function for topological sort of services
+    fn visit_service_for_order(
+        &self,
+        service_type: &ServiceType,
+        registry: &HashMap<ServiceType, ServiceRegistryEntry>,
+        order: &mut Vec<ServiceType>,
+        visited: &mut std::collections::HashSet<ServiceType>,
+        visiting: &mut std::collections::HashSet<ServiceType>,
+    ) -> ArbitrageResult<()> {
+        if visiting.contains(service_type) {
+            return Err(ArbitrageError::service_error(format!(
+                "Circular dependency detected involving service {:?}",
+                service_type
+            )));
+        }
+
+        if visited.contains(service_type) {
+            return Ok(());
+        }
+
+        visiting.insert(service_type.clone());
+
+        if let Some(entry) = registry.get(service_type) {
+            // Sort dependencies by start_order
+            let mut deps = entry.config.dependencies.clone();
+            deps.sort_by_key(|d| d.start_order);
+
+            for dep in deps {
+                self.visit_service_for_order(
+                    &dep.service_type,
+                    registry,
+                    order,
+                    visited,
+                    visiting,
+                )?;
+            }
+        }
+
+        visiting.remove(service_type);
+        visited.insert(service_type.clone());
+        order.push(service_type.clone());
+
+        Ok(())
+    }
+
+    /// Create default service configurations
+    fn create_default_service_configs(&self) -> Vec<ServiceConfig> {
+        vec![
+            // Database service - no dependencies, starts first
+            ServiceConfig {
+                service_type: ServiceType::D1DatabaseService,
+                enabled: true,
+                dependencies: vec![],
+                health_check_interval_seconds: 15,
+                restart_on_failure: true,
+                max_restart_attempts: 5,
+                configuration: serde_json::json!({"database_url": "memory"}),
+            },
+            // Core services - depend on database
+            ServiceConfig {
+                service_type: ServiceType::UserProfileService,
+                enabled: true,
+                dependencies: vec![ServiceDependency {
+                    service_type: ServiceType::D1DatabaseService,
+                    required: true,
+                    start_order: 1,
+                }],
+                health_check_interval_seconds: 30,
+                restart_on_failure: true,
+                max_restart_attempts: 3,
+                configuration: serde_json::json!({}),
+            },
+            ServiceConfig {
+                service_type: ServiceType::ExchangeService,
+                enabled: true,
+                dependencies: vec![ServiceDependency {
+                    service_type: ServiceType::D1DatabaseService,
+                    required: true,
+                    start_order: 1,
+                }],
+                health_check_interval_seconds: 20,
+                restart_on_failure: true,
+                max_restart_attempts: 3,
+                configuration: serde_json::json!({}),
+            },
+            // Analysis services
+            ServiceConfig {
+                service_type: ServiceType::MarketAnalysisService,
+                enabled: true,
+                dependencies: vec![
+                    ServiceDependency {
+                        service_type: ServiceType::ExchangeService,
+                        required: true,
+                        start_order: 2,
+                    },
+                ],
+                health_check_interval_seconds: 30,
+                restart_on_failure: true,
+                max_restart_attempts: 3,
+                configuration: serde_json::json!({}),
+            },
+            ServiceConfig {
+                service_type: ServiceType::TechnicalAnalysisService,
+                enabled: true,
+                dependencies: vec![
+                    ServiceDependency {
+                        service_type: ServiceType::ExchangeService,
+                        required: true,
+                        start_order: 2,
+                    },
+                ],
+                health_check_interval_seconds: 60,
+                restart_on_failure: true,
+                max_restart_attempts: 3,
+                configuration: serde_json::json!({}),
+            },
+            // AI services
+            ServiceConfig {
+                service_type: ServiceType::AiBetaIntegrationService,
+                enabled: true,
+                dependencies: vec![
+                    ServiceDependency {
+                        service_type: ServiceType::MarketAnalysisService,
+                        required: true,
+                        start_order: 3,
+                    },
+                    ServiceDependency {
+                        service_type: ServiceType::UserProfileService,
+                        required: true,
+                        start_order: 2,
+                    },
+                ],
+                health_check_interval_seconds: 45,
+                restart_on_failure: true,
+                max_restart_attempts: 2,
+                configuration: serde_json::json!({}),
+            },
+            // Opportunity services
+            ServiceConfig {
+                service_type: ServiceType::GlobalOpportunityService,
+                enabled: true,
+                dependencies: vec![
+                    ServiceDependency {
+                        service_type: ServiceType::MarketAnalysisService,
+                        required: true,
+                        start_order: 3,
+                    },
+                    ServiceDependency {
+                        service_type: ServiceType::TechnicalAnalysisService,
+                        required: false,
+                        start_order: 3,
+                    },
+                ],
+                health_check_interval_seconds: 30,
+                restart_on_failure: true,
+                max_restart_attempts: 3,
+                configuration: serde_json::json!({}),
+            },
+            // Notification and communication services
+            ServiceConfig {
+                service_type: ServiceType::NotificationService,
+                enabled: true,
+                dependencies: vec![],
+                health_check_interval_seconds: 30,
+                restart_on_failure: true,
+                max_restart_attempts: 3,
+                configuration: serde_json::json!({}),
+            },
+            ServiceConfig {
+                service_type: ServiceType::TelegramService,
+                enabled: true,
+                dependencies: vec![
+                    ServiceDependency {
+                        service_type: ServiceType::NotificationService,
+                        required: true,
+                        start_order: 4,
+                    },
+                    ServiceDependency {
+                        service_type: ServiceType::GlobalOpportunityService,
+                        required: true,
+                        start_order: 4,
+                    },
+                ],
+                health_check_interval_seconds: 20,
+                restart_on_failure: true,
+                max_restart_attempts: 5,
+                configuration: serde_json::json!({}),
+            },
+        ]
+    }
+}
+
+impl Default for CoreServiceArchitecture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// System Health Overview
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemHealthOverview {
+    pub overall_status: ServiceStatus,
+    pub total_services: usize,
+    pub healthy_count: usize,
+    pub unhealthy_count: usize,
+    pub degraded_count: usize,
+    pub stopped_count: usize,
+    pub service_statuses: HashMap<ServiceType, ServiceStatus>,
+    pub last_updated: u64,
+}
+
+/// Detailed Service Information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceInfo {
+    pub service_type: ServiceType,
+    pub status: ServiceStatus,
+    pub enabled: bool,
+    pub dependencies: Vec<ServiceDependency>,
+    pub last_health_check: Option<HealthCheckResult>,
+    pub restart_attempts: u32,
+    pub started_at: Option<u64>,
+    pub stopped_at: Option<u64>,
+    pub uptime_seconds: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_service_architecture_creation() {
+        let mut architecture = CoreServiceArchitecture::new();
+        assert_eq!(architecture.system_status, ServiceStatus::Stopped);
+        
+        architecture.initialize().await.unwrap();
+        assert!(!architecture.startup_order.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_service_registration() {
+        let mut architecture = CoreServiceArchitecture::new();
+        
+        let config = ServiceConfig {
+            service_type: ServiceType::TelegramService,
+            enabled: true,
+            dependencies: vec![],
+            health_check_interval_seconds: 30,
+            restart_on_failure: true,
+            max_restart_attempts: 3,
+            configuration: serde_json::json!({}),
+        };
+
+        architecture.register_service(config).await.unwrap();
+
+        let info = architecture
+            .get_service_info(&ServiceType::TelegramService)
+            .await;
+        assert!(info.is_some());
+        assert_eq!(info.unwrap().status, ServiceStatus::Stopped);
+    }
+
+    #[tokio::test]
+    async fn test_service_startup_order() {
+        let mut architecture = CoreServiceArchitecture::new();
+        architecture.initialize().await.unwrap();
+
+        // Database should be first
+        assert_eq!(architecture.startup_order[0], ServiceType::D1DatabaseService);
+        
+        // Telegram service should be last (has most dependencies)
+        let telegram_pos = architecture.startup_order
+            .iter()
+            .position(|s| s == &ServiceType::TelegramService)
+            .unwrap();
+        
+        let user_profile_pos = architecture.startup_order
+            .iter()
+            .position(|s| s == &ServiceType::UserProfileService)
+            .unwrap();
+        
+        // User profile should start before Telegram
+        assert!(user_profile_pos < telegram_pos);
+    }
+
+    #[tokio::test]
+    async fn test_health_check_result() {
+        let healthy = HealthCheckResult::healthy(ServiceType::TelegramService, 150);
+        assert_eq!(healthy.status, ServiceStatus::Healthy);
+        assert_eq!(healthy.response_time_ms, Some(150));
+
+        let unhealthy = HealthCheckResult::unhealthy(
+            ServiceType::D1DatabaseService,
+            "Connection failed".to_string(),
+        );
+        assert_eq!(unhealthy.status, ServiceStatus::Unhealthy);
+        assert!(unhealthy.error_message.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_system_health_overview() {
+        let mut architecture = CoreServiceArchitecture::new();
+        architecture.initialize().await.unwrap();
+
+        let health = architecture.get_system_health().await;
+        assert!(health.total_services > 0);
+        assert_eq!(health.overall_status, ServiceStatus::Stopped); // Not started yet
+    }
+
+    #[test]
+    fn test_service_config_default() {
+        let config = ServiceConfig::default();
+        assert_eq!(config.service_type, ServiceType::TelegramService);
+        assert!(config.enabled);
+        assert_eq!(config.health_check_interval_seconds, 30);
+        assert!(config.restart_on_failure);
+        assert_eq!(config.max_restart_attempts, 3);
+    }
+
+    #[test]
+    fn test_service_dependency() {
+        let dep = ServiceDependency {
+            service_type: ServiceType::D1DatabaseService,
+            required: true,
+            start_order: 1,
+        };
+
+        assert_eq!(dep.service_type, ServiceType::D1DatabaseService);
+        assert!(dep.required);
+        assert_eq!(dep.start_order, 1);
+    }
+} 
