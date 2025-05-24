@@ -743,6 +743,89 @@ let mock_telegram = json!({
 
 ---
 
+## **🏗️ ARCHITECTURE CLARIFICATIONS & TASK-BASED PLANNING** ✅ **COMPLETED**
+
+### **📊 USER CONCERNS ADDRESSED**
+
+#### **✅ Comprehensive Architecture Updates**
+
+**Point 1: Notification Security** ✅ **CLARIFIED**
+- **Implementation**: Private-only trading alerts with group context detection
+- **Security**: No trading data sent to groups/channels, marketing restricted to private chats
+- **PRD Update**: FR6.3 - Secure notification routing architecture
+
+**Point 2: Opportunity Distribution Limits** ✅ **UPDATED**
+- **New Limits**: Max 2 opportunities, 10 daily, 4-hour cooldown  
+- **Implementation**: GlobalOpportunityService distribution logic updates
+- **PRD Update**: FR6.2 - Updated opportunity limits specification
+
+**Point 3: Super Admin API Architecture** ✅ **DESIGNED**
+- **Data Source**: Super admin provides READ-ONLY exchange API keys for global opportunities
+- **Risk Isolation**: Global opportunity service cannot execute trades (read-only only)
+- **User Trading**: Users provide separate API keys for manual/auto trading via bot
+- **Super Admin Trading**: Separate trading-enabled APIs for super admin's personal trading
+- **PRD Update**: FR6.1 - Secure super admin API architecture
+
+**Point 4: Manual Trading Commands** ✅ **DOCUMENTED AS WIP**
+- **Status**: Work In Progress - implement after test coverage completion
+- **Implementation**: Exchange API trading methods, Telegram commands (/buy, /sell, /balance)
+- **Security**: User API key secure storage and validation
+
+**Point 5: AI Integration Beta Access** ✅ **PLANNED**
+- **Beta Model**: BYOK AI features accessible to all beta users (future: subscription-gated)
+- **Global + AI Enhancement**: Option 1 implementation - global opportunities enhanced by user AI
+- **Fallback**: Global opportunities when user AI unavailable
+
+**Point 6: Technical Analysis Global Access** ✅ **PLANNED**
+- **Future Model**: Technical analysis global and free (currently beta access for all)
+- **Implementation**: Service optimization for high user volume, free tier rate limiting
+
+### **📋 TASK-BASED IMPLEMENTATION PLAN**
+
+**Critical Architecture Fixes (A1-A3)**:
+- A1: Notification Security Implementation
+- A2: Opportunity Distribution Limits  
+- A3: Super Admin API Architecture
+
+**Core System Implementation (B1-B3)**:
+- B1: Manual Trading Commands (WIP after test coverage)
+- B2: Technical Analysis Global Access
+- B3: AI Integration Beta Access
+
+**Infrastructure & Performance (C1-C2)**:
+- C1: Core Service Architecture (ExchangeService, PositionsService, FundMonitoringService)
+- C2: Monitoring & Observability
+
+**Advanced Features (D1-D2)**:
+- D1: Automated Trading Framework
+- D2: Advanced Analytics & Reporting
+
+### **📚 DOCUMENTATION UPDATES**
+
+**PRD.md Updates**:
+- ✅ Super admin read-only API architecture (FR6.1)
+- ✅ Opportunity distribution limits specification (FR6.2)  
+- ✅ Secure notification routing (FR6.3)
+- ✅ Beta public access model (FR6.6)
+- ✅ Task-based implementation planning (Section 8)
+
+**OpportunityServiceSpec.md Updates**:
+- ✅ Data source architecture documentation
+- ✅ Distribution limits architecture
+- ✅ Secure notification method specification
+- ✅ Risk isolation documentation
+
+### **🔒 SECURITY & RISK MITIGATION**
+
+**API Security**: Complete isolation between global data APIs and user trading APIs
+**Notification Privacy**: Trading data restricted to private chats only
+**Rate Limiting**: Fair distribution with spam prevention
+**Risk Isolation**: No cross-contamination of trading authority between admin and users
+
+**Ready for implementation phase with clear task priorities! 🚀**
+
+---
+
 ## **🎉 PR COMMENTS 72-82 - COMPLETE SUCCESS** ✅ **ALL FIXED**
 
 ### **📊 FINAL STATUS: 82/82 CODERABBIT COMMENTS RESOLVED (100%)**
