@@ -81,6 +81,8 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: rust
+        env:
+          CODEQL_ENABLE_EXPERIMENTAL_FEATURES: true
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
