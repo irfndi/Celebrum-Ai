@@ -18,7 +18,6 @@ use types::{AccountInfo, ExchangeIdEnum, StructuredTradingPair};
 use utils::{ArbitrageError, ArbitrageResult};
 use uuid::Uuid;
 
-
 // ===== TEMPORARY DURABLE OBJECT FOR MIGRATION =====
 // This PositionsManager class is temporarily added to satisfy existing Durable Object instances
 // during migration. It will be removed in the next deployment once migration is complete.
