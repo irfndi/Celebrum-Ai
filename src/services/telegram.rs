@@ -109,7 +109,10 @@ impl TelegramService {
     pub async fn handle_webhook(&self, update: Value) -> ArbitrageResult<Option<String>> {
         if let Some(message) = update["message"].as_object() {
             if let Some(text) = message["text"].as_str() {
-                let user_id = message["from"]["id"].as_u64().map(|id| id.to_string()).unwrap_or_default();
+                // Properly handle missing user ID by returning an error instead of empty string
+                let user_id = message["from"]["id"].as_u64()
+                    .ok_or_else(|| ArbitrageError::validation_error("Missing user ID in webhook message".to_string()))?
+                    .to_string();
                 return self.handle_command(text, &user_id).await;
             }
         }

@@ -1055,7 +1055,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn test_rate_limit_functionality() {
+        async fn test_rate_limit_functionality() -> ArbitrageResult<()> {
             let rate_limit = AiCallRateLimit {
                 user_id: "test_user".to_string(),
                 calls_this_minute: 5,
@@ -1068,10 +1068,12 @@ mod tests {
             assert!(rate_limit.window_start > 0);
 
             // Test serialization
-            let serialized = serde_json::to_string(&rate_limit).unwrap();
+            let serialized = serde_json::to_string(&rate_limit)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize rate limit: {}", e)))?;
             let deserialized: AiCallRateLimit = serde_json::from_str(&serialized).unwrap();
             assert_eq!(deserialized.user_id, rate_limit.user_id);
             assert_eq!(deserialized.calls_this_minute, rate_limit.calls_this_minute);
+            Ok(())
         }
 
         #[tokio::test]
@@ -1102,7 +1104,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn test_opportunity_analysis_parsing() {
+        async fn test_opportunity_analysis_parsing() -> ArbitrageResult<()> {
             let user_id = "test_user_123";
             let opportunity = create_test_global_opportunity();
             let ai_response = create_mock_ai_response();
@@ -1130,10 +1132,12 @@ mod tests {
             assert!(!analysis.risk_factors.is_empty());
 
             // Test serialization
-            let serialized = serde_json::to_string(&analysis).unwrap();
+            let serialized = serde_json::to_string(&analysis)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize analysis: {}", e)))?;
             let deserialized: AiOpportunityAnalysis = serde_json::from_str(&serialized).unwrap();
             assert_eq!(deserialized.opportunity_id, analysis.opportunity_id);
             assert_eq!(deserialized.ai_score, analysis.ai_score);
+            Ok(())
         }
 
         #[tokio::test]

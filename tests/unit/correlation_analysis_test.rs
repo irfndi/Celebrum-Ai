@@ -110,8 +110,10 @@ mod correlation_analysis_service_tests {
         let config = CorrelationAnalysisConfig::default();
         let service = CorrelationAnalysisService::new(config);
         
-        // Service should be created successfully
-        assert!(std::mem::size_of_val(&service) > 0);
+        // Test actual service creation and basic configuration validation
+        assert_eq!(service.config.min_data_points, 20);
+        assert_eq!(service.config.correlation_threshold, 0.5);
+        assert_eq!(service.config.confidence_threshold, 0.7);
     }
 
     #[test]
@@ -395,5 +397,49 @@ mod correlation_analysis_service_tests {
         // We should have 6 technical correlations for technical focus
         assert_eq!(metrics.technical_correlations.len(), 6);
         assert!(metrics.confidence_score > 0.0);
+    }
+
+    #[test]
+    fn test_correlation_analysis_service_functionality() {
+        let config = CorrelationAnalysisConfig::default();
+        let service = CorrelationAnalysisService::new(config);
+        
+        // Test actual functionality instead of just size check
+        let base_time = 1672531200000; // 2024-01-01 00:00:00 UTC in milliseconds
+        
+        // Create test price series with sufficient data points (> 20)
+        let prices_a = vec![100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0,
+                           110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0];
+        let series_a = create_test_price_series(base_time, prices_a, 60000, "binance", "BTC/USDT");
+        
+        let prices_b = vec![99.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0,
+                           109.0, 110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0];
+        let series_b = create_test_price_series(base_time, prices_b, 60000, "bybit", "BTC/USDT");
+        
+        // Test correlation calculation functionality
+        let result = service.calculate_price_correlation(&series_a, &series_b, "binance", "bybit");
+        
+        // Verify the service actually works
+        assert!(result.is_ok(), "Correlation calculation should succeed with valid data");
+        let correlation_data = result.unwrap();
+        
+        // Validate functional output
+        assert_eq!(correlation_data.exchange_a, "binance");
+        assert_eq!(correlation_data.exchange_b, "bybit");
+        assert!(correlation_data.correlation_coefficient >= -1.0 && correlation_data.correlation_coefficient <= 1.0, 
+                "Correlation coefficient should be between -1 and 1");
+        assert!(correlation_data.confidence_level >= 0.0 && correlation_data.confidence_level <= 1.0,
+                "Confidence level should be between 0 and 1");
+        assert!(correlation_data.data_points >= 20, "Should have sufficient data points for analysis");
+        
+        // Test service with insufficient data (should fail appropriately)
+        let small_prices = vec![100.0, 101.0, 102.0]; // Only 3 points, below minimum 20
+        let small_series_a = create_test_price_series(base_time, small_prices.clone(), 60000, "binance", "BTC/USDT");
+        let small_series_b = create_test_price_series(base_time, small_prices, 60000, "bybit", "BTC/USDT");
+        
+        let insufficient_result = service.calculate_price_correlation(&small_series_a, &small_series_b, "binance", "bybit");
+        assert!(insufficient_result.is_err(), "Should fail with insufficient data points");
+        assert!(insufficient_result.unwrap_err().contains("Insufficient data points"), 
+                "Error should indicate insufficient data points");
     }
 } 

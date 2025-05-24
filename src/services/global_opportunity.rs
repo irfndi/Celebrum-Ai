@@ -4,8 +4,9 @@ use crate::types::{
     ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum, FundingRateInfo,
     GlobalOpportunity, OpportunityQueue, OpportunitySource, DistributionStrategy,
     UserOpportunityDistribution, GlobalOpportunityConfig, FairnessConfig,
-    UserProfile, SubscriptionTier
+    UserProfile, SubscriptionTier,
 };
+use crate::services::market_analysis::{TradingOpportunity, OpportunityType};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use crate::services::exchange::{ExchangeService, ExchangeInterface};
 use crate::services::user_profile::UserProfileService;

@@ -10,6 +10,7 @@ use crate::services::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::cell::RefCell;
 
 // ============= OPPORTUNITY CATEGORY TYPES =============
 
@@ -290,8 +291,8 @@ pub struct OpportunityCategorizationService {
     d1_service: D1Service,
     preferences_service: UserTradingPreferencesService,
     logger: Logger,
-    // Cache for user preferences to avoid repeated DB calls
-    user_prefs_cache: HashMap<String, (UserOpportunityPreferences, u64)>, // (preferences, cache_time)
+    // Cache for user preferences to avoid repeated DB calls (using RefCell for interior mutability)
+    user_prefs_cache: RefCell<HashMap<String, (UserOpportunityPreferences, u64)>>, // (preferences, cache_time)
 }
 
 impl OpportunityCategorizationService {
@@ -304,7 +305,7 @@ impl OpportunityCategorizationService {
             d1_service,
             preferences_service,
             logger,
-            user_prefs_cache: HashMap::new(),
+            user_prefs_cache: RefCell::new(HashMap::new()),
         }
     }
     
@@ -412,11 +413,96 @@ impl OpportunityCategorizationService {
         &self,
         user_id: &str,
     ) -> ArbitrageResult<UserOpportunityPreferences> {
-        // TODO: In real implementation, this would load from D1 database
-        // For now, create default preferences based on user's trading preferences
-        let user_prefs = self.preferences_service.get_or_create_preferences(user_id).await?;
+        // Check cache first and clean up stale entries
+        self.evict_stale_cache_entries();
         
-        Ok(self.create_default_opportunity_preferences(user_id, &user_prefs))
+        // Get current timestamp
+        #[cfg(target_arch = "wasm32")]
+        let now = js_sys::Date::now() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        
+        // Check if we have a valid cached entry (cache TTL: 1 hour = 3600000 ms)
+        {
+            let cache = self.user_prefs_cache.borrow();
+            if let Some((cached_prefs, cache_time)) = cache.get(user_id) {
+                if now - cache_time < 3600000 { // 1 hour TTL
+                    return Ok(cached_prefs.clone());
+                }
+            }
+        }
+        
+        // Try to load from D1 database first
+        let opportunity_prefs = match self.d1_service.get_user_opportunity_preferences(user_id).await? {
+            Some(prefs) => prefs,
+            None => {
+                // Create default preferences based on user's trading preferences if not found
+                let user_prefs = self.preferences_service.get_or_create_preferences(user_id).await?;
+                let default_prefs = self.create_default_opportunity_preferences(user_id, &user_prefs);
+                
+                // Store default preferences in database for future use
+                self.update_user_opportunity_preferences(&default_prefs).await?;
+                
+                default_prefs
+            }
+        };
+        
+        // Store in cache
+        {
+            let mut cache = self.user_prefs_cache.borrow_mut();
+            cache.insert(user_id.to_string(), (opportunity_prefs.clone(), now));
+        }
+        
+        Ok(opportunity_prefs)
+    }
+    
+    /// Evict stale entries from the user preferences cache
+    /// Removes entries older than 1 hour to prevent unbounded memory growth
+    fn evict_stale_cache_entries(&self) {
+        #[cfg(target_arch = "wasm32")]
+        let now = js_sys::Date::now() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        
+        // Remove entries older than 1 hour
+        const CACHE_TTL_MS: u64 = 3600000; // 1 hour
+        let mut cache = self.user_prefs_cache.borrow_mut();
+        let initial_count = cache.len();
+        
+        cache.retain(|_user_id, (_prefs, cache_time)| {
+            now - *cache_time < CACHE_TTL_MS
+        });
+        
+        // Log cache cleanup if significant number of entries were removed
+        let remaining_entries = cache.len();
+        let evicted_count = initial_count - remaining_entries;
+        
+        if evicted_count > 0 {
+            self.logger.debug(&format!(
+                "Cache eviction completed. Evicted {} stale entries, {} entries remaining in user preferences cache", 
+                evicted_count, remaining_entries
+            ));
+        }
+    }
+    
+    /// Manually clear the user preferences cache (useful for testing or memory management)
+    pub fn clear_cache(&self) {
+        let mut cache = self.user_prefs_cache.borrow_mut();
+        let cleared_count = cache.len();
+        cache.clear();
+        
+        if cleared_count > 0 {
+            self.logger.info(&format!(
+                "Manually cleared {} entries from user preferences cache", 
+                cleared_count
+            ));
+        }
     }
     
     /// Update user's opportunity preferences
@@ -424,10 +510,28 @@ impl OpportunityCategorizationService {
         &self,
         preferences: &UserOpportunityPreferences,
     ) -> ArbitrageResult<()> {
-        // TODO: Store in D1 database
-        // For now, just log the update
+        // Store preferences in D1 database
+        let preferences_json = serde_json::to_string(preferences)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize opportunity preferences: {}", e)))?;
+        
+        // Store in database using D1Service
+        self.d1_service.store_user_opportunity_preferences(&preferences.user_id, &preferences_json).await?;
+        
+        // Update cache with new preferences
+        let now = {
+            #[cfg(target_arch = "wasm32")]
+            { js_sys::Date::now() as u64 }
+            #[cfg(not(target_arch = "wasm32"))]
+            { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64 }
+        };
+        
+        {
+            let mut cache = self.user_prefs_cache.borrow_mut();
+            cache.insert(preferences.user_id.clone(), (preferences.clone(), now));
+        }
+        
         self.logger.info(&format!(
-            "Updated opportunity preferences for user: {}",
+            "Successfully updated and persisted opportunity preferences for user: {}",
             preferences.user_id
         ));
         

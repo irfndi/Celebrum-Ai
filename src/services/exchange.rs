@@ -881,7 +881,8 @@ mod tests {
             let credentials = create_test_credentials();
             
             // Test that credentials can be serialized and deserialized
-            let serialized = serde_json::to_string(&credentials).unwrap();
+            let serialized = serde_json::to_string(&credentials)
+                .expect("Credentials should be serializable in tests");
             let deserialized: ExchangeCredentials = serde_json::from_str(&serialized).unwrap();
             
             assert_eq!(credentials.api_key, deserialized.api_key);
@@ -1421,7 +1422,8 @@ mod tests {
             let credentials = create_test_credentials();
             
             // Test that credentials can be serialized and deserialized
-            let serialized = serde_json::to_string(&credentials).unwrap();
+            let serialized = serde_json::to_string(&credentials)
+                .expect("Credentials should be serializable in tests");
             let deserialized: ExchangeCredentials = serde_json::from_str(&serialized).unwrap();
             
             assert_eq!(credentials.api_key, deserialized.api_key);

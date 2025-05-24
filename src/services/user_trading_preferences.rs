@@ -356,6 +356,16 @@ impl UserTradingPreferencesService {
         
         self.d1_service.update_trading_preferences(preferences).await
     }
+
+    /// Delete user's trading preferences
+    pub async fn delete_preferences(&self, user_id: &str) -> ArbitrageResult<bool> {
+        self.logger.info(
+            &format!("Deleting trading preferences for user: {}", user_id),
+        );
+        
+        // Use the existing delete method from D1Service
+        self.d1_service.delete_trading_preferences(user_id).await
+    }
     
     /// Update trading focus
     pub async fn update_trading_focus(&self, user_id: &str, focus: TradingFocus) -> ArbitrageResult<UserTradingPreferences> {

@@ -324,24 +324,61 @@ impl DynamicConfigService {
 
         if let Some(row) = result {
             let config = UserConfigInstance {
-                instance_id: row.get("instance_id").unwrap().to_string(),
-                user_id: row.get("user_id").unwrap().to_string(),
-                template_id: row.get("template_id").unwrap().to_string(),
-                preset_id: if row.get("preset_id").unwrap().to_string().is_empty() { 
-                    None 
-                } else { 
-                    Some(row.get("preset_id").unwrap().to_string()) 
+                instance_id: row.get("instance_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid instance_id field"))?
+                    .to_string(),
+                user_id: row.get("user_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid user_id field"))?
+                    .to_string(),
+                template_id: row.get("template_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid template_id field"))?
+                    .to_string(),
+                preset_id: row.get("preset_id")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
+                parameter_values: {
+                    let param_str = row.get("parameter_values")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid parameter_values field"))?;
+                    serde_json::from_str(param_str)
+                        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse parameter_values JSON: {}", e)))?
                 },
-                parameter_values: serde_json::from_str(&row.get("parameter_values").unwrap().to_string())?,
-                version: row.get("version").unwrap().to_string().parse()
-                    .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse version: {}", e)))?,
-                is_active: row.get("is_active").unwrap().to_string().parse()
-                    .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse is_active: {}", e)))?,
-                created_at: row.get("created_at").unwrap().to_string().parse()
-                    .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse created_at: {}", e)))?,
-                updated_at: row.get("updated_at").unwrap().to_string().parse()
-                    .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse updated_at: {}", e)))?,
-                rollback_data: if row.get("rollback_data").unwrap().to_string().is_empty() { None } else { Some(row.get("rollback_data").unwrap().to_string()) },
+                version: {
+                    let version_str = row.get("version")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid version field"))?;
+                    version_str.parse()
+                        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse version: {}", e)))?
+                },
+                is_active: {
+                    let active_str = row.get("is_active")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid is_active field"))?;
+                    active_str.parse()
+                        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse is_active: {}", e)))?
+                },
+                created_at: {
+                    let created_str = row.get("created_at")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid created_at field"))?;
+                    created_str.parse()
+                        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse created_at: {}", e)))?
+                },
+                updated_at: {
+                    let updated_str = row.get("updated_at")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid updated_at field"))?;
+                    updated_str.parse()
+                        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse updated_at: {}", e)))?
+                },
+                rollback_data: row.get("rollback_data")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
             };
 
             // Cache for future requests
@@ -409,7 +446,13 @@ impl DynamicConfigService {
                                         parameter_key: param.key.clone(),
                                         error_type: ValidationErrorType::OutOfRange,
                                         message: format!("Value {} is below minimum {}", num, min_val),
-                                        suggested_value: Some(serde_json::Value::Number(serde_json::Number::from_f64(*min_val).unwrap())),
+                                        suggested_value: if min_val.is_finite() {
+                                            serde_json::Number::from_f64(*min_val)
+                                                .map(serde_json::Value::Number)
+                                                .unwrap_or_else(|| param.default_value.clone())
+                                        } else {
+                                            param.default_value.clone()
+                                        }.into(),
                                     });
                                 }
                             }
@@ -419,7 +462,13 @@ impl DynamicConfigService {
                                         parameter_key: param.key.clone(),
                                         error_type: ValidationErrorType::OutOfRange,
                                         message: format!("Value {} is above maximum {}", num, max_val),
-                                        suggested_value: Some(serde_json::Value::Number(serde_json::Number::from_f64(*max_val).unwrap())),
+                                        suggested_value: if max_val.is_finite() {
+                                            serde_json::Number::from_f64(*max_val)
+                                                .map(serde_json::Value::Number)
+                                                .unwrap_or_else(|| param.default_value.clone())
+                                        } else {
+                                            param.default_value.clone()
+                                        }.into(),
                                     });
                                 }
                             }
@@ -449,7 +498,10 @@ impl DynamicConfigService {
                                     parameter_key: param.key.clone(),
                                     error_type: ValidationErrorType::OutOfRange,
                                     message: "Percentage must be between 0.0 and 1.0".to_string(),
-                                    suggested_value: Some(serde_json::Value::Number(serde_json::Number::from_f64(0.01).unwrap())),
+                                    suggested_value: serde_json::Number::from_f64(0.01)
+                                        .map(serde_json::Value::Number)
+                                        .unwrap_or_else(|| param.default_value.clone())
+                                        .into(),
                                 });
                             }
                         }
@@ -561,7 +613,9 @@ impl DynamicConfigService {
                     name: "Default Stop Loss (%)".to_string(),
                     description: "Default stop loss percentage for positions".to_string(),
                     parameter_type: ParameterType::Percentage,
-                    default_value: serde_json::Value::Number(serde_json::Number::from_f64(0.02).unwrap()),
+                    default_value: serde_json::Number::from_f64(0.02)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(2))), // fallback to 2% as integer
                     validation_rules: ValidationRules {
                         required: true,
                         custom_validation: None,
@@ -593,7 +647,9 @@ impl DynamicConfigService {
                     name: "Opportunity Threshold (%)".to_string(),
                     description: "Minimum rate difference to consider an opportunity".to_string(),
                     parameter_type: ParameterType::Percentage,
-                    default_value: serde_json::Value::Number(serde_json::Number::from_f64(0.001).unwrap()),
+                    default_value: serde_json::Number::from_f64(0.001)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(1))), // fallback to 0.1% as integer
                     validation_rules: ValidationRules {
                         required: true,
                         custom_validation: None,
@@ -637,7 +693,9 @@ impl DynamicConfigService {
             template_id: "risk_management_v1".to_string(),
             parameter_values: [
                 ("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(500))),
-                ("stop_loss_percentage".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(0.01).unwrap())),
+                ("stop_loss_percentage".to_string(), serde_json::Number::from_f64(0.01)
+                    .map(serde_json::Value::Number)
+                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(1)))), // fallback to 1% as integer
             ].into(),
             risk_level: RiskLevel::Conservative,
             target_audience: "beginner".to_string(),
@@ -653,7 +711,9 @@ impl DynamicConfigService {
             template_id: "risk_management_v1".to_string(),
             parameter_values: [
                 ("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(1000))),
-                ("stop_loss_percentage".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(0.02).unwrap())),
+                ("stop_loss_percentage".to_string(), serde_json::Number::from_f64(0.02)
+                    .map(serde_json::Value::Number)
+                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(2)))), // fallback to 2% as integer
             ].into(),
             risk_level: RiskLevel::Balanced,
             target_audience: "intermediate".to_string(),
@@ -669,7 +729,9 @@ impl DynamicConfigService {
             template_id: "risk_management_v1".to_string(),
             parameter_values: [
                 ("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(2000))),
-                ("stop_loss_percentage".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(0.05).unwrap())),
+                ("stop_loss_percentage".to_string(), serde_json::Number::from_f64(0.05)
+                    .map(serde_json::Value::Number)
+                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(5)))), // fallback to 5% as integer
             ].into(),
             risk_level: RiskLevel::Aggressive,
             target_audience: "advanced".to_string(),
@@ -727,7 +789,10 @@ mod tests {
         // Test validation logic
         let mut parameter_values = HashMap::new();
         parameter_values.insert("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(1000)));
-        parameter_values.insert("stop_loss_percentage".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(0.02).unwrap()));
+        parameter_values.insert("stop_loss_percentage".to_string(), 
+            serde_json::Number::from_f64(0.02)
+                .map(serde_json::Value::Number)
+                .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(2)))); // fallback to 2% as integer
         
         let validation_result = validate_parameters_against_template(&template, &parameter_values, "test_user").await;
         assert!(validation_result.is_ok());
@@ -764,7 +829,10 @@ mod tests {
         
         let mut preset_values = HashMap::new();
         preset_values.insert("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(500)));
-        preset_values.insert("stop_loss_percentage".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(0.01).unwrap()));
+        preset_values.insert("stop_loss_percentage".to_string(), 
+            serde_json::Number::from_f64(0.01)
+                .map(serde_json::Value::Number)
+                .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(1)))); // fallback to 1% as integer
         
         let preset = ConfigPreset {
             preset_id: "test_conservative".to_string(),
@@ -813,7 +881,9 @@ mod tests {
                     name: "Default Stop Loss (%)".to_string(),
                     description: "Default stop loss percentage for positions".to_string(),
                     parameter_type: ParameterType::Percentage,
-                    default_value: serde_json::Value::Number(serde_json::Number::from_f64(0.02).unwrap()),
+                    default_value: serde_json::Number::from_f64(0.02)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(2))), // fallback to 2% as integer
                     validation_rules: ValidationRules {
                         required: true,
                         custom_validation: None,
@@ -845,7 +915,9 @@ mod tests {
                     name: "Opportunity Threshold (%)".to_string(),
                     description: "Minimum rate difference to consider an opportunity".to_string(),
                     parameter_type: ParameterType::Percentage,
-                    default_value: serde_json::Value::Number(serde_json::Number::from_f64(0.001).unwrap()),
+                    default_value: serde_json::Number::from_f64(0.001)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(1))), // fallback to 0.1% as integer
                     validation_rules: ValidationRules {
                         required: true,
                         custom_validation: None,
@@ -903,7 +975,9 @@ mod tests {
                                         parameter_key: param.key.clone(),
                                         error_type: ValidationErrorType::OutOfRange,
                                         message: format!("Value {} is below minimum {}", num, min_val),
-                                        suggested_value: Some(serde_json::Value::Number(serde_json::Number::from_f64(*min_val).unwrap())),
+                                        suggested_value: serde_json::Number::from_f64(*min_val)
+                                            .map(serde_json::Value::Number)
+                                            .or_else(|| Some(param.default_value.clone())),
                                     });
                                 }
                             }
@@ -913,7 +987,9 @@ mod tests {
                                         parameter_key: param.key.clone(),
                                         error_type: ValidationErrorType::OutOfRange,
                                         message: format!("Value {} is above maximum {}", num, max_val),
-                                        suggested_value: Some(serde_json::Value::Number(serde_json::Number::from_f64(*max_val).unwrap())),
+                                        suggested_value: serde_json::Number::from_f64(*max_val)
+                                            .map(serde_json::Value::Number)
+                                            .or_else(|| Some(param.default_value.clone())),
                                     });
                                 }
                             }
@@ -943,7 +1019,9 @@ mod tests {
                                     parameter_key: param.key.clone(),
                                     error_type: ValidationErrorType::OutOfRange,
                                     message: "Percentage must be between 0.0 and 1.0".to_string(),
-                                    suggested_value: Some(serde_json::Value::Number(serde_json::Number::from_f64(0.01).unwrap())),
+                                    suggested_value: serde_json::Number::from_f64(0.01)
+                                        .map(serde_json::Value::Number)
+                                        .or_else(|| Some(serde_json::Value::Number(serde_json::Number::from(1)))),
                                 });
                             }
                         }

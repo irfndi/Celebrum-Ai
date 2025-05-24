@@ -120,9 +120,9 @@ impl TechnicalTradingService {
             exchange_ids.len()
         ));
 
-        // Get user preferences for filtering
+        // Get user preferences for filtering (read-only - don't create if missing)
         let user_preferences = if let Some(uid) = user_id {
-            Some(self.preferences_service.get_or_create_preferences(uid).await?)
+            self.preferences_service.get_preferences(uid).await?
         } else {
             None
         };
@@ -368,12 +368,26 @@ impl TechnicalTradingService {
                     return Ok(signals);
                 };
 
-                // For now, use simple band calculation based on the middle value and standard deviation
-                // In a real implementation, the Bollinger Band indicator would provide upper/lower band values
-                let middle_band = latest_bb.value;
-                let band_width = middle_band * self.config.bb_std_dev * 0.1; // Simplified calculation
-                let upper_band = middle_band + band_width;
-                let lower_band = middle_band - band_width;
+                // Proper Bollinger Band calculation using standard deviation of price data
+                let middle_band = latest_bb.value; // This should be the SMA
+                
+                // Calculate standard deviation of the recent price data
+                let recent_prices: Vec<f64> = price_series.data_points
+                    .iter()
+                    .rev()
+                    .take(self.config.bb_period)
+                    .map(|p| p.price)
+                    .collect();
+                
+                let std_deviation = if recent_prices.len() >= self.config.bb_period {
+                    self.calculate_standard_deviation(&recent_prices, middle_band)
+                } else {
+                    // Fallback for insufficient data - use simplified calculation
+                    middle_band * 0.02 // 2% of middle band as fallback
+                };
+                
+                let upper_band = middle_band + (std_deviation * self.config.bb_std_dev);
+                let lower_band = middle_band - (std_deviation * self.config.bb_std_dev);
 
                 // Check for band touch signals
                 if current_price <= lower_band {
@@ -554,6 +568,22 @@ impl TechnicalTradingService {
             }
             TradingSignalType::Hold => 0.5,
         }
+    }
+
+    /// Calculate standard deviation of price data for Bollinger Bands
+    fn calculate_standard_deviation(&self, prices: &[f64], mean: f64) -> f64 {
+        if prices.is_empty() {
+            return 0.0;
+        }
+        
+        let variance = prices.iter()
+            .map(|price| {
+                let diff = price - mean;
+                diff * diff
+            })
+            .sum::<f64>() / prices.len() as f64;
+        
+        variance.sqrt()
     }
 
     /// Calculate confidence score for moving average crossover signals

@@ -954,8 +954,7 @@ impl AiIntelligenceService {
 
     async fn store_ai_enhancement(&self, enhancement: &AiOpportunityEnhancement) -> ArbitrageResult<()> {
         // Store in D1 for analytics
-        // TODO: Implement proper D1 storage method
-        // self.d1_service.store_ai_opportunity_enhancement(enhancement).await?;
+        self.d1_service.store_ai_opportunity_enhancement(enhancement).await?;
         Ok(())
     }
 
@@ -977,22 +976,19 @@ impl AiIntelligenceService {
 
     async fn store_portfolio_analysis(&self, analysis: &AiPortfolioAnalysis) -> ArbitrageResult<()> {
         // Store in D1 for tracking
-        // TODO: Implement proper D1 storage method
-        // self.d1_service.store_ai_portfolio_analysis(analysis).await?;
+        self.d1_service.store_ai_portfolio_analysis(analysis).await?;
         Ok(())
     }
 
     async fn store_performance_insights(&self, insights: &AiPerformanceInsights) -> ArbitrageResult<()> {
         // Store in D1 for learning
-        // TODO: Implement proper D1 storage method
-        // self.d1_service.store_ai_performance_insights(insights).await?;
+        self.d1_service.store_ai_performance_insights(insights).await?;
         Ok(())
     }
 
     async fn store_parameter_suggestion(&self, user_id: &str, suggestion: &ParameterSuggestion) -> ArbitrageResult<()> {
         // Store in D1 for tracking
-        // TODO: Implement proper D1 storage method
-        // self.d1_service.store_ai_parameter_suggestion(user_id, suggestion).await?;
+        self.d1_service.store_ai_parameter_suggestion(user_id, suggestion).await?;
         Ok(())
     }
 
