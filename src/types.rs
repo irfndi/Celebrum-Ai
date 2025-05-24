@@ -448,6 +448,37 @@ pub enum SubscriptionTier {
     Basic,
     Premium,
     Enterprise,
+    SuperAdmin, // Super admin with system management access
+}
+
+/// User roles for RBAC (Role-Based Access Control)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UserRole {
+    User,      // Regular user (Free, Basic, Premium, Enterprise)
+    SuperAdmin, // Super administrator with system access
+    BetaUser,   // Beta user (all features during beta period)
+}
+
+/// Command permissions for RBAC
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandPermission {
+    // Basic commands (available to all)
+    BasicCommands,
+    
+    // Trading commands (subscription-gated in future)
+    ManualTrading,
+    
+    // Admin commands (super admin only)
+    SystemAdministration,
+    UserManagement,
+    GlobalConfiguration,
+    
+    // Future subscription-gated features
+    AutomatedTrading,
+    AdvancedAnalytics,
+    PremiumFeatures,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -650,6 +681,59 @@ impl UserProfile {
             total_trades: 0,
             total_pnl_usdt: 0.0,
         }
+    }
+
+    /// Get user role for RBAC
+    pub fn get_user_role(&self) -> UserRole {
+        match self.subscription.tier {
+            SubscriptionTier::SuperAdmin => UserRole::SuperAdmin,
+            _ => UserRole::User, // Regular user for all other tiers
+        }
+    }
+
+    /// Check if user has permission for a specific command
+    pub fn has_permission(&self, permission: CommandPermission) -> bool {
+        let user_role = self.get_user_role();
+        
+        match permission {
+            CommandPermission::BasicCommands => true, // Everyone has basic access
+            
+            CommandPermission::ManualTrading => {
+                // During beta: all users have access
+                // Future: require Basic+ subscription
+                true // Beta override - remove this when implementing subscription gates
+            }
+            
+            CommandPermission::SystemAdministration |
+            CommandPermission::UserManagement |
+            CommandPermission::GlobalConfiguration => {
+                user_role == UserRole::SuperAdmin
+            }
+            
+            CommandPermission::AutomatedTrading |
+            CommandPermission::AdvancedAnalytics |
+            CommandPermission::PremiumFeatures => {
+                // During beta: all users have access
+                // Future: require Premium+ subscription
+                true // Beta override - remove this when implementing subscription gates
+            }
+        }
+    }
+
+    /// Check if user is super admin
+    pub fn is_super_admin(&self) -> bool {
+        self.subscription.tier == SubscriptionTier::SuperAdmin
+    }
+
+    /// Create super admin user profile
+    pub fn new_super_admin(telegram_user_id: Option<i64>) -> Self {
+        let mut profile = Self::new(telegram_user_id, None);
+        profile.subscription.tier = SubscriptionTier::SuperAdmin;
+        profile.subscription.features.push("super_admin_access".to_string());
+        profile.subscription.features.push("system_administration".to_string());
+        profile.subscription.features.push("user_management".to_string());
+        profile.subscription.features.push("global_configuration".to_string());
+        profile
     }
 
     pub fn update_last_active(&mut self) {

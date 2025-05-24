@@ -629,6 +629,7 @@ impl GlobalOpportunityService {
                     SubscriptionTier::Basic => "Basic",
                     SubscriptionTier::Premium => "Premium",
                     SubscriptionTier::Enterprise => "Enterprise",
+                    SubscriptionTier::SuperAdmin => "SuperAdmin",
                 };
 
                 let tier_multiplier = self
@@ -993,10 +994,10 @@ mod tests {
         let config = FairnessConfig::default();
 
         assert_eq!(config.rotation_interval_minutes, 15);
-        assert_eq!(config.max_opportunities_per_user_per_hour, 10);
-        assert_eq!(config.max_opportunities_per_user_per_day, 50);
+        assert_eq!(config.max_opportunities_per_user_per_hour, 2); // Updated for Task A2
+        assert_eq!(config.max_opportunities_per_user_per_day, 10); // Updated for Task A2
         assert_eq!(config.activity_boost_factor, 1.2);
-        assert_eq!(config.cooldown_period_minutes, 5);
+        assert_eq!(config.cooldown_period_minutes, 240); // Updated for Task A2 (4 hours)
 
         // Test tier multipliers
         assert_eq!(config.tier_multipliers.get("Free"), Some(&1.0));

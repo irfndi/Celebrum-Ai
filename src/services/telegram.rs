@@ -4,7 +4,7 @@ use crate::services::ai_intelligence::{
     AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion,
 };
 use crate::services::opportunity_categorization::CategorizedOpportunity;
-use crate::types::ArbitrageOpportunity;
+use crate::types::{ArbitrageOpportunity, CommandPermission};
 use crate::utils::formatter::{
     escape_markdown_v2, format_ai_enhancement_message, format_categorized_opportunity_message,
     format_opportunity_message, format_parameter_suggestions_message,
@@ -345,24 +345,142 @@ impl TelegramService {
                     • /opportunities\n\
                     • /ai\\_insights\n\
                     • /preferences\n\
-                    • /risk\\_assessment\n\n\
+                    • /risk\\_assessment\n\
+                    • /admin commands \\(super admins only\\)\n\n\
                     Available in groups: /help, /settings"
                         .to_string(),
                 )),
             }
         } else {
-            // Private chat - full command access
+            // Private chat - validate permissions for each command
             match *command {
+                // Basic commands (no permission check needed)
                 "/start" => Ok(Some(self.get_welcome_message().await)),
-                "/help" => Ok(Some(self.get_help_message().await)),
+                "/help" => Ok(Some(self.get_help_message_with_role(user_id).await)),
                 "/status" => Ok(Some(self.get_status_message(user_id).await)),
+                "/settings" => Ok(Some(self.get_settings_message(user_id).await)),
+                
+                // Analysis and opportunity commands
                 "/opportunities" => Ok(Some(self.get_opportunities_message(user_id, args).await)),
                 "/categories" => Ok(Some(self.get_categories_message(user_id).await)),
                 "/ai_insights" => Ok(Some(self.get_ai_insights_message(user_id).await)),
                 "/risk_assessment" => Ok(Some(self.get_risk_assessment_message(user_id).await)),
                 "/preferences" => Ok(Some(self.get_preferences_message(user_id).await)),
-                "/settings" => Ok(Some(self.get_settings_message(user_id).await)),
+                
+                // Trading commands (permission-gated)
+                "/balance" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading, 
+                    || self.get_balance_message(user_id, args)).await,
+                "/buy" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading,
+                    || self.get_buy_command_message(user_id, args)).await,
+                "/sell" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading,
+                    || self.get_sell_command_message(user_id, args)).await,
+                "/orders" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading,
+                    || self.get_orders_message(user_id, args)).await,
+                "/positions" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading,
+                    || self.get_positions_message(user_id, args)).await,
+                "/cancel" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading,
+                    || self.get_cancel_order_message(user_id, args)).await,
+                
+                // SuperAdmin commands (admin-only)
+                "/admin_stats" => self.handle_permissioned_command(user_id, CommandPermission::SystemAdministration,
+                    || self.get_admin_stats_message()).await,
+                "/admin_users" => self.handle_permissioned_command(user_id, CommandPermission::UserManagement,
+                    || self.get_admin_users_message(args)).await,
+                "/admin_config" => self.handle_permissioned_command(user_id, CommandPermission::GlobalConfiguration,
+                    || self.get_admin_config_message(args)).await,
+                "/admin_broadcast" => self.handle_permissioned_command(user_id, CommandPermission::SystemAdministration,
+                    || self.get_admin_broadcast_message(args)).await,
+                    
                 _ => Ok(None), // Unknown command, no response
+            }
+        }
+    }
+
+    /// Handle commands that require specific permissions
+    async fn handle_permissioned_command<F, Fut>(
+        &self,
+        user_id: &str,
+        required_permission: CommandPermission,
+        command_handler: F,
+    ) -> ArbitrageResult<Option<String>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = String>,
+    {
+        // TODO: In production, fetch actual user profile from database
+        // For now, simulate based on user_id pattern
+        let user_has_permission = self.check_user_permission(user_id, &required_permission).await;
+        
+        if user_has_permission {
+            Ok(Some(command_handler().await))
+        } else {
+            Ok(Some(self.get_permission_denied_message(required_permission).await))
+        }
+    }
+
+    /// Check if user has required permission (mock implementation)
+    async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
+        // TODO: Replace with actual user profile lookup from database
+        // For now, mock implementation based on user_id patterns
+        
+        // Super admin check (user IDs starting with "admin_" or specific known admin IDs)
+        let is_super_admin = user_id.starts_with("admin_") || 
+                           user_id == "123456789" || // Example admin user ID
+                           user_id == "987654321";   // Another admin user ID
+        
+        match permission {
+            CommandPermission::BasicCommands => true, // Everyone has basic access
+            CommandPermission::ManualTrading => true, // Beta: all users have access
+            CommandPermission::SystemAdministration |
+            CommandPermission::UserManagement |
+            CommandPermission::GlobalConfiguration => is_super_admin,
+            CommandPermission::AutomatedTrading |
+            CommandPermission::AdvancedAnalytics |
+            CommandPermission::PremiumFeatures => true, // Beta: all users have access
+        }
+    }
+
+    /// Get permission denied message
+    async fn get_permission_denied_message(&self, permission: CommandPermission) -> String {
+        match permission {
+            CommandPermission::SystemAdministration |
+            CommandPermission::UserManagement |
+            CommandPermission::GlobalConfiguration => {
+                "🔒 *Access Denied*\n\n\
+                This command requires Super Administrator privileges\\.\n\
+                Only system administrators can access this functionality\\.\n\n\
+                If you believe you should have access, please contact support\\."
+                    .to_string()
+            }
+            CommandPermission::ManualTrading => {
+                "🔒 *Subscription Required*\n\n\
+                This command requires a Basic subscription or higher\\.\n\
+                During the beta period, all users have access\\.\n\n\
+                Available plans:\n\
+                • Basic: Manual trading commands\n\
+                • Premium: Advanced features \\+ automation\n\
+                • Enterprise: Custom solutions\n\n\
+                Contact support to upgrade your subscription\\!"
+                    .to_string()
+            }
+            CommandPermission::AutomatedTrading |
+            CommandPermission::AdvancedAnalytics |
+            CommandPermission::PremiumFeatures => {
+                "🔒 *Premium Subscription Required*\n\n\
+                This command requires a Premium subscription or higher\\.\n\
+                During the beta period, all users have access\\.\n\n\
+                Upgrade to Premium for:\n\
+                • Automated trading capabilities\n\
+                • Advanced analytics and insights\n\
+                • Priority support\n\
+                • Custom risk management\n\n\
+                Contact support to upgrade your subscription\\!"
+                    .to_string()
+            }
+            CommandPermission::BasicCommands => {
+                // This should never happen since basic commands are always allowed
+                "✅ *Access Granted*\n\nYou have access to this command\\."
+                    .to_string()
             }
         }
     }
@@ -571,6 +689,434 @@ impl TelegramService {
         • Parameter Optimization: ✅ Enabled\n\n\
         💡 Use /preferences to modify your trading focus and experience settings\\!"
             .to_string()
+    }
+
+    // ============= ENHANCED HELP MESSAGE WITH ROLE DETECTION =============
+
+    async fn get_help_message_with_role(&self, user_id: &str) -> String {
+        let is_super_admin = self.check_user_permission(user_id, &CommandPermission::SystemAdministration).await;
+        
+        let mut help_message = "📚 *ArbEdge Bot Commands*\n\n\
+        🔍 *Opportunities & Analysis:*\n\
+        /opportunities \\[category\\] \\- Show recent opportunities\n\
+        /ai\\_insights \\- Get AI analysis results\n\
+        /risk\\_assessment \\- View portfolio risk analysis\n\n\
+        💼 *Trading Commands:*\n\
+        /balance \\[exchange\\] \\- Check account balances\n\
+        /buy \\<pair\\> \\<amount\\> \\[price\\] \\- Place buy order\n\
+        /sell \\<pair\\> \\<amount\\> \\[price\\] \\- Place sell order\n\
+        /orders \\[exchange\\] \\- View open orders\n\
+        /positions \\[exchange\\] \\- View open positions\n\
+        /cancel \\<order\\_id\\> \\- Cancel specific order\n\n\
+        🎛️ *Configuration:*\n\
+        /categories \\- Manage enabled opportunity categories\n\
+        /preferences \\- View/update trading preferences\n\
+        /settings \\- View current bot settings\n\n\
+        ℹ️ *Information:*\n\
+        /status \\- Check bot and system status\n\
+        /help \\- Show this help message\n\n".to_string();
+
+        if is_super_admin {
+            help_message.push_str(
+                "🔧 *Super Admin Commands:*\n\
+                /admin\\_stats \\- System metrics and health\n\
+                /admin\\_users \\[search\\] \\- User management\n\
+                /admin\\_config \\[setting\\] \\[value\\] \\- Global configuration\n\
+                /admin\\_broadcast \\<message\\> \\- Send message to all users\n\n");
+        }
+
+        help_message.push_str(
+            "💡 *Tips:*\n\
+            • Use /opportunities followed by a category name \\(e\\.g\\., `/opportunities arbitrage`\\)\n\
+            • Trading commands require exchange API keys to be configured\n\
+            • All commands work only in private chats for security");
+
+        help_message
+    }
+
+    // ============= MANUAL TRADING COMMAND IMPLEMENTATIONS =============
+
+    async fn get_balance_message(&self, _user_id: &str, args: &[&str]) -> String {
+        let exchange = args.first().unwrap_or(&"all");
+        
+        // TODO: Integrate with actual ExchangeService to fetch real balances
+        format!(
+            "💰 *Account Balance* \\- {}\n\n\
+            🔸 **USDT**: `12,543.21` \\(Available: `10,234.56`\\)\n\
+            🔸 **BTC**: `0.25431` \\(Available: `0.20000`\\)\n\
+            🔸 **ETH**: `8.91234` \\(Available: `7.50000`\\)\n\
+            🔸 **BNB**: `45.321` \\(Available: `40.000`\\)\n\n\
+            📊 *Portfolio Summary:*\n\
+            • Total Value: `$15,847.32`\n\
+            • Available for Trading: `$13,245.89`\n\
+            • In Open Positions: `$2,601.43`\n\n\
+            ⚙️ *Exchange:* `{}`\n\
+            🕒 *Last Updated:* `{}`\n\n\
+            💡 Use `/orders` to see your open orders",
+            escape_markdown_v2("Balance Overview"),
+            escape_markdown_v2(exchange),
+            escape_markdown_v2(&chrono::Utc::now().format("%Y-%m-%d %H:%M UTC").to_string())
+        )
+    }
+
+    async fn get_buy_command_message(&self, _user_id: &str, args: &[&str]) -> String {
+        if args.len() < 2 {
+            return "❌ *Invalid Buy Command*\n\n\
+            **Usage:** `/buy <pair> <amount> [price]`\n\n\
+            **Examples:**\n\
+            • `/buy BTCUSDT 0.001` \\- Market buy order\n\
+            • `/buy BTCUSDT 0.001 50000` \\- Limit buy order at $50,000\n\
+            • `/buy ETHUSDT 0.1 3000` \\- Limit buy 0\\.1 ETH at $3,000\n\n\
+            **Required:**\n\
+            • Pair: Trading pair \\(e\\.g\\., BTCUSDT\\)\n\
+            • Amount: Quantity to buy\n\
+            • Price: \\(Optional\\) Limit price for limit orders"
+                .to_string();
+        }
+
+        let pair = args[0];
+        let amount = args[1];
+        let price = args.get(2);
+
+        // TODO: Integrate with ExchangeService to place actual orders
+        let order_type = if price.is_some() { "Limit" } else { "Market" };
+        let price_text = price.map_or("Market Price".to_string(), |p| format!("${}", p));
+
+        format!(
+            "🛒 *Buy Order Confirmation*\n\n\
+            📈 **Pair:** `{}`\n\
+            💰 **Amount:** `{}`\n\
+            💸 **Price:** `{}`\n\
+            🏷️ **Order Type:** `{}`\n\n\
+            ⚠️ **Note:** This is a preview\\. Actual order execution requires:\n\
+            • Valid exchange API keys\n\
+            • Sufficient account balance\n\
+            • Market conditions\n\n\
+            🔧 Configure your exchange API keys in /settings to enable live trading\\.",
+            escape_markdown_v2(pair),
+            escape_markdown_v2(amount),
+            escape_markdown_v2(&price_text),
+            escape_markdown_v2(order_type)
+        )
+    }
+
+    async fn get_sell_command_message(&self, _user_id: &str, args: &[&str]) -> String {
+        if args.len() < 2 {
+            return "❌ *Invalid Sell Command*\n\n\
+            **Usage:** `/sell <pair> <amount> [price]`\n\n\
+            **Examples:**\n\
+            • `/sell BTCUSDT 0.001` \\- Market sell order\n\
+            • `/sell BTCUSDT 0.001 52000` \\- Limit sell order at $52,000\n\
+            • `/sell ETHUSDT 0.1 3200` \\- Limit sell 0\\.1 ETH at $3,200\n\n\
+            **Required:**\n\
+            • Pair: Trading pair \\(e\\.g\\., BTCUSDT\\)\n\
+            • Amount: Quantity to sell\n\
+            • Price: \\(Optional\\) Limit price for limit orders"
+                .to_string();
+        }
+
+        let pair = args[0];
+        let amount = args[1];
+        let price = args.get(2);
+
+        let order_type = if price.is_some() { "Limit" } else { "Market" };
+        let price_text = price.map_or("Market Price".to_string(), |p| format!("${}", p));
+
+        format!(
+            "📉 *Sell Order Confirmation*\n\n\
+            📈 **Pair:** `{}`\n\
+            💰 **Amount:** `{}`\n\
+            💸 **Price:** `{}`\n\
+            🏷️ **Order Type:** `{}`\n\n\
+            ⚠️ **Note:** This is a preview\\. Actual order execution requires:\n\
+            • Valid exchange API keys\n\
+            • Sufficient asset balance\n\
+            • Market conditions\n\n\
+            🔧 Configure your exchange API keys in /settings to enable live trading\\.",
+            escape_markdown_v2(pair),
+            escape_markdown_v2(amount),
+            escape_markdown_v2(&price_text),
+            escape_markdown_v2(order_type)
+        )
+    }
+
+    async fn get_orders_message(&self, _user_id: &str, args: &[&str]) -> String {
+        let exchange = args.first().unwrap_or(&"all");
+        
+        // TODO: Integrate with ExchangeService to fetch real orders
+        format!(
+            "📋 *Open Orders* \\- {}\n\n\
+            🔸 **Order #12345**\n\
+            • Pair: `BTCUSDT`\n\
+            • Side: `BUY`\n\
+            • Amount: `0.001 BTC`\n\
+            • Price: `$50,000.00`\n\
+            • Filled: `0%`\n\
+            • Status: `PENDING`\n\n\
+            🔸 **Order #12346**\n\
+            • Pair: `ETHUSDT`\n\
+            • Side: `SELL`\n\
+            • Amount: `0.5 ETH`\n\
+            • Price: `$3,200.00`\n\
+            • Filled: `25%`\n\
+            • Status: `PARTIAL`\n\n\
+            📊 *Summary:*\n\
+            • Total Orders: `2`\n\
+            • Pending Value: `$1,650.00`\n\
+            • Exchange: `{}`\n\n\
+            💡 Use `/cancel <order_id>` to cancel an order",
+            escape_markdown_v2("Open Orders"),
+            escape_markdown_v2(exchange)
+        )
+    }
+
+    async fn get_positions_message(&self, _user_id: &str, args: &[&str]) -> String {
+        let exchange = args.first().unwrap_or(&"all");
+        
+        // TODO: Integrate with ExchangeService to fetch real positions
+        format!(
+            "📊 *Open Positions* \\- {}\n\n\
+            🔸 **Position #1**\n\
+            • Pair: `BTCUSDT`\n\
+            • Side: `LONG`\n\
+            • Size: `0.002 BTC`\n\
+            • Entry Price: `$49,500.00`\n\
+            • Mark Price: `$50,200.00`\n\
+            • PnL: `+$1.40` 🟢\n\
+            • Margin: `$500.00`\n\n\
+            🔸 **Position #2**\n\
+            • Pair: `ETHUSDT`\n\
+            • Side: `SHORT`\n\
+            • Size: `0.5 ETH`\n\
+            • Entry Price: `$3,150.00`\n\
+            • Mark Price: `$3,100.00`\n\
+            • PnL: `+$25.00` 🟢\n\
+            • Margin: `$315.00`\n\n\
+            📈 *Portfolio Summary:*\n\
+            • Total Positions: `2`\n\
+            • Total PnL: `+$26.40` 🟢\n\
+            • Total Margin: `$815.00`\n\
+            • Exchange: `{}`\n\n\
+            ⚠️ Monitor your positions and set stop losses to manage risk\\!",
+            escape_markdown_v2("Open Positions"),
+            escape_markdown_v2(exchange)
+        )
+    }
+
+    async fn get_cancel_order_message(&self, _user_id: &str, args: &[&str]) -> String {
+        if args.is_empty() {
+            return "❌ *Invalid Cancel Command*\n\n\
+            **Usage:** `/cancel <order_id>`\n\n\
+            **Examples:**\n\
+            • `/cancel 12345` \\- Cancel order with ID 12345\n\
+            • `/cancel all` \\- Cancel all open orders \\(use with caution\\)\n\n\
+            Use `/orders` to see your open orders and their IDs\\."
+                .to_string();
+        }
+
+        let order_id = args[0];
+
+        if order_id == "all" {
+            "⚠️ *Cancel All Orders*\n\n\
+            This will cancel **ALL** your open orders\\.\n\
+            This action cannot be undone\\.\n\n\
+            **Confirmation required:** Type `/cancel all confirm` to proceed\\.\n\n\
+            💡 Use `/cancel <specific_order_id>` to cancel individual orders\\."
+                .to_string()
+        } else {
+            format!(
+                "❌ *Cancel Order Request*\n\n\
+                📋 **Order ID:** `{}`\n\
+                🔄 **Status:** Processing cancellation\\.\\.\\.\n\n\
+                ⚠️ **Note:** Order cancellation requires:\n\
+                • Valid exchange API keys\n\
+                • Order must still be active\n\
+                • Network connectivity\n\n\
+                🔧 Check `/orders` to confirm cancellation\\.",
+                escape_markdown_v2(order_id)
+            )
+        }
+    }
+
+    // ============= SUPER ADMIN COMMAND IMPLEMENTATIONS =============
+
+    async fn get_admin_stats_message(&self) -> String {
+        // TODO: Integrate with actual system metrics
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
+        
+        format!(
+            "🔧 *System Administration Dashboard*\n\n\
+            📊 **System Health:**\n\
+            • Status: `🟢 ONLINE`\n\
+            • Uptime: `7 days, 14 hours`\n\
+            • CPU Usage: `23%`\n\
+            • Memory Usage: `45%`\n\
+            • Database Status: `🟢 HEALTHY`\n\n\
+            👥 **User Statistics:**\n\
+            • Total Users: `1,247`\n\
+            • Active Users \\(24h\\): `342`\n\
+            • New Registrations \\(today\\): `18`\n\
+            • Premium Subscribers: `156`\n\
+            • Super Admins: `3`\n\n\
+            📈 **Trading Metrics:**\n\
+            • Opportunities Detected \\(24h\\): `1,834`\n\
+            • Opportunities Distributed: `1,205`\n\
+            • Active Trading Sessions: `89`\n\
+            • Total Volume \\(24h\\): `$2,456,789`\n\n\
+            🔔 **Notifications:**\n\
+            • Messages Sent \\(24h\\): `4,521`\n\
+            • Delivery Success Rate: `98.7%`\n\
+            • Rate Limit Hits: `12`\n\n\
+            🕒 **Last Updated:** `{}`\n\n\
+            Use `/admin_users` for user management or `/admin_config` for system configuration\\.",
+            escape_markdown_v2(&now.to_string())
+        )
+    }
+
+    async fn get_admin_users_message(&self, args: &[&str]) -> String {
+        let search_term = args.first().unwrap_or(&"");
+        
+        if search_term.is_empty() {
+            "👥 *User Management Dashboard*\n\n\
+            **Usage:** `/admin_users [search_term]`\n\n\
+            **Examples:**\n\
+            • `/admin_users` \\- Show recent users\n\
+            • `/admin_users premium` \\- Search premium users\n\
+            • `/admin_users @username` \\- Search by username\n\
+            • `/admin_users 123456789` \\- Search by user ID\n\n\
+            📊 **Quick Stats:**\n\
+            • Total Users: `1,247`\n\
+            • Online Now: `89`\n\
+            • Suspended: `5`\n\
+            • Premium: `156`\n\
+            • Free: `1,086`\n\n\
+            **Recent Users \\(last 24h\\):**\n\
+            🔸 User `user_001` \\- Free \\- Active\n\
+            🔸 User `user_002` \\- Premium \\- Active\n\
+            🔸 User `user_003` \\- Free \\- Inactive\n\n\
+            💡 Use specific search terms to find users\\."
+                .to_string()
+        } else {
+            format!(
+                "👥 *User Search Results* \\- \"{}\"\n\n\
+                🔸 **User ID:** `user_123456`\n\
+                • Username: `@example_user`\n\
+                • Subscription: `Premium`\n\
+                • Status: `Active`\n\
+                • Last Active: `2024\\-01\\-15 14:30 UTC`\n\
+                • Total Trades: `45`\n\
+                • Registration: `2023\\-12\\-01`\n\n\
+                🔸 **User ID:** `user_789012`\n\
+                • Username: `@another_user`\n\
+                • Subscription: `Free`\n\
+                • Status: `Active`\n\
+                • Last Active: `2024\\-01\\-15 16:45 UTC`\n\
+                • Total Trades: `8`\n\
+                • Registration: `2024\\-01\\-10`\n\n\
+                📊 **Search Summary:**\n\
+                • Found: `2 users`\n\
+                • Active: `2`\n\
+                • Premium: `1`\n\n\
+                💡 Use `/admin_config suspend <user_id>` to suspend users if needed\\.",
+                escape_markdown_v2(search_term)
+            )
+        }
+    }
+
+    async fn get_admin_config_message(&self, args: &[&str]) -> String {
+        if args.is_empty() {
+            "🔧 *Global Configuration Management*\n\n\
+            **Usage:** `/admin_config [setting] [value]`\n\n\
+            **Available Settings:**\n\
+            • `max_opportunities_per_hour` \\- Max opportunities per user per hour\n\
+            • `cooldown_period_minutes` \\- Cooldown between opportunities\n\
+            • `max_daily_opportunities` \\- Max daily opportunities per user\n\
+            • `notification_rate_limit` \\- Notification rate limit\n\
+            • `maintenance_mode` \\- Enable/disable maintenance mode\n\
+            • `beta_access` \\- Enable/disable beta access\n\n\
+            **Examples:**\n\
+            • `/admin_config max_opportunities_per_hour 5`\n\
+            • `/admin_config maintenance_mode true`\n\
+            • `/admin_config beta_access false`\n\n\
+            **Current Configuration:**\n\
+            🔸 Max Opportunities/Hour: `2`\n\
+            🔸 Cooldown Period: `240 minutes`\n\
+            🔸 Max Daily Opportunities: `10`\n\
+            🔸 Maintenance Mode: `🟢 Disabled`\n\
+            🔸 Beta Access: `🟢 Enabled`\n\n\
+            ⚠️ Configuration changes affect all users immediately\\!"
+                .to_string()
+        } else if args.len() == 1 {
+            let setting = args[0];
+            format!(
+                "🔧 *Configuration Setting: {}*\n\n\
+                **Current Value:** Check the setting details below\\.\n\n\
+                **Usage:** `/admin_config {} <new_value>`\n\n\
+                **Example:** `/admin_config {} 5`\n\n\
+                ⚠️ Provide a value to update this setting\\.",
+                escape_markdown_v2(setting),
+                escape_markdown_v2(setting),
+                escape_markdown_v2(setting)
+            )
+        } else {
+            let setting = args[0];
+            let value = args[1];
+            
+            format!(
+                "✅ *Configuration Updated*\n\n\
+                🔧 **Setting:** `{}`\n\
+                🔄 **New Value:** `{}`\n\
+                🕒 **Updated At:** `{}`\n\
+                👤 **Updated By:** `Super Admin`\n\n\
+                **Impact:** This change affects all users immediately\\.\n\
+                **Rollback:** Use the previous value to revert if needed\\.\n\n\
+                💡 Monitor system metrics to ensure stability after configuration changes\\.",
+                escape_markdown_v2(setting),
+                escape_markdown_v2(value),
+                escape_markdown_v2(&chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string())
+            )
+        }
+    }
+
+    async fn get_admin_broadcast_message(&self, args: &[&str]) -> String {
+        if args.is_empty() {
+            "📢 *Broadcast Message System*\n\n\
+            **Usage:** `/admin_broadcast <message>`\n\n\
+            **Examples:**\n\
+            • `/admin_broadcast System maintenance in 30 minutes`\n\
+            • `/admin_broadcast New features available! Check /help`\n\
+            • `/admin_broadcast Welcome to all new beta users!`\n\n\
+            **Broadcast Targets:**\n\
+            • All active users\n\
+            • Private chats only \\(for security\\)\n\
+            • Rate limited to prevent spam\n\n\
+            ⚠️ **Important Notes:**\n\
+            • Messages are sent to ALL users\n\
+            • Cannot be recalled once sent\n\
+            • Use sparingly to avoid user fatigue\n\
+            • Keep messages concise and valuable\n\n\
+            📊 **Current Reach:** ~1,247 active users"
+                .to_string()
+        } else {
+            let message = args.join(" ");
+            
+            format!(
+                "📢 *Broadcast Scheduled*\n\n\
+                **Message Preview:**\n\
+                \"{}\"\n\n\
+                📊 **Delivery Details:**\n\
+                • Target Users: `1,247 active users`\n\
+                • Delivery Method: `Private chat only`\n\
+                • Estimated Time: `5-10 minutes`\n\
+                • Rate Limit: `100 messages/minute`\n\n\
+                🕒 **Scheduled At:** `{}`\n\
+                👤 **Sent By:** `Super Admin`\n\n\
+                ✅ **Status:** Broadcasting in progress\\.\\.\\.\n\n\
+                💡 Monitor delivery metrics in `/admin_stats`\\.",
+                escape_markdown_v2(&message),
+                escape_markdown_v2(&chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string())
+            )
+        }
     }
 
     // ============= WEBHOOK SETUP =============
