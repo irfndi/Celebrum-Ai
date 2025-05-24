@@ -28,6 +28,13 @@ impl UserProfileService {
         invitation_code: Option<String>,
         telegram_username: Option<String>,
     ) -> ArbitrageResult<UserProfile> {
+        // Validate telegram_user_id is positive
+        if telegram_user_id <= 0 {
+            return Err(ArbitrageError::validation_error(
+                "Telegram user ID must be positive",
+            ));
+        }
+
         // Check if user already exists (check D1 for authoritative data)
         if let Some(_existing) = self
             .d1_service
@@ -44,7 +51,7 @@ impl UserProfileService {
             self.validate_and_use_invitation_code(code).await?;
         }
 
-        let mut profile = UserProfile::new(telegram_user_id, invitation_code);
+        let mut profile = UserProfile::new(Some(telegram_user_id), invitation_code);
         profile.telegram_username = telegram_username;
 
         // Store profile in D1 (persistent storage)
@@ -450,9 +457,9 @@ mod tests {
         let _telegram_username = Some("testuser".to_string());
 
         // Create a test profile manually to validate structure
-        let profile = UserProfile::new(telegram_user_id, invitation_code.clone());
-
-        assert_eq!(profile.telegram_user_id, telegram_user_id);
+                let profile = UserProfile::new(Some(telegram_user_id), invitation_code.clone());
+        
+        assert_eq!(profile.telegram_user_id, Some(telegram_user_id));
         assert_eq!(profile.invitation_code, invitation_code);
         assert!(profile.is_active);
         assert_eq!(profile.total_trades, 0);

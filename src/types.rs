@@ -616,7 +616,7 @@ pub struct LegacyUserApiKey {
 #[serde(rename_all = "camelCase")]
 pub struct UserProfile {
     pub user_id: String, // Primary identifier
-    pub telegram_user_id: i64,
+    pub telegram_user_id: Option<i64>,
     pub telegram_username: Option<String>,
     pub subscription: SubscriptionInfo,
     pub configuration: UserConfiguration,
@@ -631,7 +631,7 @@ pub struct UserProfile {
 }
 
 impl UserProfile {
-    pub fn new(telegram_user_id: i64, invitation_code: Option<String>) -> Self {
+    pub fn new(telegram_user_id: Option<i64>, invitation_code: Option<String>) -> Self {
         let now = chrono::Utc::now().timestamp_millis() as u64;
         let user_id = uuid::Uuid::new_v4().to_string();
 

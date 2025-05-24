@@ -493,6 +493,12 @@ impl EnhancedOpportunityService {
 
         // Calculate volatility as percentage of mean price
         let mean_price = prices.iter().sum::<f64>() / prices.len() as f64;
+        
+        // Check if mean price is zero or near zero to avoid division by zero
+        if mean_price <= 0.0 || mean_price.abs() < f64::EPSILON {
+            return Ok(0.5); // Neutral score for invalid price data
+        }
+        
         let volatility_percentage = volatility / mean_price;
 
         if volatility_percentage > self.config.volatility_threshold {

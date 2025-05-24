@@ -198,7 +198,7 @@ impl AiIntelligenceService {
             .await?;
 
         // Create AI analysis prompt
-        let _ai_prompt = self.create_opportunity_analysis_prompt(
+        let ai_prompt = self.create_opportunity_analysis_prompt(
             &categorized_opp,
             &positions,
             &preferences,
@@ -210,7 +210,7 @@ impl AiIntelligenceService {
         let global_opp = self.convert_to_global_opportunity(opportunity.clone());
         let ai_response = self
             .ai_router
-            .analyze_opportunities(user_id, &[global_opp], None)
+            .analyze_opportunities(user_id, &[global_opp], Some(serde_json::Value::String(ai_prompt)))
             .await?;
 
         // Parse AI response into enhancement
@@ -259,9 +259,21 @@ impl AiIntelligenceService {
             return Ok(self.create_empty_portfolio_analysis(user_id));
         }
 
-        // Get correlation data - use a mock exchange data for now
-        let exchange_data = std::collections::HashMap::new();
-        // TODO: In real implementation, fetch actual price data from exchanges
+        // Get correlation data
+        let exchange_data = if !positions.is_empty() {
+            // Attempt to fetch actual exchange data for positions
+            match self.fetch_exchange_data_for_positions(&positions).await {
+                Ok(data) => data,
+                Err(_) => {
+                    return Err(ArbitrageError::not_implemented(
+                        "Exchange data fetching for correlation analysis not yet implemented"
+                            .to_string(),
+                    ));
+                }
+            }
+        } else {
+            std::collections::HashMap::new()
+        };
 
         // Get user preferences
         let preferences = self
@@ -269,7 +281,7 @@ impl AiIntelligenceService {
             .get_or_create_preferences(user_id)
             .await?;
 
-        // For now, skip correlation analysis if no data available
+        // Generate correlation analysis if data is available
         let correlation_metrics = if !exchange_data.is_empty() {
             Some(
                 self.correlation_service
@@ -857,15 +869,52 @@ impl AiIntelligenceService {
     /// Get user performance data
     async fn get_user_performance_data(
         &self,
-        _user_id: &str,
+        user_id: &str,
         _days: u32,
     ) -> ArbitrageResult<PerformanceData> {
-        // This would fetch actual performance data from D1
+        // Fetch actual performance data from D1 database
+        let analytics = self
+            .d1_service
+            .get_trading_analytics(user_id, Some(100))
+            .await?;
+
+        if analytics.is_empty() {
+            return Err(ArbitrageError::not_found(format!(
+                "No performance data found for user: {}",
+                user_id
+            )));
+        }
+
+        // Calculate performance metrics from analytics data
+        let total_trades = analytics.len() as u32;
+        let profitable_trades = analytics
+            .iter()
+            .filter(|a| a.metric_type == "trade_executed" && a.metric_value > 0.0)
+            .count() as u32;
+        
+        let win_rate = if total_trades > 0 {
+            profitable_trades as f64 / total_trades as f64
+        } else {
+            0.0
+        };
+
+        let total_pnl = analytics
+            .iter()
+            .filter(|a| a.metric_type == "profit_loss")
+            .map(|a| a.metric_value)
+            .sum::<f64>();
+
+        let average_pnl = if total_trades > 0 {
+            total_pnl / total_trades as f64
+        } else {
+            0.0
+        };
+
         Ok(PerformanceData {
-            total_trades: 25,
-            win_rate: 0.68,
-            average_pnl: 45.50,
-            _total_pnl: 1137.50,
+            total_trades,
+            win_rate,
+            average_pnl,
+            _total_pnl: total_pnl,
         })
     }
 
@@ -1018,6 +1067,19 @@ impl AiIntelligenceService {
             analysis_timestamp: chrono::Utc::now(),
             confidence_score: 0.5,
         }
+    }
+
+    /// Fetch exchange data for correlation analysis (placeholder implementation)
+    async fn fetch_exchange_data_for_positions(
+        &self,
+        _positions: &[ArbitragePosition],
+    ) -> ArbitrageResult<std::collections::HashMap<String, crate::services::market_analysis::PriceSeries>> {
+        // This would interface with ExchangeService to fetch actual price data
+        // For now, return an error to indicate feature not implemented
+        Err(ArbitrageError::not_implemented(
+            "Exchange data fetching not yet implemented - requires ExchangeService integration"
+                .to_string(),
+        ))
     }
 
     // ============= STORAGE METHODS =============

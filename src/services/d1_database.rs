@@ -65,7 +65,7 @@ impl D1Service {
         // Bind parameters and execute
         stmt.bind(&[
             profile.user_id.clone().into(),
-            profile.telegram_user_id.into(),
+            profile.telegram_user_id.unwrap_or(0).into(),
             profile.telegram_username.clone().unwrap_or_default().into(),
             api_keys_json.into(),
             subscription_json.into(),
@@ -205,27 +205,48 @@ impl D1Service {
 
     /// Delete a trading opportunity by opportunity ID
     pub async fn delete_trading_opportunity(&self, opportunity_id: &str) -> ArbitrageResult<bool> {
-        // Since we don't have a trading_opportunities table yet, this method serves as a placeholder
-        // In production, this would delete from the opportunities table
-        let stmt = self
+        // Check if trading_opportunities table exists first
+        let table_check = self
             .db
-            .prepare("DELETE FROM trading_opportunities WHERE opportunity_id = ?");
-
-        let _result = stmt
-            .bind(&[opportunity_id.into()])
-            .map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
-            })?
-            .run()
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='trading_opportunities'")
+            .first::<HashMap<String, Value>>(None)
             .await;
 
-        // For testing purposes, we'll log the attempt and return success
-        // In a real implementation, this would check the actual deletion result
-        match _result {
-            Ok(_) => Ok(true),
-            Err(_) => {
-                // Table may not exist in test environment, which is acceptable
+        match table_check {
+            Ok(Some(_)) => {
+                // Table exists, proceed with deletion
+                let stmt = self
+                    .db
+                    .prepare("DELETE FROM trading_opportunities WHERE opportunity_id = ?");
+
+                let _result = stmt
+                    .bind(&[opportunity_id.into()])
+                    .map_err(|e| {
+                        ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+                    })?
+                    .run()
+                    .await
+                    .map_err(|e| {
+                        ArbitrageError::database_error(format!("Failed to execute deletion: {}", e))
+                    })?;
+
+                // Check if any rows were affected
+                // Note: Worker D1Result doesn't expose changes() method directly
+                // For now, we'll assume success if no error occurred
+                // In a production system, we'd need to check meta() for affected rows
                 Ok(true)
+            }
+            Ok(None) => {
+                // Table doesn't exist - this is acceptable in test environment
+                // Return false to indicate no deletion occurred
+                Ok(false)
+            }
+            Err(e) => {
+                // Database error checking table existence
+                Err(ArbitrageError::database_error(format!(
+                    "Failed to check table existence: {}",
+                    e
+                )))
             }
         }
     }
@@ -349,6 +370,103 @@ impl D1Service {
         preferences: &UserTradingPreferences,
     ) -> ArbitrageResult<()> {
         self.store_trading_preferences(preferences).await
+    }
+
+    /// Atomically get or create trading preferences (race condition safe)
+    pub async fn get_or_create_trading_preferences(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<UserTradingPreferences> {
+        // First attempt to get existing preferences
+        if let Some(existing_prefs) = self.get_trading_preferences(user_id).await? {
+            return Ok(existing_prefs);
+        }
+
+        // Create default preferences
+        let default_prefs = UserTradingPreferences::new_default(user_id.to_string());
+
+        // Use INSERT OR IGNORE for race condition safety
+        let trading_focus_str = serde_json::to_string(&default_prefs.trading_focus).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize trading focus: {}", e))
+        })?;
+
+        let experience_level_str =
+            serde_json::to_string(&default_prefs.experience_level).map_err(|e| {
+                ArbitrageError::parse_error(format!("Failed to serialize experience level: {}", e))
+            })?;
+
+        let risk_tolerance_str =
+            serde_json::to_string(&default_prefs.risk_tolerance).map_err(|e| {
+                ArbitrageError::parse_error(format!("Failed to serialize risk tolerance: {}", e))
+            })?;
+
+        let automation_level_str =
+            serde_json::to_string(&default_prefs.automation_level).map_err(|e| {
+                ArbitrageError::parse_error(format!("Failed to serialize automation level: {}", e))
+            })?;
+
+        let automation_scope_str =
+            serde_json::to_string(&default_prefs.automation_scope).map_err(|e| {
+                ArbitrageError::parse_error(format!("Failed to serialize automation scope: {}", e))
+            })?;
+
+        let notification_channels_json =
+            serde_json::to_string(&default_prefs.preferred_notification_channels).map_err(|e| {
+                ArbitrageError::parse_error(format!(
+                    "Failed to serialize notification channels: {}",
+                    e
+                ))
+            })?;
+
+        let tutorial_steps_json = serde_json::to_string(&default_prefs.tutorial_steps_completed)
+            .map_err(|e| {
+                ArbitrageError::parse_error(format!("Failed to serialize tutorial steps: {}", e))
+            })?;
+
+        // Use INSERT OR IGNORE to handle race conditions
+        let stmt = self.db.prepare(
+            "
+            INSERT OR IGNORE INTO user_trading_preferences (
+                preference_id, user_id, trading_focus, experience_level, risk_tolerance,
+                automation_level, automation_scope, arbitrage_enabled, technical_enabled,
+                advanced_analytics_enabled, preferred_notification_channels,
+                trading_hours_timezone, trading_hours_start, trading_hours_end,
+                onboarding_completed, tutorial_steps_completed, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ",
+        );
+
+        stmt.bind(&[
+            default_prefs.preference_id.clone().into(),
+            default_prefs.user_id.clone().into(),
+            trading_focus_str.into(),
+            experience_level_str.into(),
+            risk_tolerance_str.into(),
+            automation_level_str.into(),
+            automation_scope_str.into(),
+            default_prefs.arbitrage_enabled.into(),
+            default_prefs.technical_enabled.into(),
+            default_prefs.advanced_analytics_enabled.into(),
+            notification_channels_json.into(),
+            default_prefs.trading_hours_timezone.clone().into(),
+            default_prefs.trading_hours_start.clone().into(),
+            default_prefs.trading_hours_end.clone().into(),
+            default_prefs.onboarding_completed.into(),
+            tutorial_steps_json.into(),
+            (default_prefs.created_at as i64).into(),
+            (default_prefs.updated_at as i64).into(),
+        ])
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+
+        // Get the final preferences (handles case where another thread created them)
+        self.get_trading_preferences(user_id)
+            .await?
+            .ok_or_else(|| {
+                ArbitrageError::database_error("Failed to retrieve preferences after creation")
+            })
     }
 
     /// Delete user trading preferences
@@ -775,7 +893,7 @@ impl D1Service {
         let telegram_user_id = row
             .get("telegram_user_id")
             .and_then(|v| v.as_i64())
-            .ok_or_else(|| ArbitrageError::parse_error("Missing telegram_user_id".to_string()))?;
+            .filter(|&id| id > 0); // Convert to Option, filtering out invalid IDs
 
         let telegram_username = row
             .get("telegram_username")
@@ -1974,6 +2092,39 @@ impl D1Service {
         }
 
         Ok(history)
+    }
+
+    /// Get notification history by notification_id and channel for delivery status check
+    pub async fn get_notification_history(
+        &self,
+        notification_id: &str,
+        channel: &str,
+    ) -> ArbitrageResult<Option<crate::services::notifications::NotificationHistory>> {
+        let stmt = self.db.prepare(
+            "SELECT * FROM notification_history 
+             WHERE notification_id = ? AND channel = ? 
+             ORDER BY attempted_at DESC 
+             LIMIT 1",
+        );
+
+        let result = stmt
+            .bind(&[notification_id.into(), channel.into()])
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+            })?
+            .first::<HashMap<String, Value>>(None)
+            .await
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to execute query: {}", e))
+            })?;
+
+        match result {
+            Some(row) => {
+                let history = self.row_to_notification_history(row)?;
+                Ok(Some(history))
+            }
+            None => Ok(None),
+        }
     }
 
     /// Update alert trigger last triggered time

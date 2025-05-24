@@ -21,10 +21,10 @@ async fn test_user_registration_flow_integration() {
     let _test_username = Some("test_user_e2e".to_string());
 
     // Step 1: Validate UserProfile creation with complete data structure
-    let user_profile = UserProfile::new(test_telegram_id, test_invitation_code.clone());
+    let user_profile = UserProfile::new(Some(test_telegram_id), test_invitation_code.clone());
 
     // Verify core user profile structure
-    assert_eq!(user_profile.telegram_user_id, test_telegram_id);
+    assert_eq!(user_profile.telegram_user_id, Some(test_telegram_id));
     assert_eq!(user_profile.invitation_code, test_invitation_code);
     assert!(user_profile.is_active);
     assert_eq!(user_profile.total_trades, 0);
@@ -192,9 +192,9 @@ async fn test_user_registration_flow_integration() {
     // Step 6: Test data validation and error handling
 
     // Test invalid telegram_user_id (negative values should be rejected by business logic)
-    let invalid_user = UserProfile::new(-1, None);
+    let invalid_user = UserProfile::new(Some(-1), None);
     // Verify that the invalid user has the negative ID (this would be caught at the service layer)
-    assert_eq!(invalid_user.telegram_user_id, -1);
+    assert_eq!(invalid_user.telegram_user_id, Some(-1));
     // In production, UserProfileService should validate telegram_user_id > 0 before creating profile
     // This test verifies the data structure allows the creation but business logic should reject it
 
@@ -235,10 +235,10 @@ async fn test_user_registration_service_interface_validation() {
     let username = Some("premium_user".to_string());
 
     // This simulates what UserProfileService.create_user_profile() would receive
-    let service_user = UserProfile::new(_telegram_id, invitation_code.clone());
+    let service_user = UserProfile::new(Some(_telegram_id), invitation_code.clone());
 
     // Verify service interface compatibility
-    assert_eq!(service_user.telegram_user_id, _telegram_id);
+    assert_eq!(service_user.telegram_user_id, Some(_telegram_id));
     assert_eq!(service_user.invitation_code, invitation_code);
     assert!(!service_user.user_id.is_empty()); // UUID should be generated
 

@@ -336,7 +336,7 @@ impl UserTradingPreferencesService {
         self.d1_service.get_trading_preferences(user_id).await
     }
 
-    /// Get preferences or create defaults if none exist (with caching)
+    /// Get preferences or create defaults if none exist (with caching, race condition safe)
     pub async fn get_or_create_preferences(
         &self,
         user_id: &str,
@@ -346,19 +346,16 @@ impl UserTradingPreferencesService {
             return Ok(cached_prefs);
         }
 
-        match self.get_preferences(user_id).await? {
-            Some(preferences) => {
-                // Cache the retrieved preferences
-                self.cache_preferences(user_id, &preferences);
-                Ok(preferences)
-            }
-            None => {
-                let new_prefs = self.create_default_preferences(user_id).await?;
-                // Cache the new preferences
-                self.cache_preferences(user_id, &new_prefs);
-                Ok(new_prefs)
-            }
-        }
+        // Use atomic D1 operation to handle race conditions
+        let preferences = self
+            .d1_service
+            .get_or_create_trading_preferences(user_id)
+            .await?;
+
+        // Cache the result
+        self.cache_preferences(user_id, &preferences);
+
+        Ok(preferences)
     }
 
     /// Get preferences from cache if valid (not expired)

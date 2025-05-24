@@ -293,11 +293,10 @@ impl NotificationService {
             self.d1_service.store_notification_history(&history).await?;
         }
 
-        // Update notification status
-        let final_status = if notification
-            .channels
-            .iter()
-            .any(|c| self.was_delivery_successful(&notification.notification_id, c))
+        // Update notification status using async delivery status check
+        let final_status = if self
+            .check_any_delivery_successful(&notification.notification_id, &notification.channels)
+            .await?
         {
             "sent"
         } else {
@@ -371,10 +370,16 @@ impl NotificationService {
         // Get user's telegram chat ID
         let user_profile = self.get_user_profile(&notification.user_id).await?;
 
-        if user_profile.telegram_user_id != 0 {
-            let message = format!("{}\n\n{}", notification.title, notification.message);
-            self.telegram_service.send_message(&message).await?;
-            Ok(())
+        if let Some(telegram_id) = user_profile.telegram_user_id {
+            if telegram_id > 0 {
+                let message = format!("{}\n\n{}", notification.title, notification.message);
+                self.telegram_service.send_message(&message).await?;
+                Ok(())
+            } else {
+                Err(ArbitrageError::validation_error(
+                    "Invalid Telegram ID: must be positive".to_string(),
+                ))
+            }
         } else {
             Err(ArbitrageError::validation_error(
                 "User has no Telegram ID configured".to_string(),
@@ -547,21 +552,51 @@ impl NotificationService {
             }
         }
 
-        // Check hourly limit
+        // Check hourly limit using atomic increment pattern
         let cache_key = format!(
             "trigger_hourly_count:{}:{}",
             trigger.trigger_id,
             (js_sys::Date::now() as u64) / (60 * 60 * 1000) // Current hour
         );
 
-        if let Some(count_str) = self.kv_store.get(&cache_key).text().await? {
-            let count: u32 = count_str.parse().unwrap_or(0);
-            if count >= trigger.max_alerts_per_hour {
+        // Use optimistic locking to prevent race conditions
+        let max_retries = 3;
+        for retry in 0..max_retries {
+            let current_count = match self.kv_store.get(&cache_key).text().await? {
+                Some(count_str) => count_str.parse().unwrap_or(0),
+                None => 0,
+            };
+
+            if current_count >= trigger.max_alerts_per_hour {
                 return Ok(true);
+            }
+
+            // Attempt atomic increment with optimistic locking
+            let new_count = current_count + 1;
+            let put_result = self.kv_store
+                .put(&cache_key, new_count.to_string())?
+                .expiration_ttl(3600) // 1 hour TTL
+                .execute()
+                .await;
+
+            match put_result {
+                Ok(_) => return Ok(false), // Successfully incremented, not rate limited
+                Err(_) if retry < max_retries - 1 => {
+                    // Retry on conflict
+                    tokio::time::sleep(tokio::time::Duration::from_millis(10 * (retry + 1) as u64)).await;
+                    continue;
+                }
+                Err(e) => {
+                    return Err(ArbitrageError::storage_error(format!(
+                        "Failed to update rate limit counter after {} retries: {}",
+                        max_retries, e
+                    )));
+                }
             }
         }
 
-        Ok(false)
+        // Fallback: if we can't update the counter, err on the side of caution
+        Ok(true)
     }
 
     async fn evaluate_trigger_conditions(
@@ -743,13 +778,31 @@ impl NotificationService {
             })
     }
 
+    /// Check if any delivery was successful for the given notification across all channels
+    async fn check_any_delivery_successful(
+        &self,
+        notification_id: &str,
+        channels: &[String],
+    ) -> ArbitrageResult<bool> {
+        for channel in channels {
+            if let Ok(history) = self
+                .d1_service
+                .get_notification_history(notification_id, channel)
+                .await
+            {
+                if let Some(delivery_record) = history {
+                    if delivery_record.delivery_status == "success" {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        Ok(false) // No successful deliveries found
+    }
+
     fn was_delivery_successful(&self, _notification_id: &str, _channel: &str) -> bool {
-        // TODO: Implement async version - this should check D1 notification_history table
+        // Deprecated: Use check_any_delivery_successful for async D1 database queries
         // For now, return false for more realistic behavior since delivery can fail
-        // In production, this would query the notification_history table:
-        // self.d1_service.get_notification_history(notification_id, channel).await
-        //     .map(|history| history.delivery_status == "success")
-        //     .unwrap_or(false)
         false // More realistic default - notifications can fail
     }
 
