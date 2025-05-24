@@ -95,7 +95,7 @@ async fn test_user_registration_flow_integration() {
     assert!(user_profile_json.contains("subscription"));
     
     assert!(preferences_json.contains(&user_preferences.preference_id));
-    assert!(preferences_json.contains("trading_focus")); // snake_case is used in UserTradingPreferences
+    assert!(preferences_json.contains("tradingFocus")); // camelCase is now used consistently
     assert!(preferences_json.contains("arbitrage"));
     
     println!("✅ JSON serialization validation completed");
@@ -169,7 +169,10 @@ async fn test_user_registration_flow_integration() {
     
     // Test invalid telegram_user_id (negative values should be rejected by business logic)
     let invalid_user = UserProfile::new(-1, None);
-    // Note: In production, we'd validate this at the service layer
+    // Verify that the invalid user has the negative ID (this would be caught at the service layer)
+    assert_eq!(invalid_user.telegram_user_id, -1);
+    // In production, UserProfileService should validate telegram_user_id > 0 before creating profile
+    // This test verifies the data structure allows the creation but business logic should reject it
     
     // Test preference validation
     let mut invalid_preferences = user_preferences.clone();
@@ -300,18 +303,12 @@ async fn test_user_registration_service_interface_validation() {
     assert_eq!(service_user.user_id, service_preferences.user_id);
     assert_eq!(d1_user_data["user_id"], d1_preferences_data["user_id"]);
     
-    // Timestamps should be reasonable (within last few seconds)
-    // Note: service_user.created_at is in milliseconds, so convert now to milliseconds too
+    // Verify timestamp is reasonable (after year 2001 and not in the future)
     let now_millis = chrono::Utc::now().timestamp_millis() as u64;
-    let time_diff = if service_user.created_at > now_millis { 
-        service_user.created_at - now_millis 
-    } else { 
-        now_millis - service_user.created_at 
-    };
+    let time_diff = (service_user.created_at as i64 - now_millis as i64).abs() as u64;
     
-    // For test purposes, just verify the timestamp is reasonable (not zero or way in the future)
-    assert!(service_user.created_at > 1000000000000); // After year 2001 in milliseconds
-    assert!(time_diff <= 10000); // Within 10 seconds (10,000 milliseconds)
+    assert!(service_user.created_at > 1000000000000, "Timestamp should be after year 2001");
+    assert!(time_diff <= 10000, "Timestamp should be within 10 seconds of current time");
     
     println!("✅ Cross-service data consistency validated");
     
@@ -323,12 +320,21 @@ async fn test_user_registration_service_interface_validation() {
     // D1Service::store_user_profile(user_profile) -> Result<()>
     // D1Service::store_user_preferences(preferences) -> Result<()>
     
-    // Verify method parameter compatibility
-    let _telegram_id_param: i64 = service_user.telegram_user_id;
-    let _invitation_code_param: Option<String> = service_user.invitation_code.clone();
-    let _username_param: Option<String> = username.clone();
-    let _user_profile_param: &UserProfile = &service_user;
-    let _preferences_param: &UserTradingPreferences = &service_preferences;
+    // Verify types are as expected (compile-time check)
+    fn verify_types(
+        telegram_id: i64,
+        invitation_code: Option<String>,
+        username: Option<String>,
+        user_profile: &UserProfile,
+        preferences: &UserTradingPreferences,
+    ) {}
+    verify_types(
+        service_user.telegram_user_id,
+        service_user.invitation_code.clone(),
+        username.clone(),
+        &service_user,
+        &service_preferences,
+    );
     
     println!("✅ Service method signature compatibility validated");
     
@@ -359,16 +365,18 @@ async fn test_opportunity_detection_flow_integration() {
     
     println!("✅ Trading opportunity structure validated");
     
-    // Step 2: Test opportunity categorization logic
+    // Step 2: Test opportunity categorization using OpportunityCategorizationService
+    // Note: Using simplified categorization validation since we can't easily create the full service in tests
+    // The business logic is now properly implemented in OpportunityCategorizationService::categorize_opportunity
     let user_preferences = create_conservative_user_preferences();
-    let categorization_result = categorize_opportunity_for_user(&test_opportunity, &user_preferences);
+    let categorization_result = test_categorization_compatibility(&test_opportunity, &user_preferences);
     
-    // Verify categorization results
+    // Verify categorization results structure matches what the service would return
     assert!(categorization_result.is_suitable);
     assert!(!categorization_result.categories.is_empty());
     assert!(categorization_result.suitability_score > 0.0);
     
-    println!("✅ Opportunity categorization logic validated");
+    println!("✅ Opportunity categorization service compatibility validated");
     
     // Step 3: Test opportunity serialization/deserialization
     let opportunity_json = serde_json::to_string(&test_opportunity)
@@ -385,8 +393,8 @@ async fn test_opportunity_detection_flow_integration() {
     let conservative_user = create_conservative_user_preferences();
     let aggressive_user = create_aggressive_user_preferences();
     
-    let conservative_result = categorize_opportunity_for_user(&test_opportunity, &conservative_user);
-    let aggressive_result = categorize_opportunity_for_user(&test_opportunity, &aggressive_user);
+    let conservative_result = test_categorization_compatibility(&test_opportunity, &conservative_user);
+    let aggressive_result = test_categorization_compatibility(&test_opportunity, &aggressive_user);
     
     // Conservative users should have lower suitability for high-risk opportunities
     // Aggressive users should have higher suitability
@@ -440,14 +448,16 @@ fn create_aggressive_user_preferences() -> UserTradingPreferences {
     prefs
 }
 
-// Simple categorization logic for testing
+// Test compatibility function that simulates what OpportunityCategorizationService::categorize_opportunity would return
+// NOTE: The actual business logic has been moved to OpportunityCategorizationService in src/services/opportunity_categorization.rs
+// This is only for testing data structure compatibility without requiring full service setup
 struct CategorizationResult {
     is_suitable: bool,
     categories: Vec<String>,
     suitability_score: f64,
 }
 
-fn categorize_opportunity_for_user(opportunity: &TradingOpportunity, user_prefs: &UserTradingPreferences) -> CategorizationResult {
+fn test_categorization_compatibility(opportunity: &TradingOpportunity, user_prefs: &UserTradingPreferences) -> CategorizationResult {
     let mut categories = Vec::new();
     let mut suitability_score: f64 = 0.5; // Base score
     

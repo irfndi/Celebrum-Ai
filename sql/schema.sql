@@ -29,22 +29,22 @@ DROP TABLE IF EXISTS user_opportunity_preferences;
 
 -- User Profiles Table
 CREATE TABLE user_profiles (
-    user_id TEXT PRIMARY KEY,
-    telegram_id INTEGER UNIQUE,
+    user_id TEXT PRIMARY KEY NOT NULL,
+    telegram_id INTEGER NOT NULL UNIQUE CHECK (telegram_id > 0),
     username TEXT,
     
     -- API Keys (encrypted, stored as JSON)
     api_keys TEXT, -- JSON array of encrypted API keys
     
     -- User Configuration
-    risk_tolerance TEXT DEFAULT 'medium', -- low, medium, high, custom
+    risk_tolerance TEXT DEFAULT 'medium' CHECK (risk_tolerance IN ('low', 'medium', 'high', 'custom')),
     trading_preferences TEXT, -- JSON object with preferences
     notification_settings TEXT, -- JSON object with notification preferences
     
     -- Status and Metadata
-    subscription_tier TEXT DEFAULT 'free', -- free, premium, pro
-    account_status TEXT DEFAULT 'active', -- active, suspended, pending
-    email_verification_status TEXT DEFAULT 'pending', -- pending, verified
+    subscription_tier TEXT DEFAULT 'free' CHECK (subscription_tier IN ('free', 'basic', 'premium', 'pro')),
+    account_status TEXT DEFAULT 'active' CHECK (account_status IN ('active', 'suspended', 'pending', 'deactivated')),
+    email_verification_status TEXT DEFAULT 'pending' CHECK (email_verification_status IN ('pending', 'verified', 'failed')),
     
     -- Timestamps
     created_at TEXT DEFAULT (datetime('now')),
@@ -61,13 +61,13 @@ CREATE TABLE user_trading_preferences (
     user_id TEXT NOT NULL UNIQUE,
     
     -- Trading Focus Selection
-    trading_focus TEXT DEFAULT 'arbitrage', -- arbitrage, technical, hybrid
-    experience_level TEXT DEFAULT 'beginner', -- beginner, intermediate, advanced
-    risk_tolerance TEXT DEFAULT 'conservative', -- conservative, balanced, aggressive
+    trading_focus TEXT DEFAULT 'arbitrage' CHECK (trading_focus IN ('arbitrage', 'technical', 'hybrid')),
+    experience_level TEXT DEFAULT 'beginner' CHECK (experience_level IN ('beginner', 'intermediate', 'advanced')),
+    risk_tolerance TEXT DEFAULT 'conservative' CHECK (risk_tolerance IN ('conservative', 'balanced', 'aggressive')),
     
     -- Automation Preferences  
-    automation_level TEXT DEFAULT 'manual', -- manual, semi_auto, full_auto
-    automation_scope TEXT DEFAULT 'none', -- arbitrage_only, technical_only, both, none
+    automation_level TEXT DEFAULT 'manual' CHECK (automation_level IN ('manual', 'semi_auto', 'full_auto')),
+    automation_scope TEXT DEFAULT 'none' CHECK (automation_scope IN ('none', 'arbitrage_only', 'technical_only', 'both')),
     
     -- Feature Access Control
     arbitrage_enabled BOOLEAN DEFAULT TRUE,
@@ -221,7 +221,7 @@ CREATE TABLE alert_triggers (
     FOREIGN KEY (template_id) REFERENCES notification_templates(template_id)
 );
 
--- Notifications Table
+-- Notifications Table (with partitioning strategy for large-scale data management)
 CREATE TABLE notifications (
     notification_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -248,10 +248,16 @@ CREATE TABLE notifications (
     scheduled_at TEXT,
     sent_at TEXT,
     
+    -- Partitioning Strategy: Add date partition key for time-based partitioning
+    date_partition TEXT GENERATED ALWAYS AS (date(created_at)) STORED,
+    
     -- Foreign key references
     FOREIGN KEY (user_id) REFERENCES user_profiles(user_id),
     FOREIGN KEY (trigger_id) REFERENCES alert_triggers(trigger_id),
-    FOREIGN KEY (template_id) REFERENCES notification_templates(template_id)
+    FOREIGN KEY (template_id) REFERENCES notification_templates(template_id),
+    
+    -- Retention Policy Note: Consider implementing automated cleanup for notifications older than 90 days
+    -- This should be implemented as a scheduled job: DELETE FROM notifications WHERE date(created_at) < date('now', '-90 days')
 );
 
 -- Notification History Table
@@ -520,6 +526,7 @@ CREATE INDEX idx_notifications_category ON notifications(category);
 CREATE INDEX idx_notifications_priority ON notifications(priority);
 CREATE INDEX idx_notifications_created_at ON notifications(created_at);
 CREATE INDEX idx_notifications_scheduled_at ON notifications(scheduled_at);
+CREATE INDEX idx_notifications_date_partition ON notifications(date_partition);
 
 CREATE INDEX idx_notification_history_notification_id ON notification_history(notification_id);
 CREATE INDEX idx_notification_history_user_id ON notification_history(user_id);

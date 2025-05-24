@@ -305,9 +305,9 @@ async fn test_risk_level_assignment() {
         metadata: serde_json::json!({}),
     };
     
-    // Test VeryStrong -> Low risk
+            // Test Extreme -> Low risk
     let mut very_strong_signal = base_signal.clone();
-    very_strong_signal.signal_strength = SignalStrength::VeryStrong;
+            very_strong_signal.signal_strength = SignalStrength::Extreme;
     let very_strong_opp = service.convert_signal_to_opportunity(very_strong_signal).await.unwrap();
     assert_eq!(very_strong_opp.risk_level, RiskLevel::Low);
     
@@ -383,7 +383,7 @@ async fn test_trading_signal_type_and_strength_enums() {
     // Test SignalStrength enum
     assert_eq!(SignalStrength::Weak, SignalStrength::Weak);
     assert_ne!(SignalStrength::Weak, SignalStrength::Moderate);
-    assert_ne!(SignalStrength::Strong, SignalStrength::VeryStrong);
+            assert_ne!(SignalStrength::Strong, SignalStrength::Extreme);
 }
 
 #[tokio::test]

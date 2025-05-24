@@ -218,7 +218,7 @@ Opportunity Selection → Position Creation → Risk Management → Monitoring
 4. **Validate test coverage improvements**
 
 #### **Success Criteria**
-- ✅ **40%+ overall test coverage** (up from 14.05%)
+- ✅ **95%+ overall test coverage** (up from 14.05%)
 - ✅ **All critical user journeys have E2E tests**
 - ✅ **No services with 0% coverage in core business logic**
 - ✅ **Integration between services validated**

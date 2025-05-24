@@ -4,6 +4,8 @@
 use crate::utils::{ArbitrageResult, ArbitrageError, logger::{Logger, LogLevel}};
 use crate::services::D1Service;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use worker::*;
 
 // ============= TRADING PREFERENCE TYPES =============
@@ -91,6 +93,7 @@ impl Default for RiskTolerance {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UserTradingPreferences {
     pub preference_id: String,
     pub user_id: String,
@@ -304,6 +307,8 @@ impl PreferenceValidationResult {
 pub struct UserTradingPreferencesService {
     d1_service: D1Service,
     logger: Logger,
+    // Simple in-memory cache with TTL of 5 minutes for frequently accessed preferences
+    cache: Arc<Mutex<HashMap<String, (UserTradingPreferences, u64)>>>, // (prefs, timestamp)
 }
 
 impl UserTradingPreferencesService {
@@ -311,6 +316,7 @@ impl UserTradingPreferencesService {
         Self {
             d1_service,
             logger,
+            cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
     
@@ -332,11 +338,72 @@ impl UserTradingPreferencesService {
         self.d1_service.get_trading_preferences(user_id).await
     }
     
-    /// Get preferences or create defaults if none exist
+    /// Get preferences or create defaults if none exist (with caching)
     pub async fn get_or_create_preferences(&self, user_id: &str) -> ArbitrageResult<UserTradingPreferences> {
+        // Check cache first (TTL: 5 minutes = 300,000ms)
+        if let Some(cached_prefs) = self.get_from_cache(user_id, 300_000) {
+            return Ok(cached_prefs);
+        }
+        
         match self.get_preferences(user_id).await? {
-            Some(preferences) => Ok(preferences),
-            None => self.create_default_preferences(user_id).await,
+            Some(preferences) => {
+                // Cache the retrieved preferences
+                self.cache_preferences(user_id, &preferences);
+                Ok(preferences)
+            },
+            None => {
+                let new_prefs = self.create_default_preferences(user_id).await?;
+                // Cache the new preferences
+                self.cache_preferences(user_id, &new_prefs);
+                Ok(new_prefs)
+            }
+        }
+    }
+    
+    /// Get preferences from cache if valid (not expired)
+    fn get_from_cache(&self, user_id: &str, ttl_ms: u64) -> Option<UserTradingPreferences> {
+        if let Ok(cache) = self.cache.lock() {
+            if let Some((prefs, timestamp)) = cache.get(user_id) {
+                let now = self.get_current_timestamp();
+                if now.saturating_sub(*timestamp) <= ttl_ms {
+                    return Some(prefs.clone());
+                }
+            }
+        }
+        None
+    }
+    
+    /// Cache preferences with current timestamp
+    fn cache_preferences(&self, user_id: &str, preferences: &UserTradingPreferences) {
+        if let Ok(mut cache) = self.cache.lock() {
+            let now = self.get_current_timestamp();
+            cache.insert(user_id.to_string(), (preferences.clone(), now));
+            
+            // Simple cache eviction: remove entries older than 10 minutes
+            let eviction_threshold = now.saturating_sub(600_000); // 10 minutes
+            cache.retain(|_, (_, timestamp)| *timestamp > eviction_threshold);
+        }
+    }
+    
+    /// Invalidate cache entry for user
+    fn invalidate_cache(&self, user_id: &str) {
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.remove(user_id);
+        }
+    }
+    
+    /// Get current timestamp in milliseconds
+    fn get_current_timestamp(&self) -> u64 {
+        #[cfg(target_arch = "wasm32")]
+        {
+            js_sys::Date::now() as u64
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
         }
     }
     
@@ -354,7 +421,14 @@ impl UserTradingPreferencesService {
             &format!("Updating trading preferences for user: {}", preferences.user_id),
         );
         
-        self.d1_service.update_trading_preferences(preferences).await
+        let result = self.d1_service.update_trading_preferences(preferences).await;
+        
+        // Invalidate cache after successful update
+        if result.is_ok() {
+            self.invalidate_cache(&preferences.user_id);
+        }
+        
+        result
     }
 
     /// Delete user's trading preferences
@@ -364,7 +438,14 @@ impl UserTradingPreferencesService {
         );
         
         // Use the existing delete method from D1Service
-        self.d1_service.delete_trading_preferences(user_id).await
+        let result = self.d1_service.delete_trading_preferences(user_id).await;
+        
+        // Invalidate cache after successful deletion
+        if result.is_ok() {
+            self.invalidate_cache(user_id);
+        }
+        
+        result
     }
     
     /// Update trading focus

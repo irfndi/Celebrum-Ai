@@ -351,6 +351,7 @@ impl TelegramService {
                 serde_json::Value::String(s) => s.clone(),
                 serde_json::Value::Number(n) => n.to_string(),
                 serde_json::Value::Bool(b) => b.to_string(),
+                serde_json::Value::Null => "N/A".to_string(),
                 _ => value.to_string(),
             };
             formatted_message = formatted_message.replace(&placeholder, &replacement);

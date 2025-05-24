@@ -40,4 +40,6 @@ __pycache__/
 coverage/
 
 # Rust build artifacts
-target/*
+target/
+
+.wrangler/

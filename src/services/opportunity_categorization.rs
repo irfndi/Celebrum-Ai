@@ -587,6 +587,9 @@ impl OpportunityCategorizationService {
     fn determine_opportunity_categories(&self, opportunity: &TradingOpportunity) -> Vec<OpportunityCategory> {
         let mut categories = Vec::new();
         
+        // Convert to HashSet for O(1) lookups instead of O(n) contains()
+        let indicators: std::collections::HashSet<&String> = opportunity.indicators_used.iter().collect();
+        
         // Categorize based on opportunity type
         match opportunity.opportunity_type {
             OpportunityType::Arbitrage => {
@@ -603,14 +606,14 @@ impl OpportunityCategorizationService {
             OpportunityType::Technical => {
                 categories.push(OpportunityCategory::TechnicalSignals);
                 
-                // Analyze indicators to determine specific technical category
-                if opportunity.indicators_used.contains(&"momentum".to_string()) {
+                // Analyze indicators to determine specific technical category - now O(1) instead of O(n)
+                if indicators.contains(&"momentum".to_string()) {
                     categories.push(OpportunityCategory::MomentumTrading);
                 }
-                if opportunity.indicators_used.contains(&"rsi".to_string()) {
+                if indicators.contains(&"rsi".to_string()) {
                     categories.push(OpportunityCategory::MeanReversion);
                 }
-                if opportunity.indicators_used.contains(&"breakout".to_string()) {
+                if indicators.contains(&"breakout".to_string()) {
                     categories.push(OpportunityCategory::BreakoutPatterns);
                 }
                 

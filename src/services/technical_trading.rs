@@ -37,7 +37,7 @@ pub enum SignalStrength {
     Weak,      // Low confidence signal
     Moderate,  // Medium confidence signal
     Strong,    // High confidence signal
-    VeryStrong, // Very high confidence signal
+    Extreme,    // Extremely high confidence signal
 }
 
 #[derive(Clone)]
@@ -224,7 +224,7 @@ impl TechnicalTradingService {
                 if rsi_value <= self.config.rsi_oversold_threshold {
                     // Oversold - potential buy signal
                     let signal_strength = if rsi_value <= 20.0 {
-                        SignalStrength::VeryStrong
+                        SignalStrength::Extreme
                     } else if rsi_value <= 25.0 {
                         SignalStrength::Strong
                     } else {
@@ -248,7 +248,7 @@ impl TechnicalTradingService {
                 } else if rsi_value >= self.config.rsi_overbought_threshold {
                     // Overbought - potential sell signal
                     let signal_strength = if rsi_value >= 80.0 {
-                        SignalStrength::VeryStrong
+                        SignalStrength::Extreme
                     } else if rsi_value >= 75.0 {
                         SignalStrength::Strong
                     } else {
@@ -661,7 +661,7 @@ impl TechnicalTradingService {
         match preferences.risk_tolerance {
             RiskTolerance::Conservative => {
                 signal.confidence_score >= 0.8 && 
-                matches!(signal.signal_strength, SignalStrength::Strong | SignalStrength::VeryStrong)
+                matches!(signal.signal_strength, SignalStrength::Strong | SignalStrength::Extreme)
             }
             RiskTolerance::Balanced => {
                 signal.confidence_score >= 0.6
@@ -675,7 +675,7 @@ impl TechnicalTradingService {
     /// Convert TechnicalSignal to TradingOpportunity
     async fn convert_signal_to_opportunity(&self, signal: TechnicalSignal) -> ArbitrageResult<TradingOpportunity> {
         let risk_level = match signal.signal_strength {
-            SignalStrength::VeryStrong => RiskLevel::Low,
+            SignalStrength::Extreme => RiskLevel::Low,
             SignalStrength::Strong => RiskLevel::Medium,
             SignalStrength::Moderate => RiskLevel::Medium,
             SignalStrength::Weak => RiskLevel::High,

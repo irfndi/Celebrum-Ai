@@ -615,7 +615,7 @@ impl DynamicConfigService {
                     parameter_type: ParameterType::Percentage,
                     default_value: serde_json::Number::from_f64(0.02)
                         .map(serde_json::Value::Number)
-                        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(2))), // fallback to 2% as integer
+                        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0))), // fallback to 0% if float conversion fails
                     validation_rules: ValidationRules {
                         required: true,
                         custom_validation: None,
@@ -649,7 +649,7 @@ impl DynamicConfigService {
                     parameter_type: ParameterType::Percentage,
                     default_value: serde_json::Number::from_f64(0.001)
                         .map(serde_json::Value::Number)
-                        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(1))), // fallback to 0.1% as integer
+                        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0))), // fallback to 0% if float conversion fails
                     validation_rules: ValidationRules {
                         required: true,
                         custom_validation: None,
@@ -695,7 +695,7 @@ impl DynamicConfigService {
                 ("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(500))),
                 ("stop_loss_percentage".to_string(), serde_json::Number::from_f64(0.01)
                     .map(serde_json::Value::Number)
-                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(1)))), // fallback to 1% as integer
+                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0)))), // fallback to 0% if float conversion fails
             ].into(),
             risk_level: RiskLevel::Conservative,
             target_audience: "beginner".to_string(),
@@ -713,7 +713,7 @@ impl DynamicConfigService {
                 ("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(1000))),
                 ("stop_loss_percentage".to_string(), serde_json::Number::from_f64(0.02)
                     .map(serde_json::Value::Number)
-                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(2)))), // fallback to 2% as integer
+                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0)))), // fallback to 0% if float conversion fails
             ].into(),
             risk_level: RiskLevel::Balanced,
             target_audience: "intermediate".to_string(),
@@ -731,7 +731,7 @@ impl DynamicConfigService {
                 ("max_position_size_usd".to_string(), serde_json::Value::Number(serde_json::Number::from(2000))),
                 ("stop_loss_percentage".to_string(), serde_json::Number::from_f64(0.05)
                     .map(serde_json::Value::Number)
-                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(5)))), // fallback to 5% as integer
+                    .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0)))), // fallback to 0% if float conversion fails
             ].into(),
             risk_level: RiskLevel::Aggressive,
             target_audience: "advanced".to_string(),
@@ -792,7 +792,7 @@ mod tests {
         parameter_values.insert("stop_loss_percentage".to_string(), 
             serde_json::Number::from_f64(0.02)
                 .map(serde_json::Value::Number)
-                .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(2)))); // fallback to 2% as integer
+                .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0)))); // fallback to 0% if float conversion fails
         
         let validation_result = validate_parameters_against_template(&template, &parameter_values, "test_user").await;
         assert!(validation_result.is_ok());
