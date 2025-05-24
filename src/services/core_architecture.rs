@@ -544,10 +544,11 @@ impl CoreServiceArchitecture {
                                     ServiceStatus::Unhealthy => {
                                         entry.status = ServiceStatus::Unhealthy;
                                         entry.restart_attempts += 1;
-                                        
+
                                         // Check if restart is enabled and we haven't exceeded max attempts
-                                        if entry.config.restart_on_failure 
-                                            && entry.restart_attempts <= entry.config.max_restart_attempts 
+                                        if entry.config.restart_on_failure
+                                            && entry.restart_attempts
+                                                <= entry.config.max_restart_attempts
                                         {
                                             log::warn!(
                                                 "Service {:?} is unhealthy, initiating restart (attempt {}/{})",
@@ -555,52 +556,77 @@ impl CoreServiceArchitecture {
                                                 entry.restart_attempts,
                                                 entry.config.max_restart_attempts
                                             );
-                                            
+
                                             // Trigger restart in background
-                                            let service_type_for_restart = service_type_clone.clone();
+                                            let service_type_for_restart =
+                                                service_type_clone.clone();
                                             let registry_for_restart = registry_clone.clone();
-                                            
+
                                             tokio::spawn(async move {
                                                 // Simulate restart process - in production this would call actual service restart
-                                                log::info!("Starting restart process for service {:?}", service_type_for_restart);
-                                                
+                                                log::info!(
+                                                    "Starting restart process for service {:?}",
+                                                    service_type_for_restart
+                                                );
+
                                                 // Mark service as restarting
                                                 {
-                                                    let mut reg = registry_for_restart.write().await;
-                                                    if let Some(entry) = reg.get_mut(&service_type_for_restart) {
+                                                    let mut reg =
+                                                        registry_for_restart.write().await;
+                                                    if let Some(entry) =
+                                                        reg.get_mut(&service_type_for_restart)
+                                                    {
                                                         entry.status = ServiceStatus::Starting;
                                                     }
                                                 }
-                                                
+
                                                 // Simulate restart delay
-                                                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                                                
+                                                tokio::time::sleep(
+                                                    tokio::time::Duration::from_secs(2),
+                                                )
+                                                .await;
+
                                                 // Simulate restart success/failure (mock logic)
                                                 let restart_successful = {
                                                     let reg = registry_for_restart.read().await;
-                                                    if let Some(entry) = reg.get(&service_type_for_restart) {
-                                                        entry.restart_attempts <= 2 // Mock: first 2 attempts succeed
+                                                    if let Some(entry) =
+                                                        reg.get(&service_type_for_restart)
+                                                    {
+                                                        entry.restart_attempts <= 2
+                                                    // Mock: first 2 attempts succeed
                                                     } else {
                                                         false
                                                     }
                                                 };
-                                                
+
                                                 {
-                                                    let mut reg = registry_for_restart.write().await;
-                                                    if let Some(entry) = reg.get_mut(&service_type_for_restart) {
+                                                    let mut reg =
+                                                        registry_for_restart.write().await;
+                                                    if let Some(entry) =
+                                                        reg.get_mut(&service_type_for_restart)
+                                                    {
                                                         if restart_successful {
                                                             entry.status = ServiceStatus::Healthy;
                                                             entry.restart_attempts = 0;
-                                                            entry.started_at = Some(chrono::Utc::now().timestamp_millis() as u64);
+                                                            entry.started_at = Some(
+                                                                chrono::Utc::now()
+                                                                    .timestamp_millis()
+                                                                    as u64,
+                                                            );
                                                             log::info!("Successfully restarted service {:?}", service_type_for_restart);
                                                         } else {
                                                             entry.status = ServiceStatus::Unhealthy;
-                                                            log::error!("Failed to restart service {:?}", service_type_for_restart);
+                                                            log::error!(
+                                                                "Failed to restart service {:?}",
+                                                                service_type_for_restart
+                                                            );
                                                         }
                                                     }
                                                 }
                                             });
-                                        } else if entry.restart_attempts > entry.config.max_restart_attempts {
+                                        } else if entry.restart_attempts
+                                            > entry.config.max_restart_attempts
+                                        {
                                             log::error!(
                                                 "Service {:?} exceeded maximum restart attempts ({}), service will remain unhealthy",
                                                 service_type_clone,

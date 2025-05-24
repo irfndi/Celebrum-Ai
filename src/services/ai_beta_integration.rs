@@ -285,7 +285,7 @@ impl AiBetaIntegrationService {
     ) -> ArbitrageResult<Vec<AiEnhancedOpportunity>> {
         // Clean up stale predictions (older than 24 hours)
         self.cleanup_stale_predictions(24);
-        
+
         let mut enhanced_opportunities = Vec::new();
 
         for opportunity in opportunities {
@@ -359,22 +359,20 @@ impl AiBetaIntegrationService {
         let timestamp = js_sys::Date::now() as u64;
         #[cfg(not(target_arch = "wasm32"))]
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         let opportunity_id = if opportunity.id.is_empty() {
             format!("pred_{}", timestamp)
         } else {
             opportunity.id.clone()
         };
-        
+
         // Update the enhanced opportunity's ID if it was empty
         if enhanced.base_opportunity.id.is_empty() {
             enhanced.base_opportunity.id = opportunity_id.clone();
         }
-        
-        self.active_predictions.insert(
-            opportunity_id,
-            (ai_score, timestamp)
-        );
+
+        self.active_predictions
+            .insert(opportunity_id, (ai_score, timestamp));
 
         Ok(enhanced)
     }
@@ -768,22 +766,20 @@ impl AiBetaIntegrationService {
         let now = js_sys::Date::now() as u64;
         #[cfg(not(target_arch = "wasm32"))]
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         let max_age_ms = max_age_hours * 60 * 60 * 1000; // Convert hours to milliseconds
-        
+
         let stale_keys: Vec<String> = self
             .active_predictions
             .iter()
-            .filter(|(_id, (_score, timestamp))| {
-                now.saturating_sub(*timestamp) > max_age_ms
-            })
+            .filter(|(_id, (_score, timestamp))| now.saturating_sub(*timestamp) > max_age_ms)
             .map(|(id, _)| id.clone())
             .collect();
-        
+
         for key in &stale_keys {
             self.active_predictions.remove(key);
         }
-        
+
         if !stale_keys.is_empty() {
             log::info!("Cleaned up {} stale AI predictions", stale_keys.len());
         }
@@ -796,12 +792,12 @@ impl AiBetaIntegrationService {
             // Only increment successful predictions if the prediction meets minimum confidence threshold
             if ai_score >= self.config.min_confidence_threshold {
                 self.ai_model_metrics.successful_predictions += 1;
-                
+
                 // Recalculate accuracy rate
                 if self.ai_model_metrics.total_predictions > 0 {
-                    self.ai_model_metrics.accuracy_rate = self.ai_model_metrics.successful_predictions
-                        as f64
-                        / self.ai_model_metrics.total_predictions as f64;
+                    self.ai_model_metrics.accuracy_rate =
+                        self.ai_model_metrics.successful_predictions as f64
+                            / self.ai_model_metrics.total_predictions as f64;
                 }
 
                 log::info!(
@@ -809,7 +805,7 @@ impl AiBetaIntegrationService {
                     opportunity_id,
                     ai_score
                 );
-                
+
                 Ok(())
             } else {
                 Err(ArbitrageError::validation_error(format!(
@@ -1086,43 +1082,50 @@ mod tests {
             .unwrap();
 
         assert!(!enhanced.is_empty());
-        
+
         // Check that active predictions were recorded
         assert!(!service.active_predictions.is_empty());
-        
+
         // Get the opportunity ID
         let opportunity_id = &enhanced[0].base_opportunity.id;
-        
+
         // Test successful prediction marking
         let result = service.mark_prediction_successful(opportunity_id);
         assert!(result.is_ok());
-        
+
         // Prediction should be removed from active predictions
         assert!(!service.active_predictions.contains_key(opportunity_id));
-        
+
         // Test marking non-existent prediction
         let result = service.mark_prediction_successful("non_existent_id");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No active AI prediction found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No active AI prediction found"));
     }
 
     #[test]
     fn test_stale_prediction_cleanup() {
         let config = AiBetaConfig::default();
         let mut service = AiBetaIntegrationService::new(config);
-        
+
         // Add some test predictions with old timestamps
         let old_timestamp = chrono::Utc::now().timestamp_millis() as u64 - (25 * 60 * 60 * 1000); // 25 hours ago
         let recent_timestamp = chrono::Utc::now().timestamp_millis() as u64; // Now
-        
-        service.active_predictions.insert("old_prediction".to_string(), (0.8, old_timestamp));
-        service.active_predictions.insert("recent_prediction".to_string(), (0.9, recent_timestamp));
-        
+
+        service
+            .active_predictions
+            .insert("old_prediction".to_string(), (0.8, old_timestamp));
+        service
+            .active_predictions
+            .insert("recent_prediction".to_string(), (0.9, recent_timestamp));
+
         assert_eq!(service.active_predictions.len(), 2);
-        
+
         // Clean up predictions older than 24 hours
         service.cleanup_stale_predictions(24);
-        
+
         // Only recent prediction should remain
         assert_eq!(service.active_predictions.len(), 1);
         assert!(service.active_predictions.contains_key("recent_prediction"));
