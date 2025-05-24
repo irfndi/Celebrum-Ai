@@ -4,7 +4,10 @@ use crate::services::ai_intelligence::{
     AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion,
 };
 use crate::services::opportunity_categorization::CategorizedOpportunity;
-use crate::types::{ArbitrageOpportunity, CommandPermission, MessageAnalytics, GroupRegistration, GroupRateLimitConfig, TradingMode};
+use crate::types::{
+    ArbitrageOpportunity, CommandPermission, GroupRateLimitConfig, GroupRegistration,
+    MessageAnalytics,
+};
 use crate::utils::formatter::{
     escape_markdown_v2, format_ai_enhancement_message, format_categorized_opportunity_message,
     format_opportunity_message, format_parameter_suggestions_message,
@@ -47,21 +50,28 @@ impl ChatContext {
     }
 
     pub fn is_group_or_channel(&self) -> bool {
-        matches!(self.chat_type, ChatType::Group | ChatType::SuperGroup | ChatType::Channel)
+        matches!(
+            self.chat_type,
+            ChatType::Group | ChatType::SuperGroup | ChatType::Channel
+        )
     }
 
     pub fn from_telegram_update(update: &Value) -> ArbitrageResult<Self> {
-        let message = update["message"].as_object()
-            .ok_or_else(|| ArbitrageError::validation_error("Missing message in update".to_string()))?;
+        let message = update["message"].as_object().ok_or_else(|| {
+            ArbitrageError::validation_error("Missing message in update".to_string())
+        })?;
 
-        let chat = message["chat"].as_object()
-            .ok_or_else(|| ArbitrageError::validation_error("Missing chat in message".to_string()))?;
+        let chat = message["chat"].as_object().ok_or_else(|| {
+            ArbitrageError::validation_error("Missing chat in message".to_string())
+        })?;
 
-        let chat_id = chat["id"].as_i64()
+        let chat_id = chat["id"]
+            .as_i64()
             .ok_or_else(|| ArbitrageError::validation_error("Missing chat ID".to_string()))?
             .to_string();
 
-        let chat_type_str = chat["type"].as_str()
+        let chat_type_str = chat["type"]
+            .as_str()
             .ok_or_else(|| ArbitrageError::validation_error("Missing chat type".to_string()))?;
 
         let chat_type = match chat_type_str {
@@ -69,9 +79,12 @@ impl ChatContext {
             "group" => ChatType::Group,
             "supergroup" => ChatType::SuperGroup,
             "channel" => ChatType::Channel,
-            _ => return Err(ArbitrageError::validation_error(
-                format!("Unknown chat type: {}", chat_type_str)
-            )),
+            _ => {
+                return Err(ArbitrageError::validation_error(format!(
+                    "Unknown chat type: {}",
+                    chat_type_str
+                )))
+            }
         };
 
         let user_id = message["from"]["id"].as_u64().map(|id| id.to_string());
@@ -89,6 +102,7 @@ pub struct TelegramConfig {
 pub struct TelegramService {
     config: TelegramConfig,
     http_client: Client,
+    #[allow(dead_code)]
     analytics_enabled: bool,
     group_registrations: std::collections::HashMap<String, GroupRegistration>,
 }
@@ -104,6 +118,8 @@ impl TelegramService {
     }
 
     /// Track message analytics for analysis
+    #[allow(dead_code)]
+    #[allow(clippy::too_many_arguments)]
     async fn track_message_analytics(
         &self,
         message_id: String,
@@ -140,7 +156,12 @@ impl TelegramService {
     }
 
     /// Register group/channel when bot is added
-    pub async fn register_group(&mut self, chat_context: &ChatContext, group_title: Option<String>, member_count: Option<u32>) -> ArbitrageResult<()> {
+    pub async fn register_group(
+        &mut self,
+        chat_context: &ChatContext,
+        group_title: Option<String>,
+        member_count: Option<u32>,
+    ) -> ArbitrageResult<()> {
         if chat_context.is_private() {
             return Ok(()); // Not a group/channel
         }
@@ -170,19 +191,25 @@ impl TelegramService {
             last_member_count_update: Some(chrono::Utc::now().timestamp_millis() as u64),
         };
 
-        self.group_registrations.insert(chat_context.chat_id.clone(), registration);
-        
+        self.group_registrations
+            .insert(chat_context.chat_id.clone(), registration);
+
         // TODO: Store in database
         println!("Registered group: {}", chat_context.chat_id);
         Ok(())
     }
 
     /// Update member count for a group/channel
-    pub async fn update_group_member_count(&mut self, chat_id: &str, member_count: u32) -> ArbitrageResult<()> {
+    pub async fn update_group_member_count(
+        &mut self,
+        chat_id: &str,
+        member_count: u32,
+    ) -> ArbitrageResult<()> {
         if let Some(registration) = self.group_registrations.get_mut(chat_id) {
             registration.member_count = Some(member_count);
-            registration.last_member_count_update = Some(chrono::Utc::now().timestamp_millis() as u64);
-            
+            registration.last_member_count_update =
+                Some(chrono::Utc::now().timestamp_millis() as u64);
+
             // TODO: Store update in database
             println!("Updated member count for {}: {}", chat_id, member_count);
         }
@@ -307,18 +334,15 @@ impl TelegramService {
     }
 
     /// Send message exclusively to private chats
-    pub async fn send_private_message(
-        &self,
-        message: &str,
-        user_id: &str,
-    ) -> ArbitrageResult<()> {
+    pub async fn send_private_message(&self, message: &str, user_id: &str) -> ArbitrageResult<()> {
         let chat_context = ChatContext::new(
             user_id.to_string(),
             ChatType::Private,
             Some(user_id.to_string()),
         );
 
-        self.send_secure_notification(message, &chat_context, true).await?;
+        self.send_secure_notification(message, &chat_context, true)
+            .await?;
         Ok(())
     }
 
@@ -342,12 +366,9 @@ impl TelegramService {
     ) -> ArbitrageResult<()> {
         // Legacy method - assume private chat context
         let message = format_opportunity_message(opportunity);
-        let chat_context = ChatContext::new(
-            self.config.chat_id.clone(),
-            ChatType::Private,
-            None,
-        );
-        self.send_secure_notification(&message, &chat_context, true).await?;
+        let chat_context = ChatContext::new(self.config.chat_id.clone(), ChatType::Private, None);
+        self.send_secure_notification(&message, &chat_context, true)
+            .await?;
         Ok(())
     }
 
@@ -395,7 +416,7 @@ impl TelegramService {
             if let Some(text) = message["text"].as_str() {
                 // Get chat context for security checking
                 let chat_context = ChatContext::from_telegram_update(&update)?;
-                
+
                 // Properly handle missing user ID by returning an error instead of empty string
                 let user_id = message["from"]["id"]
                     .as_u64()
@@ -405,8 +426,10 @@ impl TelegramService {
                         )
                     })?
                     .to_string();
-                
-                return self.handle_command_with_context(text, &user_id, &chat_context).await;
+
+                return self
+                    .handle_command_with_context(text, &user_id, &chat_context)
+                    .await;
             }
         }
         Ok(None)
@@ -428,9 +451,17 @@ impl TelegramService {
                 "/help" => Ok(Some(self.get_help_message().await)),
                 "/settings" => Ok(Some(self.get_settings_message(user_id).await)),
                 "/start" => Ok(Some(self.get_group_welcome_message().await)),
-                "/opportunities" => Ok(Some(self.get_group_opportunities_message(user_id, args).await)),
-                "/admin_group_config" => self.handle_permissioned_command(user_id, CommandPermission::GroupAnalytics,
-                    || self.get_admin_group_config_message(args)).await,
+                "/opportunities" => Ok(Some(
+                    self.get_group_opportunities_message(user_id, args).await,
+                )),
+                "/admin_group_config" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::GroupAnalytics,
+                        || self.get_admin_group_config_message(args),
+                    )
+                    .await
+                }
                 _ => Ok(Some(
                     "🔒 *Security Notice*\n\n\
                     Personal trading commands are only available in private chats\\.\n\
@@ -453,48 +484,134 @@ impl TelegramService {
                 "/help" => Ok(Some(self.get_help_message_with_role(user_id).await)),
                 "/status" => Ok(Some(self.get_status_message(user_id).await)),
                 "/settings" => Ok(Some(self.get_settings_message(user_id).await)),
-                
+
                 // Analysis and opportunity commands (RBAC-gated content)
-                "/opportunities" => Ok(Some(self.get_enhanced_opportunities_message(user_id, args).await)),
+                "/opportunities" => Ok(Some(
+                    self.get_enhanced_opportunities_message(user_id, args).await,
+                )),
                 "/categories" => Ok(Some(self.get_categories_message(user_id).await)),
                 "/ai_insights" => Ok(Some(self.get_ai_insights_message(user_id).await)),
                 "/risk_assessment" => Ok(Some(self.get_risk_assessment_message(user_id).await)),
                 "/preferences" => Ok(Some(self.get_preferences_message(user_id).await)),
-                
+
                 // Trading commands (permission-gated)
-                "/balance" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading, 
-                    || self.get_balance_message(user_id, args)).await,
-                "/buy" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading,
-                    || self.get_buy_command_message(user_id, args)).await,
-                "/sell" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading,
-                    || self.get_sell_command_message(user_id, args)).await,
-                "/orders" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading,
-                    || self.get_orders_message(user_id, args)).await,
-                "/positions" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading,
-                    || self.get_positions_message(user_id, args)).await,
-                "/cancel" => self.handle_permissioned_command(user_id, CommandPermission::ManualTrading,
-                    || self.get_cancel_order_message(user_id, args)).await,
-                
+                "/balance" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::ManualTrading,
+                        || self.get_balance_message(user_id, args),
+                    )
+                    .await
+                }
+                "/buy" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::ManualTrading,
+                        || self.get_buy_command_message(user_id, args),
+                    )
+                    .await
+                }
+                "/sell" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::ManualTrading,
+                        || self.get_sell_command_message(user_id, args),
+                    )
+                    .await
+                }
+                "/orders" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::ManualTrading,
+                        || self.get_orders_message(user_id, args),
+                    )
+                    .await
+                }
+                "/positions" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::ManualTrading,
+                        || self.get_positions_message(user_id, args),
+                    )
+                    .await
+                }
+                "/cancel" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::ManualTrading,
+                        || self.get_cancel_order_message(user_id, args),
+                    )
+                    .await
+                }
+
                 // Auto trading commands (Premium+ subscription)
-                "/auto_enable" => self.handle_permissioned_command(user_id, CommandPermission::AutomatedTrading,
-                    || self.get_auto_enable_message(user_id)).await,
-                "/auto_disable" => self.handle_permissioned_command(user_id, CommandPermission::AutomatedTrading,
-                    || self.get_auto_disable_message(user_id)).await,
-                "/auto_config" => self.handle_permissioned_command(user_id, CommandPermission::AutomatedTrading,
-                    || self.get_auto_config_message(user_id, args)).await,
-                "/auto_status" => self.handle_permissioned_command(user_id, CommandPermission::AutomatedTrading,
-                    || self.get_auto_status_message(user_id)).await,
-                
+                "/auto_enable" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::AutomatedTrading,
+                        || self.get_auto_enable_message(user_id),
+                    )
+                    .await
+                }
+                "/auto_disable" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::AutomatedTrading,
+                        || self.get_auto_disable_message(user_id),
+                    )
+                    .await
+                }
+                "/auto_config" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::AutomatedTrading,
+                        || self.get_auto_config_message(user_id, args),
+                    )
+                    .await
+                }
+                "/auto_status" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::AutomatedTrading,
+                        || self.get_auto_status_message(user_id),
+                    )
+                    .await
+                }
+
                 // SuperAdmin commands (admin-only)
-                "/admin_stats" => self.handle_permissioned_command(user_id, CommandPermission::SystemAdministration,
-                    || self.get_admin_stats_message()).await,
-                "/admin_users" => self.handle_permissioned_command(user_id, CommandPermission::UserManagement,
-                    || self.get_admin_users_message(args)).await,
-                "/admin_config" => self.handle_permissioned_command(user_id, CommandPermission::GlobalConfiguration,
-                    || self.get_admin_config_message(args)).await,
-                "/admin_broadcast" => self.handle_permissioned_command(user_id, CommandPermission::SystemAdministration,
-                    || self.get_admin_broadcast_message(args)).await,
-                    
+                "/admin_stats" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::SystemAdministration,
+                        || self.get_admin_stats_message(),
+                    )
+                    .await
+                }
+                "/admin_users" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::UserManagement,
+                        || self.get_admin_users_message(args),
+                    )
+                    .await
+                }
+                "/admin_config" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::GlobalConfiguration,
+                        || self.get_admin_config_message(args),
+                    )
+                    .await
+                }
+                "/admin_broadcast" => {
+                    self.handle_permissioned_command(
+                        user_id,
+                        CommandPermission::SystemAdministration,
+                        || self.get_admin_broadcast_message(args),
+                    )
+                    .await
+                }
+
                 _ => Ok(None), // Unknown command, no response
             }
         }
@@ -513,12 +630,17 @@ impl TelegramService {
     {
         // TODO: In production, fetch actual user profile from database
         // For now, simulate based on user_id pattern
-        let user_has_permission = self.check_user_permission(user_id, &required_permission).await;
-        
+        let user_has_permission = self
+            .check_user_permission(user_id, &required_permission)
+            .await;
+
         if user_has_permission {
             Ok(Some(command_handler().await))
         } else {
-            Ok(Some(self.get_permission_denied_message(required_permission).await))
+            Ok(Some(
+                self.get_permission_denied_message(required_permission)
+                    .await,
+            ))
         }
     }
 
@@ -526,43 +648,40 @@ impl TelegramService {
     async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
         // TODO: Replace with actual user profile lookup from database
         // For now, mock implementation based on user_id patterns
-        
+
         // Super admin check (user IDs starting with "admin_" or specific known admin IDs)
         let is_super_admin = user_id.starts_with("admin_") || 
                            user_id == "123456789" || // Example admin user ID
-                           user_id == "987654321";   // Another admin user ID
-        
+                           user_id == "987654321"; // Another admin user ID
+
         match permission {
-            CommandPermission::BasicCommands |
-            CommandPermission::BasicOpportunities |
-            CommandPermission::ManualTrading |
-            CommandPermission::TechnicalAnalysis |
-            CommandPermission::AIEnhancedOpportunities |
-            CommandPermission::AutomatedTrading |
-            CommandPermission::AdvancedAnalytics |
-            CommandPermission::PremiumFeatures => true, // Beta: all users have access
-            CommandPermission::SystemAdministration |
-            CommandPermission::UserManagement |
-            CommandPermission::GlobalConfiguration |
-            CommandPermission::GroupAnalytics => is_super_admin,
+            CommandPermission::BasicCommands
+            | CommandPermission::BasicOpportunities
+            | CommandPermission::ManualTrading
+            | CommandPermission::TechnicalAnalysis
+            | CommandPermission::AIEnhancedOpportunities
+            | CommandPermission::AutomatedTrading
+            | CommandPermission::AdvancedAnalytics
+            | CommandPermission::PremiumFeatures => true, // Beta: all users have access
+            CommandPermission::SystemAdministration
+            | CommandPermission::UserManagement
+            | CommandPermission::GlobalConfiguration
+            | CommandPermission::GroupAnalytics => is_super_admin,
         }
     }
 
     /// Get permission denied message
     async fn get_permission_denied_message(&self, permission: CommandPermission) -> String {
         match permission {
-            CommandPermission::SystemAdministration |
-            CommandPermission::UserManagement |
-            CommandPermission::GlobalConfiguration |
-            CommandPermission::GroupAnalytics => {
-                "🔒 *Access Denied*\n\n\
+            CommandPermission::SystemAdministration
+            | CommandPermission::UserManagement
+            | CommandPermission::GlobalConfiguration
+            | CommandPermission::GroupAnalytics => "🔒 *Access Denied*\n\n\
                 This command requires Super Administrator privileges\\.\n\
                 Only system administrators can access this functionality\\.\n\n\
                 If you believe you should have access, please contact support\\."
-                    .to_string()
-            }
-            CommandPermission::ManualTrading => {
-                "🔒 *Subscription Required*\n\n\
+                .to_string(),
+            CommandPermission::ManualTrading => "🔒 *Subscription Required*\n\n\
                 This command requires a Basic subscription or higher\\.\n\
                 During the beta period, all users have access\\.\n\n\
                 Available plans:\n\
@@ -570,20 +689,16 @@ impl TelegramService {
                 • Premium: Advanced features \\+ automation\n\
                 • Enterprise: Custom solutions\n\n\
                 Contact support to upgrade your subscription\\!"
-                    .to_string()
-            }
-            CommandPermission::TechnicalAnalysis => {
-                "🔒 *Basic+ Subscription Required*\n\n\
+                .to_string(),
+            CommandPermission::TechnicalAnalysis => "🔒 *Basic+ Subscription Required*\n\n\
                 Technical analysis features require a Basic subscription or higher\\.\n\
                 During the beta period, all users have access\\.\n\n\
                 Contact support to upgrade your subscription for full access\\!"
-                    .to_string()
-            }
-            CommandPermission::AIEnhancedOpportunities |
-            CommandPermission::AutomatedTrading |
-            CommandPermission::AdvancedAnalytics |
-            CommandPermission::PremiumFeatures => {
-                "🔒 *Premium Subscription Required*\n\n\
+                .to_string(),
+            CommandPermission::AIEnhancedOpportunities
+            | CommandPermission::AutomatedTrading
+            | CommandPermission::AdvancedAnalytics
+            | CommandPermission::PremiumFeatures => "🔒 *Premium Subscription Required*\n\n\
                 This command requires a Premium subscription or higher\\.\n\
                 During the beta period, all users have access\\.\n\n\
                 Upgrade to Premium for:\n\
@@ -592,18 +707,16 @@ impl TelegramService {
                 • Priority support\n\
                 • Custom risk management\n\n\
                 Contact support to upgrade your subscription\\!"
-                    .to_string()
-            }
-            CommandPermission::BasicCommands |
-            CommandPermission::BasicOpportunities => {
+                .to_string(),
+            CommandPermission::BasicCommands | CommandPermission::BasicOpportunities => {
                 // This should never happen since basic commands are always allowed
-                "✅ *Access Granted*\n\nYou have access to this command\\."
-                    .to_string()
+                "✅ *Access Granted*\n\nYou have access to this command\\.".to_string()
             }
         }
     }
 
     // Legacy method for backward compatibility
+    #[allow(dead_code)]
     async fn handle_command(&self, text: &str, user_id: &str) -> ArbitrageResult<Option<String>> {
         // Assume private chat context for legacy calls
         let chat_context = ChatContext::new(
@@ -611,7 +724,8 @@ impl TelegramService {
             ChatType::Private,
             Some(user_id.to_string()),
         );
-        self.handle_command_with_context(text, user_id, &chat_context).await
+        self.handle_command_with_context(text, user_id, &chat_context)
+            .await
     }
 
     // ============= ENHANCED COMMAND RESPONSES =============
@@ -693,6 +807,7 @@ impl TelegramService {
         )
     }
 
+    #[allow(dead_code)]
     async fn get_opportunities_message(&self, _user_id: &str, args: &[&str]) -> String {
         let filter_category = args.first();
 
@@ -818,8 +933,10 @@ impl TelegramService {
     // ============= ENHANCED HELP MESSAGE WITH ROLE DETECTION =============
 
     async fn get_help_message_with_role(&self, user_id: &str) -> String {
-        let is_super_admin = self.check_user_permission(user_id, &CommandPermission::SystemAdministration).await;
-        
+        let is_super_admin = self
+            .check_user_permission(user_id, &CommandPermission::SystemAdministration)
+            .await;
+
         let mut help_message = "📚 *ArbEdge Bot Commands*\n\n\
         🔍 *Opportunities & Analysis:*\n\
         /opportunities \\[category\\] \\- Show recent opportunities\n\
@@ -843,7 +960,8 @@ impl TelegramService {
         /settings \\- View current bot settings\n\n\
         ℹ️ *Information:*\n\
         /status \\- Check bot and system status\n\
-        /help \\- Show this help message\n\n".to_string();
+        /help \\- Show this help message\n\n"
+            .to_string();
 
         if is_super_admin {
             help_message.push_str(
@@ -851,7 +969,8 @@ impl TelegramService {
                 /admin\\_stats \\- System metrics and health\n\
                 /admin\\_users \\[search\\] \\- User management\n\
                 /admin\\_config \\[setting\\] \\[value\\] \\- Global configuration\n\
-                /admin\\_broadcast \\<message\\> \\- Send message to all users\n\n");
+                /admin\\_broadcast \\<message\\> \\- Send message to all users\n\n",
+            );
         }
 
         help_message.push_str(
@@ -867,12 +986,18 @@ impl TelegramService {
 
     async fn get_enhanced_opportunities_message(&self, user_id: &str, args: &[&str]) -> String {
         // Check user's access level to determine content
-        let has_technical = self.check_user_permission(user_id, &CommandPermission::TechnicalAnalysis).await;
-        let has_ai_enhanced = self.check_user_permission(user_id, &CommandPermission::AIEnhancedOpportunities).await;
-        let is_super_admin = self.check_user_permission(user_id, &CommandPermission::SystemAdministration).await;
+        let has_technical = self
+            .check_user_permission(user_id, &CommandPermission::TechnicalAnalysis)
+            .await;
+        let has_ai_enhanced = self
+            .check_user_permission(user_id, &CommandPermission::AIEnhancedOpportunities)
+            .await;
+        let is_super_admin = self
+            .check_user_permission(user_id, &CommandPermission::SystemAdministration)
+            .await;
 
         let filter_category = args.first().map(|s| s.to_lowercase());
-        
+
         let mut message = "📊 *Trading Opportunities* 🔥\n\n".to_string();
 
         if let Some(category) = &filter_category {
@@ -894,10 +1019,14 @@ impl TelegramService {
             • Pair: `ETHUSDT`\n\
             • Rate Difference: `0.23%`\n\
             • Confidence: `92%`\n\
-            • Expected Return: `$18.75`\n\n");
+            • Expected Return: `$18.75`\n\n",
+        );
 
         // Technical analysis for Basic+ users
-        if has_technical && (filter_category.is_none() || filter_category.as_ref() == Some(&"technical".to_string())) {
+        if has_technical
+            && (filter_category.is_none()
+                || filter_category.as_ref() == Some(&"technical".to_string()))
+        {
             message.push_str("📈 *Technical Analysis Signals*\n");
             message.push_str(
                 "📊 **RSI Divergence** ⚡\n\
@@ -909,11 +1038,14 @@ impl TelegramService {
                 • Pair: `BNBUSDT`\n\
                 • Signal: `SELL`\n\
                 • Strength: `Medium`\n\
-                • Target: `$310` \\(\\-2\\.8%\\)\n\n");
+                • Target: `$310` \\(\\-2\\.8%\\)\n\n",
+            );
         }
 
         // AI Enhanced for Premium+ users
-        if has_ai_enhanced && (filter_category.is_none() || filter_category.as_ref() == Some(&"ai".to_string())) {
+        if has_ai_enhanced
+            && (filter_category.is_none() || filter_category.as_ref() == Some(&"ai".to_string()))
+        {
             message.push_str("🤖 *AI Enhanced Opportunities*\n");
             message.push_str(
                 "⭐ **AI Recommended** 🎯\n\
@@ -926,7 +1058,8 @@ impl TelegramService {
                 • Pair: `MATICUSDT`\n\
                 • Pattern: `Breakout Prediction`\n\
                 • AI Confidence: `84%`\n\
-                • Time Horizon: `4\\-6 hours`\n\n");
+                • Time Horizon: `4\\-6 hours`\n\n",
+            );
         }
 
         // Super admin stats
@@ -937,7 +1070,8 @@ impl TelegramService {
                 • Active Users: `342`\n\
                 • Opportunities Sent: `1,205/24h`\n\
                 • Global Queue: `23 pending`\n\
-                • Distribution Rate: `98.7%`\n\n");
+                • Distribution Rate: `98.7%`\n\n",
+            );
         }
 
         // Available access levels
@@ -1030,7 +1164,7 @@ impl TelegramService {
         } else {
             let setting = args[0];
             let value = args.get(1).unwrap_or(&"");
-            
+
             format!(
                 "✅ *Configuration Updated*\n\n\
                 **Setting:** `{}`\n\
@@ -1074,7 +1208,7 @@ impl TelegramService {
 
     async fn get_group_opportunities_message(&self, _user_id: &str, args: &[&str]) -> String {
         let filter_category = args.first().map(|s| s.to_lowercase());
-        
+
         let mut message = "🌍 *Global Trading Opportunities*\n\n".to_string();
 
         if let Some(category) = &filter_category {
@@ -1098,7 +1232,8 @@ impl TelegramService {
             • Rate Difference: `0.25%`\n\
             • Exchanges: OKX ↔ Bitget\n\
             • Confidence: `88%`\n\
-            • Estimated Profit: `$21.75`\n\n");
+            • Estimated Profit: `$21.75`\n\n",
+        );
 
         // Technical analysis signals (available to all in groups)
         if filter_category.is_none() || filter_category.as_ref() == Some(&"technical".to_string()) {
@@ -1114,7 +1249,8 @@ impl TelegramService {
                 • Overall: `BULLISH`\n\
                 • BTC Dominance: `42.3%`\n\
                 • Fear & Greed: `74` \\(Greed\\)\n\
-                • Volume Trend: `↗️ Increasing`\n\n");
+                • Volume Trend: `↗️ Increasing`\n\n",
+            );
         }
 
         message.push_str("🔗 *For Personal Features:*\n");
@@ -1160,7 +1296,7 @@ impl TelegramService {
         } else {
             let setting = args[0];
             let value = args.get(1).unwrap_or(&"");
-            
+
             format!(
                 "✅ *Group Configuration Updated*\n\n\
                 **Setting:** `{}`\n\
@@ -1185,7 +1321,7 @@ impl TelegramService {
 
     async fn get_balance_message(&self, _user_id: &str, args: &[&str]) -> String {
         let exchange = args.first().unwrap_or(&"all");
-        
+
         // TODO: Integrate with actual ExchangeService to fetch real balances
         format!(
             "💰 *Account Balance* \\- {}\n\n\
@@ -1289,7 +1425,7 @@ impl TelegramService {
 
     async fn get_orders_message(&self, _user_id: &str, args: &[&str]) -> String {
         let exchange = args.first().unwrap_or(&"all");
-        
+
         // TODO: Integrate with ExchangeService to fetch real orders
         format!(
             "📋 *Open Orders* \\- {}\n\n\
@@ -1319,7 +1455,7 @@ impl TelegramService {
 
     async fn get_positions_message(&self, _user_id: &str, args: &[&str]) -> String {
         let exchange = args.first().unwrap_or(&"all");
-        
+
         // TODO: Integrate with ExchangeService to fetch real positions
         format!(
             "📊 *Open Positions* \\- {}\n\n\
@@ -1390,7 +1526,7 @@ impl TelegramService {
     async fn get_admin_stats_message(&self) -> String {
         // TODO: Integrate with actual system metrics
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
-        
+
         format!(
             "🔧 *System Administration Dashboard*\n\n\
             📊 **System Health:**\n\
@@ -1422,7 +1558,7 @@ impl TelegramService {
 
     async fn get_admin_users_message(&self, args: &[&str]) -> String {
         let search_term = args.first().unwrap_or(&"");
-        
+
         if search_term.is_empty() {
             "👥 *User Management Dashboard*\n\n\
             **Usage:** `/admin_users [search_term]`\n\n\
@@ -1508,7 +1644,7 @@ impl TelegramService {
         } else {
             let setting = args[0];
             let value = args[1];
-            
+
             format!(
                 "✅ *Configuration Updated*\n\n\
                 🔧 **Setting:** `{}`\n\
@@ -1520,7 +1656,11 @@ impl TelegramService {
                 💡 Monitor system metrics to ensure stability after configuration changes\\.",
                 escape_markdown_v2(setting),
                 escape_markdown_v2(value),
-                escape_markdown_v2(&chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                escape_markdown_v2(
+                    &chrono::Utc::now()
+                        .format("%Y-%m-%d %H:%M:%S UTC")
+                        .to_string()
+                )
             )
         }
     }
@@ -1546,7 +1686,7 @@ impl TelegramService {
                 .to_string()
         } else {
             let message = args.join(" ");
-            
+
             format!(
                 "📢 *Broadcast Scheduled*\n\n\
                 **Message Preview:**\n\
@@ -1561,7 +1701,11 @@ impl TelegramService {
                 ✅ **Status:** Broadcasting in progress\\.\\.\\.\n\n\
                 💡 Monitor delivery metrics in `/admin_stats`\\.",
                 escape_markdown_v2(&message),
-                escape_markdown_v2(&chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                escape_markdown_v2(
+                    &chrono::Utc::now()
+                        .format("%Y-%m-%d %H:%M:%S UTC")
+                        .to_string()
+                )
             )
         }
     }

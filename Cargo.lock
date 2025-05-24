@@ -60,6 +60,7 @@ dependencies = [
  "hex",
  "hmac",
  "js-sys",
+ "log",
  "regex",
  "reqwest",
  "serde",

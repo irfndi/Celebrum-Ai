@@ -263,11 +263,11 @@ impl MathUtils {
 
     /// Calculate Relative Strength Index (RSI)
     /// Calculate Relative Strength Index (RSI) using Cutler's method
-    /// 
+    ///
     /// This implementation uses simple moving averages for gain/loss calculation (Cutler's method)
     /// rather than exponential moving averages (Wilder's method). Cutler's method is more responsive
     /// to recent price changes and is commonly used in modern trading platforms.
-    /// 
+    ///
     /// Formula: RSI = 100 - (100 / (1 + RS))
     /// Where RS = Average Gain / Average Loss over the specified period
     #[allow(clippy::result_large_err)]
@@ -383,8 +383,8 @@ pub struct MarketAnalysisService {
     preferences_service: UserTradingPreferencesService,
     logger: Logger,
     price_cache: HashMap<String, PriceSeries>, // In-memory cache for recent price data
-    cache_max_size: usize, // Maximum number of cached series
-    cache_ttl_ms: u64, // Time-to-live for cache entries in milliseconds
+    cache_max_size: usize,                     // Maximum number of cached series
+    cache_ttl_ms: u64,                         // Time-to-live for cache entries in milliseconds
 }
 
 impl MarketAnalysisService {
@@ -411,7 +411,9 @@ impl MarketAnalysisService {
         self.evict_expired_cache_entries();
 
         // Check if cache is at capacity and evict LRU entries if needed
-        if self.price_cache.len() >= self.cache_max_size && !self.price_cache.contains_key(&cache_key) {
+        if self.price_cache.len() >= self.cache_max_size
+            && !self.price_cache.contains_key(&cache_key)
+        {
             self.evict_lru_cache_entries(1);
         }
 
@@ -458,15 +460,14 @@ impl MarketAnalysisService {
         let expired_keys: Vec<String> = self
             .price_cache
             .iter()
-            .filter(|(_, series)| {
-                now.saturating_sub(series.last_updated) > self.cache_ttl_ms
-            })
+            .filter(|(_, series)| now.saturating_sub(series.last_updated) > self.cache_ttl_ms)
             .map(|(key, _)| key.clone())
             .collect();
 
         for key in expired_keys {
             self.price_cache.remove(&key);
-            self.logger.debug(&format!("Evicted expired cache entry: {}", key));
+            self.logger
+                .debug(&format!("Evicted expired cache entry: {}", key));
         }
     }
 
@@ -485,7 +486,8 @@ impl MarketAnalysisService {
         // Remove the oldest entries
         for (key, _) in entries.into_iter().take(count) {
             self.price_cache.remove(&key);
-            self.logger.debug(&format!("Evicted LRU cache entry: {}", key));
+            self.logger
+                .debug(&format!("Evicted LRU cache entry: {}", key));
         }
     }
 
@@ -502,10 +504,19 @@ impl MarketAnalysisService {
     /// Get cache statistics
     pub fn get_cache_stats(&self) -> HashMap<String, serde_json::Value> {
         let mut stats = HashMap::new();
-        stats.insert("cache_size".to_string(), serde_json::Value::Number(serde_json::Number::from(self.price_cache.len())));
-        stats.insert("cache_max_size".to_string(), serde_json::Value::Number(serde_json::Number::from(self.cache_max_size)));
-        stats.insert("cache_ttl_ms".to_string(), serde_json::Value::Number(serde_json::Number::from(self.cache_ttl_ms)));
-        
+        stats.insert(
+            "cache_size".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(self.price_cache.len())),
+        );
+        stats.insert(
+            "cache_max_size".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(self.cache_max_size)),
+        );
+        stats.insert(
+            "cache_ttl_ms".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(self.cache_ttl_ms)),
+        );
+
         #[cfg(target_arch = "wasm32")]
         let now = js_sys::Date::now() as u64;
         #[cfg(not(target_arch = "wasm32"))]
@@ -520,7 +531,10 @@ impl MarketAnalysisService {
             .filter(|series| now.saturating_sub(series.last_updated) > self.cache_ttl_ms)
             .count();
 
-        stats.insert("expired_entries".to_string(), serde_json::Value::Number(serde_json::Number::from(expired_count)));
+        stats.insert(
+            "expired_entries".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(expired_count)),
+        );
         stats
     }
 

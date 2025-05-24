@@ -161,13 +161,14 @@ impl ApiKeySource {
 
     pub fn validate_for_operation(&self, operation: &str) -> ArbitrageResult<()> {
         let trading_operations = ["create_order", "cancel_order", "set_leverage"];
-        
+
         if trading_operations.contains(&operation) && !self.can_execute_trades() {
-            return Err(ArbitrageError::validation_error(
-                format!("Operation '{}' not allowed with read-only super admin keys", operation)
-            ));
+            return Err(ArbitrageError::validation_error(format!(
+                "Operation '{}' not allowed with read-only super admin keys",
+                operation
+            )));
         }
-        
+
         Ok(())
     }
 }
@@ -189,8 +190,8 @@ impl ExchangeService {
 
         let client = Client::new();
 
-        Ok(Self { 
-            client, 
+        Ok(Self {
+            client,
             kv,
             super_admin_configs: std::collections::HashMap::new(),
         })
@@ -204,7 +205,7 @@ impl ExchangeService {
     ) -> ArbitrageResult<()> {
         let config = SuperAdminApiConfig::new_read_only(exchange_id.clone(), credentials);
         config.validate_read_only()?;
-        
+
         self.super_admin_configs.insert(exchange_id, config);
         Ok(())
     }
@@ -220,9 +221,10 @@ impl ExchangeService {
             // Use read-only credentials for market data
             self.get_ticker(exchange_id, symbol).await
         } else {
-            Err(ArbitrageError::validation_error(
-                format!("No super admin configuration found for exchange: {}", exchange_id)
-            ))
+            Err(ArbitrageError::validation_error(format!(
+                "No super admin configuration found for exchange: {}",
+                exchange_id
+            )))
         }
     }
 
@@ -237,9 +239,10 @@ impl ExchangeService {
             // Use read-only credentials for funding rate data
             self.fetch_funding_rates(exchange_id, symbol).await
         } else {
-            Err(ArbitrageError::validation_error(
-                format!("No super admin configuration found for exchange: {}", exchange_id)
-            ))
+            Err(ArbitrageError::validation_error(format!(
+                "No super admin configuration found for exchange: {}",
+                exchange_id
+            )))
         }
     }
 

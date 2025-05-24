@@ -765,10 +765,11 @@ impl AiIntelligenceService {
 
     /// Extract timing score from AI analysis using regex patterns
     fn extract_timing_score_from_analysis(&self, analysis: &str) -> f64 {
-        let excellent_timing = Regex::new(r"(?i)\b(excellent|outstanding|perfect)\s+timing\b").unwrap();
+        let excellent_timing =
+            Regex::new(r"(?i)\b(excellent|outstanding|perfect)\s+timing\b").unwrap();
         let good_timing = Regex::new(r"(?i)\b(good|solid|decent)\s+timing\b").unwrap();
         let poor_timing = Regex::new(r"(?i)\b(poor|bad|terrible)\s+timing\b").unwrap();
-        
+
         if excellent_timing.is_match(analysis) {
             0.9
         } else if good_timing.is_match(analysis) {
@@ -799,7 +800,7 @@ impl AiIntelligenceService {
         let high_risk = Regex::new(r"(?i)\b(high|elevated|extreme|significant)\s+risk\b").unwrap();
         let moderate_risk = Regex::new(r"(?i)\b(moderate|medium|balanced)\s+risk\b").unwrap();
         let low_risk = Regex::new(r"(?i)\b(low|minimal|negligible)\s+risk\b").unwrap();
-        
+
         if high_risk.is_match(analysis) {
             0.8
         } else if moderate_risk.is_match(analysis) {
@@ -842,9 +843,12 @@ impl AiIntelligenceService {
 
     /// Extract market risk from AI analysis using regex patterns
     fn extract_market_risk(&self, analysis: &str) -> f64 {
-        let volatile_market = Regex::new(r"(?i)\b(volatile|turbulent|unstable|chaotic)\s+(market|conditions)\b").unwrap();
-        let stable_market = Regex::new(r"(?i)\b(stable|steady|calm|consolidated)\s+(market|conditions)\b").unwrap();
-        
+        let volatile_market =
+            Regex::new(r"(?i)\b(volatile|turbulent|unstable|chaotic)\s+(market|conditions)\b")
+                .unwrap();
+        let stable_market =
+            Regex::new(r"(?i)\b(stable|steady|calm|consolidated)\s+(market|conditions)\b").unwrap();
+
         if volatile_market.is_match(analysis) {
             0.7
         } else if stable_market.is_match(analysis) {
@@ -972,9 +976,10 @@ impl AiIntelligenceService {
 
     // Additional parsing methods using regex patterns
     fn extract_correlation_risk_from_analysis(&self, analysis: &str) -> f64 {
-        let high_correlation = Regex::new(r"(?i)\b(high|strong|significant)\s+correlation\b").unwrap();
+        let high_correlation =
+            Regex::new(r"(?i)\b(high|strong|significant)\s+correlation\b").unwrap();
         let low_correlation = Regex::new(r"(?i)\b(low|weak|minimal)\s+correlation\b").unwrap();
-        
+
         if high_correlation.is_match(analysis) {
             0.8
         } else if low_correlation.is_match(analysis) {
@@ -997,8 +1002,9 @@ impl AiIntelligenceService {
     fn extract_portfolio_recommendations(&self, analysis: &str) -> Vec<String> {
         let mut recommendations = Vec::new();
         let diversify_pattern = Regex::new(r"(?i)\b(diversify|spread|distribute)\b").unwrap();
-        let reduce_position_pattern = Regex::new(r"(?i)\b(reduce|decrease|limit)\s+(position|size|exposure)\b").unwrap();
-        
+        let reduce_position_pattern =
+            Regex::new(r"(?i)\b(reduce|decrease|limit)\s+(position|size|exposure)\b").unwrap();
+
         if diversify_pattern.is_match(analysis) {
             recommendations.push("Consider diversifying across more trading pairs".to_string());
         }

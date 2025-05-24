@@ -457,8 +457,8 @@ mod tests {
         let _telegram_username = Some("testuser".to_string());
 
         // Create a test profile manually to validate structure
-                let profile = UserProfile::new(Some(telegram_user_id), invitation_code.clone());
-        
+        let profile = UserProfile::new(Some(telegram_user_id), invitation_code.clone());
+
         assert_eq!(profile.telegram_user_id, Some(telegram_user_id));
         assert_eq!(profile.invitation_code, invitation_code);
         assert!(profile.is_active);

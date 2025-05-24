@@ -2,7 +2,41 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::RwLock;
+
+#[cfg(target_arch = "wasm32")]
+use std::sync::RwLock;
+
+// Helper macros for conditional async/sync operations
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! read_lock {
+    ($lock:expr) => {
+        $lock.read().await
+    };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! write_lock {
+    ($lock:expr) => {
+        $lock.write().await
+    };
+}
+
+#[cfg(target_arch = "wasm32")]
+macro_rules! read_lock {
+    ($lock:expr) => {
+        $lock.read().unwrap()
+    };
+}
+
+#[cfg(target_arch = "wasm32")]
+macro_rules! write_lock {
+    ($lock:expr) => {
+        $lock.write().unwrap()
+    };
+}
 
 /// Service Health Status
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,7 +188,10 @@ impl ServiceRegistryEntry {
 /// Core Service Architecture Manager
 pub struct CoreServiceArchitecture {
     service_registry: Arc<RwLock<HashMap<ServiceType, ServiceRegistryEntry>>>,
+    #[cfg(not(target_arch = "wasm32"))]
     health_check_tasks: HashMap<ServiceType, tokio::task::JoinHandle<()>>,
+    #[cfg(target_arch = "wasm32")]
+    health_check_tasks: HashMap<ServiceType, ()>, // Placeholder for WASM
     system_status: ServiceStatus,
     startup_order: Vec<ServiceType>,
 }
@@ -172,7 +209,7 @@ impl CoreServiceArchitecture {
     /// Initialize the service architecture with default configurations
     pub async fn initialize(&mut self) -> ArbitrageResult<()> {
         let default_configs = self.create_default_service_configs();
-        
+
         for config in default_configs {
             self.register_service(config).await?;
         }
@@ -185,9 +222,9 @@ impl CoreServiceArchitecture {
     pub async fn register_service(&mut self, config: ServiceConfig) -> ArbitrageResult<()> {
         let service_type = config.service_type.clone();
         let entry = ServiceRegistryEntry::new(config);
-        
+
         {
-            let mut registry = self.service_registry.write().await;
+            let mut registry = write_lock!(self.service_registry);
             registry.insert(service_type, entry);
         }
 
@@ -198,7 +235,8 @@ impl CoreServiceArchitecture {
     pub async fn start_all_services(&mut self) -> ArbitrageResult<()> {
         self.system_status = ServiceStatus::Starting;
 
-        for service_type in &self.startup_order {
+        let startup_order = self.startup_order.clone();
+        for service_type in &startup_order {
             if let Err(e) = self.start_service(service_type.clone()).await {
                 log::error!("Failed to start service {:?}: {}", service_type, e);
                 self.system_status = ServiceStatus::Degraded;
@@ -215,32 +253,46 @@ impl CoreServiceArchitecture {
 
     /// Start a specific service
     pub async fn start_service(&mut self, service_type: ServiceType) -> ArbitrageResult<()> {
-        {
-            let mut registry = self.service_registry.write().await;
-            if let Some(entry) = registry.get_mut(&service_type) {
-                if !entry.config.enabled {
-                    return Ok(()); // Service is disabled
-                }
+        // First, collect dependencies and check them
+        let (enabled, dependencies) = {
+            let registry = read_lock!(self.service_registry);
+            if let Some(entry) = registry.get(&service_type) {
+                (entry.config.enabled, entry.config.dependencies.clone())
+            } else {
+                return Ok(()); // Service not found
+            }
+        };
 
-                // Check dependencies
-                for dep in &entry.config.dependencies {
-                    if dep.required {
-                        if let Some(dep_entry) = registry.get(&dep.service_type) {
-                            if dep_entry.status != ServiceStatus::Healthy {
-                                return Err(ArbitrageError::service_error(format!(
-                                    "Required dependency {:?} is not healthy for service {:?}",
-                                    dep.service_type, service_type
-                                )));
-                            }
-                        } else {
-                            return Err(ArbitrageError::service_error(format!(
-                                "Required dependency {:?} not found for service {:?}",
+        if !enabled {
+            return Ok(()); // Service is disabled
+        }
+
+        // Check dependencies
+        {
+            let registry = read_lock!(self.service_registry);
+            for dep in &dependencies {
+                if dep.required {
+                    if let Some(dep_entry) = registry.get(&dep.service_type) {
+                        if dep_entry.status != ServiceStatus::Healthy {
+                            return Err(ArbitrageError::internal_error(format!(
+                                "Required dependency {:?} is not healthy for service {:?}",
                                 dep.service_type, service_type
                             )));
                         }
+                    } else {
+                        return Err(ArbitrageError::internal_error(format!(
+                            "Required dependency {:?} not found for service {:?}",
+                            dep.service_type, service_type
+                        )));
                     }
                 }
+            }
+        }
 
+        // Update service status
+        {
+            let mut registry = write_lock!(self.service_registry);
+            if let Some(entry) = registry.get_mut(&service_type) {
                 entry.status = ServiceStatus::Starting;
                 entry.started_at = Some(chrono::Utc::now().timestamp_millis() as u64);
                 entry.restart_attempts = 0;
@@ -249,10 +301,22 @@ impl CoreServiceArchitecture {
 
         // TODO: In production, this would actually start the service instance
         // For now, simulate service startup
+        #[cfg(not(target_arch = "wasm32"))]
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
+        #[cfg(target_arch = "wasm32")]
         {
-            let mut registry = self.service_registry.write().await;
+            // Use browser-compatible sleep for WASM
+            let _ = js_sys::Promise::new(&mut |resolve, _| {
+                web_sys::window()
+                    .unwrap()
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100)
+                    .unwrap();
+            });
+        }
+
+        {
+            let mut registry = write_lock!(self.service_registry);
             if let Some(entry) = registry.get_mut(&service_type) {
                 entry.status = ServiceStatus::Healthy;
             }
@@ -265,22 +329,40 @@ impl CoreServiceArchitecture {
     /// Stop a specific service
     pub async fn stop_service(&mut self, service_type: ServiceType) -> ArbitrageResult<()> {
         {
-            let mut registry = self.service_registry.write().await;
+            let mut registry = write_lock!(self.service_registry);
             if let Some(entry) = registry.get_mut(&service_type) {
                 entry.status = ServiceStatus::Stopping;
             }
         }
 
         // Stop health check task if running
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(task) = self.health_check_tasks.remove(&service_type) {
             task.abort();
         }
 
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.health_check_tasks.remove(&service_type);
+        }
+
         // TODO: In production, this would actually stop the service instance
+        #[cfg(not(target_arch = "wasm32"))]
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
+        #[cfg(target_arch = "wasm32")]
         {
-            let mut registry = self.service_registry.write().await;
+            // Use browser-compatible sleep for WASM
+            let _ = js_sys::Promise::new(&mut |resolve, _| {
+                web_sys::window()
+                    .unwrap()
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 50)
+                    .unwrap();
+            });
+        }
+
+        {
+            let mut registry = write_lock!(self.service_registry);
             if let Some(entry) = registry.get_mut(&service_type) {
                 entry.status = ServiceStatus::Stopped;
                 entry.stopped_at = Some(chrono::Utc::now().timestamp_millis() as u64);
@@ -296,12 +378,19 @@ impl CoreServiceArchitecture {
         self.system_status = ServiceStatus::Stopping;
 
         // Stop health checks first
+        #[cfg(not(target_arch = "wasm32"))]
         for (_, task) in self.health_check_tasks.drain() {
             task.abort();
         }
 
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.health_check_tasks.clear();
+        }
+
         // Stop services in reverse order
-        for service_type in self.startup_order.iter().rev() {
+        let startup_order = self.startup_order.clone();
+        for service_type in startup_order.iter().rev() {
             if let Err(e) = self.stop_service(service_type.clone()).await {
                 log::error!("Failed to stop service {:?}: {}", service_type, e);
             }
@@ -314,13 +403,27 @@ impl CoreServiceArchitecture {
     /// Restart a specific service
     pub async fn restart_service(&mut self, service_type: ServiceType) -> ArbitrageResult<()> {
         self.stop_service(service_type.clone()).await?;
+
+        #[cfg(not(target_arch = "wasm32"))]
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Use browser-compatible sleep for WASM
+            let _ = js_sys::Promise::new(&mut |resolve, _| {
+                web_sys::window()
+                    .unwrap()
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100)
+                    .unwrap();
+            });
+        }
+
         self.start_service(service_type).await
     }
 
     /// Get system health overview
     pub async fn get_system_health(&self) -> SystemHealthOverview {
-        let registry = self.service_registry.read().await;
+        let registry = read_lock!(self.service_registry);
         let mut healthy_count = 0;
         let mut unhealthy_count = 0;
         let mut degraded_count = 0;
@@ -362,102 +465,109 @@ impl CoreServiceArchitecture {
 
     /// Get detailed service information
     pub async fn get_service_info(&self, service_type: &ServiceType) -> Option<ServiceInfo> {
-        let registry = self.service_registry.read().await;
-        if let Some(entry) = registry.get(service_type) {
-            Some(ServiceInfo {
-                service_type: entry.config.service_type.clone(),
-                status: entry.status.clone(),
-                enabled: entry.config.enabled,
-                dependencies: entry.config.dependencies.clone(),
-                last_health_check: entry.last_health_check.clone(),
-                restart_attempts: entry.restart_attempts,
-                started_at: entry.started_at,
-                stopped_at: entry.stopped_at,
-                uptime_seconds: entry.started_at.map(|start| {
-                    (chrono::Utc::now().timestamp_millis() as u64 - start) / 1000
-                }),
-            })
-        } else {
-            None
-        }
+        let registry = read_lock!(self.service_registry);
+        registry.get(service_type).map(|entry| ServiceInfo {
+            service_type: entry.config.service_type.clone(),
+            status: entry.status.clone(),
+            enabled: entry.config.enabled,
+            dependencies: entry.config.dependencies.clone(),
+            last_health_check: entry.last_health_check.clone(),
+            restart_attempts: entry.restart_attempts,
+            started_at: entry.started_at,
+            stopped_at: entry.stopped_at,
+            uptime_seconds: entry
+                .started_at
+                .map(|start| (chrono::Utc::now().timestamp_millis() as u64 - start) / 1000),
+        })
     }
 
     /// Start health check monitoring for all services
     async fn start_health_checks(&mut self) -> ArbitrageResult<()> {
-        let registry = self.service_registry.clone();
-        
-        // Get enabled services
-        let services_to_monitor: Vec<ServiceType> = {
-            let reg = registry.read().await;
-            reg.iter()
-                .filter(|(_, entry)| entry.config.enabled)
-                .map(|(service_type, _)| service_type.clone())
-                .collect()
-        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Health checks not available in WASM
+            return Ok(());
+        }
 
-        for service_type in services_to_monitor {
-            let registry_clone = registry.clone();
-            let service_type_clone = service_type.clone();
-            
-            let task = tokio::spawn(async move {
-                loop {
-                    let interval = {
-                        let reg = registry_clone.read().await;
-                        if let Some(entry) = reg.get(&service_type_clone) {
-                            entry.config.health_check_interval_seconds
-                        } else {
-                            break; // Service removed
-                        }
-                    };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let registry = self.service_registry.clone();
 
-                    tokio::time::sleep(tokio::time::Duration::from_secs(interval)).await;
-                    
-                    // Perform health check
-                    let health_result = Self::perform_health_check(&service_type_clone).await;
-                    
-                    // Update registry
-                    {
-                        let mut reg = registry_clone.write().await;
-                        if let Some(entry) = reg.get_mut(&service_type_clone) {
-                            entry.last_health_check = Some(health_result.clone());
-                            
-                            // Update status based on health check
-                            match health_result.status {
-                                ServiceStatus::Healthy => {
-                                    if entry.status == ServiceStatus::Degraded || entry.status == ServiceStatus::Unhealthy {
-                                        entry.status = ServiceStatus::Healthy;
-                                        entry.restart_attempts = 0;
+            // Get enabled services
+            let services_to_monitor: Vec<ServiceType> = {
+                let reg = registry.read().await;
+                reg.iter()
+                    .filter(|(_, entry)| entry.config.enabled)
+                    .map(|(service_type, _)| service_type.clone())
+                    .collect()
+            };
+
+            for service_type in services_to_monitor {
+                let registry_clone = registry.clone();
+                let service_type_clone = service_type.clone();
+
+                let task = tokio::spawn(async move {
+                    loop {
+                        let interval = {
+                            let reg = registry_clone.read().await;
+                            if let Some(entry) = reg.get(&service_type_clone) {
+                                entry.config.health_check_interval_seconds
+                            } else {
+                                break; // Service removed
+                            }
+                        };
+
+                        tokio::time::sleep(tokio::time::Duration::from_secs(interval)).await;
+
+                        // Perform health check
+                        let health_result = Self::perform_health_check(&service_type_clone).await;
+
+                        // Update registry
+                        {
+                            let mut reg = registry_clone.write().await;
+                            if let Some(entry) = reg.get_mut(&service_type_clone) {
+                                entry.last_health_check = Some(health_result.clone());
+
+                                // Update status based on health check
+                                match health_result.status {
+                                    ServiceStatus::Healthy => {
+                                        if entry.status == ServiceStatus::Degraded
+                                            || entry.status == ServiceStatus::Unhealthy
+                                        {
+                                            entry.status = ServiceStatus::Healthy;
+                                            entry.restart_attempts = 0;
+                                        }
                                     }
-                                }
-                                ServiceStatus::Unhealthy => {
-                                    entry.status = ServiceStatus::Unhealthy;
-                                    entry.restart_attempts += 1;
-                                }
-                                ServiceStatus::Degraded => {
-                                    if entry.status == ServiceStatus::Healthy {
-                                        entry.status = ServiceStatus::Degraded;
+                                    ServiceStatus::Unhealthy => {
+                                        entry.status = ServiceStatus::Unhealthy;
+                                        entry.restart_attempts += 1;
                                     }
+                                    ServiceStatus::Degraded => {
+                                        if entry.status == ServiceStatus::Healthy {
+                                            entry.status = ServiceStatus::Degraded;
+                                        }
+                                    }
+                                    _ => {}
                                 }
-                                _ => {}
                             }
                         }
                     }
-                }
-            });
+                });
 
-            self.health_check_tasks.insert(service_type, task);
+                self.health_check_tasks.insert(service_type, task);
+            }
+
+            Ok(())
         }
-
-        Ok(())
     }
 
     /// Perform health check for a service (mock implementation)
     async fn perform_health_check(service_type: &ServiceType) -> HealthCheckResult {
         let start_time = std::time::Instant::now();
-        
+
         // TODO: In production, this would call the actual service's health check method
         // For now, simulate different health check scenarios
-        
+
         let is_healthy = match service_type {
             ServiceType::TelegramService => true,
             ServiceType::GlobalOpportunityService => true,
@@ -471,8 +581,10 @@ impl CoreServiceArchitecture {
         let response_time = start_time.elapsed().as_millis() as u64;
 
         if is_healthy {
-            HealthCheckResult::healthy(service_type.clone(), response_time)
-                .with_metadata("last_check_type".to_string(), serde_json::json!("automated"))
+            HealthCheckResult::healthy(service_type.clone(), response_time).with_metadata(
+                "last_check_type".to_string(),
+                serde_json::json!("automated"),
+            )
         } else {
             HealthCheckResult::unhealthy(
                 service_type.clone(),
@@ -483,7 +595,7 @@ impl CoreServiceArchitecture {
 
     /// Calculate service startup order based on dependencies
     async fn calculate_startup_order(&mut self) -> ArbitrageResult<()> {
-        let registry = self.service_registry.read().await;
+        let registry = read_lock!(self.service_registry);
         let mut order = Vec::new();
         let mut visited = std::collections::HashSet::new();
         let mut visiting = std::collections::HashSet::new();
@@ -505,6 +617,7 @@ impl CoreServiceArchitecture {
     }
 
     /// Recursive function for topological sort of services
+    #[allow(clippy::only_used_in_recursion)]
     fn visit_service_for_order(
         &self,
         service_type: &ServiceType,
@@ -514,7 +627,7 @@ impl CoreServiceArchitecture {
         visiting: &mut std::collections::HashSet<ServiceType>,
     ) -> ArbitrageResult<()> {
         if visiting.contains(service_type) {
-            return Err(ArbitrageError::service_error(format!(
+            return Err(ArbitrageError::internal_error(format!(
                 "Circular dependency detected involving service {:?}",
                 service_type
             )));
@@ -593,13 +706,11 @@ impl CoreServiceArchitecture {
             ServiceConfig {
                 service_type: ServiceType::MarketAnalysisService,
                 enabled: true,
-                dependencies: vec![
-                    ServiceDependency {
-                        service_type: ServiceType::ExchangeService,
-                        required: true,
-                        start_order: 2,
-                    },
-                ],
+                dependencies: vec![ServiceDependency {
+                    service_type: ServiceType::ExchangeService,
+                    required: true,
+                    start_order: 2,
+                }],
                 health_check_interval_seconds: 30,
                 restart_on_failure: true,
                 max_restart_attempts: 3,
@@ -608,13 +719,11 @@ impl CoreServiceArchitecture {
             ServiceConfig {
                 service_type: ServiceType::TechnicalAnalysisService,
                 enabled: true,
-                dependencies: vec![
-                    ServiceDependency {
-                        service_type: ServiceType::ExchangeService,
-                        required: true,
-                        start_order: 2,
-                    },
-                ],
+                dependencies: vec![ServiceDependency {
+                    service_type: ServiceType::ExchangeService,
+                    required: true,
+                    start_order: 2,
+                }],
                 health_check_interval_seconds: 60,
                 restart_on_failure: true,
                 max_restart_attempts: 3,
@@ -737,7 +846,7 @@ mod tests {
     async fn test_service_architecture_creation() {
         let mut architecture = CoreServiceArchitecture::new();
         assert_eq!(architecture.system_status, ServiceStatus::Stopped);
-        
+
         architecture.initialize().await.unwrap();
         assert!(!architecture.startup_order.is_empty());
     }
@@ -745,7 +854,7 @@ mod tests {
     #[tokio::test]
     async fn test_service_registration() {
         let mut architecture = CoreServiceArchitecture::new();
-        
+
         let config = ServiceConfig {
             service_type: ServiceType::TelegramService,
             enabled: true,
@@ -771,19 +880,24 @@ mod tests {
         architecture.initialize().await.unwrap();
 
         // Database should be first
-        assert_eq!(architecture.startup_order[0], ServiceType::D1DatabaseService);
-        
+        assert_eq!(
+            architecture.startup_order[0],
+            ServiceType::D1DatabaseService
+        );
+
         // Telegram service should be last (has most dependencies)
-        let telegram_pos = architecture.startup_order
+        let telegram_pos = architecture
+            .startup_order
             .iter()
             .position(|s| s == &ServiceType::TelegramService)
             .unwrap();
-        
-        let user_profile_pos = architecture.startup_order
+
+        let user_profile_pos = architecture
+            .startup_order
             .iter()
             .position(|s| s == &ServiceType::UserProfileService)
             .unwrap();
-        
+
         // User profile should start before Telegram
         assert!(user_profile_pos < telegram_pos);
     }
@@ -834,4 +948,4 @@ mod tests {
         assert!(dep.required);
         assert_eq!(dep.start_order, 1);
     }
-} 
+}

@@ -386,9 +386,10 @@ impl D1Service {
         let default_prefs = UserTradingPreferences::new_default(user_id.to_string());
 
         // Use INSERT OR IGNORE for race condition safety
-        let trading_focus_str = serde_json::to_string(&default_prefs.trading_focus).map_err(|e| {
-            ArbitrageError::parse_error(format!("Failed to serialize trading focus: {}", e))
-        })?;
+        let trading_focus_str =
+            serde_json::to_string(&default_prefs.trading_focus).map_err(|e| {
+                ArbitrageError::parse_error(format!("Failed to serialize trading focus: {}", e))
+            })?;
 
         let experience_level_str =
             serde_json::to_string(&default_prefs.experience_level).map_err(|e| {
@@ -462,11 +463,9 @@ impl D1Service {
         .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
 
         // Get the final preferences (handles case where another thread created them)
-        self.get_trading_preferences(user_id)
-            .await?
-            .ok_or_else(|| {
-                ArbitrageError::database_error("Failed to retrieve preferences after creation")
-            })
+        self.get_trading_preferences(user_id).await?.ok_or_else(|| {
+            ArbitrageError::database_error("Failed to retrieve preferences after creation")
+        })
     }
 
     /// Delete user trading preferences

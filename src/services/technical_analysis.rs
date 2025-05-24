@@ -1,5 +1,5 @@
-use crate::types::{ArbitrageOpportunity, ExchangeIdEnum, CommandPermission};
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::types::{ArbitrageOpportunity, CommandPermission, ExchangeIdEnum};
+use crate::utils::ArbitrageResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -40,15 +40,15 @@ pub enum SignalDirection {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Timeframe {
-    M1,   // 1 minute
-    M5,   // 5 minutes
-    M15,  // 15 minutes
-    M30,  // 30 minutes
-    H1,   // 1 hour
-    H4,   // 4 hours
-    H12,  // 12 hours
-    D1,   // 1 day
-    W1,   // 1 week
+    M1,  // 1 minute
+    M5,  // 5 minutes
+    M15, // 15 minutes
+    M30, // 30 minutes
+    H1,  // 1 hour
+    H4,  // 4 hours
+    H12, // 12 hours
+    D1,  // 1 day
+    W1,  // 1 week
 }
 
 impl std::fmt::Display for Timeframe {
@@ -88,6 +88,7 @@ pub struct TechnicalSignal {
 }
 
 impl TechnicalSignal {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pair: String,
         exchange: ExchangeIdEnum,
@@ -100,7 +101,7 @@ impl TechnicalSignal {
     ) -> Self {
         let now = chrono::Utc::now().timestamp_millis() as u64;
         let expires_at = now + (24 * 60 * 60 * 1000); // 24 hours expiry
-        
+
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             pair,
@@ -148,8 +149,12 @@ impl TechnicalSignal {
     pub fn calculate_profit_potential(&self) -> Option<f64> {
         if let Some(target) = self.target_price {
             match self.direction {
-                SignalDirection::Buy => Some((target - self.current_price) / self.current_price * 100.0),
-                SignalDirection::Sell => Some((self.current_price - target) / self.current_price * 100.0),
+                SignalDirection::Buy => {
+                    Some((target - self.current_price) / self.current_price * 100.0)
+                }
+                SignalDirection::Sell => {
+                    Some((self.current_price - target) / self.current_price * 100.0)
+                }
                 _ => None,
             }
         } else {
@@ -251,13 +256,14 @@ impl TechnicalAnalysisService {
     ) -> ArbitrageResult<TechnicalSignal> {
         // TODO: In production, this would fetch real market data and perform actual TA
         // For now, generate mock signals based on different scenarios
-        
+
         let current_price = self.get_mock_current_price(pair);
-        let (signal_type, direction, strength, confidence) = self.get_mock_analysis(pair, timeframe);
-        
+        let (signal_type, direction, strength, confidence) =
+            self.get_mock_analysis(pair, timeframe);
+
         let mut signal = TechnicalSignal::new(
             pair.to_string(),
-            exchange.clone(),
+            *exchange,
             signal_type,
             direction,
             strength,
@@ -267,7 +273,7 @@ impl TechnicalAnalysisService {
         );
 
         signal = self.enhance_signal_with_targets(signal);
-        
+
         Ok(signal)
     }
 
@@ -285,7 +291,11 @@ impl TechnicalAnalysisService {
     }
 
     /// Generate mock technical analysis for a pair
-    fn get_mock_analysis(&self, pair: &str, timeframe: &Timeframe) -> (SignalType, SignalDirection, SignalStrength, f64) {
+    fn get_mock_analysis(
+        &self,
+        pair: &str,
+        timeframe: &Timeframe,
+    ) -> (SignalType, SignalDirection, SignalStrength, f64) {
         // Generate different signals based on pair and timeframe
         match (pair, timeframe) {
             ("BTCUSDT", Timeframe::H4) => (
@@ -329,6 +339,10 @@ impl TechnicalAnalysisService {
 
     /// Enhance signal with target prices and stop losses
     fn enhance_signal_with_targets(&self, mut signal: TechnicalSignal) -> TechnicalSignal {
+        let signal_type = signal.signal_type.clone();
+        let pair = signal.pair.clone();
+        let timeframe = signal.timeframe.clone();
+
         match signal.direction {
             SignalDirection::Buy => {
                 let target = signal.current_price * 1.04; // 4% target
@@ -338,7 +352,7 @@ impl TechnicalAnalysisService {
                     .with_stop_loss(stop_loss)
                     .with_description(format!(
                         "{:?} signal detected on {} {}. Buy signal with 4% upside target.",
-                        signal.signal_type, signal.pair, signal.timeframe
+                        signal_type, pair, timeframe
                     ));
             }
             SignalDirection::Sell => {
@@ -349,13 +363,13 @@ impl TechnicalAnalysisService {
                     .with_stop_loss(stop_loss)
                     .with_description(format!(
                         "{:?} signal detected on {} {}. Sell signal with 4% downside target.",
-                        signal.signal_type, signal.pair, signal.timeframe
+                        signal_type, pair, timeframe
                     ));
             }
             _ => {
                 signal = signal.with_description(format!(
                     "{:?} signal detected on {} {}. Monitor for trend development.",
-                    signal.signal_type, signal.pair, signal.timeframe
+                    signal_type, pair, timeframe
                 ));
             }
         }
@@ -370,20 +384,29 @@ impl TechnicalAnalysisService {
 
         // Add new signals
         for signal in new_signals {
-            self.active_signals.insert(signal.id.clone(), signal.clone());
+            self.active_signals
+                .insert(signal.id.clone(), signal.clone());
         }
 
         // Move old signals to history
-        let expired_signals: Vec<_> = self.active_signals
-            .drain_filter(|_, signal| signal.is_expired())
-            .map(|(_, signal)| signal)
-            .collect();
-        
+        let mut expired_signals = Vec::new();
+        self.active_signals.retain(|_, signal| {
+            if signal.is_expired() {
+                expired_signals.push(signal.clone());
+                false
+            } else {
+                true
+            }
+        });
+
         self.signal_history.extend(expired_signals);
     }
 
     /// Get active signals filtered by user permissions
-    pub fn get_signals_for_user(&self, user_permissions: &[CommandPermission]) -> Vec<TechnicalSignal> {
+    pub fn get_signals_for_user(
+        &self,
+        user_permissions: &[CommandPermission],
+    ) -> Vec<TechnicalSignal> {
         // Check if user has technical analysis access
         if user_permissions.contains(&CommandPermission::TechnicalAnalysis) {
             self.active_signals.values().cloned().collect()
@@ -414,10 +437,10 @@ impl TechnicalAnalysisService {
     /// Convert technical signal to arbitrage opportunity (for integration)
     pub fn signal_to_opportunity(&self, signal: &TechnicalSignal) -> ArbitrageOpportunity {
         let profit_potential = signal.calculate_profit_potential().unwrap_or(0.0);
-        
+
         ArbitrageOpportunity::new(
             signal.pair.clone(),
-            Some(signal.exchange.clone()),
+            Some(signal.exchange),
             None, // No second exchange for TA signals
             Some(signal.current_price),
             signal.target_price,
@@ -430,17 +453,23 @@ impl TechnicalAnalysisService {
     /// Get technical analysis statistics
     pub fn get_statistics(&self) -> TechnicalAnalysisStats {
         let total_signals = self.active_signals.len();
-        let buy_signals = self.active_signals.values()
+        let buy_signals = self
+            .active_signals
+            .values()
             .filter(|s| s.direction == SignalDirection::Buy)
             .count();
-        let sell_signals = self.active_signals.values()
+        let sell_signals = self
+            .active_signals
+            .values()
             .filter(|s| s.direction == SignalDirection::Sell)
             .count();
-        
+
         let avg_confidence = if total_signals > 0 {
-            self.active_signals.values()
+            self.active_signals
+                .values()
                 .map(|s| s.confidence)
-                .sum::<f64>() / total_signals as f64
+                .sum::<f64>()
+                / total_signals as f64
         } else {
             0.0
         };
@@ -507,9 +536,9 @@ mod tests {
             2000.0,
             0.75,
         );
-        
+
         signal = signal.with_target_price(2080.0);
-        
+
         let profit = signal.calculate_profit_potential().unwrap();
         assert!((profit - 4.0).abs() < 0.01); // Should be 4%
     }
@@ -517,7 +546,7 @@ mod tests {
     #[test]
     fn test_technical_analysis_config_default() {
         let config = TechnicalAnalysisConfig::default();
-        
+
         assert_eq!(config.enabled_exchanges.len(), 4);
         assert!(config.enabled_exchanges.contains(&ExchangeIdEnum::Binance));
         assert_eq!(config.monitored_pairs.len(), 6);
@@ -530,7 +559,7 @@ mod tests {
     async fn test_technical_analysis_service_creation() {
         let config = TechnicalAnalysisConfig::default();
         let service = TechnicalAnalysisService::new(config);
-        
+
         assert_eq!(service.active_signals.len(), 0);
         assert_eq!(service.signal_history.len(), 0);
     }
@@ -539,12 +568,12 @@ mod tests {
     async fn test_generate_global_signals() {
         let config = TechnicalAnalysisConfig::default();
         let mut service = TechnicalAnalysisService::new(config);
-        
+
         let signals = service.generate_global_signals().await.unwrap();
-        
+
         // Should generate signals for configured pairs and timeframes
         assert!(!signals.is_empty());
-        
+
         // All signals should meet confidence threshold
         for signal in &signals {
             assert!(signal.confidence >= 0.7);
@@ -563,7 +592,7 @@ mod tests {
     fn test_signal_to_opportunity_conversion() {
         let config = TechnicalAnalysisConfig::default();
         let service = TechnicalAnalysisService::new(config);
-        
+
         let signal = TechnicalSignal::new(
             "BTCUSDT".to_string(),
             ExchangeIdEnum::Binance,
@@ -573,12 +602,13 @@ mod tests {
             Timeframe::H4,
             43250.0,
             0.89,
-        ).with_target_price(45000.0);
-        
+        )
+        .with_target_price(45000.0);
+
         let opportunity = service.signal_to_opportunity(&signal);
-        
+
         assert_eq!(opportunity.pair, "BTCUSDT");
         assert_eq!(opportunity.long_exchange, Some(ExchangeIdEnum::Binance));
         assert!(opportunity.details.is_some());
     }
-} 
+}

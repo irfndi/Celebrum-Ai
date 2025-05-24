@@ -455,7 +455,7 @@ pub enum SubscriptionTier {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UserRole {
-    User,      // Regular user (Free, Basic, Premium, Enterprise)
+    User,       // Regular user (Free, Basic, Premium, Enterprise)
     SuperAdmin, // Super administrator with system access
     BetaUser,   // Beta user (all features during beta period)
 }
@@ -466,22 +466,22 @@ pub enum UserRole {
 pub enum CommandPermission {
     // Basic commands (available to all)
     BasicCommands,
-    
+
     // Trading commands (subscription-gated in future)
     ManualTrading,
     AutomatedTrading,
-    
+
     // Opportunity access levels
-    BasicOpportunities,     // Global arbitrage only
-    TechnicalAnalysis,      // Global + technical analysis
+    BasicOpportunities,      // Global arbitrage only
+    TechnicalAnalysis,       // Global + technical analysis
     AIEnhancedOpportunities, // Premium AI features
-    
+
     // Admin commands (super admin only)
     SystemAdministration,
     UserManagement,
     GlobalConfiguration,
-    GroupAnalytics,         // Group/channel analytics access
-    
+    GroupAnalytics, // Group/channel analytics access
+
     // Future subscription-gated features
     AdvancedAnalytics,
     PremiumFeatures,
@@ -491,10 +491,10 @@ pub enum CommandPermission {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TradingMode {
-    Manual,      // User executes trades manually with API keys
-    Automated,   // Bot executes trades automatically
-    Advisory,    // Bot provides signals, user decides
-    Disabled,    // No trading functionality
+    Manual,    // User executes trades manually with API keys
+    Automated, // Bot executes trades automatically
+    Advisory,  // Bot provides signals, user decides
+    Disabled,  // No trading functionality
 }
 
 /// Analytics tracking for bot usage
@@ -504,11 +504,11 @@ pub struct MessageAnalytics {
     pub message_id: String,
     pub user_id: Option<String>,
     pub chat_id: String,
-    pub chat_type: String,           // "private", "group", "supergroup", "channel"
-    pub message_type: String,        // "command", "opportunity", "broadcast", "response"
-    pub command: Option<String>,     // Command name if applicable
-    pub content_type: String,        // "global_arbitrage", "technical_analysis", "ai_enhanced", etc.
-    pub delivery_status: String,     // "sent", "delivered", "failed", "rate_limited"
+    pub chat_type: String,       // "private", "group", "supergroup", "channel"
+    pub message_type: String,    // "command", "opportunity", "broadcast", "response"
+    pub command: Option<String>, // Command name if applicable
+    pub content_type: String,    // "global_arbitrage", "technical_analysis", "ai_enhanced", etc.
+    pub delivery_status: String, // "sent", "delivered", "failed", "rate_limited"
     pub response_time_ms: Option<u64>, // Time to generate response
     pub timestamp: u64,
     pub metadata: serde_json::Value, // Additional tracking data
@@ -519,12 +519,12 @@ pub struct MessageAnalytics {
 #[serde(rename_all = "camelCase")]
 pub struct GroupRegistration {
     pub group_id: String,
-    pub group_type: String,          // "group", "supergroup", "channel"
+    pub group_type: String, // "group", "supergroup", "channel"
     pub group_title: Option<String>,
     pub group_username: Option<String>,
     pub member_count: Option<u32>,
-    pub admin_user_ids: Vec<String>, // Telegram user IDs of admins
-    pub bot_permissions: Vec<String>, // What the bot can do in this group
+    pub admin_user_ids: Vec<String>,   // Telegram user IDs of admins
+    pub bot_permissions: Vec<String>,  // What the bot can do in this group
     pub enabled_features: Vec<String>, // Which features are enabled
     pub global_opportunities_enabled: bool,
     pub technical_analysis_enabled: bool,
@@ -758,44 +758,40 @@ impl UserProfile {
     /// Check if user has permission for a specific command
     pub fn has_permission(&self, permission: CommandPermission) -> bool {
         let user_role = self.get_user_role();
-        
+
         match permission {
-            CommandPermission::BasicCommands |
-            CommandPermission::BasicOpportunities => true, // Everyone has basic access
-            
+            CommandPermission::BasicCommands | CommandPermission::BasicOpportunities => true, // Everyone has basic access
+
             CommandPermission::ManualTrading => {
                 // During beta: all users have access
                 // Future: require Basic+ subscription + API keys with trade permissions
                 true // Beta override - remove this when implementing subscription gates
             }
-            
+
             CommandPermission::TechnicalAnalysis => {
                 // During beta: all users have access
                 // Future: require Basic+ subscription
                 true // Beta override
             }
-            
+
             CommandPermission::AIEnhancedOpportunities => {
                 // During beta: all users have access
                 // Future: require Premium+ subscription
                 true // Beta override
             }
-            
+
             CommandPermission::AutomatedTrading => {
                 // During beta: all users have access
                 // Future: require Premium+ subscription + risk management setup
                 true // Beta override
             }
-            
-            CommandPermission::SystemAdministration |
-            CommandPermission::UserManagement |
-            CommandPermission::GlobalConfiguration |
-            CommandPermission::GroupAnalytics => {
-                user_role == UserRole::SuperAdmin
-            }
-            
-            CommandPermission::AdvancedAnalytics |
-            CommandPermission::PremiumFeatures => {
+
+            CommandPermission::SystemAdministration
+            | CommandPermission::UserManagement
+            | CommandPermission::GlobalConfiguration
+            | CommandPermission::GroupAnalytics => user_role == UserRole::SuperAdmin,
+
+            CommandPermission::AdvancedAnalytics | CommandPermission::PremiumFeatures => {
                 // During beta: all users have access
                 // Future: require Premium+ subscription
                 true // Beta override
@@ -813,9 +809,7 @@ impl UserProfile {
     /// Check if user has API keys with trading permissions
     pub fn has_trading_api_keys(&self) -> bool {
         self.api_keys.iter().any(|key| {
-            key.is_active && 
-            key.is_exchange_key() && 
-            key.permissions.contains(&"trade".to_string())
+            key.is_active && key.is_exchange_key() && key.permissions.contains(&"trade".to_string())
         })
     }
 
@@ -826,9 +820,12 @@ impl UserProfile {
 
     /// Check if user can use automated trading
     pub fn can_use_automated_trading(&self) -> bool {
-        self.has_permission(CommandPermission::AutomatedTrading) && 
-        self.has_trading_api_keys() &&
-        matches!(self.get_trading_mode(), TradingMode::Automated | TradingMode::Advisory)
+        self.has_permission(CommandPermission::AutomatedTrading)
+            && self.has_trading_api_keys()
+            && matches!(
+                self.get_trading_mode(),
+                TradingMode::Automated | TradingMode::Advisory
+            )
     }
 
     /// Check if user is super admin
@@ -840,10 +837,22 @@ impl UserProfile {
     pub fn new_super_admin(telegram_user_id: Option<i64>) -> Self {
         let mut profile = Self::new(telegram_user_id, None);
         profile.subscription.tier = SubscriptionTier::SuperAdmin;
-        profile.subscription.features.push("super_admin_access".to_string());
-        profile.subscription.features.push("system_administration".to_string());
-        profile.subscription.features.push("user_management".to_string());
-        profile.subscription.features.push("global_configuration".to_string());
+        profile
+            .subscription
+            .features
+            .push("super_admin_access".to_string());
+        profile
+            .subscription
+            .features
+            .push("system_administration".to_string());
+        profile
+            .subscription
+            .features
+            .push("user_management".to_string());
+        profile
+            .subscription
+            .features
+            .push("global_configuration".to_string());
         profile
     }
 
@@ -1086,11 +1095,11 @@ impl Default for FairnessConfig {
 
         Self {
             rotation_interval_minutes: 15,
-            max_opportunities_per_user_per_hour: 2,  // Updated: max 2 opportunities per cycle
-            max_opportunities_per_user_per_day: 10,  // Updated: max 10 daily
+            max_opportunities_per_user_per_hour: 2, // Updated: max 2 opportunities per cycle
+            max_opportunities_per_user_per_day: 10, // Updated: max 10 daily
             tier_multipliers,
             activity_boost_factor: 1.2,
-            cooldown_period_minutes: 240,  // Updated: 4-hour cooldown (240 minutes)
+            cooldown_period_minutes: 240, // Updated: 4-hour cooldown (240 minutes)
         }
     }
 }

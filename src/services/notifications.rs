@@ -24,11 +24,12 @@ impl NotificationChannel {
     pub fn as_str(&self) -> &'static str {
         match self {
             NotificationChannel::Telegram => "telegram",
-            NotificationChannel::Email => "email", 
+            NotificationChannel::Email => "email",
             NotificationChannel::Push => "push",
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "telegram" => Some(NotificationChannel::Telegram),
@@ -49,7 +50,7 @@ pub struct NotificationTemplate {
     pub category: String, // opportunity, risk, balance, system, custom
     pub title_template: String,
     pub message_template: String,
-    pub priority: String,      // low, medium, high, critical
+    pub priority: String, // low, medium, high, critical
     pub channels: Vec<NotificationChannel>,
     pub variables: Vec<String>,
     pub is_system_template: bool,
@@ -601,7 +602,8 @@ impl NotificationService {
 
             // Attempt atomic increment with optimistic locking
             let new_count = current_count + 1;
-            let put_result = self.kv_store
+            let put_result = self
+                .kv_store
                 .put(&cache_key, new_count.to_string())?
                 .expiration_ttl(3600) // 1 hour TTL
                 .execute()
@@ -611,7 +613,23 @@ impl NotificationService {
                 Ok(_) => return Ok(false), // Successfully incremented, not rate limited
                 Err(_) if retry < max_retries - 1 => {
                     // Retry on conflict
-                    tokio::time::sleep(tokio::time::Duration::from_millis(10 * (retry + 1) as u64)).await;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    tokio::time::sleep(tokio::time::Duration::from_millis(10 * (retry + 1) as u64))
+                        .await;
+
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        // Use browser-compatible sleep for WASM
+                        let sleep_ms = 10 * (retry + 1) as i32;
+                        let _ = js_sys::Promise::new(&mut |resolve, _| {
+                            web_sys::window()
+                                .unwrap()
+                                .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                    &resolve, sleep_ms,
+                                )
+                                .unwrap();
+                        });
+                    }
                     continue;
                 }
                 Err(e) => {
@@ -813,22 +831,18 @@ impl NotificationService {
         channels: &[NotificationChannel],
     ) -> ArbitrageResult<bool> {
         for channel in channels {
-            if let Ok(history) = self
+            if let Ok(Some(delivery_record)) = self
                 .d1_service
                 .get_notification_history(notification_id, channel.as_str())
                 .await
             {
-                if let Some(delivery_record) = history {
-                    if delivery_record.delivery_status == "success" {
-                        return Ok(true);
-                    }
+                if delivery_record.delivery_status == "success" {
+                    return Ok(true);
                 }
             }
         }
         Ok(false) // No successful deliveries found
     }
-
-
 
     // ============= SYSTEM TEMPLATE FACTORIES =============
 

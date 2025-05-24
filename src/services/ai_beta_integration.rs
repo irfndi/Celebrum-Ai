@@ -1,5 +1,5 @@
-use crate::types::{ArbitrageOpportunity, CommandPermission, SubscriptionTier};
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::types::{ArbitrageOpportunity, CommandPermission};
+use crate::utils::ArbitrageResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -91,11 +91,11 @@ impl AiEnhancedOpportunity {
     pub fn calculate_final_score(&self) -> f64 {
         // Weighted combination of AI score, risk adjustment, and personalization
         let weights = AiScoringWeights::default();
-        
-        (self.ai_score * weights.ai_score_weight) +
-        (self.risk_adjusted_score * weights.risk_weight) +
-        (self.personalization_score * weights.personalization_weight) +
-        (self.market_sentiment.score() * weights.sentiment_weight)
+
+        (self.ai_score * weights.ai_score_weight)
+            + (self.risk_adjusted_score * weights.risk_weight)
+            + (self.personalization_score * weights.personalization_weight)
+            + (self.market_sentiment.score() * weights.sentiment_weight)
     }
 }
 
@@ -270,7 +270,7 @@ impl AiBetaIntegrationService {
         if !self.config.beta_user_access_only {
             return true;
         }
-        
+
         user_permissions.contains(&CommandPermission::AIEnhancedOpportunities)
     }
 
@@ -292,7 +292,9 @@ impl AiBetaIntegrationService {
 
         // Sort by final AI score
         enhanced_opportunities.sort_by(|a, b| {
-            b.calculate_final_score().partial_cmp(&a.calculate_final_score()).unwrap_or(std::cmp::Ordering::Equal)
+            b.calculate_final_score()
+                .partial_cmp(&a.calculate_final_score())
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         // Limit to configured maximum
@@ -310,7 +312,7 @@ impl AiBetaIntegrationService {
     ) -> ArbitrageResult<AiEnhancedOpportunity> {
         // Calculate base AI score
         let ai_score = self.calculate_ai_score(&opportunity).await;
-        
+
         // Create enhanced opportunity
         let mut enhanced = AiEnhancedOpportunity::new(opportunity.clone(), ai_score);
 
@@ -341,17 +343,17 @@ impl AiBetaIntegrationService {
     async fn calculate_ai_score(&self, opportunity: &ArbitrageOpportunity) -> f64 {
         // Mock AI scoring algorithm
         // In production, this would use ML models, market data analysis, etc.
-        
+
         let mut score = 0.5; // Base score
-        
+
         // Rate difference impact
         score += (opportunity.rate_difference * 100.0).min(0.3);
-        
+
         // Pair popularity (BTC/ETH get higher scores)
         if opportunity.pair.contains("BTC") || opportunity.pair.contains("ETH") {
             score += 0.1;
         }
-        
+
         // Exchange reliability
         if let Some(exchange) = &opportunity.long_exchange {
             score += match exchange {
@@ -361,11 +363,11 @@ impl AiBetaIntegrationService {
                 _ => 0.05,
             };
         }
-        
+
         // Random factor to simulate ML uncertainty
         let random_factor = (opportunity.timestamp % 100) as f64 / 1000.0;
         score += random_factor;
-        
+
         score.min(1.0)
     }
 
@@ -386,12 +388,17 @@ impl AiBetaIntegrationService {
         };
 
         // Cache the result
-        self.market_sentiment_cache.insert(pair.to_string(), sentiment.clone());
+        self.market_sentiment_cache
+            .insert(pair.to_string(), sentiment.clone());
         sentiment
     }
 
     /// Generate AI insights for an opportunity
-    async fn generate_ai_insights(&self, opportunity: &ArbitrageOpportunity, ai_score: f64) -> Vec<AiInsight> {
+    async fn generate_ai_insights(
+        &self,
+        opportunity: &ArbitrageOpportunity,
+        ai_score: f64,
+    ) -> Vec<AiInsight> {
         let mut insights = Vec::new();
 
         // Score-based insights
@@ -428,7 +435,8 @@ impl AiBetaIntegrationService {
                 description: "BTC movements often influence broader market sentiment".to_string(),
                 confidence: 0.8,
                 impact_level: ImpactLevel::Medium,
-                recommendation: "Consider market correlation effects in position sizing".to_string(),
+                recommendation: "Consider market correlation effects in position sizing"
+                    .to_string(),
                 supporting_data: serde_json::json!({"market_correlation": 0.75}),
             });
         }
@@ -437,7 +445,11 @@ impl AiBetaIntegrationService {
     }
 
     /// Calculate personalization score based on user profile
-    fn calculate_personalization_score(&self, opportunity: &ArbitrageOpportunity, profile: &AiTradingProfile) -> f64 {
+    fn calculate_personalization_score(
+        &self,
+        opportunity: &ArbitrageOpportunity,
+        profile: &AiTradingProfile,
+    ) -> f64 {
         let mut score = 0.5; // Base score
 
         // Risk tolerance alignment
@@ -446,7 +458,11 @@ impl AiBetaIntegrationService {
         score += risk_alignment * 0.3;
 
         // Preferred pairs
-        if profile.trading_patterns.preferred_pairs.contains(&opportunity.pair) {
+        if profile
+            .trading_patterns
+            .preferred_pairs
+            .contains(&opportunity.pair)
+        {
             score += 0.2;
         }
 
@@ -493,7 +509,7 @@ impl AiBetaIntegrationService {
     fn calculate_risk_adjusted_score(&self, enhanced: &AiEnhancedOpportunity) -> f64 {
         let risk = self.assess_opportunity_risk(&enhanced.base_opportunity);
         let risk_penalty = risk * 0.5;
-        
+
         (enhanced.ai_score - risk_penalty).max(0.0)
     }
 
@@ -503,17 +519,21 @@ impl AiBetaIntegrationService {
         let base_probability = enhanced.ai_score;
         let sentiment_adjustment = enhanced.market_sentiment.score() * 0.1;
         let risk_adjustment = -self.assess_opportunity_risk(&enhanced.base_opportunity) * 0.2;
-        
-        (base_probability + sentiment_adjustment + risk_adjustment).max(0.1).min(0.99)
+
+        (base_probability + sentiment_adjustment + risk_adjustment).clamp(0.1, 0.99)
     }
 
     /// Calculate optimal position size
-    fn calculate_optimal_position_size(&self, enhanced: &AiEnhancedOpportunity, user_id: &str) -> f64 {
+    fn calculate_optimal_position_size(
+        &self,
+        enhanced: &AiEnhancedOpportunity,
+        user_id: &str,
+    ) -> f64 {
         if let Some(profile) = self.user_profiles.get(user_id) {
             let base_size = profile.trading_patterns.average_position_size;
             let confidence_multiplier = enhanced.ai_score;
             let risk_adjustment = 1.0 - self.assess_opportunity_risk(&enhanced.base_opportunity);
-            
+
             base_size * confidence_multiplier * risk_adjustment
         } else {
             // Default conservative size
@@ -524,7 +544,7 @@ impl AiBetaIntegrationService {
     /// Assess time sensitivity of opportunity
     fn assess_time_sensitivity(&self, enhanced: &AiEnhancedOpportunity) -> TimeSensitivity {
         let rate_diff = enhanced.base_opportunity.rate_difference;
-        
+
         match rate_diff {
             r if r > 0.01 => TimeSensitivity::VeryHigh,
             r if r > 0.005 => TimeSensitivity::High,
@@ -553,7 +573,9 @@ impl AiBetaIntegrationService {
                 recommendations.push(AiRecommendation {
                     recommendation_type: "risk_management".to_string(),
                     title: "Reduce Position Sizes".to_string(),
-                    description: "Your maximum drawdown suggests reducing position sizes to preserve capital".to_string(),
+                    description:
+                        "Your maximum drawdown suggests reducing position sizes to preserve capital"
+                            .to_string(),
                     priority: RecommendationPriority::High,
                     estimated_impact: 0.8,
                     action_items: vec![
@@ -569,7 +591,8 @@ impl AiBetaIntegrationService {
                 recommendations.push(AiRecommendation {
                     recommendation_type: "strategy_optimization".to_string(),
                     title: "Improve Trade Selection".to_string(),
-                    description: "AI analysis suggests focusing on higher-confidence opportunities".to_string(),
+                    description: "AI analysis suggests focusing on higher-confidence opportunities"
+                        .to_string(),
                     priority: RecommendationPriority::Medium,
                     estimated_impact: 0.6,
                     action_items: vec![
@@ -726,7 +749,10 @@ mod tests {
         let mut service = AiBetaIntegrationService::new(config);
 
         let opportunities = vec![create_test_opportunity()];
-        let enhanced = service.enhance_opportunities(opportunities, "test_user").await.unwrap();
+        let enhanced = service
+            .enhance_opportunities(opportunities, "test_user")
+            .await
+            .unwrap();
 
         assert!(!enhanced.is_empty());
         assert!(enhanced[0].ai_score > 0.0);
@@ -736,13 +762,13 @@ mod tests {
     fn test_personalization_score_calculation() {
         let config = AiBetaConfig::default();
         let service = AiBetaIntegrationService::new(config);
-        
+
         let opportunity = create_test_opportunity();
         let profile = create_test_profile();
-        
+
         let score = service.calculate_personalization_score(&opportunity, &profile);
         assert!(score > 0.0 && score <= 1.0);
-        
+
         // Should get bonus for preferred pair
         assert!(score > 0.5); // Base score + preferred pair bonus
     }
@@ -763,16 +789,18 @@ mod tests {
     async fn test_personalized_recommendations() {
         let config = AiBetaConfig::default();
         let mut service = AiBetaIntegrationService::new(config);
-        
+
         let mut profile = create_test_profile();
         profile.historical_performance.max_drawdown = 0.3; // High drawdown
         service.update_user_profile("test_user".to_string(), profile);
 
         let recommendations = service.get_personalized_recommendations("test_user").await;
         assert!(!recommendations.is_empty());
-        
+
         // Should recommend risk management due to high drawdown
-        let risk_rec = recommendations.iter().find(|r| r.recommendation_type == "risk_management");
+        let risk_rec = recommendations
+            .iter()
+            .find(|r| r.recommendation_type == "risk_management");
         assert!(risk_rec.is_some());
     }
-} 
+}
