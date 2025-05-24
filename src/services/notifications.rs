@@ -565,6 +565,31 @@ impl NotificationService {
                     ));
                 }
             }
+            "price_alert" => {
+                if !trigger.conditions.contains_key("target_price") {
+                    return Err(ArbitrageError::validation_error(
+                        "price_alert requires target_price condition".to_string(),
+                    ));
+                }
+                if !trigger.conditions.contains_key("trading_pair") {
+                    return Err(ArbitrageError::validation_error(
+                        "price_alert requires trading_pair condition".to_string(),
+                    ));
+                }
+            }
+            "profit_loss" => {
+                if !trigger.conditions.contains_key("threshold_amount") {
+                    return Err(ArbitrageError::validation_error(
+                        "profit_loss requires threshold_amount condition".to_string(),
+                    ));
+                }
+                if !trigger.conditions.contains_key("threshold_type") {
+                    return Err(ArbitrageError::validation_error(
+                        "profit_loss requires threshold_type condition (profit|loss|total)"
+                            .to_string(),
+                    ));
+                }
+            }
             _ => {} // Custom triggers can have flexible conditions
         }
 
@@ -619,9 +644,9 @@ impl NotificationService {
 
                     #[cfg(target_arch = "wasm32")]
                     {
-                        // Use browser-compatible sleep for WASM
+                        // Use browser-compatible sleep for WASM with proper await
                         let sleep_ms = 10 * (retry + 1) as i32;
-                        let _ = js_sys::Promise::new(&mut |resolve, _| {
+                        let promise = js_sys::Promise::new(&mut |resolve, _| {
                             web_sys::window()
                                 .unwrap()
                                 .set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -629,6 +654,9 @@ impl NotificationService {
                                 )
                                 .unwrap();
                         });
+
+                        // Await the Promise using wasm-bindgen-futures
+                        let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
                     }
                     continue;
                 }
@@ -692,20 +720,104 @@ impl NotificationService {
 
     async fn evaluate_price_alert(
         &self,
-        _trigger: &AlertTrigger,
-        _context: &TriggerEvaluationContext,
+        trigger: &AlertTrigger,
+        context: &TriggerEvaluationContext,
     ) -> ArbitrageResult<bool> {
-        // Price alert implementation
-        Ok(false)
+        // Extract required conditions for price alert
+        let target_price = trigger
+            .conditions
+            .get("target_price")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| {
+                ArbitrageError::validation_error(
+                    "price_alert requires valid target_price".to_string(),
+                )
+            })?;
+
+        let _trading_pair = trigger
+            .conditions
+            .get("trading_pair")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ArbitrageError::validation_error(
+                    "price_alert requires valid trading_pair".to_string(),
+                )
+            })?;
+
+        // Get current price from context
+        let current_price = context
+            .current_data
+            .get("current_price")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| {
+                ArbitrageError::validation_error(
+                    "price_alert evaluation requires current_price in context".to_string(),
+                )
+            })?;
+
+        // Get price direction (above or below)
+        let direction = trigger
+            .conditions
+            .get("direction")
+            .and_then(|v| v.as_str())
+            .unwrap_or("above");
+
+        // Evaluate based on direction
+        match direction {
+            "above" => Ok(current_price >= target_price),
+            "below" => Ok(current_price <= target_price),
+            _ => Err(ArbitrageError::validation_error(
+                "price_alert direction must be 'above' or 'below'".to_string(),
+            )),
+        }
     }
 
     async fn evaluate_profit_loss(
         &self,
-        _trigger: &AlertTrigger,
-        _context: &TriggerEvaluationContext,
+        trigger: &AlertTrigger,
+        context: &TriggerEvaluationContext,
     ) -> ArbitrageResult<bool> {
-        // P&L alert implementation
-        Ok(false)
+        // Extract required conditions for P&L alert
+        let threshold_amount = trigger
+            .conditions
+            .get("threshold_amount")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| {
+                ArbitrageError::validation_error(
+                    "profit_loss requires valid threshold_amount".to_string(),
+                )
+            })?;
+
+        let threshold_type = trigger
+            .conditions
+            .get("threshold_type")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ArbitrageError::validation_error(
+                    "profit_loss requires valid threshold_type (profit|loss|total)".to_string(),
+                )
+            })?;
+
+        // Get current P&L data from context
+        let current_pnl = context
+            .current_data
+            .get("current_pnl")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| {
+                ArbitrageError::validation_error(
+                    "profit_loss evaluation requires current_pnl in context".to_string(),
+                )
+            })?;
+
+        // Evaluate based on threshold type
+        match threshold_type {
+            "profit" => Ok(current_pnl >= threshold_amount && current_pnl > 0.0),
+            "loss" => Ok(current_pnl <= -threshold_amount && current_pnl < 0.0),
+            "total" => Ok(current_pnl.abs() >= threshold_amount),
+            _ => Err(ArbitrageError::validation_error(
+                "profit_loss threshold_type must be 'profit', 'loss', or 'total'".to_string(),
+            )),
+        }
     }
 
     async fn evaluate_custom_trigger(
@@ -830,18 +942,38 @@ impl NotificationService {
         notification_id: &str,
         channels: &[NotificationChannel],
     ) -> ArbitrageResult<bool> {
+        let successful_channels = self
+            .check_successful_channels(notification_id, channels)
+            .await?;
+        Ok(!successful_channels.is_empty())
+    }
+
+    /// Helper method to check which specific channels succeeded or failed
+    /// Provides granular delivery status information for partial successes
+    async fn check_successful_channels(
+        &self,
+        notification_id: &str,
+        channels: &[NotificationChannel],
+    ) -> ArbitrageResult<Vec<String>> {
+        let mut successful_channels = Vec::new();
+
+        // Iterate over each notification channel and query delivery status individually
         for channel in channels {
+            let channel_name = channel.as_str();
+
+            // Query the delivery status for this specific channel
             if let Ok(Some(delivery_record)) = self
                 .d1_service
-                .get_notification_history(notification_id, channel.as_str())
+                .get_notification_history(notification_id, channel_name)
                 .await
             {
                 if delivery_record.delivery_status == "success" {
-                    return Ok(true);
+                    successful_channels.push(channel_name.to_string());
                 }
             }
         }
-        Ok(false) // No successful deliveries found
+
+        Ok(successful_channels)
     }
 
     // ============= SYSTEM TEMPLATE FACTORIES =============

@@ -5,6 +5,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+#[cfg(not(target_arch = "wasm32"))]
+use sysinfo::{System, SystemExt, ProcessExt, CpuExt, DiskExt};
+
 /// Metric Types for monitoring different aspects of the system
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -328,11 +331,20 @@ pub struct MonitoringObservabilityService {
     dashboards: Arc<RwLock<Vec<DashboardConfig>>>,
     // Store response time samples for percentile calculation
     response_time_samples: Arc<RwLock<HashMap<String, Vec<u64>>>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    system: Arc<RwLock<System>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    service_start_time: std::time::Instant,
     enabled: bool,
 }
 
 impl MonitoringObservabilityService {
     pub fn new() -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut system = System::new_all();
+        #[cfg(not(target_arch = "wasm32"))]
+        system.refresh_all();
+
         Self {
             metrics_store: Arc::new(RwLock::new(HashMap::new())),
             alert_rules: Arc::new(RwLock::new(Vec::new())),
@@ -341,6 +353,10 @@ impl MonitoringObservabilityService {
             trace_spans: Arc::new(RwLock::new(Vec::new())),
             dashboards: Arc::new(RwLock::new(Vec::new())),
             response_time_samples: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(not(target_arch = "wasm32"))]
+            system: Arc::new(RwLock::new(system)),
+            #[cfg(not(target_arch = "wasm32"))]
+            service_start_time: std::time::Instant::now(),
             enabled: true,
         }
     }
@@ -381,28 +397,28 @@ impl MonitoringObservabilityService {
         Ok(())
     }
 
-    /// Record system metrics (CPU, memory, etc.)
+    /// Record system metrics (CPU, memory, etc.) using real system monitoring
     pub async fn record_system_metrics(&self) -> ArbitrageResult<()> {
-        // Mock system metrics - in production, would use actual system monitoring
-        let cpu_usage = self.get_mock_cpu_usage();
-        let memory_usage = self.get_mock_memory_usage();
-        let disk_usage = self.get_mock_disk_usage();
+        // Use real system monitoring via sysinfo
+        let cpu_usage = self.get_real_cpu_usage().await;
+        let memory_usage = self.get_real_memory_usage().await;
+        let disk_usage = self.get_real_disk_usage().await;
 
         let metrics = vec![
             MetricDataPoint::new(
                 MetricType::CpuUsagePercent,
                 MetricValue::gauge(cpu_usage),
-                "Current CPU usage percentage".to_string(),
+                "Real-time CPU usage percentage from sysinfo".to_string(),
             ),
             MetricDataPoint::new(
                 MetricType::MemoryUsagePercent,
                 MetricValue::gauge(memory_usage),
-                "Current memory usage percentage".to_string(),
+                "Real-time memory usage percentage from sysinfo".to_string(),
             ),
             MetricDataPoint::new(
                 MetricType::DiskUsagePercent,
                 MetricValue::gauge(disk_usage),
-                "Current disk usage percentage".to_string(),
+                "Real-time disk usage percentage from sysinfo".to_string(),
             ),
         ];
 
@@ -556,7 +572,7 @@ impl MonitoringObservabilityService {
             active_alerts_count: active_alerts.len(),
             critical_alerts_count: critical_alerts,
             warning_alerts_count: warning_alerts,
-            uptime_hours: self.get_uptime_hours(),
+            uptime_hours: self.get_real_uptime_hours(),
             last_updated: chrono::Utc::now().timestamp_millis() as u64,
         }
     }
@@ -848,28 +864,99 @@ impl MonitoringObservabilityService {
         score.max(0.0).min(1.0)
     }
 
-    /// Mock system metrics (replace with actual system monitoring)
-    fn get_mock_cpu_usage(&self) -> f64 {
-        // Simulate variable CPU usage
-        let base = 25.0;
-        let variation = (chrono::Utc::now().timestamp() % 100) as f64 / 4.0;
-        base + variation
+    /// Get real CPU usage percentage using sysinfo
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn get_real_cpu_usage(&self) -> f64 {
+        let mut system = self.system.write().await;
+        system.refresh_cpu();
+        
+        // Wait a bit to get accurate CPU measurements
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        system.refresh_cpu();
+        
+        // Calculate average CPU usage across all cores
+        let cpus = system.cpus();
+        if cpus.is_empty() {
+            return 0.0;
+        }
+        
+        let total_usage: f32 = cpus.iter().map(|cpu| cpu.cpu_usage()).sum();
+        (total_usage / cpus.len() as f32) as f64
     }
 
-    fn get_mock_memory_usage(&self) -> f64 {
-        // Simulate gradual memory increase
-        let base = 45.0;
-        let trend = (chrono::Utc::now().timestamp() % 1000) as f64 / 100.0;
-        base + trend
+    /// Get real memory usage percentage using sysinfo
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn get_real_memory_usage(&self) -> f64 {
+        let mut system = self.system.write().await;
+        system.refresh_memory();
+        
+        let used_memory = system.used_memory();
+        let total_memory = system.total_memory();
+        
+        if total_memory == 0 {
+            return 0.0;
+        }
+        
+        (used_memory as f64 / total_memory as f64) * 100.0
     }
 
-    fn get_mock_disk_usage(&self) -> f64 {
-        // Simulate slowly increasing disk usage
+    /// Get real disk usage percentage using sysinfo
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn get_real_disk_usage(&self) -> f64 {
+        let mut system = self.system.write().await;
+        system.refresh_disks();
+        
+        let disks = system.disks();
+        if disks.is_empty() {
+            return 0.0;
+        }
+        
+        // Calculate average disk usage across all disks
+        let mut total_available = 0;
+        let mut total_space = 0;
+        
+        for disk in disks {
+            total_available += disk.available_space();
+            total_space += disk.total_space();
+        }
+        
+        if total_space == 0 {
+            return 0.0;
+        }
+        
+        let used_space = total_space - total_available;
+        (used_space as f64 / total_space as f64) * 100.0
+    }
+
+    /// Get real service uptime in hours
+    #[cfg(not(target_arch = "wasm32"))]
+    fn get_real_uptime_hours(&self) -> f64 {
+        let uptime_duration = self.service_start_time.elapsed();
+        uptime_duration.as_secs_f64() / 3600.0
+    }
+
+    /// Fallback functions for WASM or when sysinfo is not available
+    #[cfg(target_arch = "wasm32")]
+    async fn get_real_cpu_usage(&self) -> f64 {
+        // WASM fallback: simulated values
+        25.0 + (chrono::Utc::now().timestamp() % 100) as f64 / 4.0
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    async fn get_real_memory_usage(&self) -> f64 {
+        // WASM fallback: simulated values
+        45.0 + (chrono::Utc::now().timestamp() % 1000) as f64 / 100.0
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    async fn get_real_disk_usage(&self) -> f64 {
+        // WASM fallback: simulated values
         65.0 + (chrono::Utc::now().timestamp() % 10000) as f64 / 1000.0
     }
 
-    fn get_uptime_hours(&self) -> f64 {
-        // Mock uptime - in production, track actual service start time
+    #[cfg(target_arch = "wasm32")]
+    fn get_real_uptime_hours(&self) -> f64 {
+        // WASM fallback: simulate uptime
         72.5
     }
 

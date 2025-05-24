@@ -40,6 +40,7 @@ reqwest = { version = "0.12.15", features = ["json"], default-features = false }
 # HTTP client for native - reqwest with full features
 reqwest = { version = "0.12.15", features = ["json", "stream"], default-features = false }
 tokio = { version = "1.42", features = ["macros", "rt"] }
+sysinfo = "0.32"
 
 [dev-dependencies]
 tokio = { version = "1.42", features = ["macros", "rt-multi-thread"] }
