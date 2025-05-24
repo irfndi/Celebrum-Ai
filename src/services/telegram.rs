@@ -4,9 +4,10 @@ use crate::services::ai_intelligence::{
     AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion,
 };
 use crate::services::opportunity_categorization::CategorizedOpportunity;
+use crate::services::user_profile::UserProfileService;
 use crate::types::{
     ArbitrageOpportunity, CommandPermission, GroupRateLimitConfig, GroupRegistration,
-    MessageAnalytics,
+    MessageAnalytics, UserRole,
 };
 use crate::utils::formatter::{
     escape_markdown_v2, format_ai_enhancement_message, format_categorized_opportunity_message,
@@ -105,6 +106,7 @@ pub struct TelegramService {
     #[allow(dead_code)]
     analytics_enabled: bool,
     group_registrations: std::collections::HashMap<String, GroupRegistration>,
+    user_profile_service: Option<UserProfileService>, // Optional for initialization, required for RBAC
 }
 
 impl TelegramService {
@@ -114,7 +116,13 @@ impl TelegramService {
             http_client: Client::new(),
             analytics_enabled: true,
             group_registrations: std::collections::HashMap::new(),
+            user_profile_service: None, // Will be injected via set_user_profile_service
         }
+    }
+
+    /// Set the UserProfile service for database-based RBAC
+    pub fn set_user_profile_service(&mut self, user_profile_service: UserProfileService) {
+        self.user_profile_service = Some(user_profile_service);
     }
 
     /// Track message analytics for analysis
@@ -644,30 +652,51 @@ impl TelegramService {
         }
     }
 
-    /// Check if user has required permission (mock implementation)
+    /// Check if user has required permission using database-based RBAC
     async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
-        // TODO: Replace with actual user profile lookup from database
-        // For now, mock implementation based on user_id patterns
+        // If UserProfile service is not available, fall back to basic pattern-based check
+        let Some(ref user_profile_service) = self.user_profile_service else {
+            // Fallback for admin_ prefix pattern (temporary during initialization)
+            return user_id.starts_with("admin_");
+        };
 
-        // Super admin check (user IDs starting with "admin_" or specific known admin IDs)
-        let is_super_admin = user_id.starts_with("admin_") || 
-                           user_id == "123456789" || // Example admin user ID
-                           user_id == "987654321" || // Another admin user ID  
-                           user_id == "1082762347"; // @theprofcrypto - Super Admin
+        // Get user profile from database to check their role
+        let user_profile = match user_profile_service
+            .get_user_by_telegram_id(user_id.parse::<i64>().unwrap_or(0))
+            .await
+        {
+            Ok(Some(profile)) => profile,
+            _ => {
+                // If user not found in database or error occurred, no permissions
+                return false;
+            }
+        };
 
+        // Get user role from their subscription tier via RBAC system
+        let user_role = user_profile.get_user_role();
+
+        // Check permission based on user role and subscription
         match permission {
-            CommandPermission::BasicCommands
-            | CommandPermission::BasicOpportunities
-            | CommandPermission::ManualTrading
+            CommandPermission::BasicCommands | CommandPermission::BasicOpportunities => true, // Available to all users
+
+            CommandPermission::ManualTrading
             | CommandPermission::TechnicalAnalysis
             | CommandPermission::AIEnhancedOpportunities
             | CommandPermission::AutomatedTrading
             | CommandPermission::AdvancedAnalytics
-            | CommandPermission::PremiumFeatures => true, // Beta: all users have access
+            | CommandPermission::PremiumFeatures => {
+                // During beta period, all users have access
+                // In production, this would check subscription tier
+                user_profile.subscription.is_active
+            }
+
             CommandPermission::SystemAdministration
             | CommandPermission::UserManagement
             | CommandPermission::GlobalConfiguration
-            | CommandPermission::GroupAnalytics => is_super_admin,
+            | CommandPermission::GroupAnalytics => {
+                // Super admin only permissions - check user role from database
+                user_role == UserRole::SuperAdmin
+            }
         }
     }
 

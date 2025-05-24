@@ -211,10 +211,48 @@ Edge Deployment: Leverage Cloudflare Workers for potentially lower latency execu
 - Enterprise features for institutional and team management
 
 **FR4.2**: The system must support role-based access control (RBAC)
-- Administrative roles for platform management and user support
-- Risk management overrides and emergency controls
-- API access levels and rate limiting per role
-- Institutional access with team management capabilities
+- ✅ **IMPLEMENTED**: Database-based RBAC system with CommandPermission enum
+- ✅ **Manual Command Protection**: All Telegram commands protected with permission checking
+- ✅ **Role-Based Keyboard UX**: Inline keyboard buttons filtered by user permissions
+- ✅ **Administrative Roles**: Super admin roles for platform management and user support
+- ✅ **Service Integration**: RBAC implemented across 6/9 core services
+- 🚧 **Remaining Services**: ExchangeService, PositionsService, OpportunityService, MonitoringService RBAC implementation in progress
+- ✅ **API Access Control**: Role-based access levels and rate limiting per role
+- ✅ **Institutional Access**: Team management capabilities with appropriate permission hierarchies
+
+**RBAC Implementation Status (2025-01-27)**:
+- **TelegramService**: ✅ Full database-based RBAC with manual command protection
+- **Telegram Keyboard System**: ✅ Role-based inline keyboard filtering (NEW)
+- **UserProfile**: ✅ Core RBAC logic and database integration complete
+- **TechnicalAnalysisService**: ✅ Permission-based access control
+- **AiBetaIntegrationService**: ✅ Beta access control system
+- **GlobalOpportunityService**: ✅ Subscription-based priority system
+- **ExchangeService**: 🚧 RBAC implementation in progress
+- **PositionsService**: 🚧 RBAC implementation in progress  
+- **OpportunityService**: 🚧 RBAC implementation in progress
+- **MonitoringService**: 🚧 RBAC implementation in progress
+
+**FR4.3**: The system must implement RBAC-based Telegram User Interface
+- ✅ **Role-Based Keyboard System**: Inline keyboard buttons dynamically filtered by user permissions
+- ✅ **Permission-Button Mapping**: Each button mapped to specific CommandPermission types
+- ✅ **Smart UI Filtering**: Users see only buttons they have permission to use
+- ✅ **Graceful Degradation**: System handles UserProfileService unavailability by hiding sensitive buttons
+- ✅ **Telegram API Integration**: Native inline keyboard support with JSON conversion
+- ✅ **Pre-built Layouts**: Main menu, opportunities menu, admin menu with appropriate permissions
+
+**RBAC Keyboard Features**:
+- **Public Access Buttons**: Opportunities, Categories, Settings, Help (no permission required)
+- **AdvancedAnalytics Buttons**: Balance, Orders, Positions, Risk Assessment, Enhanced Analysis
+- **ManualTrading Buttons**: Buy, Sell trading operations
+- **AutomatedTrading Buttons**: Auto Enable/Disable/Config controls
+- **AIEnhancedOpportunities Buttons**: AI Insights, AI Enhanced opportunities
+- **SystemAdministration Buttons**: All admin functions (Users, Stats, Config, Broadcast)
+
+**Security & UX Benefits**:
+- **Enhanced Security**: Frontend UI enforcement complements backend permission checking
+- **Improved User Experience**: Intuitive interface where users see only available options
+- **Reduced Support**: Fewer permission errors due to hidden unavailable buttons
+- **Progressive Discovery**: Users naturally discover new features as they gain permissions
 
 4.5 Enhanced Risk Management
 **FR5.1**: The system must implement trading-focus-appropriate risk controls

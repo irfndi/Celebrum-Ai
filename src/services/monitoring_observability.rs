@@ -1,4 +1,5 @@
-use crate::types::{ArbitrageOpportunity, CommandPermission};
+use crate::services::user_profile::UserProfileService;
+use crate::types::{ArbitrageOpportunity, CommandPermission, UserRole};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -336,15 +337,11 @@ pub struct MonitoringObservabilityService {
     #[cfg(not(target_arch = "wasm32"))]
     service_start_time: std::time::Instant,
     enabled: bool,
+    user_profile_service: Option<UserProfileService>, // Optional for initialization, required for RBAC
 }
 
 impl MonitoringObservabilityService {
     pub fn new() -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
-        let mut system = System::new_all();
-        #[cfg(not(target_arch = "wasm32"))]
-        system.refresh_all();
-
         Self {
             metrics_store: Arc::new(RwLock::new(HashMap::new())),
             alert_rules: Arc::new(RwLock::new(Vec::new())),
@@ -354,11 +351,40 @@ impl MonitoringObservabilityService {
             dashboards: Arc::new(RwLock::new(Vec::new())),
             response_time_samples: Arc::new(RwLock::new(HashMap::new())),
             #[cfg(not(target_arch = "wasm32"))]
-            system: Arc::new(RwLock::new(system)),
+            system: Arc::new(RwLock::new(System::new_all())),
             #[cfg(not(target_arch = "wasm32"))]
             service_start_time: std::time::Instant::now(),
-            enabled: true,
+            enabled: false,
+            user_profile_service: None, // Will be injected via set_user_profile_service
         }
+    }
+
+    /// Set the UserProfile service for database-based RBAC
+    pub fn set_user_profile_service(&mut self, user_profile_service: UserProfileService) {
+        self.user_profile_service = Some(user_profile_service);
+    }
+
+    /// Check if user has required permission using database-based RBAC
+    async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
+        // If UserProfile service is not available, deny access for security
+        let Some(ref user_profile_service) = self.user_profile_service else {
+            // For critical monitoring operations, always deny if RBAC is not configured
+            return false;
+        };
+
+        // Get user profile from database to check their role
+        let user_profile = match user_profile_service.get_user_by_telegram_id(
+            user_id.parse::<i64>().unwrap_or(0)
+        ).await {
+            Ok(Some(profile)) => profile,
+            _ => {
+                // If user not found in database or error occurred, no permissions
+                return false;
+            }
+        };
+
+        // Use the existing UserProfile permission checking method
+        user_profile.has_permission(permission.clone())
     }
 
     /// Initialize monitoring with default configurations
@@ -994,7 +1020,7 @@ impl MonitoringObservabilityService {
 
     /// Detect anomalies using statistical analysis
     async fn detect_anomaly(&self, metric_type: &MetricType, current_value: f64, sensitivity: f64) -> bool {
-        let historical_metrics = self.get_metrics(metric_type, 24).await; // Get 24 hours of data
+        let historical_metrics = self.get_metrics(metric_type, 24).await;
         
         if historical_metrics.len() < 10 {
             return false; // Need enough data for statistical analysis
@@ -1074,6 +1100,85 @@ impl MonitoringObservabilityService {
         } else {
             (0.0, 0.0, 0.0)
         }
+    }
+
+    /// RBAC-protected system health summary with permission checking
+    pub async fn get_system_health_summary_with_permission(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<SystemHealthSummary> {
+        // Check SystemAdministration permission for system health access
+        if !self.check_user_permission(user_id, &CommandPermission::SystemAdministration).await {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: SystemAdministration required for system health access".to_string(),
+            ));
+        }
+
+        // Call the original get_system_health_summary method
+        Ok(self.get_system_health_summary().await)
+    }
+
+    /// RBAC-protected performance overview with permission checking
+    pub async fn get_performance_overview_with_permission(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<HashMap<String, PerformanceMetrics>> {
+        // Check AdvancedAnalytics permission for performance metrics
+        if !self.check_user_permission(user_id, &CommandPermission::AdvancedAnalytics).await {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: AdvancedAnalytics required for performance metrics".to_string(),
+            ));
+        }
+
+        // Call the original get_performance_overview method
+        Ok(self.get_performance_overview().await)
+    }
+
+    /// RBAC-protected active alerts access with permission checking
+    pub async fn get_active_alerts_with_permission(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<Vec<Alert>> {
+        // Check SystemAdministration permission for alerts access
+        if !self.check_user_permission(user_id, &CommandPermission::SystemAdministration).await {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: SystemAdministration required for alerts access".to_string(),
+            ));
+        }
+
+        // Call the original get_active_alerts method
+        Ok(self.get_active_alerts().await)
+    }
+
+    /// RBAC-protected metrics access with permission checking and filtering
+    pub async fn get_metrics_with_permission(
+        &self,
+        user_id: &str,
+        metric_type: &MetricType,
+        hours: u64,
+    ) -> ArbitrageResult<Vec<MetricDataPoint>> {
+        // Check permission based on metric type sensitivity
+        let required_permission = match metric_type {
+            MetricType::CpuUsagePercent | MetricType::MemoryUsagePercent | MetricType::DiskUsagePercent => {
+                CommandPermission::SystemAdministration
+            },
+            MetricType::ErrorRate | MetricType::ResponseTimeMs | MetricType::RequestsPerSecond => {
+                CommandPermission::AdvancedAnalytics
+            },
+            MetricType::OpportunitiesDetected | MetricType::UserSessions => {
+                CommandPermission::AdvancedAnalytics
+            },
+            _ => CommandPermission::SystemAdministration, // Default to highest permission for unknown metrics
+        };
+
+        if !self.check_user_permission(user_id, &required_permission).await {
+            return Err(ArbitrageError::validation_error(
+                format!("Insufficient permissions: {:?} required for {:?} metrics", required_permission, metric_type),
+            ));
+        }
+
+        // Call the original get_metrics method
+        Ok(self.get_metrics(metric_type, hours).await)
     }
 }
 

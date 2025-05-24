@@ -197,9 +197,7 @@ async fn create_opportunity_service(
     // Create services
     let exchange_service = Arc::new(ExchangeService::new(custom_env)?);
 
-    let telegram_service = if let Ok(bot_token) = 
-        custom_env.worker_env.var("TELEGRAM_BOT_TOKEN")
-    {
+    let telegram_service = if let Ok(bot_token) = custom_env.worker_env.var("TELEGRAM_BOT_TOKEN") {
         Some(Arc::new(TelegramService::new(
             services::telegram::TelegramConfig {
                 bot_token: bot_token.to_string(),

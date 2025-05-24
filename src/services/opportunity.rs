@@ -4,8 +4,10 @@ use crate::log_error;
 use crate::services::exchange::ExchangeInterface;
 use crate::services::exchange::ExchangeService;
 use crate::services::telegram::TelegramService;
+use crate::services::user_profile::UserProfileService;
 use crate::types::{
-    ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum, FundingRateInfo, StructuredTradingPair,
+    ArbitrageOpportunity, ArbitrageType, CommandPermission, ExchangeIdEnum, FundingRateInfo,
+    StructuredTradingPair,
 };
 use crate::utils::ArbitrageResult;
 use std::sync::Arc;
@@ -24,6 +26,7 @@ pub struct OpportunityService {
     config: OpportunityServiceConfig,
     exchange_service: Arc<ExchangeService>,
     telegram_service: Option<Arc<TelegramService>>,
+    user_profile_service: Option<UserProfileService>,
 }
 
 impl OpportunityService {
@@ -36,7 +39,95 @@ impl OpportunityService {
             config,
             exchange_service,
             telegram_service,
+            user_profile_service: None,
         }
+    }
+
+    /// Set the UserProfile service for database-based RBAC
+    pub fn set_user_profile_service(&mut self, user_profile_service: UserProfileService) {
+        self.user_profile_service = Some(user_profile_service);
+    }
+
+    /// Check if user has required permission using database-based RBAC
+    async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
+        // If UserProfile service is not available, allow basic access (for backward compatibility)
+        let Some(ref user_profile_service) = self.user_profile_service else {
+            // Allow basic opportunity viewing without RBAC (legacy behavior)
+            return true;
+        };
+
+        // Get user profile from database to check their role
+        let user_profile = match user_profile_service
+            .get_user_by_telegram_id(user_id.parse::<i64>().unwrap_or(0))
+            .await
+        {
+            Ok(Some(profile)) => profile,
+            _ => {
+                // If user not found in database, allow basic access
+                return true;
+            }
+        };
+
+        // Use the existing UserProfile permission checking method
+        user_profile.has_permission(permission.clone())
+    }
+
+    /// RBAC-protected opportunity finding with subscription-based filtering
+    pub async fn find_opportunities_with_permission(
+        &self,
+        user_id: &str,
+        exchange_ids: &[ExchangeIdEnum],
+        pairs: &[String],
+        threshold: f64,
+    ) -> ArbitrageResult<Vec<ArbitrageOpportunity>> {
+        // Check BasicOpportunities permission for opportunity access
+        if !self
+            .check_user_permission(user_id, &CommandPermission::BasicOpportunities)
+            .await
+        {
+            return Err(crate::utils::ArbitrageError::validation_error(
+                "Insufficient permissions: BasicOpportunities required for opportunity access"
+                    .to_string(),
+            ));
+        }
+
+        // Get user subscription tier to determine filtering level
+        let subscription_tier = if let Some(ref user_profile_service) = self.user_profile_service {
+            if let Ok(Some(profile)) = user_profile_service
+                .get_user_by_telegram_id(user_id.parse::<i64>().unwrap_or(0))
+                .await
+            {
+                profile.subscription.tier
+            } else {
+                crate::types::SubscriptionTier::Free // Default for unknown users
+            }
+        } else {
+            crate::types::SubscriptionTier::Free // Default when RBAC not configured
+        };
+
+        // Call the original find_opportunities method
+        let mut opportunities = self
+            .find_opportunities(exchange_ids, pairs, threshold)
+            .await?;
+
+        // Filter opportunities based on user subscription tier
+        match subscription_tier {
+            crate::types::SubscriptionTier::Free => {
+                // Free users get limited opportunities (first 2)
+                opportunities.truncate(2);
+            }
+            crate::types::SubscriptionTier::Basic => {
+                // Basic users get more opportunities (first 5)
+                opportunities.truncate(5);
+            }
+            crate::types::SubscriptionTier::Premium
+            | crate::types::SubscriptionTier::Enterprise
+            | crate::types::SubscriptionTier::SuperAdmin => {
+                // Premium+ users get all opportunities (no filtering)
+            }
+        }
+
+        Ok(opportunities)
     }
 
     pub async fn find_opportunities(

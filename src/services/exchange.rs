@@ -4,6 +4,7 @@ use chrono::Utc;
 use reqwest::{Client, Method};
 use serde_json::{json, Value};
 
+use crate::services::user_profile::UserProfileService;
 use crate::types::*;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 
@@ -106,6 +107,84 @@ pub trait ExchangeInterface {
     ) -> ArbitrageResult<Value>;
 }
 
+/// RBAC-protected exchange operations that require user permission validation
+#[allow(dead_code)]
+pub trait RbacExchangeInterface {
+    #[allow(async_fn_in_trait)]
+    async fn save_api_key_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+    ) -> ArbitrageResult<()>;
+
+    #[allow(async_fn_in_trait)]
+    async fn delete_api_key_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+    ) -> ArbitrageResult<()>;
+
+    #[allow(async_fn_in_trait)]
+    async fn get_balance_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+    ) -> ArbitrageResult<Value>;
+
+    #[allow(async_fn_in_trait)]
+    #[allow(clippy::too_many_arguments)]
+    async fn create_order_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+        symbol: &str,
+        side: &str,
+        amount: f64,
+        price: Option<f64>,
+    ) -> ArbitrageResult<Value>;
+
+    #[allow(async_fn_in_trait)]
+    async fn cancel_order_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+        order_id: &str,
+        symbol: &str,
+    ) -> ArbitrageResult<Value>;
+
+    #[allow(async_fn_in_trait)]
+    async fn get_open_orders_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+        symbol: Option<&str>,
+    ) -> ArbitrageResult<Vec<Value>>;
+
+    #[allow(async_fn_in_trait)]
+    async fn get_open_positions_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+        symbol: Option<&str>,
+    ) -> ArbitrageResult<Vec<Value>>;
+
+    #[allow(async_fn_in_trait)]
+    async fn set_leverage_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+        symbol: &str,
+        leverage: u32,
+    ) -> ArbitrageResult<Value>;
+}
+
 // ============= SUPER ADMIN API CONFIGURATION =============
 
 #[derive(Debug, Clone)]
@@ -177,6 +256,7 @@ pub struct ExchangeService {
     client: Client,
     kv: worker::kv::KvStore,
     super_admin_configs: std::collections::HashMap<String, SuperAdminApiConfig>,
+    user_profile_service: Option<UserProfileService>, // Optional for initialization, required for RBAC
 }
 
 impl ExchangeService {
@@ -194,7 +274,37 @@ impl ExchangeService {
             client,
             kv,
             super_admin_configs: std::collections::HashMap::new(),
+            user_profile_service: None, // Will be injected via set_user_profile_service
         })
+    }
+
+    /// Set the UserProfile service for database-based RBAC
+    pub fn set_user_profile_service(&mut self, user_profile_service: UserProfileService) {
+        self.user_profile_service = Some(user_profile_service);
+    }
+
+    /// Check if user has required permission using database-based RBAC
+    async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
+        // If UserProfile service is not available, deny access for security
+        let Some(ref user_profile_service) = self.user_profile_service else {
+            // For critical trading operations, always deny if RBAC is not configured
+            return false;
+        };
+
+        // Get user profile from database to check their role
+        let user_profile = match user_profile_service
+            .get_user_by_telegram_id(user_id.parse::<i64>().unwrap_or(0))
+            .await
+        {
+            Ok(Some(profile)) => profile,
+            _ => {
+                // If user not found in database or error occurred, no permissions
+                return false;
+            }
+        };
+
+        // Use the existing UserProfile permission checking method
+        user_profile.has_permission(permission.clone())
     }
 
     /// Configure super admin read-only API keys for global opportunity generation
@@ -857,6 +967,190 @@ impl ExchangeInterface for ExchangeService {
                 exchange_id
             ))),
         }
+    }
+}
+
+impl RbacExchangeInterface for ExchangeService {
+    async fn save_api_key_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+    ) -> ArbitrageResult<()> {
+        // Check SystemAdministration permission for API key management
+        if !self
+            .check_user_permission(user_id, &CommandPermission::SystemAdministration)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: SystemAdministration required for API key management"
+                    .to_string(),
+            ));
+        }
+
+        // Call the original save_api_key method
+        self.save_api_key(exchange_id, credentials).await
+    }
+
+    async fn delete_api_key_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+    ) -> ArbitrageResult<()> {
+        // Check SystemAdministration permission for API key management
+        if !self
+            .check_user_permission(user_id, &CommandPermission::SystemAdministration)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: SystemAdministration required for API key management"
+                    .to_string(),
+            ));
+        }
+
+        // Call the original delete_api_key method
+        self.delete_api_key(exchange_id).await
+    }
+
+    async fn get_balance_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+    ) -> ArbitrageResult<Value> {
+        // Check AdvancedAnalytics permission for balance viewing
+        if !self
+            .check_user_permission(user_id, &CommandPermission::AdvancedAnalytics)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: AdvancedAnalytics required for balance viewing"
+                    .to_string(),
+            ));
+        }
+
+        // Call the original get_balance method
+        self.get_balance(exchange_id, credentials).await
+    }
+
+    #[allow(async_fn_in_trait)]
+    #[allow(clippy::too_many_arguments)]
+    async fn create_order_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+        symbol: &str,
+        side: &str,
+        amount: f64,
+        price: Option<f64>,
+    ) -> ArbitrageResult<Value> {
+        // Check ManualTrading permission for order creation
+        if !self
+            .check_user_permission(user_id, &CommandPermission::ManualTrading)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: ManualTrading required for order creation".to_string(),
+            ));
+        }
+
+        // Call the original create_order method
+        self.create_order(exchange_id, credentials, symbol, side, amount, price)
+            .await
+    }
+
+    async fn cancel_order_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+        order_id: &str,
+        symbol: &str,
+    ) -> ArbitrageResult<Value> {
+        // Check ManualTrading permission for order cancellation
+        if !self
+            .check_user_permission(user_id, &CommandPermission::ManualTrading)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: ManualTrading required for order cancellation"
+                    .to_string(),
+            ));
+        }
+
+        // Call the original cancel_order method
+        self.cancel_order(exchange_id, credentials, order_id, symbol)
+            .await
+    }
+
+    async fn get_open_orders_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+        symbol: Option<&str>,
+    ) -> ArbitrageResult<Vec<Value>> {
+        // Check AdvancedAnalytics permission for order viewing
+        if !self
+            .check_user_permission(user_id, &CommandPermission::AdvancedAnalytics)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: AdvancedAnalytics required for order viewing"
+                    .to_string(),
+            ));
+        }
+
+        // Call the original get_open_orders method
+        self.get_open_orders(exchange_id, credentials, symbol).await
+    }
+
+    async fn get_open_positions_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+        symbol: Option<&str>,
+    ) -> ArbitrageResult<Vec<Value>> {
+        // Check AdvancedAnalytics permission for position viewing
+        if !self
+            .check_user_permission(user_id, &CommandPermission::AdvancedAnalytics)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: AdvancedAnalytics required for position viewing"
+                    .to_string(),
+            ));
+        }
+
+        // Call the original get_open_positions method
+        self.get_open_positions(exchange_id, credentials, symbol)
+            .await
+    }
+
+    async fn set_leverage_with_permission(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        credentials: &ExchangeCredentials,
+        symbol: &str,
+        leverage: u32,
+    ) -> ArbitrageResult<Value> {
+        // Check ManualTrading permission for leverage adjustment
+        if !self
+            .check_user_permission(user_id, &CommandPermission::ManualTrading)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: ManualTrading required for leverage adjustment"
+                    .to_string(),
+            ));
+        }
+
+        // Call the original set_leverage method
+        self.set_leverage(exchange_id, credentials, symbol, leverage)
+            .await
     }
 }
 
@@ -1782,6 +2076,32 @@ mod tests {
             assert_eq!(bids[0], [50000.0, 1.5]);
             assert_eq!(bids[1], [49999.0, 2.0]);
             assert_eq!(bids[2], [49998.0, 0.5]);
+
+            // Test ask parsing
+            let empty_vec2 = vec![];
+            let asks: Vec<[f64; 2]> = orderbook_data["asks"]
+                .as_array()
+                .unwrap_or(&empty_vec2)
+                .iter()
+                .filter_map(|ask| {
+                    if let Some(arr) = ask.as_array() {
+                        if arr.len() >= 2 {
+                            let price = arr[0].as_str()?.parse().ok()?;
+                            let amount = arr[1].as_str()?.parse().ok()?;
+                            Some([price, amount])
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            assert_eq!(asks.len(), 3);
+            assert_eq!(asks[0], [50001.00, 1.0]);
+            assert_eq!(asks[1], [50002.00, 1.2]);
+            assert_eq!(asks[2], [50003.00, 0.8]);
         }
 
         #[test]
