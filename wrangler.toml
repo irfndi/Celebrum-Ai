@@ -19,6 +19,11 @@ binding = "ArbEdgeD1"
 database_name = "prod-arb-edge"
 database_id = "879bf844-93b2-433d-9319-6e6065bbfdfd"
 
+# Durable Object migrations
+[[migrations]]
+tag = "v1"
+deleted_classes = ["PositionsManager"]
+
 # Cron Triggers for scheduled tasks
 [triggers]
 crons = ["*/5 * * * *"] # Run every 5 minutes
