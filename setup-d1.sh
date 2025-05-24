@@ -12,7 +12,7 @@ if ! command -v wrangler &> /dev/null; then
 fi
 
 # Use existing D1 database
-DB_NAME="ArbEdgeD1"
+DB_NAME="prod-arb-edge"
 DB_ID="879bf844-93b2-433d-9319-6e6065bbfdfd"
 
 echo "📋 Using existing D1 database:"

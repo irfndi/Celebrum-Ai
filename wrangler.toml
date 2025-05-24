@@ -15,8 +15,8 @@ preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
 
 # D1 Database for structured data
 [[d1_databases]]
-binding = "ArbEdgeDB"
-database_name = "ArbEdgeD1"
+binding = "ArbEdgeD1"
+database_name = "prod-arb-edge"
 database_id = "879bf844-93b2-433d-9319-6e6065bbfdfd"
 
 # Cron Triggers for scheduled tasks
