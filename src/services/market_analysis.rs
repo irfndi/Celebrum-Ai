@@ -51,10 +51,13 @@ impl PriceSeries {
     }
 
     pub fn add_price_point(&mut self, point: PricePoint) {
-        self.data_points.push(point);
-        // Keep data sorted by timestamp
-        self.data_points
-            .sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        // Use binary search to find the correct insertion position for sorted order
+        let insertion_pos = self
+            .data_points
+            .binary_search_by(|probe| probe.timestamp.cmp(&point.timestamp))
+            .unwrap_or_else(|e| e);
+
+        self.data_points.insert(insertion_pos, point);
 
         #[cfg(target_arch = "wasm32")]
         {
@@ -853,10 +856,17 @@ impl MarketAnalysisService {
                         let indicator_values: Vec<IndicatorValue> = sma_values
                             .into_iter()
                             .enumerate()
-                            .map(|(i, value)| IndicatorValue {
-                                timestamp: series.data_points[i + 19].timestamp, // Offset by period
-                                value,
-                                signal: None,
+                            .filter_map(|(i, value)| {
+                                // Add bounds check to prevent panic
+                                if i + 19 < series.data_points.len() {
+                                    Some(IndicatorValue {
+                                        timestamp: series.data_points[i + 19].timestamp, // Offset by period
+                                        value,
+                                        signal: None,
+                                    })
+                                } else {
+                                    None
+                                }
                             })
                             .collect();
 
@@ -873,19 +883,24 @@ impl MarketAnalysisService {
                         let indicator_values: Vec<IndicatorValue> = rsi_values
                             .into_iter()
                             .enumerate()
-                            .map(|(i, value)| {
-                                let signal = if value > 70.0 {
-                                    Some(SignalType::Sell)
-                                } else if value < 30.0 {
-                                    Some(SignalType::Buy)
-                                } else {
-                                    Some(SignalType::Hold)
-                                };
+                            .filter_map(|(i, value)| {
+                                // Add bounds check to prevent panic
+                                if i + 14 < series.data_points.len() {
+                                    let signal = if value > 70.0 {
+                                        Some(SignalType::Sell)
+                                    } else if value < 30.0 {
+                                        Some(SignalType::Buy)
+                                    } else {
+                                        Some(SignalType::Hold)
+                                    };
 
-                                IndicatorValue {
-                                    timestamp: series.data_points[i + 14].timestamp, // Offset by period
-                                    value,
-                                    signal,
+                                    Some(IndicatorValue {
+                                        timestamp: series.data_points[i + 14].timestamp, // Offset by period
+                                        value,
+                                        signal,
+                                    })
+                                } else {
+                                    None
                                 }
                             })
                             .collect();

@@ -500,11 +500,14 @@ impl MonitoringObservabilityService {
             metrics.avg_response_time_ms = metrics.total_response_time_ms as f64 / metrics.request_count as f64;
             metrics.error_rate = metrics.error_count as f64 / metrics.request_count as f64;
             
-            // Calculate actual percentiles from response time samples
-            let percentiles = self.calculate_percentiles(operation).await;
-            metrics.p50_response_time_ms = percentiles.0;
-            metrics.p95_response_time_ms = percentiles.1;
-            metrics.p99_response_time_ms = percentiles.2;
+            // Calculate percentiles only periodically to avoid overhead
+            // Update percentiles every 100 requests or when specifically requested
+            if metrics.request_count % 100 == 0 || metrics.request_count <= 100 {
+                let percentiles = self.calculate_percentiles(operation).await;
+                metrics.p50_response_time_ms = percentiles.0;
+                metrics.p95_response_time_ms = percentiles.1;
+                metrics.p99_response_time_ms = percentiles.2;
+            }
             
             metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
         }
@@ -579,7 +582,16 @@ impl MonitoringObservabilityService {
 
     /// Get performance metrics for all operations
     pub async fn get_performance_overview(&self) -> HashMap<String, PerformanceMetrics> {
-        let perf_metrics = self.performance_metrics.read().await;
+        let mut perf_metrics = self.performance_metrics.write().await;
+        
+        // Update percentiles for all operations when requesting overview
+        for (operation, metrics) in perf_metrics.iter_mut() {
+            let percentiles = self.calculate_percentiles(operation).await;
+            metrics.p50_response_time_ms = percentiles.0;
+            metrics.p95_response_time_ms = percentiles.1;
+            metrics.p99_response_time_ms = percentiles.2;
+        }
+        
         perf_metrics.clone()
     }
 
