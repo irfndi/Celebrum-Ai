@@ -523,7 +523,34 @@ impl CoreServiceArchitecture {
                         tokio::time::sleep(tokio::time::Duration::from_secs(interval)).await;
 
                         // Perform health check
-                        let health_result = Self::perform_health_check(&service_type_clone).await;
+                        let health_result = {
+                            let start_time = std::time::Instant::now();
+                            
+                            // Mock health check implementation
+                            let is_healthy = match service_type_clone {
+                                ServiceType::TelegramService => true,
+                                ServiceType::GlobalOpportunityService => true,
+                                ServiceType::D1DatabaseService => {
+                                    // Simulate occasional database issues
+                                    (chrono::Utc::now().timestamp() % 10) != 0
+                                }
+                                _ => true,
+                            };
+
+                            let response_time = start_time.elapsed().as_millis() as u64;
+
+                            if is_healthy {
+                                HealthCheckResult::healthy(service_type_clone.clone(), response_time).with_metadata(
+                                    "last_check_type".to_string(),
+                                    serde_json::json!("automated"),
+                                )
+                            } else {
+                                HealthCheckResult::unhealthy(
+                                    service_type_clone.clone(),
+                                    "Service failed health check".to_string(),
+                                )
+                            }
+                        };
 
                         // Update registry
                         {
@@ -650,38 +677,6 @@ impl CoreServiceArchitecture {
             }
 
             Ok(())
-        }
-    }
-
-    /// Perform health check for a service (mock implementation)
-    async fn perform_health_check(service_type: &ServiceType) -> HealthCheckResult {
-        let start_time = std::time::Instant::now();
-
-        // TODO: In production, this would call the actual service's health check method
-        // For now, simulate different health check scenarios
-
-        let is_healthy = match service_type {
-            ServiceType::TelegramService => true,
-            ServiceType::GlobalOpportunityService => true,
-            ServiceType::D1DatabaseService => {
-                // Simulate occasional database issues
-                (chrono::Utc::now().timestamp() % 10) != 0
-            }
-            _ => true,
-        };
-
-        let response_time = start_time.elapsed().as_millis() as u64;
-
-        if is_healthy {
-            HealthCheckResult::healthy(service_type.clone(), response_time).with_metadata(
-                "last_check_type".to_string(),
-                serde_json::json!("automated"),
-            )
-        } else {
-            HealthCheckResult::unhealthy(
-                service_type.clone(),
-                "Service failed health check".to_string(),
-            )
         }
     }
 

@@ -13,7 +13,8 @@
   "scripts": {
     "build": "chmod +x build.sh && ./build.sh",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "chmod +x setup-d1.sh && ./setup-d1.sh && wrangler deploy",
+    "setup-d1": "chmod +x setup-d1.sh && ./setup-d1.sh",
     "test": "cargo test",
     "lint": "cargo clippy",
     "format": "cargo fmt"

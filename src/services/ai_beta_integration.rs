@@ -1,4 +1,3 @@
-use crate::services::D1Service;
 use crate::types::{ArbitrageOpportunity, CommandPermission};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
@@ -655,12 +654,12 @@ impl AiBetaIntegrationService {
         }
     }
 
-    /// Create or update user trading profile with validation and persistence
+    /// Create or update user trading profile with validation and in-memory storage
+    /// Note: D1 persistence will be implemented when the D1Service storage methods are available
     pub async fn update_user_profile(
         &mut self,
         user_id: String,
         profile: AiTradingProfile,
-        _d1_service: &D1Service,
     ) -> ArbitrageResult<()> {
         // Validate profile fields
         self.validate_ai_trading_profile(&profile)?;
@@ -668,9 +667,11 @@ impl AiBetaIntegrationService {
         // Update in-memory cache
         self.user_profiles.insert(user_id.clone(), profile.clone());
 
-        // Note: In production, would persist to database using appropriate method
-        // For now, we'll comment this out since the exact method signature is not available
-        // d1_service.store_user_profile(&profile).await?;
+        // TODO: Implement D1 persistence when D1Service methods are available
+        // This would involve:
+        // 1. Serializing the profile to JSON
+        // 2. Calling d1_service.store_user_profile(user_id, profile_json).await?
+        // 3. Handling any database-specific errors
 
         Ok(())
     }
