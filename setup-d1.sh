@@ -11,43 +11,30 @@ if ! command -v wrangler &> /dev/null; then
     exit 1
 fi
 
-# Create D1 database
-echo "📦 Creating D1 database 'arb-edge-db'..."
-DB_OUTPUT=$(wrangler d1 create arb-edge-db 2>&1 || echo "Database may already exist")
+# Use existing D1 database
+DB_NAME="ArbEdgeD1"
+DB_ID="879bf844-93b2-433d-9319-6e6065bbfdfd"
 
-# Extract database ID from output
-DB_ID=$(echo "$DB_OUTPUT" | grep -o 'database_id = "[^"]*"' | sed 's/database_id = "\([^"]*\)"/\1/' || echo "")
+echo "📋 Using existing D1 database:"
+echo "   Name: $DB_NAME"
+echo "   ID: $DB_ID"
 
-if [[ -z "$DB_ID" ]]; then
-    echo "⚠️  Could not extract database ID. Checking if database already exists..."
-    
-    # List existing databases to find our database
-    EXISTING_DB=$(wrangler d1 list | grep "arb-edge-db" || echo "")
-    
-    if [[ -n "$EXISTING_DB" ]]; then
-        echo "✅ Database 'arb-edge-db' already exists"
-        # Extract ID from existing database list
-        DB_ID=$(echo "$EXISTING_DB" | awk '{print $1}')
-    else
-        echo "❌ Failed to create or find D1 database" >&2
-        exit 1
-    fi
+# Verify database exists
+echo "🔍 Verifying database exists..."
+if wrangler d1 list | grep -q "$DB_NAME"; then
+    echo "✅ Database '$DB_NAME' found"
+else
+    echo "⚠️  Database '$DB_NAME' not found in list, but continuing with configured ID"
 fi
 
-echo "📋 Database ID: $DB_ID"
-
-# Update wrangler.toml with the real database ID
-echo "🔧 Updating wrangler.toml with database ID..."
-sed -i.bak "s/placeholder-db-id/$DB_ID/g" wrangler.toml
-
-# Initialize database schema
+# Initialize database schema if available
 echo "🏗️ Initializing database schema..."
 if [[ -f "sql/schema.sql" ]]; then
-    wrangler d1 execute arb-edge-db --file=sql/schema.sql
+    wrangler d1 execute "$DB_NAME" --file=sql/schema.sql
     echo "✅ Database schema initialized"
 else
     echo "⚠️  sql/schema.sql not found - skipping schema initialization"
 fi
 
 echo "✅ D1 Database setup completed!"
-echo "📝 Database ID $DB_ID has been configured in wrangler.toml" 
+echo "📝 Database ID $DB_ID is configured in wrangler.toml" 
