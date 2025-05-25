@@ -4,8 +4,10 @@ use crate::log_error;
 use crate::services::exchange::ExchangeInterface;
 use crate::services::exchange::ExchangeService;
 use crate::services::telegram::TelegramService;
+use crate::services::user_profile::UserProfileService;
 use crate::types::{
-    ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum, FundingRateInfo, StructuredTradingPair,
+    ArbitrageOpportunity, ArbitrageType, CommandPermission, ExchangeIdEnum, FundingRateInfo,
+    StructuredTradingPair, UserProfile,
 };
 use crate::utils::ArbitrageResult;
 use std::sync::Arc;
@@ -24,6 +26,7 @@ pub struct OpportunityService {
     config: OpportunityServiceConfig,
     exchange_service: Arc<ExchangeService>,
     telegram_service: Option<Arc<TelegramService>>,
+    user_profile_service: Option<UserProfileService>,
 }
 
 impl OpportunityService {
@@ -36,7 +39,139 @@ impl OpportunityService {
             config,
             exchange_service,
             telegram_service,
+            user_profile_service: None,
         }
+    }
+
+    /// Set the UserProfile service for database-based RBAC
+    pub fn set_user_profile_service(&mut self, user_profile_service: UserProfileService) {
+        self.user_profile_service = Some(user_profile_service);
+    }
+
+    /// Helper method to safely parse user ID and get user profile
+    async fn get_user_profile(&self, user_id: &str) -> Option<UserProfile> {
+        let user_profile_service = self.user_profile_service.as_ref()?;
+
+        // Safely parse user ID - return None for invalid IDs
+        let telegram_id = match user_id.parse::<i64>() {
+            Ok(id) if id > 0 => id, // Telegram user IDs start from 1
+            Ok(_) => {
+                log_error!(
+                    "Opportunity access denied: Invalid user ID format (non-positive)",
+                    serde_json::json!({
+                        "error": "User ID must be greater than 0"
+                    })
+                );
+                return None;
+            }
+            Err(e) => {
+                log_error!(
+                    "Opportunity access denied: Invalid user ID format (parse error)",
+                    serde_json::json!({
+                        "error": e.to_string()
+                    })
+                );
+                return None;
+            }
+        };
+
+        // Get user profile from database
+        match user_profile_service
+            .get_user_by_telegram_id(telegram_id)
+            .await
+        {
+            Ok(Some(profile)) => Some(profile),
+            Ok(None) => {
+                log_error!(
+                    "Opportunity access denied: User not found in database",
+                    serde_json::json!({
+                        "error": "User authentication failed"
+                    })
+                );
+                None
+            }
+            Err(e) => {
+                log_error!(
+                    "Opportunity access denied: Database error during user lookup",
+                    serde_json::json!({
+                        "error": e.to_string()
+                    })
+                );
+                None
+            }
+        }
+    }
+
+    /// Check if user has required permission using database-based RBAC
+    async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
+        // If UserProfile service is not available, allow basic access (for backward compatibility)
+        if self.user_profile_service.is_none() {
+            // Allow basic opportunity viewing without RBAC (legacy behavior)
+            return true;
+        }
+
+        // Get user profile using the safe helper method
+        let user_profile = match self.get_user_profile(user_id).await {
+            Some(profile) => profile,
+            None => {
+                // If user profile retrieval failed, deny access for security
+                return false;
+            }
+        };
+
+        // Use the existing UserProfile permission checking method
+        user_profile.has_permission(permission.clone())
+    }
+
+    /// RBAC-protected opportunity finding with subscription-based filtering
+    pub async fn find_opportunities_with_permission(
+        &self,
+        user_id: &str,
+        exchange_ids: &[ExchangeIdEnum],
+        pairs: &[String],
+        threshold: f64,
+    ) -> ArbitrageResult<Vec<ArbitrageOpportunity>> {
+        // Check BasicOpportunities permission for opportunity access
+        if !self
+            .check_user_permission(user_id, &CommandPermission::BasicOpportunities)
+            .await
+        {
+            return Err(crate::utils::ArbitrageError::validation_error(
+                "Insufficient permissions: BasicOpportunities required for opportunity access"
+                    .to_string(),
+            ));
+        }
+
+        // Get user subscription tier to determine filtering level
+        let subscription_tier = if let Some(profile) = self.get_user_profile(user_id).await {
+            profile.subscription.tier
+        } else {
+            crate::types::SubscriptionTier::Free // Default for unknown users or when RBAC not configured
+        };
+
+        // Call the original find_opportunities method
+        let mut opportunities = self
+            .find_opportunities(exchange_ids, pairs, threshold)
+            .await?;
+
+        // Filter opportunities based on user subscription tier
+        match subscription_tier {
+            crate::types::SubscriptionTier::Free => {
+                // Free users get limited opportunities (first 2)
+                opportunities.truncate(2);
+            }
+            crate::types::SubscriptionTier::Basic => {
+                // Basic users get more opportunities (first 5)
+                opportunities.truncate(5);
+            }
+            crate::types::SubscriptionTier::Premium
+            | crate::types::SubscriptionTier::Enterprise
+            | crate::types::SubscriptionTier::SuperAdmin => {
+                // Premium+ users get all opportunities (no filtering)
+            }
+        }
+
+        Ok(opportunities)
     }
 
     pub async fn find_opportunities(

@@ -66,8 +66,19 @@ EXCHANGES = "binance,bybit,okx,bitget"
 ARBITRAGE_THRESHOLD = "0.001"
 MONITORED_PAIRS_CONFIG = '[{"symbol":"BTCUSDT","base":"BTC","quote":"USDT","exchange_id":"binance"}]'
 TELEGRAM_BOT_TOKEN = "your_telegram_bot_token"
-TELEGRAM_CHAT_ID = "your_chat_id"
 ```
+
+### User Role Management
+
+Super admin access is managed through the database using our RBAC (Role-Based Access Control) system:
+
+- **Super Admin Users**: Set via `UserProfile.subscription.tier = SubscriptionTier::SuperAdmin` in the database
+- **User Roles**: Automatically derived from subscription tier (Free, Basic, Premium, Enterprise, SuperAdmin)
+- **Permission Checking**: Database-based role verification instead of environment variables
+
+To promote a user to Super Admin:
+1. Update their subscription tier in the database to `SuperAdmin`
+2. The RBAC system will automatically grant them full system permissions
 
 ### Exchange Configuration
 

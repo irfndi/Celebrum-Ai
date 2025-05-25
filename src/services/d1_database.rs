@@ -947,6 +947,12 @@ impl D1Service {
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
 
+        // Parse profile_metadata field
+        let profile_metadata = row
+            .get("profile_metadata")
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str(s).ok());
+
         Ok(UserProfile {
             user_id,
             telegram_user_id,
@@ -961,6 +967,7 @@ impl D1Service {
             is_active,
             total_trades,
             total_pnl_usdt,
+            profile_metadata,
         })
     }
 

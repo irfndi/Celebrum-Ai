@@ -20,6 +20,7 @@ pub mod positions;
 pub mod technical_analysis;
 pub mod technical_trading;
 pub mod telegram;
+pub mod telegram_keyboard;
 pub mod user_profile;
 pub mod user_trading_preferences;
 

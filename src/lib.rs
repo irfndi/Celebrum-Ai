@@ -197,14 +197,11 @@ async fn create_opportunity_service(
     // Create services
     let exchange_service = Arc::new(ExchangeService::new(custom_env)?);
 
-    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) = (
-        custom_env.worker_env.var("TELEGRAM_BOT_TOKEN"),
-        custom_env.worker_env.var("TELEGRAM_CHAT_ID"),
-    ) {
+    let telegram_service = if let Ok(bot_token) = custom_env.worker_env.var("TELEGRAM_BOT_TOKEN") {
         Some(Arc::new(TelegramService::new(
             services::telegram::TelegramConfig {
                 bot_token: bot_token.to_string(),
-                chat_id: chat_id.to_string(),
+                chat_id: "0".to_string(), // Not used - we broadcast to registered groups from DB
             },
         )))
     } else {
@@ -369,15 +366,13 @@ async fn handle_find_opportunities(mut req: Request, env: Env) -> Result<Respons
 async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response> {
     let update: serde_json::Value = req.json().await?;
 
-    let telegram_service = if let (Ok(bot_token), Ok(chat_id)) =
-        (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID"))
-    {
+    let telegram_service = if let Ok(bot_token) = env.var("TELEGRAM_BOT_TOKEN") {
         TelegramService::new(services::telegram::TelegramConfig {
             bot_token: bot_token.to_string(),
-            chat_id: chat_id.to_string(),
+            chat_id: "0".to_string(), // Not used for webhook responses
         })
     } else {
-        return Response::error("Telegram configuration not found", 500);
+        return Response::error("Telegram bot token not found", 500);
     };
 
     match telegram_service.handle_webhook(update).await {

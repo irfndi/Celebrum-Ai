@@ -1,8 +1,10 @@
 // src/services/positions.rs
 
+use crate::services::user_profile::UserProfileService;
 use crate::types::{
-    AccountInfo, ArbitragePosition, ExchangeIdEnum, PositionAction, PositionOptimizationResult,
-    PositionSide, PositionStatus, RiskAssessment, RiskLevel, RiskManagementConfig,
+    AccountInfo, ArbitragePosition, CommandPermission, ExchangeIdEnum, PositionAction,
+    PositionOptimizationResult, PositionSide, PositionStatus, RiskAssessment, RiskLevel,
+    RiskManagementConfig,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
@@ -59,11 +61,44 @@ impl KvStoreInterface for InMemoryKvStore {
 // Generic PositionsService that works with any KvStoreInterface
 pub struct PositionsService<K: KvStoreInterface> {
     kv_store: K,
+    user_profile_service: Option<UserProfileService>, // Optional for initialization, required for RBAC
 }
 
 impl<K: KvStoreInterface> PositionsService<K> {
     pub fn new(kv_store: K) -> Self {
-        Self { kv_store }
+        Self {
+            kv_store,
+            user_profile_service: None, // Will be injected via set_user_profile_service
+        }
+    }
+
+    /// Set the UserProfile service for database-based RBAC
+    pub fn set_user_profile_service(&mut self, user_profile_service: UserProfileService) {
+        self.user_profile_service = Some(user_profile_service);
+    }
+
+    /// Check if user has required permission using database-based RBAC
+    async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
+        // If UserProfile service is not available, deny access for security
+        let Some(ref user_profile_service) = self.user_profile_service else {
+            // For critical position operations, always deny if RBAC is not configured
+            return false;
+        };
+
+        // Get user profile from database to check their role
+        let user_profile = match user_profile_service
+            .get_user_by_telegram_id(user_id.parse::<i64>().unwrap_or(0))
+            .await
+        {
+            Ok(Some(profile)) => profile,
+            _ => {
+                // If user not found in database or error occurred, no permissions
+                return false;
+            }
+        };
+
+        // Use the existing UserProfile permission checking method
+        user_profile.has_permission(permission.clone())
     }
 
     pub async fn create_position(
@@ -825,6 +860,112 @@ impl<K: KvStoreInterface> PositionsService<K> {
         }
 
         Ok(())
+    }
+
+    /// RBAC-protected position creation with permission checking
+    pub async fn create_position_with_permission(
+        &self,
+        user_id: &str,
+        position_data: CreatePositionData,
+        account_info: &AccountInfo,
+    ) -> ArbitrageResult<ArbitragePosition> {
+        // Check ManualTrading permission for position creation
+        if !self
+            .check_user_permission(user_id, &CommandPermission::ManualTrading)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: ManualTrading required for position creation"
+                    .to_string(),
+            ));
+        }
+
+        // Call the original create_position method
+        self.create_position(position_data, account_info).await
+    }
+
+    /// RBAC-protected position closure with permission checking
+    pub async fn close_position_with_permission(
+        &self,
+        user_id: &str,
+        id: &str,
+    ) -> ArbitrageResult<bool> {
+        // Check ManualTrading permission for position closure
+        if !self
+            .check_user_permission(user_id, &CommandPermission::ManualTrading)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: ManualTrading required for position closure".to_string(),
+            ));
+        }
+
+        // Call the original close_position method
+        self.close_position(id).await
+    }
+
+    /// RBAC-protected stop loss setting with permission checking
+    pub async fn set_stop_loss_with_permission(
+        &self,
+        user_id: &str,
+        position_id: &str,
+        stop_loss_price: f64,
+    ) -> ArbitrageResult<bool> {
+        // Check ManualTrading permission for stop loss management
+        if !self
+            .check_user_permission(user_id, &CommandPermission::ManualTrading)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: ManualTrading required for stop loss management"
+                    .to_string(),
+            ));
+        }
+
+        // Call the original set_stop_loss method
+        self.set_stop_loss(position_id, stop_loss_price).await
+    }
+
+    /// RBAC-protected take profit setting with permission checking
+    pub async fn set_take_profit_with_permission(
+        &self,
+        user_id: &str,
+        position_id: &str,
+        take_profit_price: f64,
+    ) -> ArbitrageResult<bool> {
+        // Check ManualTrading permission for take profit management
+        if !self
+            .check_user_permission(user_id, &CommandPermission::ManualTrading)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: ManualTrading required for take profit management"
+                    .to_string(),
+            ));
+        }
+
+        // Call the original set_take_profit method
+        self.set_take_profit(position_id, take_profit_price).await
+    }
+
+    /// RBAC-protected position analytics with permission checking
+    pub async fn get_positions_analytics_with_permission(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<Vec<ArbitragePosition>> {
+        // Check AdvancedAnalytics permission for position analytics
+        if !self
+            .check_user_permission(user_id, &CommandPermission::AdvancedAnalytics)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(
+                "Insufficient permissions: AdvancedAnalytics required for position analytics"
+                    .to_string(),
+            ));
+        }
+
+        // Call the original get_all_positions method
+        self.get_all_positions().await
     }
 }
 

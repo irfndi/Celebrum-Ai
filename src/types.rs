@@ -461,7 +461,7 @@ pub enum UserRole {
 }
 
 /// Command permissions for RBAC
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandPermission {
     // Basic commands (available to all)
@@ -723,6 +723,7 @@ pub struct UserProfile {
     pub is_active: bool,
     pub total_trades: u32,
     pub total_pnl_usdt: f64,
+    pub profile_metadata: Option<serde_json::Value>, // Additional profile metadata including role
 }
 
 impl UserProfile {
@@ -744,11 +745,22 @@ impl UserProfile {
             is_active: true,
             total_trades: 0,
             total_pnl_usdt: 0.0,
+            profile_metadata: None,
         }
     }
 
     /// Get user role for RBAC
     pub fn get_user_role(&self) -> UserRole {
+        // First check profile_metadata.role if available
+        if let Some(metadata) = &self.profile_metadata {
+            if let Some(role) = metadata.get("role") {
+                if let Some("superadmin") = role.as_str() {
+                    return UserRole::SuperAdmin;
+                }
+            }
+        }
+
+        // Fall back to subscription tier-based role determination
         match self.subscription.tier {
             SubscriptionTier::SuperAdmin => UserRole::SuperAdmin,
             _ => UserRole::User, // Regular user for all other tiers

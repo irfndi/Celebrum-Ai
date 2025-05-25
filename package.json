@@ -26,6 +26,5 @@
   },
   "pnpm": {
     "overrides": {}
-  },
-  "dependencies": {}
+  }
 }
