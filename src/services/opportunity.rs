@@ -7,7 +7,7 @@ use crate::services::telegram::TelegramService;
 use crate::services::user_profile::UserProfileService;
 use crate::types::{
     ArbitrageOpportunity, ArbitrageType, CommandPermission, ExchangeIdEnum, FundingRateInfo,
-    StructuredTradingPair,
+    StructuredTradingPair, UserProfile,
 };
 use crate::utils::ArbitrageResult;
 use std::sync::Arc;
@@ -48,23 +48,79 @@ impl OpportunityService {
         self.user_profile_service = Some(user_profile_service);
     }
 
+    /// Helper method to safely parse user ID and get user profile
+    async fn get_user_profile(&self, user_id: &str) -> Option<UserProfile> {
+        let user_profile_service = self.user_profile_service.as_ref()?;
+
+        // Safely parse user ID - return None for invalid IDs
+        let telegram_id = match user_id.parse::<i64>() {
+            Ok(id) if id > 0 => id, // Telegram user IDs start from 1
+            Ok(_) => {
+                log_error!(
+                    "Invalid user ID: user IDs must be positive",
+                    serde_json::json!({
+                        "user_id": user_id,
+                        "error": "User ID must be greater than 0"
+                    })
+                );
+                return None;
+            }
+            Err(e) => {
+                log_error!(
+                    "Failed to parse user ID",
+                    serde_json::json!({
+                        "user_id": user_id,
+                        "error": e.to_string()
+                    })
+                );
+                return None;
+            }
+        };
+
+        // Get user profile from database
+        match user_profile_service
+            .get_user_by_telegram_id(telegram_id)
+            .await
+        {
+            Ok(Some(profile)) => Some(profile),
+            Ok(None) => {
+                log_error!(
+                    "User not found in database",
+                    serde_json::json!({
+                        "telegram_id": telegram_id,
+                        "user_id": user_id
+                    })
+                );
+                None
+            }
+            Err(e) => {
+                log_error!(
+                    "Database error while fetching user profile",
+                    serde_json::json!({
+                        "telegram_id": telegram_id,
+                        "user_id": user_id,
+                        "error": e.to_string()
+                    })
+                );
+                None
+            }
+        }
+    }
+
     /// Check if user has required permission using database-based RBAC
     async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
         // If UserProfile service is not available, allow basic access (for backward compatibility)
-        let Some(ref user_profile_service) = self.user_profile_service else {
+        if self.user_profile_service.is_none() {
             // Allow basic opportunity viewing without RBAC (legacy behavior)
             return true;
-        };
+        }
 
-        // Get user profile from database to check their role
-        let user_profile = match user_profile_service
-            .get_user_by_telegram_id(user_id.parse::<i64>().unwrap_or(0))
-            .await
-        {
-            Ok(Some(profile)) => profile,
-            _ => {
-                // If user not found in database, allow basic access
-                return true;
+        // Get user profile using the safe helper method
+        let user_profile = match self.get_user_profile(user_id).await {
+            Some(profile) => profile,
+            None => {
+                // If user profile retrieval failed, deny access for security
+                return false;
             }
         };
 
@@ -92,17 +148,10 @@ impl OpportunityService {
         }
 
         // Get user subscription tier to determine filtering level
-        let subscription_tier = if let Some(ref user_profile_service) = self.user_profile_service {
-            if let Ok(Some(profile)) = user_profile_service
-                .get_user_by_telegram_id(user_id.parse::<i64>().unwrap_or(0))
-                .await
-            {
-                profile.subscription.tier
-            } else {
-                crate::types::SubscriptionTier::Free // Default for unknown users
-            }
+        let subscription_tier = if let Some(profile) = self.get_user_profile(user_id).await {
+            profile.subscription.tier
         } else {
-            crate::types::SubscriptionTier::Free // Default when RBAC not configured
+            crate::types::SubscriptionTier::Free // Default for unknown users or when RBAC not configured
         };
 
         // Call the original find_opportunities method

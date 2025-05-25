@@ -897,6 +897,7 @@ mod tests {
             is_active: true,
             total_trades: 0,
             total_pnl_usdt: 0.0,
+            profile_metadata: None,
         }
     }
 

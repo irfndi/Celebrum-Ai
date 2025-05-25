@@ -2,7 +2,7 @@
 # Comprehensive validation script with coverage and extensive checks
 # Runs all possible validations for thorough code quality assurance
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'

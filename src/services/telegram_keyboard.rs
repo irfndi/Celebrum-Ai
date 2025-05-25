@@ -114,12 +114,33 @@ impl InlineKeyboard {
             return false;
         };
 
-        let user_profile = match user_service
-            .get_user_by_telegram_id(user_id.parse::<i64>().unwrap_or(0))
-            .await
-        {
+        // Safely parse user ID - return false for invalid IDs
+        let telegram_id = match user_id.parse::<i64>() {
+            Ok(id) if id > 0 => id, // Telegram user IDs start from 1
+            Ok(_) => {
+                log::warn!("Invalid user ID: user IDs must be positive: {}", user_id);
+                return false;
+            }
+            Err(e) => {
+                log::warn!("Failed to parse user ID '{}': {}", user_id, e);
+                return false;
+            }
+        };
+
+        let user_profile = match user_service.get_user_by_telegram_id(telegram_id).await {
             Ok(Some(profile)) => profile,
-            _ => return false,
+            Ok(None) => {
+                log::warn!("User not found in database: telegram_id={}", telegram_id);
+                return false;
+            }
+            Err(e) => {
+                log::warn!(
+                    "Database error while fetching user profile for telegram_id={}: {}",
+                    telegram_id,
+                    e
+                );
+                return false;
+            }
         };
 
         user_profile.has_permission(permission.clone())

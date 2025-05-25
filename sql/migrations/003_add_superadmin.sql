@@ -1,6 +1,6 @@
 -- Migration 003: Add Superadmin User
 -- Created: 2025-01-27  
--- Description: Add @theprofcrypto as superadmin user with full permissions
+-- Description: Add superadmin user with full permissions from environment variables
 
 -- Insert superadmin user profile
 INSERT OR REPLACE INTO user_profiles (
@@ -19,20 +19,20 @@ INSERT OR REPLACE INTO user_profiles (
     last_login_at,
     profile_metadata
 ) VALUES (
-    'superadmin_1082762347',
-    1082762347,
-    'theprofcrypto',
+    'superadmin_' || COALESCE(${SUPERADMIN_TELEGRAM_ID}, '0'),
+    COALESCE(${SUPERADMIN_TELEGRAM_ID}, 0),
+    COALESCE('${SUPERADMIN_USERNAME}', 'admin'),
     '[]',
     'high',
     '{"max_position_size":10000.0,"preferred_exchanges":["binance","bybit"],"auto_execution_enabled":true,"max_daily_trades":100,"profit_threshold":0.001}',
     '{"telegram_enabled":true,"email_enabled":true,"push_enabled":true,"priority_filter":"all","quiet_hours":false}',
-    'pro',
+    'superadmin',
     'active',
     'verified',
     datetime('now'),
     datetime('now'),
     datetime('now'),
-    '{"role":"superadmin","permissions":["all"],"access_level":"unlimited","created_by":"system","notes":"System superadmin with full access"}'
+    '{"role":"superadmin","permissions":["all"],"access_level":"unlimited","created_by":"system","notes":"System superadmin with full access from environment configuration"}'
 );
 
 -- Insert superadmin trading preferences with all features enabled
@@ -56,8 +56,8 @@ INSERT OR REPLACE INTO user_trading_preferences (
     created_at,
     updated_at
 ) VALUES (
-    'pref_superadmin_1082762347',
-    'superadmin_1082762347',
+    'pref_superadmin_' || COALESCE(${SUPERADMIN_TELEGRAM_ID}, '0'),
+    'superadmin_' || COALESCE(${SUPERADMIN_TELEGRAM_ID}, '0'),
     'hybrid',
     'advanced',
     'aggressive',
@@ -83,7 +83,7 @@ INSERT OR REPLACE INTO user_opportunity_preferences (
     created_at,
     updated_at
 ) VALUES (
-    'superadmin_1082762347',
+    'superadmin_' || COALESCE(${SUPERADMIN_TELEGRAM_ID}, '0'),
     '{"risk_tolerance":"high","max_position_size_usd":10000.0,"min_profit_threshold":0.001,"max_profit_threshold":1.0,"preferred_exchanges":["binance","bybit"],"excluded_exchanges":[],"preferred_pairs":["BTCUSDT","ETHUSDT","BNBUSDT","ADAUSDT","XRPUSDT"],"excluded_pairs":[],"max_exposure_per_pair":5000.0,"max_daily_trades":100,"auto_execution":true,"requires_confirmation":false,"profit_taking_strategy":"aggressive","stop_loss_strategy":"tight","position_sizing_method":"fixed","diversification_enabled":true,"correlation_analysis_enabled":true,"sentiment_analysis_enabled":true,"technical_analysis_enabled":true,"ai_enhancement_enabled":true,"notification_preferences":{"instant_alerts":true,"daily_summary":true,"weekly_report":true,"performance_updates":true},"admin_features":{"access_all_users":true,"modify_system_config":true,"view_audit_logs":true,"manage_user_permissions":true,"system_maintenance":true}}',
     datetime('now'),
     datetime('now')
@@ -103,12 +103,12 @@ INSERT INTO audit_log (
     NULL,
     'create_superadmin',
     'user_profile',
-    'superadmin_1082762347',
-    '{"telegram_id":1082762347,"username":"theprofcrypto","role":"superadmin","created_by":"system","notes":"Initial superadmin user setup"}',
+    'superadmin_' || COALESCE(${SUPERADMIN_TELEGRAM_ID}, '0'),
+    '{"telegram_id":"' || COALESCE(${SUPERADMIN_TELEGRAM_ID}, '0') || '","username":"' || COALESCE('${SUPERADMIN_USERNAME}', 'admin') || '","role":"superadmin","created_by":"system","notes":"Initial superadmin user setup from environment variables"}',
     unixepoch('now') * 1000,
     'system',
     'migration_script'
 );
 
 -- Record this migration
-INSERT INTO schema_migrations (version, description) VALUES ('003', 'Add superadmin user @theprofcrypto'); 
+INSERT INTO schema_migrations (version, description) VALUES ('003', 'Add superadmin user from environment variables'); 

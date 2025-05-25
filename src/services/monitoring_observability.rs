@@ -354,7 +354,7 @@ impl MonitoringObservabilityService {
             system: Arc::new(RwLock::new(System::new_all())),
             #[cfg(not(target_arch = "wasm32"))]
             service_start_time: std::time::Instant::now(),
-            enabled: false,
+            enabled: true, // Fixed: default to true to maintain compatibility
             user_profile_service: None, // Will be injected via set_user_profile_service
         }
     }
@@ -372,13 +372,28 @@ impl MonitoringObservabilityService {
             return false;
         };
 
+        // Safely parse user ID - return false for invalid IDs
+        let telegram_id = match user_id.parse::<i64>() {
+            Ok(id) if id > 0 => id, // Telegram user IDs start from 1
+            Ok(_) => {
+                log::warn!("Invalid user ID: user IDs must be positive: {}", user_id);
+                return false;
+            }
+            Err(e) => {
+                log::warn!("Failed to parse user ID '{}': {}", user_id, e);
+                return false;
+            }
+        };
+
         // Get user profile from database to check their role
-        let user_profile = match user_profile_service.get_user_by_telegram_id(
-            user_id.parse::<i64>().unwrap_or(0)
-        ).await {
+        let user_profile = match user_profile_service.get_user_by_telegram_id(telegram_id).await {
             Ok(Some(profile)) => profile,
-            _ => {
-                // If user not found in database or error occurred, no permissions
+            Ok(None) => {
+                log::warn!("User not found in database: telegram_id={}", telegram_id);
+                return false;
+            }
+            Err(e) => {
+                log::warn!("Database error while fetching user profile for telegram_id={}: {}", telegram_id, e);
                 return false;
             }
         };
