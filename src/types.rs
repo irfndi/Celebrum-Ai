@@ -4,10 +4,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
+use uuid;
 // use thiserror::Error; // TODO: Re-enable when implementing custom error types
 
 /// Exchange identifiers
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[allow(clippy::upper_case_acronyms)]
 pub enum ExchangeIdEnum {
@@ -26,6 +27,16 @@ impl ExchangeIdEnum {
             ExchangeIdEnum::OKX => "okx",
             ExchangeIdEnum::Bitget => "bitget",
         }
+    }
+
+    /// Get all supported exchanges
+    pub fn all_supported() -> Vec<ExchangeIdEnum> {
+        vec![
+            ExchangeIdEnum::Binance,
+            ExchangeIdEnum::Bybit,
+            ExchangeIdEnum::OKX,
+            ExchangeIdEnum::Bitget,
+        ]
     }
 }
 
@@ -70,13 +81,14 @@ pub enum ArbitrageType {
 }
 
 /// Core arbitrage opportunity structure
+/// **POSITION STRUCTURE**: Requires exactly 2 exchanges (long + short)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArbitrageOpportunity {
     pub id: String,
     pub pair: String,
-    pub long_exchange: Option<ExchangeIdEnum>,
-    pub short_exchange: Option<ExchangeIdEnum>,
+    pub long_exchange: ExchangeIdEnum,    // **REQUIRED**: Long position exchange
+    pub short_exchange: ExchangeIdEnum,   // **REQUIRED**: Short position exchange
     pub long_rate: Option<f64>,
     pub short_rate: Option<f64>,
     pub rate_difference: f64,
@@ -85,13 +97,14 @@ pub struct ArbitrageOpportunity {
     pub timestamp: u64, // Unix timestamp in milliseconds
     pub r#type: ArbitrageType,
     pub details: Option<String>,
+    pub min_exchanges_required: u8,       // **ALWAYS 2** for arbitrage
 }
 
 impl ArbitrageOpportunity {
     pub fn new(
         pair: String,
-        long_exchange: Option<ExchangeIdEnum>,
-        short_exchange: Option<ExchangeIdEnum>,
+        long_exchange: ExchangeIdEnum,    // **REQUIRED**: No longer optional
+        short_exchange: ExchangeIdEnum,   // **REQUIRED**: No longer optional
         long_rate: Option<f64>,
         short_rate: Option<f64>,
         rate_difference: f64,
@@ -113,6 +126,7 @@ impl ArbitrageOpportunity {
                 .as_millis() as u64,
             r#type,
             details: None,
+            min_exchanges_required: 2,    // **ALWAYS 2** for arbitrage
         }
     }
 
@@ -129,6 +143,163 @@ impl ArbitrageOpportunity {
     pub fn with_details(mut self, details: String) -> Self {
         self.details = Some(details);
         self
+    }
+
+    /// Validate that this arbitrage opportunity has exactly 2 exchanges
+    /// **POSITION STRUCTURE VALIDATION**
+    pub fn validate_position_structure(&self) -> Result<(), String> {
+        if self.long_exchange == self.short_exchange {
+            return Err("Arbitrage opportunity cannot use the same exchange for both long and short positions".to_string());
+        }
+        
+        if self.min_exchanges_required != 2 {
+            return Err("Arbitrage opportunity must require exactly 2 exchanges".to_string());
+        }
+        
+        Ok(())
+    }
+
+    /// Get required exchanges for this arbitrage opportunity
+    pub fn get_required_exchanges(&self) -> Vec<ExchangeIdEnum> {
+        vec![self.long_exchange, self.short_exchange]
+    }
+}
+
+/// Technical analysis opportunity structure
+/// **POSITION STRUCTURE**: Requires exactly 1 exchange
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TechnicalOpportunity {
+    pub id: String,
+    pub pair: String,
+    pub exchange: ExchangeIdEnum,         // **REQUIRED**: Single exchange
+    pub signal_type: TechnicalSignalType,
+    pub signal_strength: TechnicalSignalStrength,
+    pub entry_price: f64,
+    pub target_price: Option<f64>,
+    pub stop_loss_price: Option<f64>,
+    pub confidence_score: f64,            // 0.0 to 1.0
+    pub technical_indicators: Vec<String>, // RSI, MACD, SMA, etc.
+    pub timeframe: String,                // 1m, 5m, 1h, 4h, 1d
+    pub expected_return_percentage: f64,
+    pub risk_level: TechnicalRiskLevel,
+    pub timestamp: u64,
+    pub expires_at: u64,
+    pub details: Option<String>,
+    pub min_exchanges_required: u8,       // **ALWAYS 1** for technical
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TechnicalSignalType {
+    Buy,
+    Sell,
+    Hold,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TechnicalSignalStrength {
+    Weak,
+    Moderate,
+    Strong,
+    VeryStrong,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TechnicalRiskLevel {
+    Low,
+    Medium,
+    High,
+}
+
+impl TechnicalOpportunity {
+    pub fn new(
+        pair: String,
+        exchange: ExchangeIdEnum,         // **REQUIRED**: Single exchange
+        signal_type: TechnicalSignalType,
+        signal_strength: TechnicalSignalStrength,
+        entry_price: f64,
+        confidence_score: f64,
+        technical_indicators: Vec<String>,
+        timeframe: String,
+        expected_return_percentage: f64,
+        risk_level: TechnicalRiskLevel,
+        expires_at: u64,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            pair,
+            exchange,
+            signal_type,
+            signal_strength,
+            entry_price,
+            target_price: None,
+            stop_loss_price: None,
+            confidence_score,
+            technical_indicators,
+            timeframe,
+            expected_return_percentage,
+            risk_level,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+            expires_at,
+            details: None,
+            min_exchanges_required: 1,    // **ALWAYS 1** for technical
+        }
+    }
+
+    pub fn with_target_price(mut self, target_price: f64) -> Self {
+        self.target_price = Some(target_price);
+        self
+    }
+
+    pub fn with_stop_loss(mut self, stop_loss_price: f64) -> Self {
+        self.stop_loss_price = Some(stop_loss_price);
+        self
+    }
+
+    pub fn with_details(mut self, details: String) -> Self {
+        self.details = Some(details);
+        self
+    }
+
+    /// Validate that this technical opportunity has exactly 1 exchange
+    /// **POSITION STRUCTURE VALIDATION**
+    pub fn validate_position_structure(&self) -> Result<(), String> {
+        if self.min_exchanges_required != 1 {
+            return Err("Technical opportunity must require exactly 1 exchange".to_string());
+        }
+        
+        Ok(())
+    }
+
+    /// Get required exchanges for this technical opportunity
+    pub fn get_required_exchanges(&self) -> Vec<ExchangeIdEnum> {
+        vec![self.exchange]
+    }
+
+    /// Check if opportunity is expired
+    pub fn is_expired(&self) -> bool {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        now > self.expires_at
+    }
+
+    /// Calculate profit potential based on target price
+    pub fn calculate_profit_potential(&self) -> Option<f64> {
+        self.target_price.map(|target| {
+            match self.signal_type {
+                TechnicalSignalType::Buy => (target - self.entry_price) / self.entry_price * 100.0,
+                TechnicalSignalType::Sell => (self.entry_price - target) / self.entry_price * 100.0,
+                TechnicalSignalType::Hold => 0.0,
+            }
+        })
     }
 }
 
@@ -631,6 +802,7 @@ pub struct UserApiKey {
     pub encrypted_secret: Option<String>, // Optional secret (for exchanges)
     pub metadata: serde_json::Value,      // Additional configuration (models, base_urls, etc.)
     pub is_active: bool,
+    pub is_read_only: bool,               // Whether this API key is read-only
     pub created_at: u64,
     pub last_used: Option<u64>,
     pub permissions: Vec<String>, // e.g., ["read", "trade", "futures"] for exchanges, ["chat", "analysis"] for AI
@@ -644,6 +816,9 @@ impl UserApiKey {
         encrypted_secret: String,
         permissions: Vec<String>,
     ) -> Self {
+        // Determine if read-only based on permissions
+        let is_read_only = !permissions.contains(&"trade".to_string());
+        
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             user_id,
@@ -652,6 +827,7 @@ impl UserApiKey {
             encrypted_secret: Some(encrypted_secret),
             metadata: serde_json::json!({}),
             is_active: true,
+            is_read_only,
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             last_used: None,
             permissions,
@@ -672,6 +848,7 @@ impl UserApiKey {
             encrypted_secret: None,
             metadata,
             is_active: true,
+            is_read_only: true, // AI keys are always read-only for trading purposes
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             last_used: None,
             permissions: vec!["analysis".to_string(), "chat".to_string()],
@@ -717,6 +894,7 @@ pub struct UserProfile {
     pub configuration: UserConfiguration,
     pub api_keys: Vec<UserApiKey>,
     pub invitation_code: Option<String>, // Code used to join
+    pub beta_expires_at: Option<u64>, // Beta access expiration timestamp (180 days from invitation)
     pub created_at: u64,
     pub updated_at: u64,
     pub last_active: u64,
@@ -739,6 +917,7 @@ impl UserProfile {
             configuration: UserConfiguration::default(),
             api_keys: vec![],
             invitation_code,
+            beta_expires_at: None, // Will be set when invitation code is used
             created_at: now,
             updated_at: now,
             last_active: now,
@@ -771,42 +950,68 @@ impl UserProfile {
     pub fn has_permission(&self, permission: CommandPermission) -> bool {
         let user_role = self.get_user_role();
 
+        // Check if beta access has expired
+        let has_active_beta = self.has_active_beta_access();
+
         match permission {
             CommandPermission::BasicCommands | CommandPermission::BasicOpportunities => true, // Everyone has basic access
 
             CommandPermission::ManualTrading => {
-                // During beta: all users have access
-                // Future: require Basic+ subscription + API keys with trade permissions
-                true // Beta override - remove this when implementing subscription gates
+                // Beta users have access if beta hasn't expired
+                if has_active_beta {
+                    true
+                } else {
+                    // Non-beta users need Premium+ subscription
+                    matches!(self.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin)
+                }
             }
 
             CommandPermission::TechnicalAnalysis => {
-                // During beta: all users have access
-                // Future: require Basic+ subscription
-                true // Beta override
+                // Beta users have access if beta hasn't expired
+                if has_active_beta {
+                    true
+                } else {
+                    // Non-beta users need Premium+ subscription
+                    matches!(self.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin)
+                }
             }
 
             CommandPermission::AIEnhancedOpportunities => {
-                // During beta: all users have access
-                // Future: require Premium+ subscription
-                true // Beta override
+                // Beta users have access if beta hasn't expired
+                if has_active_beta {
+                    true
+                } else {
+                    // Non-beta users need Premium+ subscription
+                    matches!(self.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin)
+                }
             }
 
             CommandPermission::AutomatedTrading => {
-                // During beta: all users have access
-                // Future: require Premium+ subscription + risk management setup
-                true // Beta override
+                // Beta users have access if beta hasn't expired
+                if has_active_beta {
+                    true
+                } else {
+                    // Non-beta users need Premium+ subscription
+                    matches!(self.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin)
+                }
             }
 
             CommandPermission::SystemAdministration
             | CommandPermission::UserManagement
             | CommandPermission::GlobalConfiguration
-            | CommandPermission::GroupAnalytics => user_role == UserRole::SuperAdmin,
+            | CommandPermission::GroupAnalytics => {
+                // Only super admins can access admin commands, regardless of beta status
+                user_role == UserRole::SuperAdmin
+            }
 
             CommandPermission::AdvancedAnalytics | CommandPermission::PremiumFeatures => {
-                // During beta: all users have access
-                // Future: require Premium+ subscription
-                true // Beta override
+                // Beta users have access if beta hasn't expired
+                if has_active_beta {
+                    true
+                } else {
+                    // Non-beta users need Premium+ subscription
+                    matches!(self.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin)
+                }
             }
         }
     }
@@ -917,6 +1122,151 @@ impl UserProfile {
 
     pub fn can_trade(&self) -> bool {
         self.is_active && self.subscription.is_active && self.has_minimum_exchanges()
+    }
+
+    /// Check if user has active beta access (hasn't expired)
+    pub fn has_active_beta_access(&self) -> bool {
+        if let Some(beta_expires_at) = self.beta_expires_at {
+            let now = chrono::Utc::now().timestamp_millis() as u64;
+            now < beta_expires_at
+        } else {
+            false // No beta access if no expiration date set
+        }
+    }
+
+    /// Set beta expiration date (called when invitation code is used)
+    pub fn set_beta_expiration(&mut self, expires_at: u64) {
+        self.beta_expires_at = Some(expires_at);
+        self.updated_at = chrono::Utc::now().timestamp_millis() as u64;
+    }
+
+    /// Check if beta access has expired and user needs downgrade
+    pub fn needs_beta_downgrade(&self) -> bool {
+        if let Some(beta_expires_at) = self.beta_expires_at {
+            let now = chrono::Utc::now().timestamp_millis() as u64;
+            now >= beta_expires_at && self.subscription.tier != SubscriptionTier::Free
+        } else {
+            false
+        }
+    }
+
+    /// Downgrade user from beta to free tier
+    pub fn downgrade_from_beta(&mut self) {
+        if self.needs_beta_downgrade() {
+            self.subscription.tier = SubscriptionTier::Free;
+            self.subscription.features = vec!["basic_opportunities".to_string()];
+            self.updated_at = chrono::Utc::now().timestamp_millis() as u64;
+        }
+    }
+
+    /// Determine user's access level based on subscription and API keys
+    pub fn get_access_level(&self) -> UserAccessLevel {
+        // Check if user has any active exchange API keys
+        let has_exchange_apis = self.api_keys.iter().any(|key| {
+            key.is_active && key.is_exchange_key()
+        });
+
+        match (&self.subscription.tier, has_exchange_apis) {
+            // Subscription users with APIs get full access
+            (SubscriptionTier::Basic | SubscriptionTier::Premium | SubscriptionTier::Enterprise, true) => {
+                UserAccessLevel::SubscriptionWithAPI
+            }
+            // Free users with APIs get limited access
+            (SubscriptionTier::Free, true) => {
+                UserAccessLevel::FreeWithAPI
+            }
+            // Users without APIs only get view access (regardless of subscription)
+            (_, false) => {
+                UserAccessLevel::FreeWithoutAPI
+            }
+            // SuperAdmin gets full access regardless of APIs
+            (SubscriptionTier::SuperAdmin, _) => {
+                UserAccessLevel::SubscriptionWithAPI
+            }
+        }
+    }
+
+    /// Check if user can receive opportunities based on their access level
+    pub fn can_receive_opportunities(&self) -> bool {
+        let access_level = self.get_access_level();
+        match access_level {
+            UserAccessLevel::FreeWithoutAPI => false,
+            UserAccessLevel::FreeWithAPI | UserAccessLevel::SubscriptionWithAPI => true,
+        }
+    }
+
+    /// Get user's daily opportunity limits with optional group context
+    pub fn get_opportunity_limits(&self, is_group_context: bool) -> (u32, u32) {
+        let access_level = self.get_access_level();
+        let (base_arbitrage, base_technical) = access_level.get_daily_opportunity_limits();
+        
+        // Apply 2x multiplier for group/channel contexts
+        if is_group_context {
+            (base_arbitrage.saturating_mul(2), base_technical.saturating_mul(2))
+        } else {
+            (base_arbitrage, base_technical)
+        }
+    }
+
+    /// Check if user's exchanges are compatible with an opportunity
+    pub fn has_compatible_exchanges(&self, required_exchanges: &[ExchangeIdEnum]) -> bool {
+        let user_exchanges = self.get_active_exchanges();
+        required_exchanges.iter().all(|req_exchange| {
+            user_exchanges.contains(req_exchange)
+        })
+    }
+
+    /// Get user's AI access level based on subscription and AI keys
+    pub fn get_ai_access_level(&self) -> AIAccessLevel {
+        let has_ai_keys = self.api_keys.iter().any(|key| key.is_ai_key() && key.is_active);
+        
+        match (&self.subscription.tier, has_ai_keys) {
+            (SubscriptionTier::Free, false) => AIAccessLevel::FreeWithoutAI {
+                ai_analysis: false,
+                view_global_ai: true,
+                daily_ai_limit: 0,
+                template_access: TemplateAccess::None,
+            },
+            (SubscriptionTier::Free, true) => AIAccessLevel::FreeWithAI {
+                ai_analysis: true,
+                custom_templates: false,
+                daily_ai_limit: 5,
+                global_ai_enhancement: true,
+                personal_ai_generation: false,
+                template_access: TemplateAccess::DefaultOnly,
+            },
+            (SubscriptionTier::Basic, true) => AIAccessLevel::FreeWithAI {
+                ai_analysis: true,
+                custom_templates: false,
+                daily_ai_limit: 10, // Slightly higher for Basic
+                global_ai_enhancement: true,
+                personal_ai_generation: false,
+                template_access: TemplateAccess::DefaultOnly,
+            },
+            (SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin, true) => {
+                AIAccessLevel::SubscriptionWithAI {
+                    ai_analysis: true,
+                    custom_templates: true,
+                    daily_ai_limit: if matches!(self.subscription.tier, SubscriptionTier::SuperAdmin) { u32::MAX } else { 100 },
+                    global_ai_enhancement: true,
+                    personal_ai_generation: true,
+                    ai_marketplace: true,
+                    template_access: TemplateAccess::Full,
+                }
+            },
+            // Users without AI keys but with subscription still get view-only access
+            (_, false) => AIAccessLevel::FreeWithoutAI {
+                ai_analysis: false,
+                view_global_ai: true,
+                daily_ai_limit: 0,
+                template_access: TemplateAccess::None,
+            },
+        }
+    }
+
+    /// Check if user has AI API keys
+    pub fn has_ai_api_keys(&self) -> bool {
+        self.api_keys.iter().any(|key| key.is_ai_key() && key.is_active)
     }
 }
 
@@ -1508,4 +1858,550 @@ pub enum RiskLevel {
     Medium,
     High,
     Critical,
+}
+
+/// User access levels for opportunity distribution and trading features
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UserAccessLevel {
+    /// Free user without any API keys - view-only access
+    FreeWithoutAPI,
+    /// Free user with exchange API keys - limited opportunities + trading
+    FreeWithAPI,
+    /// Subscription user with exchange API keys - unlimited opportunities + advanced features
+    SubscriptionWithAPI,
+}
+
+impl UserAccessLevel {
+    /// Get daily opportunity limits for this access level
+    pub fn get_daily_opportunity_limits(&self) -> (u32, u32) {
+        match self {
+            UserAccessLevel::FreeWithoutAPI => (0, 0), // No opportunities for users without APIs
+            UserAccessLevel::FreeWithAPI => (10, 10),  // 10 arbitrage + 10 technical daily
+            UserAccessLevel::SubscriptionWithAPI => (u32::MAX, u32::MAX), // Unlimited
+        }
+    }
+
+    /// Check if user can access trading features
+    pub fn can_trade(&self) -> bool {
+        match self {
+            UserAccessLevel::FreeWithoutAPI => false,
+            UserAccessLevel::FreeWithAPI => true,
+            UserAccessLevel::SubscriptionWithAPI => true,
+        }
+    }
+
+    /// Check if user can receive real-time opportunities
+    pub fn gets_realtime_opportunities(&self) -> bool {
+        match self {
+            UserAccessLevel::FreeWithoutAPI => false, // No opportunities
+            UserAccessLevel::FreeWithAPI => false,    // 5-minute delay
+            UserAccessLevel::SubscriptionWithAPI => true, // Real-time
+        }
+    }
+
+    /// Get opportunity delivery delay in seconds
+    pub fn get_opportunity_delay_seconds(&self) -> u64 {
+        match self {
+            UserAccessLevel::FreeWithoutAPI => 0,   // No opportunities
+            UserAccessLevel::FreeWithAPI => 300,    // 5-minute delay
+            UserAccessLevel::SubscriptionWithAPI => 0, // Real-time
+        }
+    }
+
+    /// Check if user can access personal opportunity generation
+    pub fn can_generate_personal_opportunities(&self) -> bool {
+        match self {
+            UserAccessLevel::FreeWithoutAPI => false,
+            UserAccessLevel::FreeWithAPI => false,
+            UserAccessLevel::SubscriptionWithAPI => true,
+        }
+    }
+}
+
+impl std::fmt::Display for UserAccessLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UserAccessLevel::FreeWithoutAPI => write!(f, "free_without_api"),
+            UserAccessLevel::FreeWithAPI => write!(f, "free_with_api"),
+            UserAccessLevel::SubscriptionWithAPI => write!(f, "subscription_with_api"),
+        }
+    }
+}
+
+impl std::str::FromStr for UserAccessLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "free_without_api" => Ok(UserAccessLevel::FreeWithoutAPI),
+            "free_with_api" => Ok(UserAccessLevel::FreeWithAPI),
+            "subscription_with_api" => Ok(UserAccessLevel::SubscriptionWithAPI),
+            _ => Err(format!("Invalid user access level: {}", s)),
+        }
+    }
+}
+
+/// Daily opportunity tracking for users
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserOpportunityLimits {
+    pub user_id: String,
+    pub access_level: UserAccessLevel,
+    pub date: String, // YYYY-MM-DD format
+    pub arbitrage_opportunities_received: u32,
+    pub technical_opportunities_received: u32,
+    pub arbitrage_limit: u32,
+    pub technical_limit: u32,
+    pub last_reset: u64, // Timestamp of last daily reset
+    pub is_group_context: bool, // Whether user is in group/channel context
+    pub group_multiplier_applied: bool, // Whether 2x multiplier has been applied
+}
+
+impl UserOpportunityLimits {
+    pub fn new(user_id: String, access_level: UserAccessLevel, is_group_context: bool) -> Self {
+        let (arbitrage_limit, technical_limit) = access_level.get_daily_opportunity_limits();
+        
+        // Apply 2x multiplier for group/channel contexts
+        let (final_arbitrage_limit, final_technical_limit) = if is_group_context {
+            (arbitrage_limit.saturating_mul(2), technical_limit.saturating_mul(2))
+        } else {
+            (arbitrage_limit, technical_limit)
+        };
+
+        let now = chrono::Utc::now();
+        Self {
+            user_id,
+            access_level,
+            date: now.format("%Y-%m-%d").to_string(),
+            arbitrage_opportunities_received: 0,
+            technical_opportunities_received: 0,
+            arbitrage_limit: final_arbitrage_limit,
+            technical_limit: final_technical_limit,
+            last_reset: now.timestamp() as u64,
+            is_group_context,
+            group_multiplier_applied: is_group_context,
+        }
+    }
+
+    /// Check if user can receive more arbitrage opportunities
+    pub fn can_receive_arbitrage(&self) -> bool {
+        self.arbitrage_opportunities_received < self.arbitrage_limit
+    }
+
+    /// Check if user can receive more technical opportunities
+    pub fn can_receive_technical(&self) -> bool {
+        self.technical_opportunities_received < self.technical_limit
+    }
+
+    /// Record that user received an arbitrage opportunity
+    pub fn record_arbitrage_received(&mut self) -> bool {
+        if self.can_receive_arbitrage() {
+            self.arbitrage_opportunities_received += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Record that user received a technical opportunity
+    pub fn record_technical_received(&mut self) -> bool {
+        if self.can_receive_technical() {
+            self.technical_opportunities_received += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Check if daily reset is needed
+    pub fn needs_daily_reset(&self) -> bool {
+        let now = chrono::Utc::now();
+        let current_date = now.format("%Y-%m-%d").to_string();
+        self.date != current_date
+    }
+
+    /// Reset daily counters
+    pub fn reset_daily_counters(&mut self) {
+        let now = chrono::Utc::now();
+        self.date = now.format("%Y-%m-%d").to_string();
+        self.arbitrage_opportunities_received = 0;
+        self.technical_opportunities_received = 0;
+        self.last_reset = now.timestamp() as u64;
+    }
+
+    /// Get remaining opportunities for both types
+    pub fn get_remaining_opportunities(&self) -> (u32, u32) {
+        let remaining_arbitrage = self.arbitrage_limit.saturating_sub(self.arbitrage_opportunities_received);
+        let remaining_technical = self.technical_limit.saturating_sub(self.technical_opportunities_received);
+        (remaining_arbitrage, remaining_technical)
+    }
+}
+
+/// Group/Channel context information for opportunity distribution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ChatContext {
+    Private,
+    Group(String),    // Group ID
+    Channel(String),  // Channel ID
+}
+
+impl ChatContext {
+    /// Check if this is a group or channel context (gets 2x multiplier)
+    pub fn is_group_context(&self) -> bool {
+        matches!(self, ChatContext::Group(_) | ChatContext::Channel(_))
+    }
+
+    /// Get context ID for tracking
+    pub fn get_context_id(&self) -> String {
+        match self {
+            ChatContext::Private => "private".to_string(),
+            ChatContext::Group(id) => format!("group_{}", id),
+            ChatContext::Channel(id) => format!("channel_{}", id),
+        }
+    }
+}
+
+/// AI access levels based on subscription tier and AI key availability
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AIAccessLevel {
+    /// Free user without AI keys - can view AI-enhanced global opportunities (read-only)
+    FreeWithoutAI {
+        ai_analysis: bool,                    // false - No AI features
+        view_global_ai: bool,                 // true - Can view AI-enhanced global opportunities
+        daily_ai_limit: u32,                  // 0 - No AI calls allowed
+        template_access: TemplateAccess,      // None - No template access
+    },
+    /// Free user with AI keys - basic AI analysis with default templates
+    FreeWithAI {
+        ai_analysis: bool,                    // true - Basic AI analysis
+        custom_templates: bool,               // false - Only default templates
+        daily_ai_limit: u32,                  // 5 - Limited AI calls per day
+        global_ai_enhancement: bool,          // true - AI enhances global opportunities
+        personal_ai_generation: bool,         // false - No personal opportunity generation
+        template_access: TemplateAccess,      // DefaultOnly - Only system templates
+    },
+    /// Subscription user with AI keys - full AI access with custom templates
+    SubscriptionWithAI {
+        ai_analysis: bool,                    // true - Full AI analysis
+        custom_templates: bool,               // true - Custom AI templates
+        daily_ai_limit: u32,                  // 100+ - High daily limits
+        global_ai_enhancement: bool,          // true - AI enhances global opportunities
+        personal_ai_generation: bool,         // true - AI generates personal opportunities
+        ai_marketplace: bool,                 // true - Access to AI marketplace
+        template_access: TemplateAccess,      // Full - Full template customization
+    },
+}
+
+impl AIAccessLevel {
+    /// Get daily AI usage limits based on access level
+    pub fn get_daily_ai_limits(&self) -> u32 {
+        match self {
+            AIAccessLevel::FreeWithoutAI { daily_ai_limit, .. } => *daily_ai_limit,
+            AIAccessLevel::FreeWithAI { daily_ai_limit, .. } => *daily_ai_limit,
+            AIAccessLevel::SubscriptionWithAI { daily_ai_limit, .. } => *daily_ai_limit,
+        }
+    }
+
+    /// Check if user can use AI analysis features
+    pub fn can_use_ai_analysis(&self) -> bool {
+        match self {
+            AIAccessLevel::FreeWithoutAI { ai_analysis, .. } => *ai_analysis,
+            AIAccessLevel::FreeWithAI { ai_analysis, .. } => *ai_analysis,
+            AIAccessLevel::SubscriptionWithAI { ai_analysis, .. } => *ai_analysis,
+        }
+    }
+
+    /// Check if user can create custom AI templates
+    pub fn can_create_custom_templates(&self) -> bool {
+        match self {
+            AIAccessLevel::FreeWithoutAI { .. } => false,
+            AIAccessLevel::FreeWithAI { custom_templates, .. } => *custom_templates,
+            AIAccessLevel::SubscriptionWithAI { custom_templates, .. } => *custom_templates,
+        }
+    }
+
+    /// Check if user can generate personal AI opportunities
+    pub fn can_generate_personal_ai_opportunities(&self) -> bool {
+        match self {
+            AIAccessLevel::FreeWithoutAI { .. } => false,
+            AIAccessLevel::FreeWithAI { personal_ai_generation, .. } => *personal_ai_generation,
+            AIAccessLevel::SubscriptionWithAI { personal_ai_generation, .. } => *personal_ai_generation,
+        }
+    }
+
+    /// Check if user can view AI-enhanced global opportunities
+    pub fn can_view_global_ai_opportunities(&self) -> bool {
+        match self {
+            AIAccessLevel::FreeWithoutAI { view_global_ai, .. } => *view_global_ai,
+            AIAccessLevel::FreeWithAI { global_ai_enhancement, .. } => *global_ai_enhancement,
+            AIAccessLevel::SubscriptionWithAI { global_ai_enhancement, .. } => *global_ai_enhancement,
+        }
+    }
+
+    /// Get template access level
+    pub fn get_template_access(&self) -> &TemplateAccess {
+        match self {
+            AIAccessLevel::FreeWithoutAI { template_access, .. } => template_access,
+            AIAccessLevel::FreeWithAI { template_access, .. } => template_access,
+            AIAccessLevel::SubscriptionWithAI { template_access, .. } => template_access,
+        }
+    }
+}
+
+impl std::fmt::Display for AIAccessLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AIAccessLevel::FreeWithoutAI { .. } => write!(f, "free_without_ai"),
+            AIAccessLevel::FreeWithAI { .. } => write!(f, "free_with_ai"),
+            AIAccessLevel::SubscriptionWithAI { .. } => write!(f, "subscription_with_ai"),
+        }
+    }
+}
+
+impl std::str::FromStr for AIAccessLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "free_without_ai" => Ok(AIAccessLevel::FreeWithoutAI {
+                ai_analysis: false,
+                view_global_ai: true,
+                daily_ai_limit: 0,
+                template_access: TemplateAccess::None,
+            }),
+            "free_with_ai" => Ok(AIAccessLevel::FreeWithAI {
+                ai_analysis: true,
+                custom_templates: false,
+                daily_ai_limit: 5,
+                global_ai_enhancement: true,
+                personal_ai_generation: false,
+                template_access: TemplateAccess::DefaultOnly,
+            }),
+            "subscription_with_ai" => Ok(AIAccessLevel::SubscriptionWithAI {
+                ai_analysis: true,
+                custom_templates: true,
+                daily_ai_limit: 100,
+                global_ai_enhancement: true,
+                personal_ai_generation: true,
+                ai_marketplace: true,
+                template_access: TemplateAccess::Full,
+            }),
+            _ => Err(format!("Invalid AI access level: {}", s)),
+        }
+    }
+}
+
+/// AI template access levels
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TemplateAccess {
+    /// No template access
+    None,
+    /// Only system default templates
+    DefaultOnly,
+    /// Full template customization + marketplace
+    Full,
+}
+
+impl std::fmt::Display for TemplateAccess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TemplateAccess::None => write!(f, "none"),
+            TemplateAccess::DefaultOnly => write!(f, "default_only"),
+            TemplateAccess::Full => write!(f, "full"),
+        }
+    }
+}
+
+/// AI template structure for customizable AI analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AITemplate {
+    pub template_id: String,
+    pub template_name: String,
+    pub template_type: AITemplateType,
+    pub access_level: TemplateAccess,
+    pub prompt_template: String,
+    pub parameters: AITemplateParameters,
+    pub created_by: Option<String>,           // None for system templates
+    pub is_system_default: bool,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+impl AITemplate {
+    pub fn new_system_template(
+        template_name: String,
+        template_type: AITemplateType,
+        prompt_template: String,
+        parameters: AITemplateParameters,
+    ) -> Self {
+        Self {
+            template_id: uuid::Uuid::new_v4().to_string(),
+            template_name,
+            template_type,
+            access_level: TemplateAccess::DefaultOnly,
+            prompt_template,
+            parameters,
+            created_by: None,
+            is_system_default: true,
+            created_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+            updated_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+        }
+    }
+
+    pub fn new_user_template(
+        template_name: String,
+        template_type: AITemplateType,
+        prompt_template: String,
+        parameters: AITemplateParameters,
+        created_by: String,
+    ) -> Self {
+        Self {
+            template_id: uuid::Uuid::new_v4().to_string(),
+            template_name,
+            template_type,
+            access_level: TemplateAccess::Full,
+            prompt_template,
+            parameters,
+            created_by: Some(created_by),
+            is_system_default: false,
+            created_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+            updated_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+        }
+    }
+}
+
+/// Types of AI templates for different use cases
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AITemplateType {
+    /// Analyze global opportunities
+    GlobalOpportunityAnalysis,
+    /// Generate personal opportunities
+    PersonalOpportunityGeneration,
+    /// Support trading decisions
+    TradingDecisionSupport,
+    /// Risk analysis
+    RiskAssessment,
+    /// Position size recommendations
+    PositionSizing,
+}
+
+impl std::fmt::Display for AITemplateType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AITemplateType::GlobalOpportunityAnalysis => write!(f, "global_opportunity_analysis"),
+            AITemplateType::PersonalOpportunityGeneration => write!(f, "personal_opportunity_generation"),
+            AITemplateType::TradingDecisionSupport => write!(f, "trading_decision_support"),
+            AITemplateType::RiskAssessment => write!(f, "risk_assessment"),
+            AITemplateType::PositionSizing => write!(f, "position_sizing"),
+        }
+    }
+}
+
+/// AI template parameters for customization
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AITemplateParameters {
+    pub max_tokens: Option<u32>,
+    pub temperature: Option<f64>,
+    pub top_p: Option<f64>,
+    pub frequency_penalty: Option<f64>,
+    pub presence_penalty: Option<f64>,
+    pub custom_parameters: HashMap<String, serde_json::Value>,
+}
+
+impl Default for AITemplateParameters {
+    fn default() -> Self {
+        Self {
+            max_tokens: Some(1000),
+            temperature: Some(0.7),
+            top_p: Some(1.0),
+            frequency_penalty: Some(0.0),
+            presence_penalty: Some(0.0),
+            custom_parameters: HashMap::new(),
+        }
+    }
+}
+
+/// AI usage tracking for daily limits and cost monitoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AIUsageTracker {
+    pub user_id: String,
+    pub date: String,                         // YYYY-MM-DD format
+    pub ai_calls_used: u32,
+    pub ai_calls_limit: u32,
+    pub last_reset: u64,                      // Timestamp of last daily reset
+    pub access_level: AIAccessLevel,
+    pub total_cost_usd: f64,
+    pub cost_breakdown_by_provider: HashMap<String, f64>,
+    pub cost_breakdown_by_feature: HashMap<String, f64>,
+}
+
+impl AIUsageTracker {
+    pub fn new(user_id: String, access_level: AIAccessLevel) -> Self {
+        let daily_limit = access_level.get_daily_ai_limits();
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        
+        Self {
+            user_id,
+            date: today,
+            ai_calls_used: 0,
+            ai_calls_limit: daily_limit,
+            last_reset: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+            access_level,
+            total_cost_usd: 0.0,
+            cost_breakdown_by_provider: HashMap::new(),
+            cost_breakdown_by_feature: HashMap::new(),
+        }
+    }
+
+    pub fn can_make_ai_call(&self) -> bool {
+        self.ai_calls_used < self.ai_calls_limit
+    }
+
+    pub fn record_ai_call(&mut self, cost_usd: f64, provider: String, feature: String) -> bool {
+        if !self.can_make_ai_call() {
+            return false;
+        }
+
+        self.ai_calls_used += 1;
+        self.total_cost_usd += cost_usd;
+        
+        *self.cost_breakdown_by_provider.entry(provider).or_insert(0.0) += cost_usd;
+        *self.cost_breakdown_by_feature.entry(feature).or_insert(0.0) += cost_usd;
+        
+        true
+    }
+
+    pub fn needs_daily_reset(&self) -> bool {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        self.date != today
+    }
+
+    pub fn reset_daily_counters(&mut self) {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        self.date = today;
+        self.ai_calls_used = 0;
+        self.last_reset = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        // Note: Cost tracking is cumulative, not reset daily
+    }
+
+    pub fn get_remaining_calls(&self) -> u32 {
+        self.ai_calls_limit.saturating_sub(self.ai_calls_used)
+    }
 }

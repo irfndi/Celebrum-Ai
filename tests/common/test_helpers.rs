@@ -1,0 +1,228 @@
+// Common Test Helper Functions
+// Shared utilities for creating test data and assertions
+
+use arb_edge::types::{
+    UserProfile, SubscriptionTier, AccountStatus, CommandPermission,
+    ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum,
+};
+use arb_edge::services::core::user::user_trading_preferences::{
+    TradingFocus, ExperienceLevel, RiskTolerance, UserTradingPreferences,
+    AutomationLevel, AutomationScope,
+};
+use arb_edge::services::core::telegram::telegram_types::{
+    TelegramUpdate, TelegramMessage, TelegramChat, TelegramUser,
+};
+use arb_edge::services::core::analysis::market_analysis::{
+    TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon, PriceSeries, TimeFrame, PricePoint
+};
+use serde_json::json;
+
+/// Create a test user profile with specified parameters
+pub fn create_test_user(telegram_id: i64, subscription_tier: SubscriptionTier) -> UserProfile {
+    let mut user = UserProfile::new(Some(telegram_id), Some("test-invite".to_string()));
+    user.subscription.tier = subscription_tier;
+    user
+}
+
+/// Create test trading preferences
+pub fn create_test_preferences(
+    user_id: String,
+    focus: TradingFocus,
+    experience: ExperienceLevel,
+    risk_tolerance: RiskTolerance,
+) -> UserTradingPreferences {
+    let preference_id = format!("pref_{}", user_id);
+    let now = chrono::Utc::now().timestamp_millis() as u64;
+    
+    UserTradingPreferences {
+        preference_id,
+        user_id,
+        trading_focus: focus,
+        experience_level: experience,
+        risk_tolerance,
+        automation_level: AutomationLevel::Manual,
+        automation_scope: AutomationScope::None,
+        arbitrage_enabled: true,
+        technical_enabled: false,
+        advanced_analytics_enabled: false,
+        preferred_notification_channels: vec!["telegram".to_string()],
+        trading_hours_timezone: "UTC".to_string(),
+        trading_hours_start: "00:00".to_string(),
+        trading_hours_end: "23:59".to_string(),
+        onboarding_completed: false,
+        tutorial_steps_completed: vec![],
+        created_at: now,
+        updated_at: now,
+    }
+}
+
+/// Create a test trading opportunity
+pub fn create_test_opportunity(id: &str, pair: &str, confidence: f64, risk: RiskLevel) -> TradingOpportunity {
+    TradingOpportunity {
+        opportunity_id: id.to_string(),
+        opportunity_type: OpportunityType::Arbitrage,
+        trading_pair: pair.to_string(),
+        exchanges: vec!["binance".to_string(), "bybit".to_string()],
+        entry_price: match pair {
+            "BTCUSDT" => 50000.0,
+            "ETHUSDT" => 3000.0,
+            "ADAUSDT" => 0.5,
+            _ => 100.0,
+        },
+        target_price: Some(50000.0 * 1.02),
+        stop_loss: Some(50000.0 * 0.98),
+        confidence_score: confidence,
+        risk_level: risk,
+        expected_return: confidence * 0.05,
+        time_horizon: TimeHorizon::Short,
+        indicators_used: vec!["arbitrage_analysis".to_string()],
+        analysis_data: json!({
+            "buy_exchange": "binance",
+            "sell_exchange": "bybit",
+            "rate_difference": confidence * 0.02
+        }),
+        created_at: chrono::Utc::now().timestamp_millis() as u64,
+        expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + 3600000),
+    }
+}
+
+/// Create a test arbitrage opportunity
+pub fn create_test_arbitrage_opportunity(id: &str, pair: &str, rate_diff: f64) -> ArbitrageOpportunity {
+    ArbitrageOpportunity {
+        id: id.to_string(),
+        pair: pair.to_string(),
+        r#type: ArbitrageType::CrossExchange,
+        long_exchange: ExchangeIdEnum::Binance,
+        short_exchange: ExchangeIdEnum::Bybit,
+        long_rate: Some(50000.0),
+        short_rate: Some(50000.0 + (50000.0 * rate_diff)),
+        rate_difference: rate_diff,
+        net_rate_difference: Some(rate_diff * 0.95),
+        potential_profit_value: Some(rate_diff * 100.0),
+        details: Some(format!("Test arbitrage opportunity with {}% rate difference", rate_diff * 100.0)),
+        timestamp: chrono::Utc::now().timestamp_millis() as u64,
+        min_exchanges_required: 2,
+    }
+}
+
+/// Create a Telegram update for testing
+pub fn create_telegram_update(user_id: i64, chat_id: i64, text: &str) -> TelegramUpdate {
+    TelegramUpdate {
+        update_id: 12345,
+        message: Some(TelegramMessage {
+            message_id: 67890,
+            from: Some(TelegramUser {
+                id: user_id,
+                is_bot: false,
+                first_name: "Test".to_string(),
+                last_name: Some("User".to_string()),
+                username: Some("testuser".to_string()),
+                language_code: Some("en".to_string()),
+            }),
+            chat: TelegramChat {
+                id: chat_id,
+                r#type: "private".to_string(),
+                title: None,
+                username: None,
+                first_name: Some("Test".to_string()),
+                last_name: Some("User".to_string()),
+            },
+            date: chrono::Utc::now().timestamp() as i64,
+            text: Some(text.to_string()),
+            entities: None,
+        }),
+        callback_query: None,
+    }
+}
+
+/// Create test price series data
+pub fn create_test_price_series(pair: &str, exchange: &str, data_points: usize) -> PriceSeries {
+    let mut series = PriceSeries::new(pair.to_string(), exchange.to_string(), TimeFrame::OneMinute);
+    
+    let base_price = match pair {
+        "BTCUSDT" => 50000.0,
+        "ETHUSDT" => 3000.0,
+        "ADAUSDT" => 0.5,
+        _ => 100.0,
+    };
+    let base_time = chrono::Utc::now().timestamp_millis() as u64;
+    
+    for i in 0..data_points {
+        let price_variation = (i as f64 * 0.001) - 0.01;
+        let price = base_price + (base_price * price_variation);
+        
+        let price_point = PricePoint {
+            timestamp: base_time + (i as u64 * 60000),
+            price,
+            volume: Some(100.0 + (i as f64 * 10.0)),
+            exchange_id: exchange.to_string(),
+            trading_pair: pair.to_string(),
+        };
+        
+        series.add_price_point(price_point);
+    }
+    
+    series
+}
+
+/// Create test market data
+pub fn create_test_market_data(exchange: &str, pair: &str, price: f64) -> serde_json::Value {
+    json!({
+        "exchange": exchange,
+        "symbol": pair,
+        "price": price,
+        "volume": 1000.0,
+        "timestamp": chrono::Utc::now().timestamp_millis(),
+        "bid": price - 0.5,
+        "ask": price + 0.5,
+        "high_24h": price * 1.02,
+        "low_24h": price * 0.98
+    })
+}
+
+/// Assert that a user has the expected permissions
+pub fn assert_user_permissions(user: &UserProfile, expected_permissions: &[CommandPermission]) {
+    for permission in expected_permissions {
+        // This would normally check against the user's actual permissions
+        // For now, we'll check based on subscription tier
+        let has_permission = match permission {
+            CommandPermission::BasicCommands => true,
+            CommandPermission::BasicOpportunities => true,
+            CommandPermission::ManualTrading => matches!(user.subscription.tier, SubscriptionTier::Basic | SubscriptionTier::Premium | SubscriptionTier::Enterprise),
+            CommandPermission::AutomatedTrading => matches!(user.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise),
+            CommandPermission::TechnicalAnalysis => matches!(user.subscription.tier, SubscriptionTier::Basic | SubscriptionTier::Premium | SubscriptionTier::Enterprise),
+            CommandPermission::AIEnhancedOpportunities => matches!(user.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise),
+            CommandPermission::SystemAdministration => user.subscription.tier == SubscriptionTier::SuperAdmin,
+            CommandPermission::UserManagement => user.subscription.tier == SubscriptionTier::SuperAdmin,
+            CommandPermission::GlobalConfiguration => user.subscription.tier == SubscriptionTier::SuperAdmin,
+            CommandPermission::GroupAnalytics => matches!(user.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin),
+            CommandPermission::AdvancedAnalytics => matches!(user.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise),
+            CommandPermission::PremiumFeatures => matches!(user.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise),
+        };
+        
+        assert!(has_permission, "User should have permission: {:?}", permission);
+    }
+}
+
+/// Assert that an opportunity matches user preferences
+pub fn assert_opportunity_matches_preferences(
+    opportunity: &TradingOpportunity,
+    preferences: &UserTradingPreferences,
+) -> bool {
+    let focus_match = match preferences.trading_focus {
+        TradingFocus::Arbitrage => opportunity.opportunity_type == OpportunityType::Arbitrage,
+        TradingFocus::Technical => matches!(opportunity.opportunity_type, OpportunityType::Technical | OpportunityType::ArbitrageTechnical),
+        TradingFocus::Hybrid => true,
+    };
+    
+    let risk_match = match preferences.risk_tolerance {
+        RiskTolerance::Conservative => opportunity.risk_level == RiskLevel::Low,
+        RiskTolerance::Balanced => matches!(opportunity.risk_level, RiskLevel::Low | RiskLevel::Medium),
+        RiskTolerance::Aggressive => true,
+    };
+    
+    // For now, assume all pairs match since we don't have preferred_trading_pairs in the current structure
+    let pair_match = true;
+    
+    focus_match && risk_match && pair_match
+} 

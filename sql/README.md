@@ -32,11 +32,46 @@ This directory contains database migrations for the ArbEdge trading platform, ma
 - Default system configuration data
 - Sample notification templates for RBAC
 
+### Migration 003: Add Superadmin User (2025-01-27)
+**File**: `migrations/003_add_superadmin.sql`
+**Status**: ✅ Applied to Production
+**Description**: Creates superadmin user with full permissions from environment variables
+
+**Features Added**:
+- Superadmin user profile with full system access
+- Complete trading preferences with all features enabled
+- Comprehensive opportunity preferences with admin capabilities
+- Audit log entry for superadmin creation
+
+### Migration 004: Invitation System Foundation (2025-01-28)
+**File**: `migrations/004_test_minimal.sql`
+**Status**: ✅ Applied to Production
+**Description**: Creates basic invitation_codes table for invitation system foundation
+
+**Features Added**:
+- `invitation_codes` table for super admin generated codes
+- Basic structure for invitation-based user registration
+
+### Migration 005: Complete Invitation System (2025-01-28)
+**File**: `migrations/005_invitation_tables_only.sql`
+**Status**: ✅ Applied to Production
+**Description**: Completes invitation system with referral and affiliation program tables
+
+**Features Added**:
+- `invitation_usage` table for beta user tracking with 180-day expiration
+- `user_referral_codes` table for personal referral codes (CRU functionality)
+- `referral_usage` table for referral tracking and bonus calculation
+- `affiliation_applications` table for influencer program applications
+- `affiliation_programs` table for approved programs with tier management
+- System configuration for invitation/referral/affiliation parameters
+- 14 configuration entries for invitation system management
+
 ## Migration Status (Production)
-- **Total Queries Executed**: 140 (47 + 93)
-- **Database Size**: 0.59 MB
-- **Tables Created**: 22+ tables plus indexes and views
+- **Total Queries Executed**: 148+ (47 + 93 + 2 + 8)
+- **Database Size**: 0.66 MB
+- **Tables Created**: 28+ tables plus indexes and views
 - **RBAC System**: ✅ **FULLY OPERATIONAL**
+- **Invitation System**: ✅ **FULLY OPERATIONAL**
 
 ## How to Apply Migrations
 

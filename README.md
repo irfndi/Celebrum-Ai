@@ -1,8 +1,11 @@
 ![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/irfndi/ArbEdge?utm_source=oss&utm_medium=github&utm_campaign=irfndi%2FArbEdge&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/irfndi/ArbEdge)
+
 
 # ArbEdge - Rust Implementation
 
-A high-performance arbitrage detection and trading system built with Rust and deployed on Cloudflare Workers.
+A high-performance & high-intelligence arbitrage & technical analysis trading detections and trading system built with Rust.
+the interface currently is a telegram bot, but we are working on a api, web & discord interface in future.
 
 ## 🚀 Features
 
