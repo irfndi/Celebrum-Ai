@@ -1,6 +1,7 @@
 use crate::services::user_profile::UserProfileService;
 use crate::types::CommandPermission;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 /// Represents a single inline keyboard button with optional permission requirements
 #[derive(Debug, Clone)]
@@ -41,7 +42,14 @@ impl InlineKeyboard {
         self
     }
 
-    /// Filter buttons based on user permissions
+    /// Filter buttons based on user permissions with caching optimization
+    ///
+    /// This method efficiently filters keyboard buttons based on user permissions by:
+    /// - Caching permission check results to avoid repeated database calls
+    /// - Particularly beneficial for keyboards with many buttons requiring the same permissions
+    /// - Reduces database load when checking SystemAdministration, ManualTrading, etc. multiple times
+    ///
+    /// Performance improvement: O(unique_permissions) instead of O(total_buttons) database calls
     pub async fn filter_by_permissions(
         &self,
         user_profile_service: &Option<UserProfileService>,
@@ -49,20 +57,32 @@ impl InlineKeyboard {
     ) -> InlineKeyboard {
         let mut filtered_keyboard = InlineKeyboard::new();
 
+        // Performance optimization: Cache user permissions to avoid repeated database calls
+        let mut permission_cache = HashMap::new();
+
         for row in &self.buttons {
             let mut filtered_row = Vec::new();
 
             for button in row {
                 // Check if button requires permission
                 if let Some(required_permission) = &button.required_permission {
-                    // Check if user has permission
-                    if Self::check_user_permission_static(
-                        user_profile_service,
-                        user_id,
-                        required_permission,
-                    )
-                    .await
-                    {
+                    // Check cache first to avoid repeated database calls
+                    let has_permission =
+                        if let Some(&cached_result) = permission_cache.get(required_permission) {
+                            cached_result
+                        } else {
+                            // If not cached, perform the check and cache the result
+                            let result = Self::check_user_permission_static(
+                                user_profile_service,
+                                user_id,
+                                required_permission,
+                            )
+                            .await;
+                            permission_cache.insert(required_permission.clone(), result);
+                            result
+                        };
+
+                    if has_permission {
                         filtered_row.push(button.clone());
                     }
                 } else {
@@ -383,5 +403,55 @@ mod tests {
             json["inline_keyboard"][0][0]["callback_data"],
             "test_callback"
         );
+    }
+
+    #[tokio::test]
+    async fn test_permission_caching_optimization() {
+        // Create a keyboard with multiple buttons requiring the same permission
+        let mut keyboard = InlineKeyboard::new();
+
+        // Add multiple buttons with the same permission to test caching
+        keyboard.add_row(vec![
+            InlineKeyboardButton::with_permission(
+                "Admin 1",
+                "admin1",
+                CommandPermission::SystemAdministration,
+            ),
+            InlineKeyboardButton::with_permission(
+                "Admin 2",
+                "admin2",
+                CommandPermission::SystemAdministration,
+            ),
+            InlineKeyboardButton::with_permission(
+                "Admin 3",
+                "admin3",
+                CommandPermission::SystemAdministration,
+            ),
+        ]);
+
+        // Test with no user profile service (should filter out all permission-required buttons)
+        let filtered = keyboard.filter_by_permissions(&None, "123").await;
+        assert_eq!(filtered.buttons.len(), 0);
+
+        // Test with mixed permissions
+        let mut mixed_keyboard = InlineKeyboard::new();
+        mixed_keyboard.add_row(vec![
+            InlineKeyboardButton::new("Public", "public"), // No permission required
+            InlineKeyboardButton::with_permission(
+                "Admin",
+                "admin",
+                CommandPermission::SystemAdministration,
+            ),
+            InlineKeyboardButton::with_permission(
+                "Trading",
+                "trading",
+                CommandPermission::ManualTrading,
+            ),
+        ]);
+
+        let filtered_mixed = mixed_keyboard.filter_by_permissions(&None, "123").await;
+        assert_eq!(filtered_mixed.buttons.len(), 1); // Only public button should remain
+        assert_eq!(filtered_mixed.buttons[0].len(), 1);
+        assert_eq!(filtered_mixed.buttons[0][0].text, "Public");
     }
 }

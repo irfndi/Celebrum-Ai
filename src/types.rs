@@ -461,7 +461,7 @@ pub enum UserRole {
 }
 
 /// Command permissions for RBAC
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandPermission {
     // Basic commands (available to all)
