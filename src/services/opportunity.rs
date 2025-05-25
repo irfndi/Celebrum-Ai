@@ -50,6 +50,24 @@ impl OpportunityService {
 
     /// Helper method to safely parse user ID and get user profile
     async fn get_user_profile(&self, user_id: &str) -> Option<UserProfile> {
+        // Helper function to redact sensitive user data for logging
+        fn redact_user_id(user_id: &str) -> String {
+            if user_id.len() <= 4 {
+                "*".repeat(user_id.len())
+            } else {
+                format!("{}***{}", &user_id[..2], &user_id[user_id.len() - 2..])
+            }
+        }
+
+        fn redact_telegram_id(telegram_id: i64) -> String {
+            let id_str = telegram_id.to_string();
+            if id_str.len() <= 4 {
+                "*".repeat(id_str.len())
+            } else {
+                format!("{}***{}", &id_str[..2], &id_str[id_str.len() - 2..])
+            }
+        }
+
         let user_profile_service = self.user_profile_service.as_ref()?;
 
         // Safely parse user ID - return None for invalid IDs
@@ -59,7 +77,7 @@ impl OpportunityService {
                 log_error!(
                     "Invalid user ID: user IDs must be positive",
                     serde_json::json!({
-                        "user_id": user_id,
+                        "user_id": redact_user_id(user_id),
                         "error": "User ID must be greater than 0"
                     })
                 );
@@ -69,7 +87,7 @@ impl OpportunityService {
                 log_error!(
                     "Failed to parse user ID",
                     serde_json::json!({
-                        "user_id": user_id,
+                        "user_id": redact_user_id(user_id),
                         "error": e.to_string()
                     })
                 );
@@ -87,8 +105,8 @@ impl OpportunityService {
                 log_error!(
                     "User not found in database",
                     serde_json::json!({
-                        "telegram_id": telegram_id,
-                        "user_id": user_id
+                        "telegram_id": redact_telegram_id(telegram_id),
+                        "user_id": redact_user_id(user_id)
                     })
                 );
                 None
@@ -97,8 +115,8 @@ impl OpportunityService {
                 log_error!(
                     "Database error while fetching user profile",
                     serde_json::json!({
-                        "telegram_id": telegram_id,
-                        "user_id": user_id,
+                        "telegram_id": redact_telegram_id(telegram_id),
+                        "user_id": redact_user_id(user_id),
                         "error": e.to_string()
                     })
                 );

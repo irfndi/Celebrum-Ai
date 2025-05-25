@@ -372,15 +372,33 @@ impl MonitoringObservabilityService {
             return false;
         };
 
+        // Helper function to redact sensitive user data for logging
+        fn redact_user_id(user_id: &str) -> String {
+            if user_id.len() <= 4 {
+                "*".repeat(user_id.len())
+            } else {
+                format!("{}***{}", &user_id[..2], &user_id[user_id.len()-2..])
+            }
+        }
+
+        fn redact_telegram_id(telegram_id: i64) -> String {
+            let id_str = telegram_id.to_string();
+            if id_str.len() <= 4 {
+                "*".repeat(id_str.len())
+            } else {
+                format!("{}***{}", &id_str[..2], &id_str[id_str.len()-2..])
+            }
+        }
+
         // Safely parse user ID - return false for invalid IDs
         let telegram_id = match user_id.parse::<i64>() {
             Ok(id) if id > 0 => id, // Telegram user IDs start from 1
             Ok(_) => {
-                log::warn!("Invalid user ID: user IDs must be positive: {}", user_id);
+                log::warn!("Invalid user ID: user IDs must be positive: {}", redact_user_id(user_id));
                 return false;
             }
             Err(e) => {
-                log::warn!("Failed to parse user ID '{}': {}", user_id, e);
+                log::warn!("Failed to parse user ID '{}': {}", redact_user_id(user_id), e);
                 return false;
             }
         };
@@ -389,11 +407,11 @@ impl MonitoringObservabilityService {
         let user_profile = match user_profile_service.get_user_by_telegram_id(telegram_id).await {
             Ok(Some(profile)) => profile,
             Ok(None) => {
-                log::warn!("User not found in database: telegram_id={}", telegram_id);
+                log::warn!("User not found in database: telegram_id={}", redact_telegram_id(telegram_id));
                 return false;
             }
             Err(e) => {
-                log::warn!("Database error while fetching user profile for telegram_id={}: {}", telegram_id, e);
+                log::warn!("Database error while fetching user profile for telegram_id={}: {}", redact_telegram_id(telegram_id), e);
                 return false;
             }
         };
