@@ -1,16 +1,16 @@
 // AI Intelligence Service
 // Task 9.6: AI-Enhanced Opportunity Detection & Integration
 
+use crate::services::core::analysis::correlation_analysis::CorrelationMetrics;
+use crate::services::core::analysis::market_analysis::{RiskLevel, TradingOpportunity};
+use crate::services::core::opportunities::opportunity_categorization::CategorizedOpportunity;
+use crate::services::core::user::dynamic_config::UserConfigInstance;
+use crate::services::core::user::user_trading_preferences::{TradingFocus, UserTradingPreferences};
 use crate::services::{
-    core::analysis::correlation_analysis::CorrelationMetrics,
-    core::user::dynamic_config::UserConfigInstance,
-    core::analysis::market_analysis::{RiskLevel, TradingOpportunity},
-    core::opportunities::opportunity_categorization::CategorizedOpportunity,
-    core::user::user_trading_preferences::{TradingFocus, UserTradingPreferences},
     AiExchangeRouterService, CorrelationAnalysisService, D1Service, DynamicConfigService,
     OpportunityCategorizationService, PositionsService, UserTradingPreferencesService,
 };
-use crate::types::{ArbitragePosition, GlobalOpportunity, ExchangeIdEnum};
+use crate::types::{ArbitragePosition, ExchangeIdEnum, GlobalOpportunity};
 use crate::utils::{
     logger::{LogLevel, Logger},
     ArbitrageError, ArbitrageResult,
@@ -950,7 +950,9 @@ impl AiIntelligenceService {
         &self,
         positions: &[ArbitragePosition],
     ) -> crate::services::core::trading::ai_exchange_router::MarketDataSnapshot {
-        use crate::services::core::trading::ai_exchange_router::{MarketContext, MarketDataSnapshot};
+        use crate::services::core::trading::ai_exchange_router::{
+            MarketContext, MarketDataSnapshot,
+        };
         use std::collections::HashMap;
 
         MarketDataSnapshot {
@@ -1109,7 +1111,10 @@ impl AiIntelligenceService {
         &self,
         _positions: &[ArbitragePosition],
     ) -> ArbitrageResult<
-        std::collections::HashMap<String, crate::services::core::analysis::market_analysis::PriceSeries>,
+        std::collections::HashMap<
+            String,
+            crate::services::core::analysis::market_analysis::PriceSeries,
+        >,
     > {
         // This would interface with ExchangeService to fetch actual price data
         // For now, return an error to indicate feature not implemented
@@ -1199,11 +1204,13 @@ impl AiIntelligenceService {
         };
 
         // Create an ArbitrageOpportunity from TradingOpportunity
-        // Note: Using default exchanges since TradingOpportunity doesn't specify them
+        // Use dynamic exchange selection based on trading opportunity data
+        let (long_exchange, short_exchange) = self.select_exchanges_for_opportunity(&trading_opp);
+
         let arb_opp = ArbitrageOpportunity::new(
             trading_opp.trading_pair.clone(),
-            ExchangeIdEnum::Binance, // Default long_exchange - required
-            ExchangeIdEnum::Bybit,   // Default short_exchange - required
+            long_exchange,
+            short_exchange,
             Some(trading_opp.entry_price),
             trading_opp.target_price,
             trading_opp.expected_return,
@@ -1223,6 +1230,71 @@ impl AiIntelligenceService {
             distribution_strategy: DistributionStrategy::FirstComeFirstServe,
             source: OpportunitySource::SystemGenerated,
         }
+    }
+
+    /// Select appropriate exchanges for an opportunity based on available data
+    fn select_exchanges_for_opportunity(
+        &self,
+        trading_opp: &TradingOpportunity,
+    ) -> (ExchangeIdEnum, ExchangeIdEnum) {
+        // Try to parse exchanges from the trading opportunity data
+        let available_exchanges: Vec<ExchangeIdEnum> = trading_opp
+            .exchanges
+            .iter()
+            .filter_map(|exchange_str| exchange_str.parse::<ExchangeIdEnum>().ok())
+            .collect();
+
+        match available_exchanges.len() {
+            0 => {
+                // No valid exchanges found, use default fallback
+                (ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit)
+            }
+            1 => {
+                // Only one exchange available, use it for both positions (not ideal but functional)
+                let exchange = available_exchanges[0];
+                (exchange, exchange)
+            }
+            _ => {
+                // Multiple exchanges available, use first two
+                (available_exchanges[0], available_exchanges[1])
+            }
+        }
+    }
+
+    /// Get supported exchanges for dynamic selection
+    #[allow(dead_code)]
+    fn get_supported_exchanges() -> Vec<ExchangeIdEnum> {
+        vec![
+            ExchangeIdEnum::Binance,
+            ExchangeIdEnum::Bybit,
+            ExchangeIdEnum::OKX,
+            ExchangeIdEnum::Bitget,
+        ]
+    }
+
+    /// Select optimal exchanges based on trading pair and market conditions
+    #[allow(dead_code)]
+    fn select_optimal_exchanges_for_pair(
+        &self,
+        trading_pair: &str,
+    ) -> (ExchangeIdEnum, ExchangeIdEnum) {
+        // This could be enhanced with real-time liquidity and spread analysis
+        // For now, use a simple rotation based on pair characteristics
+        let supported = Self::get_supported_exchanges();
+
+        // Simple hash-based selection for consistent but varied exchange pairing
+        let pair_hash = trading_pair.chars().map(|c| c as u32).sum::<u32>();
+        let long_idx = (pair_hash % supported.len() as u32) as usize;
+        let short_idx = ((pair_hash / 2) % supported.len() as u32) as usize;
+
+        // Ensure we don't use the same exchange for both positions
+        let short_idx = if short_idx == long_idx {
+            (short_idx + 1) % supported.len()
+        } else {
+            short_idx
+        };
+
+        (supported[long_idx], supported[short_idx])
     }
 }
 

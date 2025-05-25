@@ -142,11 +142,12 @@ impl FundMonitoringService {
         // TODO: Update to use UserExchangeApiService for user-specific API keys
         // This needs to be refactored to work with the new user-centric API key management
         Err(Error::RustError(
-            "Fund monitoring needs to be updated to use UserExchangeApiService".to_string(),
+            "Fund monitoring service requires integration with UserExchangeApiService for user-specific API key management. This feature is not yet implemented.".to_string(),
         ))
     }
 
     /// Parse balance data from exchange API response to our Balances type
+    #[allow(dead_code)]
     fn parse_balance_data(&self, balance_data: &serde_json::Value) -> Result<Balances> {
         let mut balances = HashMap::new();
 
@@ -195,6 +196,7 @@ impl FundMonitoringService {
     }
 
     /// Calculate total USD value of balances
+    #[allow(dead_code)]
     async fn calculate_total_usd_value(&self, balances: &Balances) -> Result<f64> {
         let mut total_value = 0.0;
 
@@ -391,6 +393,7 @@ impl FundMonitoringService {
     }
 
     /// Store balance history in D1 database
+    #[allow(dead_code)]
     async fn store_balance_history(
         &self,
         user_id: &str,

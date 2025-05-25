@@ -1,9 +1,9 @@
 // src/services/global_opportunity.rs
 
 use crate::types::{
-    ArbitrageOpportunity, ArbitrageType, DistributionStrategy, ExchangeIdEnum, FundingRateInfo,
-    GlobalOpportunity, GlobalOpportunityConfig, OpportunityQueue, OpportunitySource,
-    SubscriptionTier, UserOpportunityDistribution, CommandPermission,
+    ArbitrageOpportunity, ArbitrageType, CommandPermission, DistributionStrategy, ExchangeIdEnum,
+    FundingRateInfo, GlobalOpportunity, GlobalOpportunityConfig, OpportunityQueue,
+    OpportunitySource, SubscriptionTier, UserOpportunityDistribution,
 };
 // use crate::services::core::analysis::market_analysis::{TradingOpportunity, OpportunityType}; // TODO: Re-enable when implementing market analysis integration
 use crate::log_info;
@@ -76,7 +76,7 @@ impl GlobalOpportunityService {
 
     /// Initialize super admin API keys from Wrangler secrets
     /// **SECURITY**: Reads encrypted API keys from Wrangler secrets, not environment variables
-    /// 
+    ///
     /// Required Wrangler secrets:
     /// - `BINANCE_SUPER_ADMIN_API_KEY` and `BINANCE_SUPER_ADMIN_SECRET`
     /// - `BYBIT_SUPER_ADMIN_API_KEY` and `BYBIT_SUPER_ADMIN_SECRET`
@@ -88,7 +88,7 @@ impl GlobalOpportunityService {
     ) -> ArbitrageResult<()> {
         let exchanges_to_configure = vec![
             ("binance", "BINANCE"),
-            ("bybit", "BYBIT"), 
+            ("bybit", "BYBIT"),
             ("okx", "OKX"),
             ("bitget", "BITGET"),
         ];
@@ -102,7 +102,7 @@ impl GlobalOpportunityService {
             // Try to read from Wrangler secrets
             if let (Ok(api_key), Ok(secret)) = (
                 env.worker_env.var(&api_key_var),
-                env.worker_env.var(&secret_var)
+                env.worker_env.var(&secret_var),
             ) {
                 let credentials = crate::types::ExchangeCredentials {
                     api_key: api_key.to_string(),
@@ -199,9 +199,9 @@ impl GlobalOpportunityService {
         let user_exchanges = user_profile.get_active_exchanges();
         let required_exchanges = self.get_opportunity_required_exchanges(opportunity);
 
-        let has_all_required = required_exchanges.iter().all(|req_exchange| {
-            user_exchanges.contains(req_exchange)
-        });
+        let has_all_required = required_exchanges
+            .iter()
+            .all(|req_exchange| user_exchanges.contains(req_exchange));
 
         if !has_all_required {
             log_info!(
@@ -219,7 +219,10 @@ impl GlobalOpportunityService {
     }
 
     /// Get required exchanges for an opportunity
-    fn get_opportunity_required_exchanges(&self, opportunity: &GlobalOpportunity) -> Vec<ExchangeIdEnum> {
+    fn get_opportunity_required_exchanges(
+        &self,
+        opportunity: &GlobalOpportunity,
+    ) -> Vec<ExchangeIdEnum> {
         // For arbitrage opportunities, both long and short exchanges are always required
         opportunity.opportunity.get_required_exchanges()
     }
@@ -235,8 +238,9 @@ impl GlobalOpportunityService {
         };
 
         // Check if user has BasicOpportunities permission
-        let has_basic_permission = user_profile.has_permission(CommandPermission::BasicOpportunities);
-        
+        let has_basic_permission =
+            user_profile.has_permission(CommandPermission::BasicOpportunities);
+
         // Check if user has trading API keys
         let has_trading_apis = user_profile.has_trading_api_keys();
 
@@ -283,7 +287,8 @@ impl GlobalOpportunityService {
         // **SECURITY**: Validate that we have super admin configurations
         if self.super_admin_configs.is_empty() {
             return Err(ArbitrageError::validation_error(
-                "No super admin read-only APIs configured for global opportunity detection".to_string(),
+                "No super admin read-only APIs configured for global opportunity detection"
+                    .to_string(),
             ));
         }
 
@@ -317,7 +322,9 @@ impl GlobalOpportunityService {
         for pair in &self.config.monitored_pairs {
             for exchange_id in &self.config.monitored_exchanges {
                 // **SECURITY**: Only use exchanges that have super admin read-only configuration
-                if let Some(super_admin_config) = self.super_admin_configs.get(&exchange_id.to_string()) {
+                if let Some(super_admin_config) =
+                    self.super_admin_configs.get(&exchange_id.to_string())
+                {
                     // Validate read-only status before each use
                     if let Err(e) = super_admin_config.validate_read_only() {
                         log_info!(
@@ -330,43 +337,43 @@ impl GlobalOpportunityService {
                         continue;
                     }
 
-                let exchange_service = Arc::clone(&self.exchange_service);
-                let pair = pair.clone();
-                let exchange_id = *exchange_id;
+                    let exchange_service = Arc::clone(&self.exchange_service);
+                    let pair = pair.clone();
+                    let exchange_id = *exchange_id;
 
-                let task = Box::pin(async move {
+                    let task = Box::pin(async move {
                         // **SECURITY**: Use get_global_funding_rates which enforces super admin API usage
-                    let result = exchange_service
+                        let result = exchange_service
                             .get_global_funding_rates(&exchange_id.to_string(), Some(&pair))
-                        .await;
+                            .await;
 
-                    let funding_info = match result {
-                        Ok(rates) => {
-                            if let Some(rate_data) = rates.first() {
-                                match rate_data["fundingRate"].as_str() {
-                                    Some(rate_str) => match rate_str.parse::<f64>() {
-                                        Ok(funding_rate) => Some(FundingRateInfo {
-                                            symbol: pair.clone(),
-                                            funding_rate,
-                                            timestamp: Some(Utc::now()),
-                                            datetime: Some(Utc::now().to_rfc3339()),
-                                            next_funding_time: None,
-                                            estimated_rate: None,
-                                        }),
-                                        Err(_) => None,
-                                    },
-                                    None => None,
+                        let funding_info = match result {
+                            Ok(rates) => {
+                                if let Some(rate_data) = rates.first() {
+                                    match rate_data["fundingRate"].as_str() {
+                                        Some(rate_str) => match rate_str.parse::<f64>() {
+                                            Ok(funding_rate) => Some(FundingRateInfo {
+                                                symbol: pair.clone(),
+                                                funding_rate,
+                                                timestamp: Some(Utc::now()),
+                                                datetime: Some(Utc::now().to_rfc3339()),
+                                                next_funding_time: None,
+                                                estimated_rate: None,
+                                            }),
+                                            Err(_) => None,
+                                        },
+                                        None => None,
+                                    }
+                                } else {
+                                    None
                                 }
-                            } else {
-                                None
                             }
-                        }
-                        Err(_) => None,
-                    };
+                            Err(_) => None,
+                        };
 
-                    (pair, exchange_id, funding_info)
-                });
-                funding_tasks.push(task);
+                        (pair, exchange_id, funding_info)
+                    });
+                    funding_tasks.push(task);
                 } else {
                     log_info!(
                         "Skipping exchange without super admin configuration",
@@ -440,20 +447,20 @@ impl GlobalOpportunityService {
                                         )
                                     };
 
-                                    // Create base arbitrage opportunity with required exchanges
-                                    let mut opportunity = ArbitrageOpportunity::new(
-                                        pair.clone(),
-                                        long_exchange,  // **REQUIRED**: No longer optional
-                                        short_exchange, // **REQUIRED**: No longer optional
-                                        Some(long_rate),
-                                        Some(short_rate),
-                                        rate_diff,
-                                        ArbitrageType::FundingRate,
-                                    );
+                                // Create base arbitrage opportunity with required exchanges
+                                let mut opportunity = ArbitrageOpportunity::new(
+                                    pair.clone(),
+                                    long_exchange,  // **REQUIRED**: No longer optional
+                                    short_exchange, // **REQUIRED**: No longer optional
+                                    Some(long_rate),
+                                    Some(short_rate),
+                                    rate_diff,
+                                    ArbitrageType::FundingRate,
+                                );
 
-                                    // Set additional fields
-                                    opportunity.id = uuid::Uuid::new_v4().to_string();
-                                    opportunity = opportunity
+                                // Set additional fields
+                                opportunity.id = uuid::Uuid::new_v4().to_string();
+                                opportunity = opportunity
                                         .with_net_difference(rate_diff)
                                         .with_potential_profit(rate_diff * 1000.0) // Estimate for $1000 position
                                         .with_details(format!(
@@ -464,19 +471,21 @@ impl GlobalOpportunityService {
                                         short_rate * 100.0
                                         ));
 
-                                    // **POSITION STRUCTURE VALIDATION**: Ensure 2-exchange requirement
-                                    if let Err(validation_error) = opportunity.validate_position_structure() {
-                                        log_info!(
-                                            "Skipping invalid arbitrage opportunity",
-                                            serde_json::json!({
-                                                "pair": pair,
-                                                "validation_error": validation_error,
-                                                "long_exchange": long_exchange.as_str(),
-                                                "short_exchange": short_exchange.as_str()
-                                            })
-                                        );
-                                        continue;
-                                    }
+                                // **POSITION STRUCTURE VALIDATION**: Ensure 2-exchange requirement
+                                if let Err(validation_error) =
+                                    opportunity.validate_position_structure()
+                                {
+                                    log_info!(
+                                        "Skipping invalid arbitrage opportunity",
+                                        serde_json::json!({
+                                            "pair": pair,
+                                            "validation_error": validation_error,
+                                            "long_exchange": long_exchange.as_str(),
+                                            "short_exchange": short_exchange.as_str()
+                                        })
+                                    );
+                                    continue;
+                                }
 
                                 // Calculate priority score (higher rate difference = higher priority)
                                 let priority_score = rate_diff * 1000.0; // Scale up for easier comparison
@@ -1037,6 +1046,90 @@ impl GlobalOpportunityService {
 
     /// Enhance global opportunities with AI analysis for a specific user
     /// **AI Integration**: Uses user's AI access level to determine enhancement level
+    /// Private helper method to apply AI enhancement to a global opportunity
+    async fn apply_ai_enhancement_to_global_opportunity(
+        &self,
+        global_opp: GlobalOpportunity,
+        enhanced: &crate::services::core::ai::ai_beta_integration::AiEnhancedOpportunity,
+        is_system_level: bool,
+    ) -> GlobalOpportunity {
+        let mut enhanced_global = global_opp;
+
+        // Update the base opportunity with AI insights
+        enhanced_global.opportunity = enhanced.base_opportunity.clone();
+
+        // Update potential profit value based on AI risk assessment
+        if let Some(current_profit) = enhanced_global.opportunity.potential_profit_value {
+            enhanced_global.opportunity.potential_profit_value =
+                Some(enhanced.risk_adjusted_score * current_profit);
+        }
+
+        // Update global opportunity metadata with AI insights
+        enhanced_global.priority_score = enhanced.calculate_final_score();
+
+        // Mark as AI-enhanced at system level if applicable
+        if is_system_level {
+            enhanced_global.source = crate::types::OpportunitySource::SystemGenerated;
+        }
+
+        enhanced_global
+    }
+
+    /// Private helper method for common AI enhancement logic
+    async fn enhance_opportunities_with_ai_common(
+        &self,
+        opportunities: Vec<GlobalOpportunity>,
+        user_id: &str,
+        ai_service: &mut crate::services::core::ai::ai_beta_integration::AiBetaIntegrationService,
+        is_system_level: bool,
+        log_context: &str,
+    ) -> ArbitrageResult<Vec<GlobalOpportunity>> {
+        let mut enhanced_opportunities = Vec::new();
+
+        for global_opp in opportunities {
+            // Extract the base arbitrage opportunity for AI analysis
+            let arbitrage_opp = global_opp.opportunity.clone();
+
+            // Enhance with AI
+            match ai_service
+                .enhance_opportunities(vec![arbitrage_opp], user_id)
+                .await
+            {
+                Ok(enhanced_opportunities_result) => {
+                    if let Some(enhanced) = enhanced_opportunities_result.first() {
+                        let enhanced_global = self
+                            .apply_ai_enhancement_to_global_opportunity(
+                                global_opp,
+                                enhanced,
+                                is_system_level,
+                            )
+                            .await;
+                        enhanced_opportunities.push(enhanced_global);
+                    } else {
+                        // No enhancement available, use original
+                        enhanced_opportunities.push(global_opp);
+                    }
+                }
+                Err(e) => {
+                    log_info!(
+                        &format!("{} failed, using original", log_context),
+                        serde_json::json!({ "error": e.to_string() })
+                    );
+                    enhanced_opportunities.push(global_opp);
+                }
+            }
+        }
+
+        log_info!(
+            &format!("{} completed", log_context),
+            serde_json::json!({
+                "count": enhanced_opportunities.len(),
+                "user_id": user_id
+            })
+        );
+        Ok(enhanced_opportunities)
+    }
+
     pub async fn enhance_global_opportunities_with_ai(
         &self,
         user_id: &str,
@@ -1049,69 +1142,20 @@ impl GlobalOpportunityService {
             None => return Ok(opportunities), // User not found, return original opportunities
         };
         let ai_access_level = user_profile.get_ai_access_level();
-        
+
         // Only enhance if user has AI access
         if !ai_access_level.can_use_ai_analysis() {
             return Ok(opportunities);
         }
 
-        let mut enhanced_global_opportunities = Vec::new();
-
-        for global_opp in opportunities {
-            // Extract the base arbitrage opportunity for AI analysis
-            let arbitrage_opp = global_opp.opportunity.clone();
-            
-            // Enhance with AI
-            match ai_service.enhance_opportunities(vec![arbitrage_opp], user_id).await {
-                Ok(enhanced_opportunities) => {
-                    if let Some(enhanced) = enhanced_opportunities.first() {
-                        // Create enhanced global opportunity
-                        let mut enhanced_global = global_opp.clone();
-                        
-                        // Update the base opportunity with AI insights
-                        enhanced_global.opportunity = enhanced.base_opportunity.clone();
-                        
-                        // Update potential profit value based on AI risk assessment
-                        if let Some(current_profit) = enhanced_global.opportunity.potential_profit_value {
-                            enhanced_global.opportunity.potential_profit_value = 
-                                Some(enhanced.risk_adjusted_score * current_profit);
-                        }
-                        
-                        // Update global opportunity metadata with AI insights
-                        enhanced_global.priority_score = enhanced.calculate_final_score();
-                        
-                        // Add AI metadata to global opportunity
-                        let ai_metadata = serde_json::json!({
-                            "ai_enhanced": true,
-                            "ai_score": enhanced.ai_score,
-                            "confidence_level": enhanced.confidence_level,
-                            "market_sentiment": enhanced.market_sentiment,
-                            "success_probability": enhanced.success_probability,
-                            "time_sensitivity": enhanced.time_sensitivity,
-                            "enhanced_at": enhanced.enhanced_at,
-                            "global_context": true
-                        });
-                        
-                        enhanced_global_opportunities.push(enhanced_global);
-                    } else {
-                        // No enhancement available, use original
-                        enhanced_global_opportunities.push(global_opp);
-                    }
-                }
-                Err(e) => {
-                    log_info!("AI enhancement failed for global opportunity, using original", 
-                        serde_json::json!({ "error": e.to_string() }));
-                    enhanced_global_opportunities.push(global_opp);
-                }
-            }
-        }
-
-        log_info!("Enhanced global opportunities with AI for user", 
-            serde_json::json!({ 
-                "count": enhanced_global_opportunities.len(), 
-                "user_id": user_id 
-            }));
-        Ok(enhanced_global_opportunities)
+        self.enhance_opportunities_with_ai_common(
+            opportunities,
+            user_id,
+            ai_service,
+            false, // Not system level
+            "Enhanced global opportunities with AI for user",
+        )
+        .await
     }
 
     /// Enhance detected opportunities with AI before adding to queue
@@ -1121,54 +1165,17 @@ impl GlobalOpportunityService {
         opportunities: Vec<GlobalOpportunity>,
         ai_service: &mut crate::services::core::ai::ai_beta_integration::AiBetaIntegrationService,
     ) -> ArbitrageResult<Vec<GlobalOpportunity>> {
-        let mut enhanced_opportunities = Vec::new();
+        // Use system user ID for global enhancement
+        let system_user_id = "system_global_ai";
 
-        for global_opp in opportunities {
-            // Use system user ID for global enhancement
-            let system_user_id = "system_global_ai";
-            
-            // Extract the base arbitrage opportunity for AI analysis
-            let arbitrage_opp = global_opp.opportunity.clone();
-            
-            // Enhance with AI using system context
-            match ai_service.enhance_opportunities(vec![arbitrage_opp], system_user_id).await {
-                Ok(enhanced_opportunities_result) => {
-                    if let Some(enhanced) = enhanced_opportunities_result.first() {
-                        // Create enhanced global opportunity
-                        let mut enhanced_global = global_opp.clone();
-                        
-                        // Update the base opportunity with AI insights
-                        enhanced_global.opportunity = enhanced.base_opportunity.clone();
-                        
-                        // Update potential profit value based on AI risk assessment
-                        if let Some(current_profit) = enhanced_global.opportunity.potential_profit_value {
-                            enhanced_global.opportunity.potential_profit_value = 
-                                Some(enhanced.risk_adjusted_score * current_profit);
-                        }
-                        
-                        // Update global opportunity metadata with AI insights
-                        enhanced_global.priority_score = enhanced.calculate_final_score();
-                        
-                        // Mark as AI-enhanced at system level
-                        enhanced_global.source = crate::types::OpportunitySource::SystemGenerated; // Keep as system generated but AI-enhanced
-                        
-                        enhanced_opportunities.push(enhanced_global);
-                    } else {
-                        // No enhancement available, use original
-                        enhanced_opportunities.push(global_opp);
-                    }
-                }
-                Err(e) => {
-                    log_info!("System AI enhancement failed for global opportunity, using original", 
-                        serde_json::json!({ "error": e.to_string() }));
-                    enhanced_opportunities.push(global_opp);
-                }
-            }
-        }
-
-        log_info!("Enhanced detected opportunities with system AI", 
-            serde_json::json!({ "count": enhanced_opportunities.len() }));
-        Ok(enhanced_opportunities)
+        self.enhance_opportunities_with_ai_common(
+            opportunities,
+            system_user_id,
+            ai_service,
+            true, // System level
+            "Enhanced detected opportunities with system AI",
+        )
+        .await
     }
 }
 
@@ -1230,8 +1237,8 @@ mod tests {
         let opportunity = ArbitrageOpportunity {
             id: Uuid::new_v4().to_string(),
             pair: "BTCUSDT".to_string(),
-            long_exchange: ExchangeIdEnum::Binance,    // **REQUIRED**: No longer optional
-            short_exchange: ExchangeIdEnum::Bybit,     // **REQUIRED**: No longer optional
+            long_exchange: ExchangeIdEnum::Binance, // **REQUIRED**: No longer optional
+            short_exchange: ExchangeIdEnum::Bybit,  // **REQUIRED**: No longer optional
             long_rate: Some(0.0005),
             short_rate: Some(0.0015),
             rate_difference: 0.001,
@@ -1240,7 +1247,7 @@ mod tests {
             timestamp: Utc::now().timestamp_millis() as u64,
             r#type: ArbitrageType::FundingRate,
             details: Some("Test opportunity".to_string()),
-            min_exchanges_required: 2,                 // **ALWAYS 2** for arbitrage
+            min_exchanges_required: 2, // **ALWAYS 2** for arbitrage
         };
 
         GlobalOpportunity {

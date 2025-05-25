@@ -3,9 +3,6 @@ name = "arb_edge"
 version = "0.1.0"
 edition = "2021"
 
-[placement]
-mode = "smart"
-
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -28,6 +25,8 @@ regex = "1.11"
 async-trait = "0.1"
 log = "0.4"
 rand = "0.8"
+aes-gcm = "0.10"
+secrecy = "0.8"
 
 # WASM-specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -60,19 +59,19 @@ tokio-test = "0.4"
 
 [[test]]
 name = "telegram_bot_commands_test"
-path = "tests/integration/telegram_bot_commands_test.rs"
+path = "tests/telegram_bot_commands_test.rs"
 
 [[test]]
 name = "telegram_advanced_commands_test"
-path = "tests/integration/telegram_advanced_commands_test.rs"
+path = "tests/telegram_advanced_commands_test.rs"
 
 [[test]]
 name = "market_data_pipeline_test"
-path = "tests/integration/market_data_pipeline_test.rs"
+path = "tests/market_data_pipeline_test.rs"
 
 [[test]]
 name = "comprehensive_service_integration_test"
-path = "tests/integration/comprehensive_service_integration_test.rs"
+path = "tests/comprehensive_service_integration_test.rs"
 
 [[test]]
 name = "rbac_comprehensive_user_journey_test"

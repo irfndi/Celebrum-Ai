@@ -4,7 +4,9 @@ use crate::services::core::ai::ai_intelligence::{
     AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion,
 };
 use crate::services::core::analysis::market_analysis::RiskLevel;
-use crate::services::core::opportunities::opportunity_categorization::{CategorizedOpportunity, OpportunityCategory};
+use crate::services::core::opportunities::opportunity_categorization::{
+    CategorizedOpportunity, OpportunityCategory,
+};
 use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
 #[cfg(not(test))]
 use chrono::{DateTime, Utc};

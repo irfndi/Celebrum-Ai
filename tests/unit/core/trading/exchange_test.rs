@@ -1,13 +1,18 @@
+#![allow(
+    unused_imports,
+    unused_variables,
+    unused_mut,
+    dead_code,
+    clippy::needless_range_loop
+)]
+
 // ExchangeService Unit Tests
 // Comprehensive testing of market data fetching, authentication, API management, and error handling
 
-use arb_edge::types::{
-    Ticker, OrderBook, Market, Precision, Limits, MinMax
-};
+use arb_edge::types::{Limits, Market, MinMax, OrderBook, Precision, Ticker};
 use arb_edge::utils::{ArbitrageError, ArbitrageResult};
-use std::collections::HashMap;
 use serde_json::{json, Value};
-
+use std::collections::HashMap;
 
 // Mock KV Store for testing
 struct MockKvStore {
@@ -35,7 +40,7 @@ impl MockKvStore {
 
     async fn mock_put(&mut self, key: &str, value: &str) -> ArbitrageResult<()> {
         self.operation_count += 1;
-        
+
         if let Some(ref error_type) = self.error_simulation {
             return match error_type.as_str() {
                 "kv_put_failed" => Err(ArbitrageError::database_error("KV put operation failed")),
@@ -114,14 +119,16 @@ impl MockHttpClient {
                 "network_error" => Err(ArbitrageError::network_error("Network connection failed")),
                 "timeout" => Err(ArbitrageError::network_error("Request timeout")),
                 "invalid_response" => Err(ArbitrageError::parse_error("Invalid JSON response")),
-                "auth_failed" => Err(ArbitrageError::authentication_error("Authentication failed")),
+                "auth_failed" => Err(ArbitrageError::authentication_error(
+                    "Authentication failed",
+                )),
                 _ => Err(ArbitrageError::validation_error("Unknown HTTP error")),
             };
         }
 
-        self.responses.get(endpoint)
-            .cloned()
-            .ok_or_else(|| ArbitrageError::not_found(format!("No mock response for endpoint: {}", endpoint)))
+        self.responses.get(endpoint).cloned().ok_or_else(|| {
+            ArbitrageError::not_found(format!("No mock response for endpoint: {}", endpoint))
+        })
     }
 
     fn get_request_count(&self) -> u32 {
@@ -156,7 +163,11 @@ impl MockExchangeService {
             kv_store: MockKvStore::new(),
             http_client: MockHttpClient::new(),
             super_admin_configs: HashMap::new(),
-            supported_exchanges: vec!["binance".to_string(), "bybit".to_string(), "okx".to_string()],
+            supported_exchanges: vec![
+                "binance".to_string(),
+                "bybit".to_string(),
+                "okx".to_string(),
+            ],
             api_key_validation_enabled: true,
         }
     }
@@ -168,13 +179,21 @@ impl MockExchangeService {
             secret: secret.to_string(),
             is_read_only: true,
         };
-        self.super_admin_configs.insert(exchange_id.to_string(), config);
+        self.super_admin_configs
+            .insert(exchange_id.to_string(), config);
     }
 
-    async fn mock_get_ticker(&mut self, exchange_id: &str, symbol: &str) -> ArbitrageResult<Ticker> {
+    async fn mock_get_ticker(
+        &mut self,
+        exchange_id: &str,
+        symbol: &str,
+    ) -> ArbitrageResult<Ticker> {
         // Validate exchange support
         if !self.supported_exchanges.contains(&exchange_id.to_string()) {
-            return Err(ArbitrageError::validation_error(format!("Unsupported exchange: {}", exchange_id)));
+            return Err(ArbitrageError::validation_error(format!(
+                "Unsupported exchange: {}",
+                exchange_id
+            )));
         }
 
         // Check cache first
@@ -192,16 +211,25 @@ impl MockExchangeService {
         let ticker = self.parse_ticker_response(exchange_id, &response, symbol)?;
 
         // Cache the result
-        let ticker_json = serde_json::to_string(&ticker)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize ticker: {}", e)))?;
+        let ticker_json = serde_json::to_string(&ticker).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize ticker: {}", e))
+        })?;
         self.kv_store.mock_put(&cache_key, &ticker_json).await?;
 
         Ok(ticker)
     }
 
-    async fn mock_get_orderbook(&mut self, exchange_id: &str, symbol: &str, limit: Option<u32>) -> ArbitrageResult<OrderBook> {
+    async fn mock_get_orderbook(
+        &mut self,
+        exchange_id: &str,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> ArbitrageResult<OrderBook> {
         if !self.supported_exchanges.contains(&exchange_id.to_string()) {
-            return Err(ArbitrageError::validation_error(format!("Unsupported exchange: {}", exchange_id)));
+            return Err(ArbitrageError::validation_error(format!(
+                "Unsupported exchange: {}",
+                exchange_id
+            )));
         }
 
         let limit_param = limit.unwrap_or(100);
@@ -213,7 +241,10 @@ impl MockExchangeService {
 
     async fn mock_get_markets(&mut self, exchange_id: &str) -> ArbitrageResult<Vec<Market>> {
         if !self.supported_exchanges.contains(&exchange_id.to_string()) {
-            return Err(ArbitrageError::validation_error(format!("Unsupported exchange: {}", exchange_id)));
+            return Err(ArbitrageError::validation_error(format!(
+                "Unsupported exchange: {}",
+                exchange_id
+            )));
         }
 
         let endpoint = "/api/v3/exchangeInfo";
@@ -222,13 +253,20 @@ impl MockExchangeService {
         self.parse_markets_response(exchange_id, &response)
     }
 
-    async fn mock_test_api_connection(&mut self, exchange_id: &str, api_key: &str, secret: &str) -> ArbitrageResult<Value> {
+    async fn mock_test_api_connection(
+        &mut self,
+        exchange_id: &str,
+        api_key: &str,
+        secret: &str,
+    ) -> ArbitrageResult<Value> {
         if !self.api_key_validation_enabled {
             return Ok(json!({"status": "ok", "message": "API validation disabled"}));
         }
 
         if api_key.is_empty() || secret.is_empty() {
-            return Err(ArbitrageError::authentication_error("API key and secret are required"));
+            return Err(ArbitrageError::authentication_error(
+                "API key and secret are required",
+            ));
         }
 
         // Simulate API key validation
@@ -243,7 +281,11 @@ impl MockExchangeService {
         }))
     }
 
-    async fn mock_validate_user_api_compatibility(&self, user_exchanges: &[String], required_exchanges: &[String]) -> ArbitrageResult<bool> {
+    async fn mock_validate_user_api_compatibility(
+        &self,
+        user_exchanges: &[String],
+        required_exchanges: &[String],
+    ) -> ArbitrageResult<bool> {
         for required in required_exchanges {
             if !user_exchanges.contains(required) {
                 return Ok(false);
@@ -252,27 +294,40 @@ impl MockExchangeService {
         Ok(true)
     }
 
-    fn parse_ticker_response(&self, exchange_id: &str, response: &Value, symbol: &str) -> ArbitrageResult<Ticker> {
+    fn parse_ticker_response(
+        &self,
+        exchange_id: &str,
+        response: &Value,
+        symbol: &str,
+    ) -> ArbitrageResult<Ticker> {
         match exchange_id {
             "binance" => self.parse_binance_ticker(response, symbol),
             "bybit" => self.parse_bybit_ticker(response, symbol),
-            _ => Err(ArbitrageError::validation_error(format!("Unsupported exchange for ticker parsing: {}", exchange_id))),
+            _ => Err(ArbitrageError::validation_error(format!(
+                "Unsupported exchange for ticker parsing: {}",
+                exchange_id
+            ))),
         }
     }
 
     fn parse_binance_ticker(&self, data: &Value, symbol: &str) -> ArbitrageResult<Ticker> {
-        let price = data["lastPrice"].as_str()
+        let price = data["lastPrice"]
+            .as_str()
             .ok_or_else(|| ArbitrageError::parse_error("Missing lastPrice in Binance ticker"))?
             .parse::<f64>()
             .map_err(|e| ArbitrageError::parse_error(format!("Invalid price format: {}", e)))?;
 
-        let volume = data["volume"].as_str()
+        let volume = data["volume"]
+            .as_str()
             .ok_or_else(|| ArbitrageError::parse_error("Missing volume in Binance ticker"))?
             .parse::<f64>()
             .map_err(|e| ArbitrageError::parse_error(format!("Invalid volume format: {}", e)))?;
 
-        let change_24h = data["priceChangePercent"].as_str()
-            .ok_or_else(|| ArbitrageError::parse_error("Missing priceChangePercent in Binance ticker"))?
+        let change_24h = data["priceChangePercent"]
+            .as_str()
+            .ok_or_else(|| {
+                ArbitrageError::parse_error("Missing priceChangePercent in Binance ticker")
+            })?
             .parse::<f64>()
             .map_err(|e| ArbitrageError::parse_error(format!("Invalid change format: {}", e)))?;
 
@@ -290,20 +345,24 @@ impl MockExchangeService {
     }
 
     fn parse_bybit_ticker(&self, data: &Value, symbol: &str) -> ArbitrageResult<Ticker> {
-        let result = data["result"].as_object()
+        let result = data["result"]
+            .as_object()
             .ok_or_else(|| ArbitrageError::parse_error("Missing result object in Bybit ticker"))?;
 
-        let price = result["lastPrice"].as_str()
+        let price = result["lastPrice"]
+            .as_str()
             .ok_or_else(|| ArbitrageError::parse_error("Missing lastPrice in Bybit ticker"))?
             .parse::<f64>()
             .map_err(|e| ArbitrageError::parse_error(format!("Invalid price format: {}", e)))?;
 
-        let volume = result["volume24h"].as_str()
+        let volume = result["volume24h"]
+            .as_str()
             .ok_or_else(|| ArbitrageError::parse_error("Missing volume24h in Bybit ticker"))?
             .parse::<f64>()
             .map_err(|e| ArbitrageError::parse_error(format!("Invalid volume format: {}", e)))?;
 
-        let change_24h = result["price24hPcnt"].as_str()
+        let change_24h = result["price24hPcnt"]
+            .as_str()
             .ok_or_else(|| ArbitrageError::parse_error("Missing price24hPcnt in Bybit ticker"))?
             .parse::<f64>()
             .map_err(|e| ArbitrageError::parse_error(format!("Invalid change format: {}", e)))?;
@@ -321,49 +380,72 @@ impl MockExchangeService {
         })
     }
 
-    fn parse_orderbook_response(&self, exchange_id: &str, response: &Value, symbol: &str) -> ArbitrageResult<OrderBook> {
-        let bids_array = response["bids"].as_array()
+    fn parse_orderbook_response(
+        &self,
+        exchange_id: &str,
+        response: &Value,
+        symbol: &str,
+    ) -> ArbitrageResult<OrderBook> {
+        let bids_array = response["bids"]
+            .as_array()
             .ok_or_else(|| ArbitrageError::parse_error("Missing bids array in orderbook"))?;
 
-        let asks_array = response["asks"].as_array()
+        let asks_array = response["asks"]
+            .as_array()
             .ok_or_else(|| ArbitrageError::parse_error("Missing asks array in orderbook"))?;
 
         let mut bids = Vec::new();
-        for bid in bids_array.iter().take(20) { // Limit to top 20
-            let bid_array = bid.as_array()
+        for bid in bids_array.iter().take(20) {
+            // Limit to top 20
+            let bid_array = bid
+                .as_array()
                 .ok_or_else(|| ArbitrageError::parse_error("Invalid bid format"))?;
-            
+
             if bid_array.len() >= 2 {
-                let price = bid_array[0].as_str()
+                let price = bid_array[0]
+                    .as_str()
                     .ok_or_else(|| ArbitrageError::parse_error("Invalid bid price"))?
                     .parse::<f64>()
-                    .map_err(|e| ArbitrageError::parse_error(format!("Invalid bid price format: {}", e)))?;
-                
-                let quantity = bid_array[1].as_str()
+                    .map_err(|e| {
+                        ArbitrageError::parse_error(format!("Invalid bid price format: {}", e))
+                    })?;
+
+                let quantity = bid_array[1]
+                    .as_str()
                     .ok_or_else(|| ArbitrageError::parse_error("Invalid bid quantity"))?
                     .parse::<f64>()
-                    .map_err(|e| ArbitrageError::parse_error(format!("Invalid bid quantity format: {}", e)))?;
-                
+                    .map_err(|e| {
+                        ArbitrageError::parse_error(format!("Invalid bid quantity format: {}", e))
+                    })?;
+
                 bids.push([price, quantity]);
             }
         }
 
         let mut asks = Vec::new();
-        for ask in asks_array.iter().take(20) { // Limit to top 20
-            let ask_array = ask.as_array()
+        for ask in asks_array.iter().take(20) {
+            // Limit to top 20
+            let ask_array = ask
+                .as_array()
                 .ok_or_else(|| ArbitrageError::parse_error("Invalid ask format"))?;
-            
+
             if ask_array.len() >= 2 {
-                let price = ask_array[0].as_str()
+                let price = ask_array[0]
+                    .as_str()
                     .ok_or_else(|| ArbitrageError::parse_error("Invalid ask price"))?
                     .parse::<f64>()
-                    .map_err(|e| ArbitrageError::parse_error(format!("Invalid ask price format: {}", e)))?;
-                
-                let quantity = ask_array[1].as_str()
+                    .map_err(|e| {
+                        ArbitrageError::parse_error(format!("Invalid ask price format: {}", e))
+                    })?;
+
+                let quantity = ask_array[1]
+                    .as_str()
                     .ok_or_else(|| ArbitrageError::parse_error("Invalid ask quantity"))?
                     .parse::<f64>()
-                    .map_err(|e| ArbitrageError::parse_error(format!("Invalid ask quantity format: {}", e)))?;
-                
+                    .map_err(|e| {
+                        ArbitrageError::parse_error(format!("Invalid ask quantity format: {}", e))
+                    })?;
+
                 asks.push([price, quantity]);
             }
         }
@@ -377,22 +459,32 @@ impl MockExchangeService {
         })
     }
 
-    fn parse_markets_response(&self, _exchange_id: &str, response: &Value) -> ArbitrageResult<Vec<Market>> {
-        let symbols = response["symbols"].as_array()
+    fn parse_markets_response(
+        &self,
+        _exchange_id: &str,
+        response: &Value,
+    ) -> ArbitrageResult<Vec<Market>> {
+        let symbols = response["symbols"]
+            .as_array()
             .ok_or_else(|| ArbitrageError::parse_error("Missing symbols array in exchange info"))?;
 
         let mut markets = Vec::new();
-        for symbol_data in symbols.iter().take(50) { // Limit for testing
-            let symbol = symbol_data["symbol"].as_str()
+        for symbol_data in symbols.iter().take(50) {
+            // Limit for testing
+            let symbol = symbol_data["symbol"]
+                .as_str()
                 .ok_or_else(|| ArbitrageError::parse_error("Missing symbol in market data"))?;
 
-            let status = symbol_data["status"].as_str()
+            let status = symbol_data["status"]
+                .as_str()
                 .ok_or_else(|| ArbitrageError::parse_error("Missing status in market data"))?;
 
-            let base_asset = symbol_data["baseAsset"].as_str()
+            let base_asset = symbol_data["baseAsset"]
+                .as_str()
                 .ok_or_else(|| ArbitrageError::parse_error("Missing baseAsset in market data"))?;
 
-            let quote_asset = symbol_data["quoteAsset"].as_str()
+            let quote_asset = symbol_data["quoteAsset"]
+                .as_str()
                 .ok_or_else(|| ArbitrageError::parse_error("Missing quoteAsset in market data"))?;
 
             if status == "TRADING" {
@@ -407,9 +499,18 @@ impl MockExchangeService {
                         price: Some(2),
                     },
                     limits: Limits {
-                        amount: MinMax { min: Some(0.001), max: Some(1000000.0) },
-                        price: MinMax { min: Some(0.01), max: Some(100000.0) },
-                        cost: MinMax { min: Some(1.0), max: Some(1000000.0) },
+                        amount: MinMax {
+                            min: Some(0.001),
+                            max: Some(1000000.0),
+                        },
+                        price: MinMax {
+                            min: Some(0.01),
+                            max: Some(100000.0),
+                        },
+                        cost: MinMax {
+                            min: Some(1.0),
+                            max: Some(1000000.0),
+                        },
                     },
                     fees: None,
                 });
@@ -421,7 +522,10 @@ impl MockExchangeService {
 
     fn validate_exchange_support(&self, exchange_id: &str) -> ArbitrageResult<()> {
         if !self.supported_exchanges.contains(&exchange_id.to_string()) {
-            return Err(ArbitrageError::validation_error(format!("Exchange '{}' is not supported", exchange_id)));
+            return Err(ArbitrageError::validation_error(format!(
+                "Exchange '{}' is not supported",
+                exchange_id
+            )));
         }
         Ok(())
     }
@@ -432,11 +536,15 @@ impl MockExchangeService {
         }
 
         if symbol.len() < 3 || symbol.len() > 20 {
-            return Err(ArbitrageError::validation_error("Symbol length must be between 3 and 20 characters"));
+            return Err(ArbitrageError::validation_error(
+                "Symbol length must be between 3 and 20 characters",
+            ));
         }
 
         if !symbol.chars().all(|c| c.is_ascii_alphanumeric()) {
-            return Err(ArbitrageError::validation_error("Symbol must contain only alphanumeric characters"));
+            return Err(ArbitrageError::validation_error(
+                "Symbol must contain only alphanumeric characters",
+            ));
         }
 
         Ok(())
@@ -448,7 +556,7 @@ impl MockExchangeService {
 
         if current_count >= threshold {
             return Err(ArbitrageError::rate_limit_error(format!(
-                "Rate limit exceeded for operation '{}': {}/{}", 
+                "Rate limit exceeded for operation '{}': {}/{}",
                 operation, current_count, threshold
             )));
         }
@@ -489,7 +597,10 @@ mod tests {
             "volume": "1234.56",
             "priceChangePercent": "2.5"
         });
-        service.http_client.add_response("/api/v3/ticker/24hr?symbol=BTCUSDT", binance_ticker_response);
+        service.http_client.add_response(
+            "/api/v3/ticker/24hr?symbol=BTCUSDT",
+            binance_ticker_response,
+        );
 
         // Test successful ticker fetch
         let ticker_result = service.mock_get_ticker("binance", "BTCUSDT").await;
@@ -504,7 +615,10 @@ mod tests {
         // Test unsupported exchange
         let unsupported_result = service.mock_get_ticker("unsupported", "BTCUSDT").await;
         assert!(unsupported_result.is_err());
-        assert!(unsupported_result.unwrap_err().to_string().contains("Unsupported exchange"));
+        assert!(unsupported_result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported exchange"));
 
         // Test caching behavior (second call should use cache)
         let cached_ticker = service.mock_get_ticker("binance", "BTCUSDT").await.unwrap();
@@ -529,7 +643,10 @@ mod tests {
                 ["45001.50", "1.5"]
             ]
         });
-        service.http_client.add_response("/api/v3/depth?symbol=BTCUSDT&limit=100", orderbook_response.clone());
+        service.http_client.add_response(
+            "/api/v3/depth?symbol=BTCUSDT&limit=100",
+            orderbook_response.clone(),
+        );
 
         // Test successful orderbook fetch
         let orderbook_result = service.mock_get_orderbook("binance", "BTCUSDT", None).await;
@@ -547,8 +664,12 @@ mod tests {
         assert_eq!(orderbook.asks[0][1], 0.3);
 
         // Test with custom limit
-        service.http_client.add_response("/api/v3/depth?symbol=ETHUSDT&limit=50", orderbook_response);
-        let limited_orderbook = service.mock_get_orderbook("binance", "ETHUSDT", Some(50)).await;
+        service
+            .http_client
+            .add_response("/api/v3/depth?symbol=ETHUSDT&limit=50", orderbook_response);
+        let limited_orderbook = service
+            .mock_get_orderbook("binance", "ETHUSDT", Some(50))
+            .await;
         assert!(limited_orderbook.is_ok());
     }
 
@@ -562,12 +683,16 @@ mod tests {
             "balances": [],
             "permissions": ["SPOT", "FUTURES"]
         });
-        service.http_client.add_response("/api/v3/account", auth_response);
+        service
+            .http_client
+            .add_response("/api/v3/account", auth_response);
 
         // Test successful API key validation
         let api_key = "test_api_key_123";
         let secret = "test_secret_456";
-        let connection_result = service.mock_test_api_connection("binance", api_key, secret).await;
+        let connection_result = service
+            .mock_test_api_connection("binance", api_key, secret)
+            .await;
         assert!(connection_result.is_ok());
 
         let response = connection_result.unwrap();
@@ -575,14 +700,24 @@ mod tests {
         assert_eq!(response["exchange"], "binance");
 
         // Test empty API key validation
-        let empty_key_result = service.mock_test_api_connection("binance", "", secret).await;
+        let empty_key_result = service
+            .mock_test_api_connection("binance", "", secret)
+            .await;
         assert!(empty_key_result.is_err());
-        assert!(empty_key_result.unwrap_err().to_string().contains("API key and secret are required"));
+        assert!(empty_key_result
+            .unwrap_err()
+            .to_string()
+            .contains("API key and secret are required"));
 
         // Test empty secret validation
-        let empty_secret_result = service.mock_test_api_connection("binance", api_key, "").await;
+        let empty_secret_result = service
+            .mock_test_api_connection("binance", api_key, "")
+            .await;
         assert!(empty_secret_result.is_err());
-        assert!(empty_secret_result.unwrap_err().to_string().contains("API key and secret are required"));
+        assert!(empty_secret_result
+            .unwrap_err()
+            .to_string()
+            .contains("API key and secret are required"));
 
         // Test super admin config
         service.add_super_admin_config("binance", "admin_key", "admin_secret");
@@ -604,11 +739,13 @@ mod tests {
             "volume": "1000.00",
             "priceChangePercent": "1.0"
         });
-        
+
         let symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "DOTUSDT"];
         for symbol in &symbols {
             let endpoint = format!("/api/v3/ticker/24hr?symbol={}", symbol);
-            service.http_client.add_response(&endpoint, ticker_response.clone());
+            service
+                .http_client
+                .add_response(&endpoint, ticker_response.clone());
         }
 
         // Test successful requests within limit
@@ -620,7 +757,10 @@ mod tests {
         // Test rate limit exceeded (4th request should fail)
         let rate_limited_result = service.mock_get_ticker("binance", symbols[3]).await;
         assert!(rate_limited_result.is_err());
-        assert!(rate_limited_result.unwrap_err().to_string().contains("Rate limit exceeded"));
+        assert!(rate_limited_result
+            .unwrap_err()
+            .to_string()
+            .contains("Rate limit exceeded"));
 
         // Test rate limit reset
         service.http_client.reset_rate_limit();
@@ -632,7 +772,10 @@ mod tests {
         service.http_client.request_count = 2; // Simulate exceeded limit
         let rate_check_result = service.mock_rate_limit_check("get_ticker").await;
         assert!(rate_check_result.is_err());
-        assert!(rate_check_result.unwrap_err().to_string().contains("Rate limit exceeded for operation 'get_ticker'"));
+        assert!(rate_check_result
+            .unwrap_err()
+            .to_string()
+            .contains("Rate limit exceeded for operation 'get_ticker'"));
     }
 
     #[tokio::test]
@@ -643,41 +786,60 @@ mod tests {
         service.http_client.simulate_error("network_error");
         let network_error_result = service.mock_get_ticker("binance", "BTCUSDT").await;
         assert!(network_error_result.is_err());
-        assert!(network_error_result.unwrap_err().to_string().contains("Network connection failed"));
+        assert!(network_error_result
+            .unwrap_err()
+            .to_string()
+            .contains("Network connection failed"));
 
         // Test timeout error handling
         service.http_client.simulate_error("timeout");
         let timeout_result = service.mock_get_ticker("binance", "BTCUSDT").await;
         assert!(timeout_result.is_err());
-        assert!(timeout_result.unwrap_err().to_string().contains("Request timeout"));
+        assert!(timeout_result
+            .unwrap_err()
+            .to_string()
+            .contains("Request timeout"));
 
         // Test authentication error handling
         service.http_client.simulate_error("auth_failed");
-        let auth_error_result = service.mock_test_api_connection("binance", "invalid_key", "invalid_secret").await;
+        let auth_error_result = service
+            .mock_test_api_connection("binance", "invalid_key", "invalid_secret")
+            .await;
         assert!(auth_error_result.is_err());
-        assert!(auth_error_result.unwrap_err().to_string().contains("Authentication failed"));
+        assert!(auth_error_result
+            .unwrap_err()
+            .to_string()
+            .contains("Authentication failed"));
 
         // Test invalid response handling
         service.http_client.simulate_error("invalid_response");
         let parse_error_result = service.mock_get_ticker("binance", "BTCUSDT").await;
         assert!(parse_error_result.is_err());
-        assert!(parse_error_result.unwrap_err().to_string().contains("Invalid JSON response"));
+        assert!(parse_error_result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid JSON response"));
 
         // Test KV store error handling
         service.kv_store.simulate_error("kv_put_failed");
         service.http_client.error_simulation = None; // Reset HTTP errors
-        
+
         let kv_response = json!({
             "symbol": "BTCUSDT",
             "lastPrice": "45000.00",
             "volume": "1000.00",
             "priceChangePercent": "1.0"
         });
-        service.http_client.add_response("/api/v3/ticker/24hr?symbol=BTCUSDT", kv_response);
-        
+        service
+            .http_client
+            .add_response("/api/v3/ticker/24hr?symbol=BTCUSDT", kv_response);
+
         let kv_error_result = service.mock_get_ticker("binance", "BTCUSDT").await;
         assert!(kv_error_result.is_err());
-        assert!(kv_error_result.unwrap_err().to_string().contains("KV put operation failed"));
+        assert!(kv_error_result
+            .unwrap_err()
+            .to_string()
+            .contains("KV put operation failed"));
     }
 
     #[tokio::test]
@@ -692,7 +854,9 @@ mod tests {
             "priceChangePercent": "2.5"
         });
 
-        let binance_ticker = service.parse_binance_ticker(&binance_response, "BTCUSDT").unwrap();
+        let binance_ticker = service
+            .parse_binance_ticker(&binance_response, "BTCUSDT")
+            .unwrap();
         assert_eq!(binance_ticker.symbol, "BTCUSDT");
         assert_eq!(binance_ticker.last, Some(45000.50));
 
@@ -706,14 +870,20 @@ mod tests {
             }
         });
 
-        let bybit_ticker = service.parse_bybit_ticker(&bybit_response, "BTCUSDT").unwrap();
+        let bybit_ticker = service
+            .parse_bybit_ticker(&bybit_response, "BTCUSDT")
+            .unwrap();
         assert_eq!(bybit_ticker.symbol, "BTCUSDT");
         assert_eq!(bybit_ticker.last, Some(45000.50));
 
         // Test invalid exchange for parsing
-        let invalid_exchange_result = service.parse_ticker_response("invalid", &binance_response, "BTCUSDT");
+        let invalid_exchange_result =
+            service.parse_ticker_response("invalid", &binance_response, "BTCUSDT");
         assert!(invalid_exchange_result.is_err());
-        assert!(invalid_exchange_result.unwrap_err().to_string().contains("Unsupported exchange for ticker parsing"));
+        assert!(invalid_exchange_result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported exchange for ticker parsing"));
     }
 
     #[tokio::test]
@@ -728,7 +898,9 @@ mod tests {
         // Test invalid symbol validation
         assert!(service.validate_symbol_format("").is_err());
         assert!(service.validate_symbol_format("BT").is_err()); // Too short
-        assert!(service.validate_symbol_format("VERYLONGSYMBOLNAME123").is_err()); // Too long
+        assert!(service
+            .validate_symbol_format("VERYLONGSYMBOLNAME123")
+            .is_err()); // Too long
         assert!(service.validate_symbol_format("BTC-USDT").is_err()); // Invalid characters
         assert!(service.validate_symbol_format("BTC USDT").is_err()); // Space not allowed
 
@@ -747,7 +919,10 @@ mod tests {
 
         let invalid_ticker_result = service.parse_binance_ticker(&invalid_binance_data, "BTCUSDT");
         assert!(invalid_ticker_result.is_err());
-        assert!(invalid_ticker_result.unwrap_err().to_string().contains("Missing volume"));
+        assert!(invalid_ticker_result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing volume"));
     }
 
     #[tokio::test]
@@ -766,7 +941,9 @@ mod tests {
         let symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "DOTUSDT", "LINKUSDT"];
         for symbol in &symbols {
             let endpoint = format!("/api/v3/ticker/24hr?symbol={}", symbol);
-            service.http_client.add_response(&endpoint, ticker_response.clone());
+            service
+                .http_client
+                .add_response(&endpoint, ticker_response.clone());
         }
 
         // Test concurrent requests (simulated)
@@ -801,7 +978,9 @@ mod tests {
             "volume": "1000.00",
             "priceChangePercent": "1.0"
         });
-        service.http_client.add_response("/api/v3/ticker/24hr?symbol=BTCUSDT", ticker_response);
+        service
+            .http_client
+            .add_response("/api/v3/ticker/24hr?symbol=BTCUSDT", ticker_response);
 
         // First request should hit the API
         let first_result = service.mock_get_ticker("binance", "BTCUSDT").await;
@@ -853,7 +1032,9 @@ mod tests {
                 }
             ]
         });
-        service.http_client.add_response("/api/v3/exchangeInfo", markets_response);
+        service
+            .http_client
+            .add_response("/api/v3/exchangeInfo", markets_response);
 
         // Test successful markets fetch
         let markets_result = service.mock_get_markets("binance").await;
@@ -878,7 +1059,10 @@ mod tests {
         // Test unsupported exchange
         let unsupported_markets = service.mock_get_markets("unsupported").await;
         assert!(unsupported_markets.is_err());
-        assert!(unsupported_markets.unwrap_err().to_string().contains("Unsupported exchange"));
+        assert!(unsupported_markets
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported exchange"));
     }
 
     #[tokio::test]
@@ -888,30 +1072,38 @@ mod tests {
         // Test compatible exchanges
         let user_exchanges = vec!["binance".to_string(), "bybit".to_string()];
         let required_exchanges = vec!["binance".to_string(), "bybit".to_string()];
-        
-        let compatible_result = service.mock_validate_user_api_compatibility(&user_exchanges, &required_exchanges).await;
+
+        let compatible_result = service
+            .mock_validate_user_api_compatibility(&user_exchanges, &required_exchanges)
+            .await;
         assert!(compatible_result.is_ok());
         assert!(compatible_result.unwrap());
 
         // Test partial compatibility
         let partial_user_exchanges = vec!["binance".to_string()];
         let partial_required = vec!["binance".to_string(), "okx".to_string()];
-        
-        let partial_result = service.mock_validate_user_api_compatibility(&partial_user_exchanges, &partial_required).await;
+
+        let partial_result = service
+            .mock_validate_user_api_compatibility(&partial_user_exchanges, &partial_required)
+            .await;
         assert!(partial_result.is_ok());
         assert!(!partial_result.unwrap());
 
         // Test no compatibility
         let incompatible_user = vec!["binance".to_string()];
         let incompatible_required = vec!["okx".to_string(), "bybit".to_string()];
-        
-        let incompatible_result = service.mock_validate_user_api_compatibility(&incompatible_user, &incompatible_required).await;
+
+        let incompatible_result = service
+            .mock_validate_user_api_compatibility(&incompatible_user, &incompatible_required)
+            .await;
         assert!(incompatible_result.is_ok());
         assert!(!incompatible_result.unwrap());
 
         // Test empty requirements (should always be compatible)
         let empty_required: Vec<String> = vec![];
-        let empty_result = service.mock_validate_user_api_compatibility(&user_exchanges, &empty_required).await;
+        let empty_result = service
+            .mock_validate_user_api_compatibility(&user_exchanges, &empty_required)
+            .await;
         assert!(empty_result.is_ok());
         assert!(empty_result.unwrap());
     }
@@ -941,4 +1133,4 @@ mod tests {
         assert_eq!(metrics.supported_exchanges, 3);
         assert_eq!(metrics.super_admin_configs, 0);
     }
-} 
+}

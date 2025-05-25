@@ -1,8 +1,8 @@
 use crate::services::core::infrastructure::d1_database::D1Service;
+use crate::utils::{ArbitrageResult, ArbitrageError};
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use anyhow::{Result, anyhow};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AffiliationProgram {
@@ -88,13 +88,13 @@ impl AffiliationService {
     }
 
     /// Submit an application for affiliation program
-    pub async fn submit_application(&self, application: AffiliationApplication) -> Result<AffiliationApplication> {
+    pub async fn submit_application(&self, application: AffiliationApplication) -> ArbitrageResult<AffiliationApplication> {
         // Validate application
         self.validate_application(&application)?;
         
         // Check if user already has an active application
         if self.has_pending_application(&application.user_id).await? {
-            return Err(anyhow!("User already has a pending affiliation application"));
+            return Err(ArbitrageError::validation_error("User already has a pending affiliation application"));
         }
 
         // Store the application
@@ -110,10 +110,10 @@ impl AffiliationService {
         reviewer_id: &str, 
         decision: VerificationStatus, 
         notes: Option<String>
-    ) -> Result<AffiliationApplication> {
+    ) -> ArbitrageResult<AffiliationApplication> {
         // Verify reviewer has admin permissions
         if !self.verify_admin_permission(reviewer_id).await? {
-            return Err(anyhow!("Unauthorized: Only admins can review affiliation applications"));
+            return Err(ArbitrageError::unauthorized("Only admins can review affiliation applications"));
         }
 
         // Update application status
@@ -141,7 +141,7 @@ impl AffiliationService {
     }
 
     /// Get affiliation program for a user
-    pub async fn get_user_affiliation(&self, user_id: &str) -> Result<Option<AffiliationProgram>> {
+    pub async fn get_user_affiliation(&self, user_id: &str) -> ArbitrageResult<Option<AffiliationProgram>> {
         let query = r#"
             SELECT id, user_id, program_type, verification_status, follower_count, platform, 
                    kickback_rate, special_features, created_at, updated_at, verified_at, verified_by
@@ -159,7 +159,7 @@ impl AffiliationService {
     }
 
     /// Calculate affiliation metrics for a user
-    pub async fn calculate_metrics(&self, user_id: &str, period_days: u32) -> Result<AffiliationMetrics> {
+    pub async fn calculate_metrics(&self, user_id: &str, period_days: u32) -> ArbitrageResult<AffiliationMetrics> {
         let period_start = Utc::now() - chrono::Duration::days(period_days as i64);
         let period_end = Utc::now();
 
@@ -192,9 +192,9 @@ impl AffiliationService {
     }
 
     /// Get all pending applications for admin review
-    pub async fn get_pending_applications(&self, reviewer_id: &str) -> Result<Vec<AffiliationApplication>> {
+    pub async fn get_pending_applications(&self, reviewer_id: &str) -> ArbitrageResult<Vec<AffiliationApplication>> {
         if !self.verify_admin_permission(reviewer_id).await? {
-            return Err(anyhow!("Unauthorized: Only admins can view pending applications"));
+            return Err(ArbitrageError::unauthorized("Only admins can view pending applications"));
         }
 
         let query = r#"
@@ -221,22 +221,28 @@ impl AffiliationService {
         user_id: &str, 
         kickback_rate: Option<f64>, 
         special_features: Option<Vec<String>>
-    ) -> Result<AffiliationProgram> {
+    ) -> ArbitrageResult<AffiliationProgram> {
         let mut updates = Vec::new();
         let mut params = Vec::new();
 
         if let Some(rate) = kickback_rate {
+            // Validate kickback rate is within acceptable range (0-100%)
+            if rate < 0.0 || rate > 100.0 {
+                return Err(ArbitrageError::validation_error(format!("Kickback rate must be between 0 and 100 percent, got: {}", rate)));
+            }
             updates.push("kickback_rate = ?");
             params.push(rate.into());
         }
 
         if let Some(features) = special_features {
             updates.push("special_features = ?");
-            params.push(serde_json::to_string(&features).unwrap_or_default().into());
+            let serialized_features = serde_json::to_string(&features)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize special_features: {}", e)))?;
+            params.push(serialized_features.into());
         }
 
         if updates.is_empty() {
-            return Err(anyhow!("No updates provided"));
+            return Err(ArbitrageError::validation_error("No updates provided"));
         }
 
         updates.push("updated_at = ?");
@@ -251,11 +257,11 @@ impl AffiliationService {
         self.d1_service.execute(&query, &params).await?;
 
         // Return updated program
-        self.get_user_affiliation(user_id).await?.ok_or_else(|| anyhow!("Affiliation program not found"))
+        self.get_user_affiliation(user_id).await?.ok_or_else(|| ArbitrageError::not_found("Affiliation program not found"))
     }
 
     /// Get top performing affiliates
-    pub async fn get_top_performers(&self, limit: u32) -> Result<Vec<AffiliationMetrics>> {
+    pub async fn get_top_performers(&self, limit: u32) -> ArbitrageResult<Vec<AffiliationMetrics>> {
         // This would implement complex analytics to rank affiliates
         // For now, return empty vector as placeholder
         Ok(Vec::new())
@@ -263,23 +269,23 @@ impl AffiliationService {
 
     // Private helper methods
 
-    fn validate_application(&self, application: &AffiliationApplication) -> Result<()> {
+    fn validate_application(&self, application: &AffiliationApplication) -> ArbitrageResult<()> {
         if application.follower_count < 1000 {
-            return Err(anyhow!("Minimum follower count requirement not met (1000+)"));
+            return Err(ArbitrageError::validation_error("Minimum follower count requirement not met (1000+)"));
         }
 
         if application.content_examples.is_empty() {
-            return Err(anyhow!("At least one content example is required"));
+            return Err(ArbitrageError::validation_error("At least one content example is required"));
         }
 
         if application.motivation.len() < 50 {
-            return Err(anyhow!("Motivation statement must be at least 50 characters"));
+            return Err(ArbitrageError::validation_error("Motivation statement must be at least 50 characters"));
         }
 
         Ok(())
     }
 
-    async fn has_pending_application(&self, user_id: &str) -> Result<bool> {
+    async fn has_pending_application(&self, user_id: &str) -> ArbitrageResult<bool> {
         let query = r#"
             SELECT COUNT(*) as count 
             FROM affiliation_applications 
@@ -295,7 +301,7 @@ impl AffiliationService {
         }
     }
 
-    async fn verify_admin_permission(&self, user_id: &str) -> Result<bool> {
+    async fn verify_admin_permission(&self, user_id: &str) -> ArbitrageResult<bool> {
         // Query user profile to check if they have super admin role
         let query = "SELECT profile_metadata, subscription_tier FROM user_profiles WHERE user_id = ?";
         let result = self.d1_service.query(query, &[user_id.into()]).await?;
@@ -323,7 +329,7 @@ impl AffiliationService {
         Ok(false)
     }
 
-    async fn store_application(&self, application: &AffiliationApplication) -> Result<()> {
+    async fn store_application(&self, application: &AffiliationApplication) -> ArbitrageResult<()> {
         let query = r#"
             INSERT INTO affiliation_applications 
             (id, user_id, program_type, platform, follower_count, content_examples, 
@@ -337,7 +343,9 @@ impl AffiliationService {
             format!("{:?}", application.program_type).into(),
             application.platform.clone().into(),
             application.follower_count.into(),
-            serde_json::to_string(&application.content_examples).unwrap_or_default().into(),
+            serde_json::to_string(&application.content_examples)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize content_examples: {}", e)))?
+                .into(),
             application.trading_experience.clone().into(),
             application.motivation.clone().into(),
             format!("{:?}", application.status).into(),
@@ -347,7 +355,7 @@ impl AffiliationService {
         Ok(())
     }
 
-    async fn create_affiliation_program_from_application(&self, application_id: &str, reviewer_id: &str) -> Result<()> {
+    async fn create_affiliation_program_from_application(&self, application_id: &str, reviewer_id: &str) -> ArbitrageResult<()> {
         // Get application details
         let application = self.get_application_by_id(application_id).await?;
         
@@ -419,7 +427,7 @@ impl AffiliationService {
         }
     }
 
-    async fn store_affiliation_program(&self, program: &AffiliationProgram) -> Result<()> {
+    async fn store_affiliation_program(&self, program: &AffiliationProgram) -> ArbitrageResult<()> {
         let query = r#"
             INSERT INTO affiliation_programs 
             (id, user_id, program_type, verification_status, follower_count, platform, 
@@ -435,7 +443,9 @@ impl AffiliationService {
             program.follower_count.map(|f| f.into()).unwrap_or_else(|| serde_json::Value::Null),
             program.platform.clone().unwrap_or_default().into(),
             program.kickback_rate.into(),
-            serde_json::to_string(&program.special_features).unwrap_or_default().into(),
+            serde_json::to_string(&program.special_features)
+                .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize special_features: {}", e)))?
+                .into(),
             program.created_at.to_rfc3339().into(),
             program.updated_at.to_rfc3339().into(),
             program.verified_at.map(|dt| dt.to_rfc3339()).unwrap_or_default().into(),
@@ -445,7 +455,7 @@ impl AffiliationService {
         Ok(())
     }
 
-    async fn get_application_by_id(&self, application_id: &str) -> Result<AffiliationApplication> {
+    async fn get_application_by_id(&self, application_id: &str) -> ArbitrageResult<AffiliationApplication> {
         let query = r#"
             SELECT id, user_id, program_type, platform, follower_count, content_examples, 
                    trading_experience, motivation, status, created_at, reviewed_at, reviewed_by, review_notes
@@ -458,23 +468,27 @@ impl AffiliationService {
         if let Some(row) = result.first() {
             self.parse_application_from_row(row)
         } else {
-            Err(anyhow!("Application not found"))
+            Err(ArbitrageError::not_found("Application not found"))
         }
     }
 
-    fn parse_application_from_row(&self, row: &std::collections::HashMap<String, String>) -> Result<AffiliationApplication> {
+    fn parse_application_from_row(&self, row: &std::collections::HashMap<String, String>) -> ArbitrageResult<AffiliationApplication> {
         Ok(AffiliationApplication {
             id: row.get("id").unwrap_or_default(),
             user_id: row.get("user_id").unwrap_or_default(),
             program_type: self.parse_program_type(row.get("program_type").unwrap_or_default())?,
             platform: row.get("platform").unwrap_or_default(),
-            follower_count: row.get("follower_count").unwrap_or("0").parse().unwrap_or(0),
-            content_examples: serde_json::from_str(row.get("content_examples").unwrap_or("[]")).unwrap_or_default(),
+            follower_count: row.get("follower_count")
+                .ok_or_else(|| ArbitrageError::parse_error("Missing follower_count field"))?
+                .parse()
+                .map_err(|e| ArbitrageError::parse_error(format!("Invalid follower_count format: {}", e)))?,
+            content_examples: serde_json::from_str(row.get("content_examples").unwrap_or("[]"))
+                .map_err(|e| ArbitrageError::parse_error(format!("Invalid content_examples JSON: {}", e)))?,
             trading_experience: row.get("trading_experience").unwrap_or_default(),
             motivation: row.get("motivation").unwrap_or_default(),
             status: self.parse_verification_status(row.get("status").unwrap_or_default())?,
             created_at: DateTime::parse_from_rfc3339(row.get("created_at").unwrap_or_default())
-                .map_err(|e| anyhow!("Invalid created_at format: {}", e))?
+                .map_err(|e| ArbitrageError::parse_error(format!("Invalid created_at format: {}", e)))?
                 .with_timezone(&Utc),
             reviewed_at: row.get("reviewed_at")
                 .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
@@ -484,7 +498,7 @@ impl AffiliationService {
         })
     }
 
-    fn parse_affiliation_program_from_row(&self, row: &std::collections::HashMap<String, String>) -> Result<AffiliationProgram> {
+    fn parse_affiliation_program_from_row(&self, row: &std::collections::HashMap<String, String>) -> ArbitrageResult<AffiliationProgram> {
         Ok(AffiliationProgram {
             id: row.get("id").unwrap_or_default(),
             user_id: row.get("user_id").unwrap_or_default(),
@@ -492,13 +506,17 @@ impl AffiliationService {
             verification_status: self.parse_verification_status(row.get("verification_status").unwrap_or_default())?,
             follower_count: row.get("follower_count").and_then(|s| s.parse().ok()),
             platform: row.get("platform"),
-            kickback_rate: row.get("kickback_rate").unwrap_or("0.0").parse().unwrap_or(0.0),
-            special_features: serde_json::from_str(row.get("special_features").unwrap_or("[]")).unwrap_or_default(),
+            kickback_rate: row.get("kickback_rate")
+                .ok_or_else(|| ArbitrageError::parse_error("Missing kickback_rate field"))?
+                .parse()
+                .map_err(|e| ArbitrageError::parse_error(format!("Invalid kickback_rate format: {}", e)))?,
+            special_features: serde_json::from_str(row.get("special_features").unwrap_or("[]"))
+                .map_err(|e| ArbitrageError::parse_error(format!("Invalid special_features JSON: {}", e)))?,
             created_at: DateTime::parse_from_rfc3339(row.get("created_at").unwrap_or_default())
-                .map_err(|e| anyhow!("Invalid created_at format: {}", e))?
+                .map_err(|e| ArbitrageError::parse_error(format!("Invalid created_at format: {}", e)))?
                 .with_timezone(&Utc),
             updated_at: DateTime::parse_from_rfc3339(row.get("updated_at").unwrap_or_default())
-                .map_err(|e| anyhow!("Invalid updated_at format: {}", e))?
+                .map_err(|e| ArbitrageError::parse_error(format!("Invalid updated_at format: {}", e)))?
                 .with_timezone(&Utc),
             verified_at: row.get("verified_at")
                 .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
@@ -507,7 +525,7 @@ impl AffiliationService {
         })
     }
 
-    fn parse_program_type(&self, type_str: &str) -> Result<AffiliationProgramType> {
+    fn parse_program_type(&self, type_str: &str) -> ArbitrageResult<AffiliationProgramType> {
         match type_str {
             "Influencer" => Ok(AffiliationProgramType::Influencer),
             "ContentCreator" => Ok(AffiliationProgramType::ContentCreator),
@@ -515,39 +533,49 @@ impl AffiliationService {
             "CommunityLeader" => Ok(AffiliationProgramType::CommunityLeader),
             "TechnicalAnalyst" => Ok(AffiliationProgramType::TechnicalAnalyst),
             "Enterprise" => Ok(AffiliationProgramType::Enterprise),
-            _ => Err(anyhow!("Invalid program type: {}", type_str)),
+            _ => Err(ArbitrageError::parse_error(format!("Invalid program type: {}", type_str))),
         }
     }
 
-    fn parse_verification_status(&self, status_str: &str) -> Result<VerificationStatus> {
+    fn parse_verification_status(&self, status_str: &str) -> ArbitrageResult<VerificationStatus> {
         match status_str {
             "Pending" => Ok(VerificationStatus::Pending),
             "UnderReview" => Ok(VerificationStatus::UnderReview),
             "Approved" => Ok(VerificationStatus::Approved),
             "Rejected" => Ok(VerificationStatus::Rejected),
             "Suspended" => Ok(VerificationStatus::Suspended),
-            _ => Err(anyhow!("Invalid verification status: {}", status_str)),
+            _ => Err(ArbitrageError::parse_error(format!("Invalid verification status: {}", status_str))),
         }
     }
 
     // Placeholder methods for metrics calculation
-    async fn count_referrals_in_period(&self, _user_id: &str, _start: &DateTime<Utc>, _end: &DateTime<Utc>) -> Result<u32> {
+    async fn count_referrals_in_period(&self, _user_id: &str, _start: &DateTime<Utc>, _end: &DateTime<Utc>) -> ArbitrageResult<u32> {
+        // TODO: Implement referral counting by querying invitation_usage table
+        // Filter by user_id, created_at between start and end dates
         Ok(0) // Placeholder
     }
 
-    async fn count_conversions_in_period(&self, _user_id: &str, _start: &DateTime<Utc>, _end: &DateTime<Utc>) -> Result<u32> {
+    async fn count_conversions_in_period(&self, _user_id: &str, _start: &DateTime<Utc>, _end: &DateTime<Utc>) -> ArbitrageResult<u32> {
+        // TODO: Implement conversion counting by querying user_trading_preferences table
+        // Count users who started trading after being referred by this user
         Ok(0) // Placeholder
     }
 
-    async fn calculate_revenue_in_period(&self, _user_id: &str, _start: &DateTime<Utc>, _end: &DateTime<Utc>) -> Result<f64> {
+    async fn calculate_revenue_in_period(&self, _user_id: &str, _start: &DateTime<Utc>, _end: &DateTime<Utc>) -> ArbitrageResult<f64> {
+        // TODO: Implement revenue calculation by querying trading fees and commissions
+        // Calculate total revenue generated from referred users' trading activity
         Ok(0.0) // Placeholder
     }
 
-    async fn calculate_engagement_score(&self, _referrals: u32, _conversions: u32) -> Result<f64> {
+    async fn calculate_engagement_score(&self, _referrals: u32, _conversions: u32) -> ArbitrageResult<f64> {
+        // TODO: Implement engagement score calculation algorithm
+        // Formula: (conversions / referrals) * 100 + bonus factors for activity
         Ok(0.0) // Placeholder
     }
 
-    async fn determine_performance_tier(&self, _engagement_score: f64, _revenue: f64) -> Result<PerformanceTier> {
+    async fn determine_performance_tier(&self, _engagement_score: f64, _revenue: f64) -> ArbitrageResult<PerformanceTier> {
+        // TODO: Implement performance tier determination logic
+        // Bronze: 0-1000 revenue, Silver: 1000-5000, Gold: 5000-20000, etc.
         Ok(PerformanceTier::Bronze) // Placeholder
     }
 } 

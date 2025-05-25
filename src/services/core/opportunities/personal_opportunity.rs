@@ -10,6 +10,7 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use crate::log_info;
 use chrono::Utc;
 use futures::future::join_all;
+use rand::random;
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -100,7 +101,7 @@ impl PersonalOpportunityService {
         // Apply AI enhancement if available and user has AI access
         if let Some(ai_service) = &self.ai_service {
             opportunities = self
-                .enhance_opportunities_with_ai(user_id, opportunities, ai_service)
+                .enhance_opportunities_with_ai(user_id, opportunities, ai_service.as_ref())
                 .await?;
         }
 
@@ -182,7 +183,7 @@ impl PersonalOpportunityService {
         // Apply AI enhancement if available and user has AI access
         if let Some(ai_service) = &self.ai_service {
             opportunities = self
-                .enhance_technical_opportunities_with_ai(user_id, opportunities, ai_service)
+                .enhance_technical_opportunities_with_ai(user_id, opportunities, ai_service.as_ref())
                 .await?;
         }
 
@@ -211,6 +212,60 @@ impl PersonalOpportunityService {
         );
 
         Ok(opportunities)
+    }
+
+    /// Get hybrid opportunities combining global and personal opportunities (slice-based for performance)
+    pub async fn get_hybrid_opportunities_with_slices(
+        &self,
+        user_id: &str,
+        chat_context: &ChatContext,
+        global_arbitrage: &[ArbitrageOpportunity],
+        global_technical: &[TechnicalOpportunity],
+    ) -> ArbitrageResult<(Vec<ArbitrageOpportunity>, Vec<TechnicalOpportunity>)> {
+        // Get user's access level to determine how many personal opportunities to generate
+        let access_level = self.user_access_service.get_user_access_level(user_id).await?;
+        let remaining = self
+            .user_access_service
+            .get_remaining_opportunities(user_id, chat_context)
+            .await?;
+
+        let mut final_arbitrage = global_arbitrage.to_vec();
+        let mut final_technical = global_technical.to_vec();
+
+        // Generate personal opportunities if user has remaining capacity
+        if remaining.0 > 0 {
+            // Generate personal arbitrage opportunities
+            let personal_arbitrage = self
+                .generate_personal_arbitrage_opportunities(user_id, chat_context, None)
+                .await?;
+            
+            // Merge with global opportunities, prioritizing personal ones
+            final_arbitrage = self.merge_arbitrage_opportunities(final_arbitrage, personal_arbitrage);
+        }
+
+        if remaining.1 > 0 {
+            // Generate personal technical opportunities
+            let personal_technical = self
+                .generate_personal_technical_opportunities(user_id, chat_context, None)
+                .await?;
+            
+            // Merge with global opportunities, prioritizing personal ones
+            final_technical = self.merge_technical_opportunities(final_technical, personal_technical);
+        }
+
+        log_info!(
+            "Generated hybrid opportunities with slices",
+            serde_json::json!({
+                "user_id": user_id,
+                "access_level": format!("{:?}", access_level),
+                "final_arbitrage_count": final_arbitrage.len(),
+                "final_technical_count": final_technical.len(),
+                "remaining_arbitrage": remaining.0,
+                "remaining_technical": remaining.1
+            })
+        );
+
+        Ok((final_arbitrage, final_technical))
     }
 
     /// Get hybrid opportunities combining global and personal opportunities
@@ -644,7 +699,7 @@ impl PersonalOpportunityService {
         &self,
         user_id: &str,
         opportunities: Vec<ArbitrageOpportunity>,
-        ai_service: &mut AIBetaIntegrationService,
+        ai_service: &AIBetaIntegrationService,
     ) -> ArbitrageResult<Vec<ArbitrageOpportunity>> {
         // Check if user has AI access through UserAccessService
         let user_profile = self.user_profile_service.get_user_profile(user_id).await?;
@@ -698,7 +753,7 @@ impl PersonalOpportunityService {
         &self,
         user_id: &str,
         opportunities: Vec<TechnicalOpportunity>,
-        ai_service: &mut AIBetaIntegrationService,
+        ai_service: &AIBetaIntegrationService,
     ) -> ArbitrageResult<Vec<TechnicalOpportunity>> {
         // Check if user has AI access
         let user_profile = self.user_profile_service.get_user_profile(user_id).await?;
@@ -717,26 +772,17 @@ impl PersonalOpportunityService {
                 ArbitrageOpportunity {
                     id: tech_opp.id.clone(),
                     pair: tech_opp.pair.clone(),
-                    long_exchange: tech_opp.exchange.clone(),
-                    short_exchange: tech_opp.exchange.clone(), // Same exchange for technical
-                    long_price: tech_opp.entry_price,
-                    short_price: tech_opp.target_price,
-                    rate_difference: (tech_opp.target_price - tech_opp.entry_price) / tech_opp.entry_price,
-                    potential_profit_percent: tech_opp.expected_return,
-                    potential_profit_value: tech_opp.expected_return * 1000.0, // Assume $1000 position
-                    confidence_score: tech_opp.confidence_score,
-                    risk_factors: tech_opp.risk_factors.clone(),
-                    liquidity_score: 0.8, // Default liquidity score
-                    created_at: tech_opp.created_at,
-                    expires_at: tech_opp.expires_at,
-                    positions: vec![
-                        crate::types::Position {
-                            exchange: tech_opp.exchange.clone(),
-                            action: crate::types::PositionAction::Long,
-                            price: tech_opp.entry_price,
-                            size: 1.0, // Default size
-                        }
-                    ],
+                    long_exchange: tech_opp.exchange,
+                    short_exchange: tech_opp.exchange, // Same exchange for technical
+                    long_rate: Some(tech_opp.entry_price),
+                    short_rate: tech_opp.target_price,
+                    rate_difference: tech_opp.expected_return_percentage / 100.0,
+                    net_rate_difference: Some(tech_opp.expected_return_percentage / 100.0),
+                    potential_profit_value: Some(tech_opp.expected_return_percentage * 10.0), // Assume $1000 position
+                    timestamp: tech_opp.timestamp,
+                    r#type: ArbitrageType::SpotFutures, // Technical analysis type
+                    details: tech_opp.details.clone(),
+                    min_exchanges_required: 1, // Technical requires 1 exchange
                 }
             })
             .collect();
@@ -867,6 +913,9 @@ impl PersonalOpportunityService {
 mod tests {
     use super::*;
     use crate::types::*;
+    use crate::services::{D1Service, UserProfileService, UserAccessService};
+    use chrono::Utc;
+    use worker::{Env, kv::KvStore};
 
     fn create_test_user_profile() -> UserProfile {
         UserProfile {

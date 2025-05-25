@@ -1,5 +1,6 @@
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::{CommandPermission, UserProfile};
+use crate::{log_error, log_warn};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -139,22 +140,38 @@ impl InlineKeyboard {
             Ok(id) if id > 0 => id, // Telegram user IDs start from 1
             Ok(_) => {
                 // Authentication failed: Invalid user ID format (non-positive)
+                log_warn!(&format!(
+                    "Authentication failed: Invalid user ID format (non-positive): {}",
+                    user_id
+                ));
                 return false;
             }
-            Err(_) => {
+            Err(e) => {
                 // Authentication failed: Invalid user ID format (parse error)
+                log_warn!(&format!(
+                    "Authentication failed: Invalid user ID format (parse error): {} - {}",
+                    user_id, e
+                ));
                 return false;
             }
         };
 
-        let user_profile: UserProfile = match user_service.get_user_by_telegram_id(telegram_id).await {
+        let user_profile: UserProfile = match user_service
+            .get_user_by_telegram_id(telegram_id)
+            .await
+        {
             Ok(Some(profile)) => profile,
             Ok(None) => {
                 // Authentication failed: User not found in database
+                log_warn!(&format!(
+                    "Authentication failed: User not found in database for telegram_id: {}",
+                    telegram_id
+                ));
                 return false;
             }
-            Err(_) => {
+            Err(e) => {
                 // Authentication failed: Database error during user lookup
+                log_error!(&format!("Authentication failed: Database error during user lookup for telegram_id: {} - {:?}", telegram_id, e));
                 return false;
             }
         };

@@ -1,8 +1,30 @@
 use arb_edge::services::interfaces::telegram::telegram::{TelegramConfig, TelegramService};
 use serde_json::{json, Value};
 
+/// Helper function to create test TelegramConfig
+fn create_test_config() -> TelegramConfig {
+    TelegramConfig {
+        bot_token: "test_token".to_string(),
+        chat_id: "123456789".to_string(),
+        is_test_mode: true,
+    }
+}
+
 /// Test helper to create a mock Telegram update
 fn create_telegram_update(user_id: i64, message_text: &str, chat_type: &str) -> Value {
+    create_telegram_update_with_options(user_id, message_text, chat_type, None, None)
+}
+
+fn create_telegram_update_with_options(
+    user_id: i64,
+    message_text: &str,
+    chat_type: &str,
+    group_chat_id: Option<i64>,
+    timestamp: Option<i64>,
+) -> Value {
+    let default_group_chat_id = -1001234567890_i64;
+    let default_timestamp = 1640995200;
+
     json!({
         "update_id": 123456789,
         "message": {
@@ -15,11 +37,15 @@ fn create_telegram_update(user_id: i64, message_text: &str, chat_type: &str) -> 
                 "language_code": "en"
             },
             "chat": {
-                "id": if chat_type == "private" { user_id } else { -1001234567890_i64 },
+                "id": if chat_type == "private" {
+                    user_id
+                } else {
+                    group_chat_id.unwrap_or(default_group_chat_id)
+                },
                 "type": chat_type,
                 "title": if chat_type != "private" { Some("Test Group") } else { None }
             },
-            "date": 1640995200,
+            "date": timestamp.unwrap_or(default_timestamp),
             "text": message_text
         }
     })
@@ -35,8 +61,9 @@ mod telegram_trading_commands_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/balance", "private");
 
@@ -47,19 +74,19 @@ mod telegram_trading_commands_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
-        assert!(response_text.contains("Account Balance") || response_text.contains("Subscription Required"));
+        assert!(
+            response_text.contains("Account Balance")
+                || response_text.contains("Subscription Required")
+        );
     }
 
     #[tokio::test]
     async fn test_buy_command_with_parameters() {
         // Arrange
-        let config = TelegramConfig {
-            bot_token: "test_token".to_string(),
-            chat_id: "123456789".to_string(),
-        };
-        
+        let config = create_test_config();
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/buy BTCUSDT 0.001 50000", "private");
 
@@ -70,9 +97,11 @@ mod telegram_trading_commands_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
-        assert!(response_text.contains("Buy Order") || response_text.contains("Subscription Required"));
+        assert!(
+            response_text.contains("Buy Order") || response_text.contains("Subscription Required")
+        );
     }
 
     #[tokio::test]
@@ -81,8 +110,9 @@ mod telegram_trading_commands_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/sell ETHUSDT 0.5 3200", "private");
 
@@ -93,9 +123,11 @@ mod telegram_trading_commands_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
-        assert!(response_text.contains("Sell Order") || response_text.contains("Subscription Required"));
+        assert!(
+            response_text.contains("Sell Order") || response_text.contains("Subscription Required")
+        );
     }
 
     #[tokio::test]
@@ -104,13 +136,14 @@ mod telegram_trading_commands_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
-        
+
         // Test multiple trading commands in group chat
         let commands = vec!["/balance", "/buy BTCUSDT 0.001", "/sell ETHUSDT 0.5"];
-        
+
         for command in commands {
             let update = create_telegram_update(123456789, command, "group");
 
@@ -121,9 +154,12 @@ mod telegram_trading_commands_tests {
             assert!(result.is_ok());
             let response = result.unwrap();
             assert!(response.is_some());
-            
+
             let response_text = response.unwrap();
-            assert!(response_text.contains("Security Notice") || response_text.contains("private chats"));
+            assert!(
+                response_text.contains("Security Notice")
+                    || response_text.contains("private chats")
+            );
         }
     }
 }
@@ -138,8 +174,9 @@ mod telegram_auto_trading_commands_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/auto_enable", "private");
 
@@ -150,9 +187,12 @@ mod telegram_auto_trading_commands_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
-        assert!(response_text.contains("Auto Trading") || response_text.contains("Subscription Required"));
+        assert!(
+            response_text.contains("Auto Trading")
+                || response_text.contains("Subscription Required")
+        );
     }
 
     #[tokio::test]
@@ -161,8 +201,9 @@ mod telegram_auto_trading_commands_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/auto_config max_position 1000", "private");
 
@@ -173,9 +214,12 @@ mod telegram_auto_trading_commands_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
-        assert!(response_text.contains("Configuration Updated") || response_text.contains("Subscription Required"));
+        assert!(
+            response_text.contains("Configuration Updated")
+                || response_text.contains("Subscription Required")
+        );
     }
 }
 
@@ -189,8 +233,9 @@ mod telegram_admin_commands_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/admin_stats", "private");
 
@@ -201,9 +246,12 @@ mod telegram_admin_commands_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
-        assert!(response_text.contains("System Administration") || response_text.contains("Access Denied"));
+        assert!(
+            response_text.contains("System Administration")
+                || response_text.contains("Access Denied")
+        );
     }
 
     #[tokio::test]
@@ -212,8 +260,9 @@ mod telegram_admin_commands_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/admin_broadcast Test message", "private");
 
@@ -224,7 +273,7 @@ mod telegram_admin_commands_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("Broadcast") || response_text.contains("Access Denied"));
     }
@@ -240,8 +289,9 @@ mod telegram_ai_commands_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/ai_insights", "private");
 
@@ -252,7 +302,7 @@ mod telegram_ai_commands_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("AI Analysis") || response_text.contains("AI"));
     }
@@ -263,8 +313,9 @@ mod telegram_ai_commands_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/risk_assessment", "private");
 
@@ -275,7 +326,7 @@ mod telegram_ai_commands_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("Risk Assessment") || response_text.contains("Portfolio"));
     }
@@ -291,8 +342,9 @@ mod telegram_edge_cases_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "  /help  ", "private");
 
@@ -303,7 +355,7 @@ mod telegram_edge_cases_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("Bot Commands") || response_text.contains("help"));
     }
@@ -314,8 +366,9 @@ mod telegram_edge_cases_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/HELP", "private");
 
@@ -335,10 +388,12 @@ mod telegram_edge_cases_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
-        let update = create_telegram_update(123456789, "/admin_broadcast Hello 🚀 World! 💎", "private");
+        let update =
+            create_telegram_update(123456789, "/admin_broadcast Hello 🚀 World! 💎", "private");
 
         // Act
         let result = telegram_service.handle_webhook(update).await;
@@ -347,8 +402,8 @@ mod telegram_edge_cases_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("Broadcast") || response_text.contains("Access Denied"));
     }
-} 
+}

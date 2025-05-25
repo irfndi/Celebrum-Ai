@@ -1,10 +1,10 @@
 // Mock Service Implementations
 // Simplified service mocks for testing without external dependencies
 
-use std::collections::HashMap;
-use serde_json::json;
-use arb_edge::types::{UserProfile, UserTradingPreferences, ArbitrageOpportunity};
 use arb_edge::services::core::analysis::market_analysis::TradingOpportunity;
+use arb_edge::types::{ArbitrageOpportunity, UserProfile, UserTradingPreferences};
+use serde_json::json;
+use std::collections::HashMap;
 
 /// Mock environment for testing service interactions
 pub struct MockTestEnvironment {
@@ -62,7 +62,8 @@ impl MockTestEnvironment {
     }
 
     pub fn send_notification(&mut self, user_id: String, message: String) {
-        self.notifications_sent.push(format!("{}:{}", user_id, message));
+        self.notifications_sent
+            .push(format!("{}:{}", user_id, message));
     }
 
     pub fn get_user(&self, user_id: &str) -> Option<&UserProfile> {
@@ -184,4 +185,4 @@ impl MockNotificationService {
     pub fn clear(&mut self) {
         self.sent_notifications.clear();
     }
-} 
+}

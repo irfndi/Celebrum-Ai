@@ -1,16 +1,18 @@
+use crate::services::core::analysis::market_analysis::OpportunityType;
 use crate::services::{D1Service, UserProfileService};
 use crate::types::*;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use worker::kv::KvStore;
 
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsValue;
-#[cfg(target_arch = "wasm32")]
 use serde_json::Value;
 #[cfg(target_arch = "wasm32")]
 use std::collections::HashMap;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsValue;
 
 /// Service for managing user access levels and opportunity distribution limits
+#[allow(dead_code)]
 pub struct UserAccessService {
     d1_service: D1Service,
     user_profile_service: UserProfileService,
@@ -24,11 +26,20 @@ impl UserAccessService {
         user_profile_service: UserProfileService,
         kv_store: KvStore,
     ) -> Self {
+        Self::with_cache_ttl(d1_service, user_profile_service, kv_store, 3600)
+    }
+
+    pub fn with_cache_ttl(
+        d1_service: D1Service,
+        user_profile_service: UserProfileService,
+        kv_store: KvStore,
+        cache_ttl_seconds: u64,
+    ) -> Self {
         Self {
             d1_service,
             user_profile_service,
             kv_store,
-            cache_ttl_seconds: 3600, // 1 hour cache
+            cache_ttl_seconds,
         }
     }
 
@@ -67,8 +78,11 @@ impl UserAccessService {
         // Try to get existing limits from database
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let context_id = chat_context.get_context_id();
-        
-        if let Ok(Some(mut limits)) = self.get_stored_opportunity_limits(user_id, &today, &context_id).await {
+
+        if let Ok(Some(mut limits)) = self
+            .get_stored_opportunity_limits(user_id, &today, &context_id)
+            .await
+        {
             // Check if daily reset is needed
             if limits.needs_daily_reset() {
                 limits.reset_daily_counters();
@@ -78,7 +92,8 @@ impl UserAccessService {
         }
 
         // Create new limits for today
-        let limits = UserOpportunityLimits::new(user_id.to_string(), access_level, is_group_context);
+        let limits =
+            UserOpportunityLimits::new(user_id.to_string(), access_level, is_group_context);
         self.store_opportunity_limits(&limits, &context_id).await?;
 
         Ok(limits)
@@ -91,30 +106,13 @@ impl UserAccessService {
         chat_context: &ChatContext,
         required_exchanges: &[ExchangeIdEnum],
     ) -> ArbitrageResult<bool> {
-        // Check access level
-        let access_level = self.get_user_access_level(user_id).await?;
-        if !access_level.can_trade() {
-            return Ok(false);
-        }
-
-        // Check daily limits
-        let limits = self.get_user_opportunity_limits(user_id, chat_context).await?;
-        if !limits.can_receive_arbitrage() {
-            return Ok(false);
-        }
-
-        // Check exchange compatibility
-        let user_profile = self
-            .user_profile_service
-            .get_user_profile(user_id)
-            .await?
-            .ok_or_else(|| ArbitrageError::not_found(format!("User not found: {}", user_id)))?;
-
-        if !user_profile.has_compatible_exchanges(required_exchanges) {
-            return Ok(false);
-        }
-
-        Ok(true)
+        self.can_user_receive_opportunity_type(
+            user_id,
+            chat_context,
+            required_exchanges,
+            OpportunityType::Arbitrage,
+        )
+        .await
     }
 
     /// Check if user can receive a technical opportunity
@@ -124,30 +122,13 @@ impl UserAccessService {
         chat_context: &ChatContext,
         required_exchanges: &[ExchangeIdEnum],
     ) -> ArbitrageResult<bool> {
-        // Check access level
-        let access_level = self.get_user_access_level(user_id).await?;
-        if !access_level.can_trade() {
-            return Ok(false);
-        }
-
-        // Check daily limits
-        let limits = self.get_user_opportunity_limits(user_id, chat_context).await?;
-        if !limits.can_receive_technical() {
-            return Ok(false);
-        }
-
-        // Check exchange compatibility
-        let user_profile = self
-            .user_profile_service
-            .get_user_profile(user_id)
-            .await?
-            .ok_or_else(|| ArbitrageError::not_found(format!("User not found: {}", user_id)))?;
-
-        if !user_profile.has_compatible_exchanges(required_exchanges) {
-            return Ok(false);
-        }
-
-        Ok(true)
+        self.can_user_receive_opportunity_type(
+            user_id,
+            chat_context,
+            required_exchanges,
+            OpportunityType::Technical,
+        )
+        .await
     }
 
     /// Record that user received an arbitrage opportunity
@@ -156,15 +137,14 @@ impl UserAccessService {
         user_id: &str,
         chat_context: &ChatContext,
     ) -> ArbitrageResult<bool> {
-        let mut limits = self.get_user_opportunity_limits(user_id, chat_context).await?;
+        let mut limits = self
+            .get_user_opportunity_limits(user_id, chat_context)
+            .await?;
         let success = limits.record_arbitrage_received();
-        
+
         if success {
             self.update_opportunity_limits(&limits).await?;
-            
-            // Invalidate cache
-            let cache_key = format!("user_access_level:{}", user_id);
-            self.invalidate_cache(&cache_key).await?;
+            // Note: No cache invalidation needed - recording opportunities doesn't change access level
         }
 
         Ok(success)
@@ -176,15 +156,14 @@ impl UserAccessService {
         user_id: &str,
         chat_context: &ChatContext,
     ) -> ArbitrageResult<bool> {
-        let mut limits = self.get_user_opportunity_limits(user_id, chat_context).await?;
+        let mut limits = self
+            .get_user_opportunity_limits(user_id, chat_context)
+            .await?;
         let success = limits.record_technical_received();
-        
+
         if success {
             self.update_opportunity_limits(&limits).await?;
-            
-            // Invalidate cache
-            let cache_key = format!("user_access_level:{}", user_id);
-            self.invalidate_cache(&cache_key).await?;
+            // Note: No cache invalidation needed - recording opportunities doesn't change access level
         }
 
         Ok(success)
@@ -196,7 +175,9 @@ impl UserAccessService {
         user_id: &str,
         chat_context: &ChatContext,
     ) -> ArbitrageResult<(u32, u32)> {
-        let limits = self.get_user_opportunity_limits(user_id, chat_context).await?;
+        let limits = self
+            .get_user_opportunity_limits(user_id, chat_context)
+            .await?;
         Ok(limits.get_remaining_opportunities())
     }
 
@@ -226,7 +207,9 @@ impl UserAccessService {
         required_exchanges: &[ExchangeIdEnum],
     ) -> ArbitrageResult<OpportunityAccessResult> {
         let access_level = self.get_user_access_level(user_id).await?;
-        let limits = self.get_user_opportunity_limits(user_id, chat_context).await?;
+        let limits = self
+            .get_user_opportunity_limits(user_id, chat_context)
+            .await?;
 
         let can_access = match opportunity_type {
             "arbitrage" => {
@@ -250,7 +233,10 @@ impl UserAccessService {
             remaining_arbitrage,
             remaining_technical,
             reason: if !can_access {
-                Some(self.get_access_denial_reason(&access_level, &limits, required_exchanges).await?)
+                Some(
+                    self.get_access_denial_reason(&access_level, &limits, required_exchanges)
+                        .await?,
+                )
             } else {
                 None
             },
@@ -258,6 +244,49 @@ impl UserAccessService {
     }
 
     // Private helper methods
+
+    /// Generic method for checking if user can receive a specific opportunity type
+    async fn can_user_receive_opportunity_type(
+        &self,
+        user_id: &str,
+        chat_context: &ChatContext,
+        required_exchanges: &[ExchangeIdEnum],
+        opportunity_type: OpportunityType,
+    ) -> ArbitrageResult<bool> {
+        // Check access level
+        let access_level = self.get_user_access_level(user_id).await?;
+        if !access_level.can_trade() {
+            return Ok(false);
+        }
+
+        // Check daily limits
+        let limits = self
+            .get_user_opportunity_limits(user_id, chat_context)
+            .await?;
+
+        let can_receive = match opportunity_type {
+            OpportunityType::Arbitrage => limits.can_receive_arbitrage(),
+            OpportunityType::Technical => limits.can_receive_technical(),
+            _ => false, // Other types not supported yet
+        };
+
+        if !can_receive {
+            return Ok(false);
+        }
+
+        // Check exchange compatibility
+        let user_profile = self
+            .user_profile_service
+            .get_user_profile(user_id)
+            .await?
+            .ok_or_else(|| ArbitrageError::not_found(format!("User not found: {}", user_id)))?;
+
+        if !user_profile.has_compatible_exchanges(required_exchanges) {
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
 
     #[cfg(target_arch = "wasm32")]
     async fn get_stored_opportunity_limits(
@@ -284,7 +313,7 @@ impl UserAccessService {
                 .get("access_level")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| ArbitrageError::parse_error("Missing access_level".to_string()))?;
-            
+
             let access_level: UserAccessLevel = access_level_str
                 .parse()
                 .map_err(|e| ArbitrageError::parse_error(format!("Invalid access_level: {}", e)))?;
@@ -305,35 +334,48 @@ impl UserAccessService {
                     .get("arbitrage_opportunities_received")
                     .and_then(|v| v.as_i64())
                     .ok_or_else(|| {
-                        ArbitrageError::parse_error("Missing arbitrage_opportunities_received".to_string())
+                        ArbitrageError::parse_error(
+                            "Missing arbitrage_opportunities_received".to_string(),
+                        )
                     })? as u32,
                 technical_opportunities_received: row
                     .get("technical_opportunities_received")
                     .and_then(|v| v.as_i64())
                     .ok_or_else(|| {
-                        ArbitrageError::parse_error("Missing technical_opportunities_received".to_string())
+                        ArbitrageError::parse_error(
+                            "Missing technical_opportunities_received".to_string(),
+                        )
                     })? as u32,
                 arbitrage_limit: row
                     .get("arbitrage_limit")
                     .and_then(|v| v.as_i64())
-                    .ok_or_else(|| ArbitrageError::parse_error("Missing arbitrage_limit".to_string()))? as u32,
+                    .ok_or_else(|| {
+                        ArbitrageError::parse_error("Missing arbitrage_limit".to_string())
+                    })? as u32,
                 technical_limit: row
                     .get("technical_limit")
                     .and_then(|v| v.as_i64())
-                    .ok_or_else(|| ArbitrageError::parse_error("Missing technical_limit".to_string()))? as u32,
+                    .ok_or_else(|| {
+                        ArbitrageError::parse_error("Missing technical_limit".to_string())
+                    })? as u32,
                 last_reset: row
                     .get("last_reset")
                     .and_then(|v| v.as_i64())
-                    .ok_or_else(|| ArbitrageError::parse_error("Missing last_reset".to_string()))? as u64,
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing last_reset".to_string()))?
+                    as u64,
                 is_group_context: row
                     .get("is_group_context")
                     .and_then(|v| v.as_i64())
-                    .ok_or_else(|| ArbitrageError::parse_error("Missing is_group_context".to_string()))?
+                    .ok_or_else(|| {
+                        ArbitrageError::parse_error("Missing is_group_context".to_string())
+                    })?
                     != 0,
                 group_multiplier_applied: row
                     .get("group_multiplier_applied")
                     .and_then(|v| v.as_i64())
-                    .ok_or_else(|| ArbitrageError::parse_error("Missing group_multiplier_applied".to_string()))?
+                    .ok_or_else(|| {
+                        ArbitrageError::parse_error("Missing group_multiplier_applied".to_string())
+                    })?
                     != 0,
             }))
         } else {
@@ -378,7 +420,10 @@ impl UserAccessService {
     }
 
     #[cfg(target_arch = "wasm32")]
-    async fn update_opportunity_limits(&self, limits: &UserOpportunityLimits) -> ArbitrageResult<()> {
+    async fn update_opportunity_limits(
+        &self,
+        limits: &UserOpportunityLimits,
+    ) -> ArbitrageResult<()> {
         let query = "
             UPDATE user_opportunity_limits 
             SET arbitrage_opportunities_received = ?, technical_opportunities_received = ?,
@@ -409,8 +454,10 @@ impl UserAccessService {
         _date: &str,
         _context_id: &str,
     ) -> ArbitrageResult<Option<UserOpportunityLimits>> {
-        // Non-WASM implementation - return None for now
-        Ok(None)
+        // Non-WASM implementation - database operations not supported
+        Err(ArbitrageError::not_implemented(
+            "Database operations are not supported on non-WASM platforms. This service requires Cloudflare Workers environment.".to_string()
+        ))
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -419,14 +466,21 @@ impl UserAccessService {
         _limits: &UserOpportunityLimits,
         _context_id: &str,
     ) -> ArbitrageResult<()> {
-        // Non-WASM implementation - no-op for now
-        Ok(())
+        // Non-WASM implementation - database operations not supported
+        Err(ArbitrageError::not_implemented(
+            "Database operations are not supported on non-WASM platforms. This service requires Cloudflare Workers environment.".to_string()
+        ))
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    async fn update_opportunity_limits(&self, _limits: &UserOpportunityLimits) -> ArbitrageResult<()> {
-        // Non-WASM implementation - no-op for now
-        Ok(())
+    async fn update_opportunity_limits(
+        &self,
+        _limits: &UserOpportunityLimits,
+    ) -> ArbitrageResult<()> {
+        // Non-WASM implementation - database operations not supported
+        Err(ArbitrageError::not_implemented(
+            "Database operations are not supported on non-WASM platforms. This service requires Cloudflare Workers environment.".to_string()
+        ))
     }
 
     async fn cache_access_level(
@@ -440,20 +494,30 @@ impl UserAccessService {
 
         self.kv_store
             .put(cache_key, value)
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to cache access level: {}", e)))?
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to cache access level: {}", e))
+            })?
             .expiration_ttl(self.cache_ttl_seconds)
             .execute()
             .await
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute cache: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to execute cache: {}", e))
+            })?;
 
         Ok(())
     }
 
-    async fn get_cached_access_level(&self, cache_key: &str) -> ArbitrageResult<Option<UserAccessLevel>> {
+    async fn get_cached_access_level(
+        &self,
+        cache_key: &str,
+    ) -> ArbitrageResult<Option<UserAccessLevel>> {
         match self.kv_store.get(cache_key).text().await {
             Ok(Some(value)) => {
                 let access_level: UserAccessLevel = serde_json::from_str(&value).map_err(|e| {
-                    ArbitrageError::parse_error(format!("Failed to deserialize access level: {}", e))
+                    ArbitrageError::parse_error(format!(
+                        "Failed to deserialize access level: {}",
+                        e
+                    ))
                 })?;
                 Ok(Some(access_level))
             }
@@ -465,6 +529,7 @@ impl UserAccessService {
         }
     }
 
+    #[allow(dead_code)]
     async fn invalidate_cache(&self, cache_key: &str) -> ArbitrageResult<()> {
         self.kv_store.delete(cache_key).await.map_err(|e| {
             ArbitrageError::database_error(format!("Failed to invalidate cache: {}", e))
@@ -530,7 +595,10 @@ mod tests {
         // Test daily limits
         assert_eq!(free_without_api.get_daily_opportunity_limits(), (0, 0));
         assert_eq!(free_with_api.get_daily_opportunity_limits(), (10, 10));
-        assert_eq!(subscription_with_api.get_daily_opportunity_limits(), (u32::MAX, u32::MAX));
+        assert_eq!(
+            subscription_with_api.get_daily_opportunity_limits(),
+            (u32::MAX, u32::MAX)
+        );
 
         // Test trading capability
         assert!(!free_without_api.can_trade());
@@ -552,7 +620,7 @@ mod tests {
     fn test_user_opportunity_limits() {
         let user_id = "test_user".to_string();
         let access_level = UserAccessLevel::FreeWithAPI;
-        
+
         // Test private context
         let mut limits = UserOpportunityLimits::new(user_id.clone(), access_level.clone(), false);
         assert_eq!(limits.arbitrage_limit, 10);
@@ -560,7 +628,7 @@ mod tests {
         assert!(!limits.group_multiplier_applied);
 
         // Test group context (2x multiplier)
-        let mut group_limits = UserOpportunityLimits::new(user_id, access_level, true);
+        let group_limits = UserOpportunityLimits::new(user_id, access_level, true);
         assert_eq!(group_limits.arbitrage_limit, 20);
         assert_eq!(group_limits.technical_limit, 20);
         assert!(group_limits.group_multiplier_applied);
@@ -594,4 +662,4 @@ mod tests {
         assert_eq!(group.get_context_id(), "group_123");
         assert_eq!(channel.get_context_id(), "channel_456");
     }
-} 
+}

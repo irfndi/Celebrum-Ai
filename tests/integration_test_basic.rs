@@ -1,7 +1,7 @@
 use arb_edge::{
-    services::{
-        market_analysis::{OpportunityType, RiskLevel, TradingOpportunity},
-        user_trading_preferences::{
+    services::core::{
+        analysis::market_analysis::{OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity},
+        user::user_trading_preferences::{
             AutomationLevel, AutomationScope, ExperienceLevel, RiskTolerance, TradingFocus,
             UserTradingPreferences,
         },
@@ -466,7 +466,7 @@ fn create_test_trading_opportunity() -> TradingOpportunity {
         confidence_score: 0.85,
         risk_level: RiskLevel::Low,
         expected_return: 0.002, // 0.2% return
-        time_horizon: arb_edge::services::market_analysis::TimeHorizon::Immediate,
+        time_horizon: TimeHorizon::Immediate,
         indicators_used: vec!["price_diff".to_string()],
         analysis_data: serde_json::json!({"price_diff": 100.0, "volume_ratio": 1.2}),
         created_at: chrono::Utc::now().timestamp() as u64,

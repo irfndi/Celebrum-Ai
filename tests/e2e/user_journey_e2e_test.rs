@@ -1,8 +1,12 @@
-use arb_edge::services::core::analysis::market_analysis::{TradingOpportunity, OpportunityType, RiskLevel, TimeHorizon};
-use arb_edge::services::core::user::user_trading_preferences::{TradingFocus, ExperienceLevel, UserTradingPreferences, RiskTolerance};
-use arb_edge::types::{
-    UserProfile, SubscriptionTier, UserApiKey, ApiKeyProvider, ExchangeIdEnum,
+#![allow(unused_imports, unused_variables, unused_mut, dead_code)]
+
+use arb_edge::services::core::analysis::market_analysis::{
+    OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,
 };
+use arb_edge::services::core::user::user_trading_preferences::{
+    ExperienceLevel, RiskTolerance, TradingFocus, UserTradingPreferences,
+};
+use arb_edge::types::{ApiKeyProvider, ExchangeIdEnum, SubscriptionTier, UserApiKey, UserProfile};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -37,7 +41,8 @@ impl MockTestEnvironment {
     }
 
     fn send_notification(&mut self, user_id: String, message: String) {
-        self.notifications_sent.push(format!("{}:{}", user_id, message));
+        self.notifications_sent
+            .push(format!("{}:{}", user_id, message));
     }
 }
 
@@ -55,11 +60,13 @@ fn create_test_preferences(
     experience: ExperienceLevel,
     risk_tolerance: RiskTolerance,
 ) -> UserTradingPreferences {
-    use arb_edge::services::core::user::user_trading_preferences::{AutomationLevel, AutomationScope};
-    
+    use arb_edge::services::core::user::user_trading_preferences::{
+        AutomationLevel, AutomationScope,
+    };
+
     let preference_id = format!("pref_{}", user_id);
     let now = chrono::Utc::now().timestamp_millis() as u64;
-    
+
     UserTradingPreferences {
         preference_id,
         user_id,
@@ -83,7 +90,12 @@ fn create_test_preferences(
 }
 
 /// Helper function to create test trading opportunity
-fn create_test_opportunity(id: &str, pair: &str, confidence: f64, risk: RiskLevel) -> TradingOpportunity {
+fn create_test_opportunity(
+    id: &str,
+    pair: &str,
+    confidence: f64,
+    risk: RiskLevel,
+) -> TradingOpportunity {
     TradingOpportunity {
         opportunity_id: id.to_string(),
         opportunity_type: OpportunityType::Arbitrage,
@@ -142,25 +154,25 @@ mod user_journey_e2e_tests {
     #[tokio::test]
     async fn test_complete_new_user_onboarding_journey() {
         println!("🚀 Starting Complete New User Onboarding Journey E2E Test");
-        
+
         let mut test_env = MockTestEnvironment::new();
-        
+
         // **Step 1: User Registration via Telegram /start command**
         let telegram_id = 123456789i64;
         let chat_id = 987654321i64;
-        
+
         // Simulate /start command
         let start_update = create_telegram_update(telegram_id, chat_id, "/start");
-        
+
         // Create new user profile (simulating UserProfileService.create_user)
         let new_user = create_test_user(telegram_id, SubscriptionTier::Free);
         test_env.add_user(new_user.clone());
-        
+
         println!("✅ Step 1: User registration completed");
         println!("   User ID: {}", new_user.user_id);
         println!("   Telegram ID: {}", telegram_id);
         println!("   Subscription: {:?}", new_user.subscription.tier);
-        
+
         // **Step 2: Profile Setup and Trading Preferences**
         let user_preferences = create_test_preferences(
             new_user.user_id.clone(),
@@ -169,12 +181,12 @@ mod user_journey_e2e_tests {
             RiskTolerance::Conservative,
         );
         test_env.add_preferences(new_user.user_id.clone(), user_preferences.clone());
-        
+
         println!("✅ Step 2: Trading preferences configured");
         println!("   Focus: {:?}", user_preferences.trading_focus);
         println!("   Experience: {:?}", user_preferences.experience_level);
         println!("   Risk Tolerance: {:?}", user_preferences.risk_tolerance);
-        
+
         // **Step 3: Exchange Connection Simulation**
         // Simulate user adding API keys (would normally go through ExchangeService)
         let mut updated_user = new_user.clone();
@@ -186,10 +198,14 @@ mod user_journey_e2e_tests {
             vec!["spot_trading".to_string(), "read_only".to_string()],
         );
         updated_user.api_keys.push(api_key);
-        test_env.users.insert(updated_user.user_id.clone(), updated_user.clone());
-        
+        test_env
+            .users
+            .insert(updated_user.user_id.clone(), updated_user.clone());
+
         println!("✅ Step 3: Exchange connection established");
-        let connected_exchanges: Vec<_> = updated_user.api_keys.iter()
+        let connected_exchanges: Vec<_> = updated_user
+            .api_keys
+            .iter()
             .filter_map(|key| {
                 if let ApiKeyProvider::Exchange(exchange) = &key.provider {
                     Some(exchange.as_str())
@@ -199,30 +215,39 @@ mod user_journey_e2e_tests {
             })
             .collect();
         println!("   Connected Exchanges: {:?}", connected_exchanges);
-        
+
         // **Step 4: First Opportunity Detection and Categorization**
         let opportunity = create_test_opportunity(
             "opp_001",
             "BTCUSDT",
-            0.85, // High confidence
+            0.85,           // High confidence
             RiskLevel::Low, // Conservative risk for beginner
         );
         test_env.add_opportunity(opportunity.clone());
-        
+
         // Simulate opportunity categorization matching user preferences
-        let user_focus_match = matches!(user_preferences.trading_focus, TradingFocus::Arbitrage | TradingFocus::Hybrid);
+        let user_focus_match = matches!(
+            user_preferences.trading_focus,
+            TradingFocus::Arbitrage | TradingFocus::Hybrid
+        );
         let risk_match = opportunity.risk_level == RiskLevel::Low; // Conservative user
         let pair_match = true; // Simplified - assume BTCUSDT is always preferred
-        
+
         let should_notify = user_focus_match && risk_match && pair_match;
-        
+
         println!("✅ Step 4: Opportunity detection and categorization");
         println!("   Opportunity ID: {}", opportunity.opportunity_id);
         println!("   Trading Pair: {}", opportunity.trading_pair);
-        println!("   Confidence: {:.1}%", opportunity.confidence_score * 100.0);
+        println!(
+            "   Confidence: {:.1}%",
+            opportunity.confidence_score * 100.0
+        );
         println!("   Risk Level: {:?}", opportunity.risk_level);
-        println!("   User Match: focus={}, risk={}, pair={}", user_focus_match, risk_match, pair_match);
-        
+        println!(
+            "   User Match: focus={}, risk={}, pair={}",
+            user_focus_match, risk_match, pair_match
+        );
+
         // **Step 5: Notification Delivery**
         if should_notify {
             let notification_message = format!(
@@ -234,14 +259,17 @@ mod user_journey_e2e_tests {
             );
             test_env.send_notification(updated_user.user_id.clone(), notification_message);
         }
-        
+
         println!("✅ Step 5: Notification delivery");
         println!("   Should Notify: {}", should_notify);
-        println!("   Notifications Sent: {}", test_env.notifications_sent.len());
-        
+        println!(
+            "   Notifications Sent: {}",
+            test_env.notifications_sent.len()
+        );
+
         // **Step 6: User Response via Telegram**
         let opportunities_update = create_telegram_update(telegram_id, chat_id, "/opportunities");
-        
+
         // Simulate TelegramService responding with opportunities
         let response_message = format!(
             "📊 *Trading Opportunities* 🔥\n\n🌍 *Global Arbitrage Opportunities*\n• Pair: `{}`\n• Expected Return: `{:.2}%`\n• Confidence: `{:.1}%`\n• Risk Level: `{:?}`",
@@ -250,21 +278,24 @@ mod user_journey_e2e_tests {
             opportunity.confidence_score * 100.0,
             opportunity.risk_level
         );
-        
+
         println!("✅ Step 6: User interaction via Telegram");
         println!("   Command: /opportunities");
         println!("   Response Length: {} chars", response_message.len());
-        
+
         // **Final Validation: Complete Journey Success**
         assert!(test_env.users.contains_key(&new_user.user_id));
         assert!(test_env.preferences.contains_key(&new_user.user_id));
         assert_eq!(test_env.opportunities.len(), 1);
-        assert!(should_notify, "User should receive notifications for matching opportunities");
-        
+        assert!(
+            should_notify,
+            "User should receive notifications for matching opportunities"
+        );
+
         if should_notify {
             assert_eq!(test_env.notifications_sent.len(), 1);
         }
-        
+
         println!("\n🎉 Complete New User Onboarding Journey E2E Test PASSED");
         println!("==========================================");
         println!("✅ User Registration: WORKING");
@@ -283,14 +314,14 @@ mod user_journey_e2e_tests {
     #[tokio::test]
     async fn test_premium_user_advanced_trading_journey() {
         println!("🚀 Starting Premium User Advanced Trading Journey E2E Test");
-        
+
         let mut test_env = MockTestEnvironment::new();
-        
+
         // **Step 1: Create Premium User**
         let telegram_id = 987654321i64;
         let premium_user = create_test_user(telegram_id, SubscriptionTier::Premium);
         test_env.add_user(premium_user.clone());
-        
+
         // **Step 2: Advanced Trading Preferences**
         let advanced_preferences = create_test_preferences(
             premium_user.user_id.clone(),
@@ -299,37 +330,46 @@ mod user_journey_e2e_tests {
             RiskTolerance::Aggressive,
         );
         test_env.add_preferences(premium_user.user_id.clone(), advanced_preferences.clone());
-        
+
         println!("✅ Premium user setup completed");
         println!("   Subscription: {:?}", premium_user.subscription.tier);
         println!("   Experience: {:?}", advanced_preferences.experience_level);
-        println!("   Risk Tolerance: {:?}", advanced_preferences.risk_tolerance);
-        
+        println!(
+            "   Risk Tolerance: {:?}",
+            advanced_preferences.risk_tolerance
+        );
+
         // **Step 3: Multiple High-Value Opportunities**
         let opportunities = vec![
             create_test_opportunity("premium_001", "BTCUSDT", 0.92, RiskLevel::Medium),
             create_test_opportunity("premium_002", "ETHUSDT", 0.88, RiskLevel::Low),
             create_test_opportunity("premium_003", "ADAUSDT", 0.95, RiskLevel::High),
         ];
-        
+
         for opp in &opportunities {
             test_env.add_opportunity(opp.clone());
         }
-        
+
         println!("✅ Multiple opportunities detected");
         println!("   Total Opportunities: {}", opportunities.len());
-        
+
         // **Step 4: Premium Feature Access Validation**
         // Simulate checking CommandPermission for premium features
-        let has_ai_access = matches!(premium_user.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin);
-        let has_auto_trading = matches!(premium_user.subscription.tier, SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin);
+        let has_ai_access = matches!(
+            premium_user.subscription.tier,
+            SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin
+        );
+        let has_auto_trading = matches!(
+            premium_user.subscription.tier,
+            SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin
+        );
         let has_advanced_analytics = true; // Premium tier
-        
+
         println!("✅ Premium feature access validated");
         println!("   AI Enhanced Opportunities: {}", has_ai_access);
         println!("   Auto Trading: {}", has_auto_trading);
         println!("   Advanced Analytics: {}", has_advanced_analytics);
-        
+
         // **Step 5: AI-Enhanced Opportunity Analysis**
         if has_ai_access {
             for opp in &opportunities {
@@ -344,11 +384,14 @@ mod user_journey_e2e_tests {
                         RiskLevel::High => "high",
                     }
                 );
-                
-                println!("🤖 AI Enhanced: {} - {}", opp.opportunity_id, ai_risk_assessment);
+
+                println!(
+                    "🤖 AI Enhanced: {} - {}",
+                    opp.opportunity_id, ai_risk_assessment
+                );
             }
         }
-        
+
         // **Step 6: Auto-Trading Configuration**
         if has_auto_trading {
             let auto_config = json!({
@@ -359,24 +402,32 @@ mod user_journey_e2e_tests {
                 "stop_loss_percentage": 2.0,
                 "take_profit_percentage": 5.0
             });
-            
+
             // Filter opportunities that meet auto-trading criteria
             let auto_eligible: Vec<_> = opportunities
                 .iter()
                 .filter(|opp| {
-                    opp.confidence_score >= 0.85 && 
-                    matches!(opp.risk_level, RiskLevel::Low | RiskLevel::Medium)
+                    opp.confidence_score >= 0.85
+                        && matches!(opp.risk_level, RiskLevel::Low | RiskLevel::Medium)
                 })
                 .collect();
-            
+
             println!("✅ Auto-trading configuration applied");
-            println!("   Auto-Eligible Opportunities: {}/{}", auto_eligible.len(), opportunities.len());
+            println!(
+                "   Auto-Eligible Opportunities: {}/{}",
+                auto_eligible.len(),
+                opportunities.len()
+            );
         }
-        
+
         // **Step 7: Advanced Analytics and Reporting**
         if has_advanced_analytics {
             let total_expected_return: f64 = opportunities.iter().map(|o| o.expected_return).sum();
-            let avg_confidence: f64 = opportunities.iter().map(|o| o.confidence_score).sum::<f64>() / opportunities.len() as f64;
+            let avg_confidence: f64 = opportunities
+                .iter()
+                .map(|o| o.confidence_score)
+                .sum::<f64>()
+                / opportunities.len() as f64;
             let risk_distribution = {
                 let mut dist = HashMap::new();
                 for opp in &opportunities {
@@ -385,20 +436,23 @@ mod user_journey_e2e_tests {
                 }
                 dist
             };
-            
+
             println!("✅ Advanced analytics generated");
-            println!("   Total Expected Return: {:.2}%", total_expected_return * 100.0);
+            println!(
+                "   Total Expected Return: {:.2}%",
+                total_expected_return * 100.0
+            );
             println!("   Average Confidence: {:.1}%", avg_confidence * 100.0);
             println!("   Risk Distribution: {:?}", risk_distribution);
         }
-        
+
         // **Final Validation**
         assert_eq!(premium_user.subscription.tier, SubscriptionTier::Premium);
         assert!(has_ai_access);
         assert!(has_auto_trading);
         assert!(has_advanced_analytics);
         assert_eq!(test_env.opportunities.len(), 3);
-        
+
         println!("\n🎉 Premium User Advanced Trading Journey E2E Test PASSED");
         println!("==========================================");
         println!("✅ Premium User Setup: WORKING");
@@ -416,43 +470,69 @@ mod user_journey_e2e_tests {
     #[tokio::test]
     async fn test_multi_user_notification_distribution_journey() {
         println!("🚀 Starting Multi-User Notification Distribution Journey E2E Test");
-        
+
         let mut test_env = MockTestEnvironment::new();
-        
+
         // **Step 1: Create Multiple Users with Different Profiles**
         let users = vec![
-            (create_test_user(111111111, SubscriptionTier::Free), TradingFocus::Arbitrage, ExperienceLevel::Beginner, RiskTolerance::Conservative),
-            (create_test_user(222222222, SubscriptionTier::Basic), TradingFocus::Technical, ExperienceLevel::Intermediate, RiskTolerance::Balanced),
-            (create_test_user(333333333, SubscriptionTier::Premium), TradingFocus::Hybrid, ExperienceLevel::Advanced, RiskTolerance::Aggressive),
+            (
+                create_test_user(111111111, SubscriptionTier::Free),
+                TradingFocus::Arbitrage,
+                ExperienceLevel::Beginner,
+                RiskTolerance::Conservative,
+            ),
+            (
+                create_test_user(222222222, SubscriptionTier::Basic),
+                TradingFocus::Technical,
+                ExperienceLevel::Intermediate,
+                RiskTolerance::Balanced,
+            ),
+            (
+                create_test_user(333333333, SubscriptionTier::Premium),
+                TradingFocus::Hybrid,
+                ExperienceLevel::Advanced,
+                RiskTolerance::Aggressive,
+            ),
         ];
-        
+
         for (user, focus, experience, risk) in &users {
             test_env.add_user(user.clone());
-            let prefs = create_test_preferences(user.user_id.clone(), focus.clone(), experience.clone(), risk.clone());
+            let prefs = create_test_preferences(
+                user.user_id.clone(),
+                focus.clone(),
+                experience.clone(),
+                risk.clone(),
+            );
             test_env.add_preferences(user.user_id.clone(), prefs);
-            
-            println!("👤 User added: {} ({:?}, {:?}, {:?})", user.user_id, focus, experience, risk);
+
+            println!(
+                "👤 User added: {} ({:?}, {:?}, {:?})",
+                user.user_id, focus, experience, risk
+            );
         }
-        
+
         // **Step 2: Create Diverse Opportunities**
         let opportunities = vec![
-            create_test_opportunity("multi_001", "BTCUSDT", 0.95, RiskLevel::Low),    // Should match conservative users
+            create_test_opportunity("multi_001", "BTCUSDT", 0.95, RiskLevel::Low), // Should match conservative users
             create_test_opportunity("multi_002", "ETHUSDT", 0.80, RiskLevel::Medium), // Should match moderate users
-            create_test_opportunity("multi_003", "ADAUSDT", 0.70, RiskLevel::High),   // Should match aggressive users only
+            create_test_opportunity("multi_003", "ADAUSDT", 0.70, RiskLevel::High), // Should match aggressive users only
         ];
-        
+
         for opp in &opportunities {
             test_env.add_opportunity(opp.clone());
         }
-        
-        println!("✅ Diverse opportunities created: {} total", opportunities.len());
-        
+
+        println!(
+            "✅ Diverse opportunities created: {} total",
+            opportunities.len()
+        );
+
         // **Step 3: Simulate Global Opportunity Distribution Logic**
         let mut distribution_results = Vec::new();
-        
+
         for (user, _, _, _) in &users {
             let user_prefs = test_env.preferences.get(&user.user_id).unwrap();
-            
+
             for opp in &opportunities {
                 // Simulate opportunity matching logic
                 let focus_match = match user_prefs.trading_focus {
@@ -460,68 +540,104 @@ mod user_journey_e2e_tests {
                     TradingFocus::Technical => opp.confidence_score >= 0.8,
                     TradingFocus::Hybrid => true, // Matches all
                 };
-                
+
                 let risk_match = match user_prefs.risk_tolerance {
                     RiskTolerance::Conservative => opp.risk_level == RiskLevel::Low,
-                    RiskTolerance::Balanced => matches!(opp.risk_level, RiskLevel::Low | RiskLevel::Medium),
+                    RiskTolerance::Balanced => {
+                        matches!(opp.risk_level, RiskLevel::Low | RiskLevel::Medium)
+                    }
                     RiskTolerance::Aggressive => true, // Accepts all risk levels
                 };
-                
+
                 let subscription_match = match user.subscription.tier {
                     SubscriptionTier::Free => opp.confidence_score >= 0.9, // Only high-confidence for free users
                     SubscriptionTier::Basic => opp.confidence_score >= 0.8,
-                    SubscriptionTier::Premium | SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin => true, // All opportunities
+                    SubscriptionTier::Premium
+                    | SubscriptionTier::Enterprise
+                    | SubscriptionTier::SuperAdmin => true, // All opportunities
                 };
-                
+
                 let should_notify = focus_match && risk_match && subscription_match;
-                
+
                 if should_notify {
                     let notification = format!(
                         "User {} gets opportunity {} (focus:{}, risk:{}, sub:{})",
-                        user.user_id, opp.opportunity_id, focus_match, risk_match, subscription_match
+                        user.user_id,
+                        opp.opportunity_id,
+                        focus_match,
+                        risk_match,
+                        subscription_match
                     );
-                    distribution_results.push((user.user_id.clone(), opp.opportunity_id.clone(), notification));
+                    distribution_results.push((
+                        user.user_id.clone(),
+                        opp.opportunity_id.clone(),
+                        notification,
+                    ));
                 }
             }
         }
-        
+
         // Send notifications after collecting all results
         for (user_id, opportunity_id, notification) in &distribution_results {
             test_env.send_notification(user_id.clone(), notification.clone());
         }
-        
+
         println!("✅ Opportunity distribution completed");
-        println!("   Total Notifications Sent: {}", test_env.notifications_sent.len());
-        println!("   Distribution Results: {} matches", distribution_results.len());
-        
+        println!(
+            "   Total Notifications Sent: {}",
+            test_env.notifications_sent.len()
+        );
+        println!(
+            "   Distribution Results: {} matches",
+            distribution_results.len()
+        );
+
         // **Step 4: Validate Distribution Logic**
         // Count notifications per user
         let mut user_notification_counts = HashMap::new();
         for (user_id, _, _) in &distribution_results {
             *user_notification_counts.entry(user_id.clone()).or_insert(0) += 1;
         }
-        
+
         println!("✅ Distribution validation");
         for (user_id, count) in &user_notification_counts {
             let user = test_env.users.get(user_id).unwrap();
-            println!("   User {} ({:?}): {} notifications", user_id, user.subscription.tier, count);
+            println!(
+                "   User {} ({:?}): {} notifications",
+                user_id, user.subscription.tier, count
+            );
         }
-        
+
         // **Step 5: Verify Expected Distribution Patterns**
         // Premium users should get more opportunities than free users
-        let free_user_notifications = user_notification_counts.get(&users[0].0.user_id).unwrap_or(&0);
-        let premium_user_notifications = user_notification_counts.get(&users[2].0.user_id).unwrap_or(&0);
-        
-        assert!(premium_user_notifications >= free_user_notifications, 
-                "Premium users should receive at least as many notifications as free users");
-        
+        let free_user_notifications = user_notification_counts
+            .get(&users[0].0.user_id)
+            .unwrap_or(&0);
+        let premium_user_notifications = user_notification_counts
+            .get(&users[2].0.user_id)
+            .unwrap_or(&0);
+
+        assert!(
+            premium_user_notifications >= free_user_notifications,
+            "Premium users should receive at least as many notifications as free users"
+        );
+
         // At least one notification should be sent
-        assert!(!test_env.notifications_sent.is_empty(), "At least one notification should be sent");
-        
+        assert!(
+            !test_env.notifications_sent.is_empty(),
+            "At least one notification should be sent"
+        );
+
         // Each opportunity should match at least one user
-        let unique_opportunities: std::collections::HashSet<_> = distribution_results.iter().map(|(_, opp_id, _)| opp_id).collect();
-        assert!(!unique_opportunities.is_empty(), "At least one opportunity should match users");
-        
+        let unique_opportunities: std::collections::HashSet<_> = distribution_results
+            .iter()
+            .map(|(_, opp_id, _)| opp_id)
+            .collect();
+        assert!(
+            !unique_opportunities.is_empty(),
+            "At least one opportunity should match users"
+        );
+
         println!("\n🎉 Multi-User Notification Distribution Journey E2E Test PASSED");
         println!("==========================================");
         println!("✅ Multi-User Setup: WORKING");
@@ -539,143 +655,186 @@ mod user_journey_e2e_tests {
     #[tokio::test]
     async fn test_error_handling_and_recovery_journey() {
         println!("🚀 Starting Error Handling and Recovery Journey E2E Test");
-        
+
         let mut test_env = MockTestEnvironment::new();
-        
+
         // **Step 1: Test Invalid User Registration**
         let invalid_telegram_id = -1i64; // Invalid ID
-        
+
         // Simulate validation that should catch invalid IDs
         let is_valid_telegram_id = invalid_telegram_id > 0;
-        assert!(!is_valid_telegram_id, "Invalid Telegram ID should be rejected");
-        
+        assert!(
+            !is_valid_telegram_id,
+            "Invalid Telegram ID should be rejected"
+        );
+
         println!("✅ Step 1: Invalid user registration properly rejected");
-        
+
         // **Step 2: Test Missing User Preferences Handling**
         let valid_user = create_test_user(123456789, SubscriptionTier::Free);
         test_env.add_user(valid_user.clone());
-        
+
         // Try to access preferences that don't exist
         let missing_preferences = test_env.preferences.get(&valid_user.user_id);
-        assert!(missing_preferences.is_none(), "Missing preferences should return None");
-        
+        assert!(
+            missing_preferences.is_none(),
+            "Missing preferences should return None"
+        );
+
         // Simulate fallback to default preferences
         let default_preferences = create_test_preferences(
             valid_user.user_id.clone(),
-            TradingFocus::Arbitrage, // Safe default
-            ExperienceLevel::Beginner, // Conservative default
+            TradingFocus::Arbitrage,     // Safe default
+            ExperienceLevel::Beginner,   // Conservative default
             RiskTolerance::Conservative, // Safe default
         );
-        
+
         println!("✅ Step 2: Missing preferences handled with safe defaults");
         println!("   Default Focus: {:?}", default_preferences.trading_focus);
-        println!("   Default Experience: {:?}", default_preferences.experience_level);
-        
+        println!(
+            "   Default Experience: {:?}",
+            default_preferences.experience_level
+        );
+
         // **Step 3: Test Malformed Opportunity Data Handling**
         // Simulate opportunity with invalid data
-        let mut invalid_opportunity = create_test_opportunity("invalid_001", "INVALID_PAIR", 1.5, RiskLevel::Low);
+        let mut invalid_opportunity =
+            create_test_opportunity("invalid_001", "INVALID_PAIR", 1.5, RiskLevel::Low);
         invalid_opportunity.confidence_score = 1.5; // Invalid confidence > 1.0
         invalid_opportunity.expected_return = -0.1; // Negative return
-        
+
         // Validate opportunity data
-        let is_valid_confidence = invalid_opportunity.confidence_score >= 0.0 && invalid_opportunity.confidence_score <= 1.0;
+        let is_valid_confidence = invalid_opportunity.confidence_score >= 0.0
+            && invalid_opportunity.confidence_score <= 1.0;
         let is_valid_return = invalid_opportunity.expected_return >= 0.0;
-        let is_valid_pair = !invalid_opportunity.trading_pair.is_empty() && invalid_opportunity.trading_pair.contains("USDT");
-        
-        assert!(!is_valid_confidence, "Invalid confidence should be detected");
+        let is_valid_pair = !invalid_opportunity.trading_pair.is_empty()
+            && invalid_opportunity.trading_pair.contains("USDT");
+
+        assert!(
+            !is_valid_confidence,
+            "Invalid confidence should be detected"
+        );
         assert!(!is_valid_return, "Invalid return should be detected");
         assert!(!is_valid_pair, "Invalid trading pair should be detected");
-        
+
         println!("✅ Step 3: Malformed opportunity data properly validated");
         println!("   Confidence validation: {}", !is_valid_confidence);
         println!("   Return validation: {}", !is_valid_return);
         println!("   Pair validation: {}", !is_valid_pair);
-        
+
         // **Step 4: Test Network/Service Failure Simulation**
         let mut service_failures = HashMap::new();
         service_failures.insert("exchange_service", false); // Simulate exchange API down
         service_failures.insert("notification_service", true); // Notification service working
         service_failures.insert("d1_database", true); // Database working
-        
+
         // Simulate graceful degradation
         let can_fetch_opportunities = *service_failures.get("exchange_service").unwrap_or(&false);
-        let can_send_notifications = *service_failures.get("notification_service").unwrap_or(&false);
+        let can_send_notifications = *service_failures
+            .get("notification_service")
+            .unwrap_or(&false);
         let can_store_data = *service_failures.get("d1_database").unwrap_or(&false);
-        
+
         if !can_fetch_opportunities {
             // Fallback to cached opportunities
-            let cached_opportunity = create_test_opportunity("cached_001", "BTCUSDT", 0.8, RiskLevel::Low);
+            let cached_opportunity =
+                create_test_opportunity("cached_001", "BTCUSDT", 0.8, RiskLevel::Low);
             test_env.add_opportunity(cached_opportunity);
             println!("🔄 Fallback: Using cached opportunities due to exchange service failure");
         }
-        
+
         if can_send_notifications && can_store_data {
             // System can still function with cached data
-            test_env.send_notification(valid_user.user_id.clone(), "System operating with cached data".to_string());
+            test_env.send_notification(
+                valid_user.user_id.clone(),
+                "System operating with cached data".to_string(),
+            );
         }
-        
+
         println!("✅ Step 4: Service failure graceful degradation");
-        println!("   Exchange Service: {}", if can_fetch_opportunities { "UP" } else { "DOWN (using cache)" });
-        println!("   Notification Service: {}", if can_send_notifications { "UP" } else { "DOWN" });
-        println!("   Database Service: {}", if can_store_data { "UP" } else { "DOWN" });
-        
+        println!(
+            "   Exchange Service: {}",
+            if can_fetch_opportunities {
+                "UP"
+            } else {
+                "DOWN (using cache)"
+            }
+        );
+        println!(
+            "   Notification Service: {}",
+            if can_send_notifications { "UP" } else { "DOWN" }
+        );
+        println!(
+            "   Database Service: {}",
+            if can_store_data { "UP" } else { "DOWN" }
+        );
+
         // **Step 5: Test Rate Limiting and Throttling**
         let max_notifications_per_minute = 5;
         let mut notification_timestamps = Vec::new();
         let current_time = chrono::Utc::now().timestamp();
-        
+
         // Simulate rapid notification attempts
         for i in 0..10 {
             let notification_time = current_time + i;
             notification_timestamps.push(notification_time);
-            
+
             // Check rate limit (last 60 seconds)
             let recent_notifications = notification_timestamps
                 .iter()
                 .filter(|&&time| current_time - time <= 60)
                 .count();
-            
+
             if recent_notifications <= max_notifications_per_minute {
                 test_env.send_notification(
                     valid_user.user_id.clone(),
-                    format!("Rate-limited notification {}", i + 1)
+                    format!("Rate-limited notification {}", i + 1),
                 );
             } else {
                 println!("🚫 Rate limit exceeded, notification {} blocked", i + 1);
             }
         }
-        
+
         println!("✅ Step 5: Rate limiting properly enforced");
         println!("   Max allowed: {}/minute", max_notifications_per_minute);
         println!("   Actual sent: {}", test_env.notifications_sent.len());
-        
+
         // **Step 6: Test Recovery After Failures**
         // Simulate services coming back online
         service_failures.insert("exchange_service", true); // Exchange service recovered
-        
+
         if *service_failures.get("exchange_service").unwrap_or(&false) {
             // Resume normal operation
-            let recovery_opportunity = create_test_opportunity("recovery_001", "ETHUSDT", 0.9, RiskLevel::Low);
+            let recovery_opportunity =
+                create_test_opportunity("recovery_001", "ETHUSDT", 0.9, RiskLevel::Low);
             test_env.add_opportunity(recovery_opportunity);
-            
+
             test_env.send_notification(
                 valid_user.user_id.clone(),
-                "🟢 Exchange service recovered - resuming live opportunities".to_string()
+                "🟢 Exchange service recovered - resuming live opportunities".to_string(),
             );
         }
-        
+
         println!("✅ Step 6: Service recovery handled successfully");
-        
+
         // **Final Validation**
         assert!(test_env.users.contains_key(&valid_user.user_id));
-        assert!(!test_env.opportunities.is_empty(), "Should have opportunities (cached or live)");
-        assert!(!test_env.notifications_sent.is_empty(), "Should have sent some notifications");
-        
+        assert!(
+            !test_env.opportunities.is_empty(),
+            "Should have opportunities (cached or live)"
+        );
+        assert!(
+            !test_env.notifications_sent.is_empty(),
+            "Should have sent some notifications"
+        );
+
         // Verify rate limiting worked
         let total_notifications = test_env.notifications_sent.len();
-        assert!(total_notifications <= max_notifications_per_minute + 2, // +2 for recovery notifications
-                "Rate limiting should prevent excessive notifications");
-        
+        assert!(
+            total_notifications <= max_notifications_per_minute + 2, // +2 for recovery notifications
+            "Rate limiting should prevent excessive notifications"
+        );
+
         println!("\n🎉 Error Handling and Recovery Journey E2E Test PASSED");
         println!("==========================================");
         println!("✅ Invalid Input Validation: WORKING");
@@ -687,4 +846,4 @@ mod user_journey_e2e_tests {
         println!("✅ System Resilience: WORKING");
         println!("==========================================");
     }
-} 
+}

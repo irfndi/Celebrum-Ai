@@ -1,8 +1,13 @@
 // Common Test Data
 // Predefined test data constants and fixtures
 
-use arb_edge::types::{SubscriptionTier, TradingFocus, ExperienceLevel, RiskTolerance};
-use arb_edge::services::core::analysis::market_analysis::{OpportunityType, RiskLevel, TimeHorizon};
+use arb_edge::services::core::analysis::market_analysis::{
+    OpportunityType, RiskLevel, TimeHorizon,
+};
+use arb_edge::services::core::user::user_trading_preferences::{
+    ExperienceLevel, RiskTolerance, TradingFocus,
+};
+use arb_edge::types::SubscriptionTier;
 
 // Test User Constants
 pub const TEST_TELEGRAM_ID_1: i64 = 111111111;
@@ -28,16 +33,52 @@ pub const BNB_BASE_PRICE: f64 = 300.0;
 pub struct TestUserProfiles;
 
 impl TestUserProfiles {
-    pub fn free_user_beginner() -> (i64, SubscriptionTier, TradingFocus, ExperienceLevel, RiskTolerance) {
-        (TEST_TELEGRAM_ID_1, SubscriptionTier::Free, TradingFocus::Arbitrage, ExperienceLevel::Beginner, RiskTolerance::Low)
+    pub fn free_user_beginner() -> (
+        i64,
+        SubscriptionTier,
+        TradingFocus,
+        ExperienceLevel,
+        RiskTolerance,
+    ) {
+        (
+            TEST_TELEGRAM_ID_1,
+            SubscriptionTier::Free,
+            TradingFocus::Arbitrage,
+            ExperienceLevel::Beginner,
+            RiskTolerance::Conservative,
+        )
     }
 
-    pub fn basic_user_intermediate() -> (i64, SubscriptionTier, TradingFocus, ExperienceLevel, RiskTolerance) {
-        (TEST_TELEGRAM_ID_2, SubscriptionTier::Basic, TradingFocus::TechnicalAnalysis, ExperienceLevel::Intermediate, RiskTolerance::Medium)
+    pub fn basic_user_intermediate() -> (
+        i64,
+        SubscriptionTier,
+        TradingFocus,
+        ExperienceLevel,
+        RiskTolerance,
+    ) {
+        (
+            TEST_TELEGRAM_ID_2,
+            SubscriptionTier::Basic,
+            TradingFocus::TechnicalAnalysis,
+            ExperienceLevel::Intermediate,
+            RiskTolerance::Balanced,
+        )
     }
 
-    pub fn premium_user_advanced() -> (i64, SubscriptionTier, TradingFocus, ExperienceLevel, RiskTolerance) {
-        (TEST_TELEGRAM_ID_3, SubscriptionTier::Premium, TradingFocus::Hybrid, ExperienceLevel::Advanced, RiskTolerance::High)
+    pub fn premium_user_advanced() -> (
+        i64,
+        SubscriptionTier,
+        TradingFocus,
+        ExperienceLevel,
+        RiskTolerance,
+    ) {
+        (
+            TEST_TELEGRAM_ID_3,
+            SubscriptionTier::Premium,
+            TradingFocus::Hybrid,
+            ExperienceLevel::Advanced,
+            RiskTolerance::Aggressive,
+        )
     }
 }
 
@@ -46,19 +87,39 @@ pub struct TestOpportunityTemplates;
 
 impl TestOpportunityTemplates {
     pub fn high_confidence_low_risk() -> (OpportunityType, f64, RiskLevel, TimeHorizon) {
-        (OpportunityType::Arbitrage, 0.95, RiskLevel::Low, TimeHorizon::Short)
+        (
+            OpportunityType::Arbitrage,
+            0.95,
+            RiskLevel::Low,
+            TimeHorizon::Short,
+        )
     }
 
     pub fn medium_confidence_medium_risk() -> (OpportunityType, f64, RiskLevel, TimeHorizon) {
-        (OpportunityType::Technical, 0.75, RiskLevel::Medium, TimeHorizon::Medium)
+        (
+            OpportunityType::Technical,
+            0.75,
+            RiskLevel::Medium,
+            TimeHorizon::Medium,
+        )
     }
 
     pub fn low_confidence_high_risk() -> (OpportunityType, f64, RiskLevel, TimeHorizon) {
-        (OpportunityType::Arbitrage, 0.65, RiskLevel::High, TimeHorizon::Short)
+        (
+            OpportunityType::Arbitrage,
+            0.65,
+            RiskLevel::High,
+            TimeHorizon::Short,
+        )
     }
 
     pub fn ai_enhanced_opportunity() -> (OpportunityType, f64, RiskLevel, TimeHorizon) {
-        (OpportunityType::ArbitrageTechnical, 0.88, RiskLevel::Low, TimeHorizon::Medium)
+        (
+            OpportunityType::ArbitrageTechnical,
+            0.88,
+            RiskLevel::Low,
+            TimeHorizon::Medium,
+        )
     }
 }
 
@@ -97,8 +158,8 @@ impl TestMarketScenarios {
             ("bybit", "BTCUSDT", BTC_BASE_PRICE * 1.025), // 2.5% difference
             ("okx", "BTCUSDT", BTC_BASE_PRICE * 0.98),    // 2% difference
             ("binance", "ETHUSDT", ETH_BASE_PRICE),
-            ("bybit", "ETHUSDT", ETH_BASE_PRICE * 1.03),  // 3% difference
-            ("okx", "ETHUSDT", ETH_BASE_PRICE * 0.975),   // 2.5% difference
+            ("bybit", "ETHUSDT", ETH_BASE_PRICE * 1.03), // 3% difference
+            ("okx", "ETHUSDT", ETH_BASE_PRICE * 0.975),  // 2.5% difference
         ]
     }
 
@@ -120,7 +181,13 @@ pub struct TestCommandScenarios;
 
 impl TestCommandScenarios {
     pub fn basic_commands() -> Vec<&'static str> {
-        vec!["/start", "/help", "/opportunities", "/categories", "/settings"]
+        vec![
+            "/start",
+            "/help",
+            "/opportunities",
+            "/categories",
+            "/settings",
+        ]
     }
 
     pub fn trading_commands() -> Vec<&'static str> {
@@ -128,7 +195,12 @@ impl TestCommandScenarios {
     }
 
     pub fn admin_commands() -> Vec<&'static str> {
-        vec!["/admin_stats", "/admin_users", "/admin_config", "/admin_broadcast"]
+        vec![
+            "/admin_stats",
+            "/admin_users",
+            "/admin_config",
+            "/admin_broadcast",
+        ]
     }
 
     pub fn ai_commands() -> Vec<&'static str> {
@@ -136,7 +208,12 @@ impl TestCommandScenarios {
     }
 
     pub fn auto_trading_commands() -> Vec<&'static str> {
-        vec!["/auto_enable", "/auto_disable", "/auto_config", "/auto_status"]
+        vec![
+            "/auto_enable",
+            "/auto_disable",
+            "/auto_config",
+            "/auto_status",
+        ]
     }
 }
 
@@ -176,4 +253,4 @@ impl TestPerformanceScenarios {
     pub fn notification_burst_sizes() -> Vec<usize> {
         vec![5, 10, 25, 50, 100]
     }
-} 
+}

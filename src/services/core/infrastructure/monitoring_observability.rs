@@ -18,20 +18,20 @@ pub enum MetricType {
     DiskUsagePercent,
     NetworkBytesIn,
     NetworkBytesOut,
-    
+
     // Application Metrics
     RequestsPerSecond,
     ResponseTimeMs,
     ErrorRate,
     ActiveConnections,
-    
+
     // Business Metrics
     OpportunitiesDetected,
     OpportunitiesDistributed,
     UserSessions,
     TradingVolume,
     ProfitGenerated,
-    
+
     // Service-specific Metrics
     TelegramMessagesPerHour,
     DatabaseQueriesPerSecond,
@@ -46,8 +46,15 @@ pub enum MetricType {
 pub enum MetricValue {
     Counter(u64),
     Gauge(f64),
-    Histogram { buckets: Vec<f64>, counts: Vec<u64> },
-    Summary { count: u64, sum: f64, quantiles: HashMap<String, f64> },
+    Histogram {
+        buckets: Vec<f64>,
+        counts: Vec<u64>,
+    },
+    Summary {
+        count: u64,
+        sum: f64,
+        quantiles: HashMap<String, f64>,
+    },
 }
 
 impl MetricValue {
@@ -115,10 +122,24 @@ pub enum AlertSeverity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AlertCondition {
-    Threshold { metric: MetricType, operator: String, value: f64 },
-    Rate { metric: MetricType, operator: String, value: f64, window_seconds: u64 },
-    Anomaly { metric: MetricType, sensitivity: f64 },
-    ServiceDown { service_name: String },
+    Threshold {
+        metric: MetricType,
+        operator: String,
+        value: f64,
+    },
+    Rate {
+        metric: MetricType,
+        operator: String,
+        value: f64,
+        window_seconds: u64,
+    },
+    Anomaly {
+        metric: MetricType,
+        sensitivity: f64,
+    },
+    ServiceDown {
+        service_name: String,
+    },
 }
 
 /// Alert Rule Definition
@@ -177,7 +198,9 @@ impl Alert {
     }
 
     pub fn duration_ms(&self) -> u64 {
-        let end_time = self.resolved_at.unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
+        let end_time = self
+            .resolved_at
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
         end_time - self.triggered_at
     }
 }
@@ -385,7 +408,10 @@ impl MonitoringObservabilityService {
         };
 
         // Get user profile from database to check their role
-        let user_profile = match user_profile_service.get_user_by_telegram_id(telegram_id).await {
+        let user_profile = match user_profile_service
+            .get_user_by_telegram_id(telegram_id)
+            .await
+        {
             Ok(Some(profile)) => profile,
             Ok(None) => {
                 log::warn!("Monitoring access denied: User not found in database");
@@ -405,13 +431,13 @@ impl MonitoringObservabilityService {
     pub async fn initialize(&mut self) -> ArbitrageResult<()> {
         // Setup default alert rules
         self.setup_default_alert_rules().await?;
-        
+
         // Setup default dashboards
         self.setup_default_dashboards().await?;
-        
+
         // Start background tasks
         self.start_monitoring_tasks().await?;
-        
+
         Ok(())
     }
 
@@ -422,13 +448,23 @@ impl MonitoringObservabilityService {
         }
 
         {
-            let mut store = self.metrics_store.write().unwrap();
-            let entries = store.entry(metric.metric_type.clone()).or_insert_with(Vec::new);
-            entries.push(metric.clone());
-            
-            // Keep only recent metrics (last 24 hours)
-            let cutoff = chrono::Utc::now().timestamp_millis() as u64 - (24 * 60 * 60 * 1000);
-            entries.retain(|m| m.timestamp > cutoff);
+            match self.metrics_store.write() {
+                Ok(mut store) => {
+                    let entries = store.entry(metric.metric_type.clone()).or_default();
+                    entries.push(metric.clone());
+
+                    // Keep only recent metrics (last 24 hours)
+                    let cutoff =
+                        chrono::Utc::now().timestamp_millis() as u64 - (24 * 60 * 60 * 1000);
+                    entries.retain(|m| m.timestamp > cutoff);
+                }
+                Err(e) => {
+                    return Err(ArbitrageError::storage_error(format!(
+                        "Failed to acquire write lock on metrics store: {:?}",
+                        e
+                    )));
+                }
+            }
         }
 
         // Check alert conditions
@@ -470,18 +506,24 @@ impl MonitoringObservabilityService {
     }
 
     /// Record business metrics
-    pub async fn record_business_metrics(&self, opportunities_count: u64, volume: f64) -> ArbitrageResult<()> {
+    pub async fn record_business_metrics(
+        &self,
+        opportunities_count: u64,
+        volume: f64,
+    ) -> ArbitrageResult<()> {
         let metrics = vec![
             MetricDataPoint::new(
                 MetricType::OpportunitiesDetected,
                 MetricValue::counter(opportunities_count),
                 "Number of arbitrage opportunities detected".to_string(),
-            ).with_label("period".to_string(), "hourly".to_string()),
+            )
+            .with_label("period".to_string(), "hourly".to_string()),
             MetricDataPoint::new(
                 MetricType::TradingVolume,
                 MetricValue::gauge(volume),
                 "Total trading volume in USD".to_string(),
-            ).with_label("currency".to_string(), "USD".to_string()),
+            )
+            .with_label("currency".to_string(), "USD".to_string()),
         ];
 
         for metric in metrics {
@@ -499,105 +541,184 @@ impl MonitoringObservabilityService {
     /// Finish and record a trace span
     pub async fn finish_trace(&self, mut span: TraceSpan) -> ArbitrageResult<()> {
         span.finish();
-        
+
         {
-            let mut traces = self.trace_spans.write().unwrap();
-            traces.push(span);
-            
-            // Keep only recent traces (last hour)
-            let cutoff = chrono::Utc::now().timestamp_millis() as u64 - (60 * 60 * 1000);
-            traces.retain(|t| t.start_time > cutoff);
+            match self.trace_spans.write() {
+                Ok(mut traces) => {
+                    traces.push(span);
+
+                    // Keep only recent traces (last hour)
+                    let cutoff = chrono::Utc::now().timestamp_millis() as u64 - (60 * 60 * 1000);
+                    traces.retain(|t| t.start_time > cutoff);
+                }
+                Err(e) => {
+                    return Err(ArbitrageError::storage_error(format!(
+                        "Failed to acquire write lock on trace spans: {:?}",
+                        e
+                    )));
+                }
+            }
         }
 
         Ok(())
     }
 
     /// Record performance metrics for a service operation
-    pub async fn record_performance(&self, operation: &str, response_time_ms: u64, is_error: bool) -> ArbitrageResult<()> {
+    pub async fn record_performance(
+        &self,
+        operation: &str,
+        response_time_ms: u64,
+        is_error: bool,
+    ) -> ArbitrageResult<()> {
         // Store the response time sample for percentile calculation
         {
-            let mut samples = self.response_time_samples.write().unwrap();
-            let operation_samples = samples.entry(operation.to_string()).or_insert_with(Vec::new);
-            operation_samples.push(response_time_ms);
-            
-            // Keep only last 1000 samples to prevent unbounded growth
-            if operation_samples.len() > 1000 {
-                operation_samples.remove(0);
+            match self.response_time_samples.write() {
+                Ok(mut samples) => {
+                    let operation_samples = samples.entry(operation.to_string()).or_default();
+                    operation_samples.push(response_time_ms);
+
+                    // Keep only last 1000 samples to prevent unbounded growth
+                    if operation_samples.len() > 1000 {
+                        operation_samples.remove(0);
+                    }
+                }
+                Err(e) => {
+                    return Err(ArbitrageError::storage_error(format!(
+                        "Failed to acquire write lock on response time samples: {:?}",
+                        e
+                    )));
+                }
             }
         }
 
-        {
-            let mut perf_metrics = self.performance_metrics.write().unwrap();
-            let metrics = perf_metrics.entry(operation.to_string()).or_insert_with(PerformanceMetrics::default);
-            
-            metrics.request_count += 1;
-            metrics.total_response_time_ms += response_time_ms;
-            if is_error {
-                metrics.error_count += 1;
+        let should_update_percentiles = {
+            match self.performance_metrics.write() {
+                Ok(mut perf_metrics) => {
+                    let metrics = perf_metrics.entry(operation.to_string()).or_default();
+
+                    metrics.request_count += 1;
+                    metrics.total_response_time_ms += response_time_ms;
+                    if is_error {
+                        metrics.error_count += 1;
+                    }
+
+                    // Calculate derived metrics
+                    metrics.avg_response_time_ms =
+                        metrics.total_response_time_ms as f64 / metrics.request_count as f64;
+                    metrics.error_rate = metrics.error_count as f64 / metrics.request_count as f64;
+
+                    metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+
+                    // Check if we should update percentiles
+                    metrics.request_count % 100 == 0 || metrics.request_count <= 100
+                }
+                Err(e) => {
+                    return Err(ArbitrageError::storage_error(format!(
+                        "Failed to acquire write lock on performance metrics: {:?}",
+                        e
+                    )));
+                }
             }
-            
-            // Calculate derived metrics
-            metrics.avg_response_time_ms = metrics.total_response_time_ms as f64 / metrics.request_count as f64;
-            metrics.error_rate = metrics.error_count as f64 / metrics.request_count as f64;
-            
-            // Calculate percentiles only periodically to avoid overhead
-            // Update percentiles every 100 requests or when specifically requested
-            if metrics.request_count % 100 == 0 || metrics.request_count <= 100 {
-                let percentiles = self.calculate_percentiles(operation).await;
+        };
+
+        // Update percentiles outside the lock to avoid holding mutex across await
+        if should_update_percentiles {
+            let percentiles = self.calculate_percentiles(operation).await;
+            let mut perf_metrics = self.performance_metrics.write().unwrap();
+            if let Some(metrics) = perf_metrics.get_mut(operation) {
                 metrics.p50_response_time_ms = percentiles.0;
                 metrics.p95_response_time_ms = percentiles.1;
                 metrics.p99_response_time_ms = percentiles.2;
             }
-            
-            metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
         }
 
         // Record as metric
-        self.record_metric(MetricDataPoint::new(
-            MetricType::ResponseTimeMs,
-            MetricValue::gauge(response_time_ms as f64),
-            "Response time for operation".to_string(),
-        ).with_label("operation".to_string(), operation.to_string())).await?;
+        self.record_metric(
+            MetricDataPoint::new(
+                MetricType::ResponseTimeMs,
+                MetricValue::gauge(response_time_ms as f64),
+                "Response time for operation".to_string(),
+            )
+            .with_label("operation".to_string(), operation.to_string()),
+        )
+        .await?;
 
         Ok(())
     }
 
     /// Get metrics for a specific type
     pub async fn get_metrics(&self, metric_type: &MetricType, hours: u64) -> Vec<MetricDataPoint> {
-        let store = self.metrics_store.read().unwrap();
+        let store = match self.metrics_store.read() {
+            Ok(store) => store,
+            Err(_) => {
+                // Return empty vec if lock is poisoned
+                return Vec::new();
+            }
+        };
         let cutoff = chrono::Utc::now().timestamp_millis() as u64 - (hours * 60 * 60 * 1000);
-        
-        store.get(metric_type)
-            .map(|metrics| metrics.iter()
-                .filter(|m| m.timestamp > cutoff)
-                .cloned()
-                .collect())
+
+        store
+            .get(metric_type)
+            .map(|metrics| {
+                metrics
+                    .iter()
+                    .filter(|m| m.timestamp > cutoff)
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
     /// Get all active alerts
     pub async fn get_active_alerts(&self) -> Vec<Alert> {
-        let alerts = self.active_alerts.read().unwrap();
-        alerts.iter().filter(|a| !a.is_resolved()).cloned().collect()
+        match self.active_alerts.read() {
+            Ok(alerts) => alerts
+                .iter()
+                .filter(|a| !a.is_resolved())
+                .cloned()
+                .collect(),
+            Err(_) => {
+                // Return empty vec if lock is poisoned
+                Vec::new()
+            }
+        }
     }
 
     /// Get system health summary
     pub async fn get_system_health_summary(&self) -> SystemHealthSummary {
         let active_alerts = self.get_active_alerts().await;
-        let critical_alerts = active_alerts.iter().filter(|a| a.severity == AlertSeverity::Critical).count();
-        let warning_alerts = active_alerts.iter().filter(|a| a.severity == AlertSeverity::Warning).count();
-        
+        let critical_alerts = active_alerts
+            .iter()
+            .filter(|a| a.severity == AlertSeverity::Critical)
+            .count();
+        let warning_alerts = active_alerts
+            .iter()
+            .filter(|a| a.severity == AlertSeverity::Warning)
+            .count();
+
         // Get recent system metrics
         let cpu_metrics = self.get_metrics(&MetricType::CpuUsagePercent, 1).await;
         let memory_metrics = self.get_metrics(&MetricType::MemoryUsagePercent, 1).await;
         let error_rate_metrics = self.get_metrics(&MetricType::ErrorRate, 1).await;
-        
+
         let latest_cpu = cpu_metrics.last().map(|m| m.value.as_f64()).unwrap_or(0.0);
-        let latest_memory = memory_metrics.last().map(|m| m.value.as_f64()).unwrap_or(0.0);
-        let latest_error_rate = error_rate_metrics.last().map(|m| m.value.as_f64()).unwrap_or(0.0);
-        
-        let health_score = self.calculate_health_score(latest_cpu, latest_memory, latest_error_rate, critical_alerts, warning_alerts);
-        
+        let latest_memory = memory_metrics
+            .last()
+            .map(|m| m.value.as_f64())
+            .unwrap_or(0.0);
+        let latest_error_rate = error_rate_metrics
+            .last()
+            .map(|m| m.value.as_f64())
+            .unwrap_or(0.0);
+
+        let health_score = self.calculate_health_score(
+            latest_cpu,
+            latest_memory,
+            latest_error_rate,
+            critical_alerts,
+            warning_alerts,
+        );
+
         SystemHealthSummary {
             health_score,
             status: if critical_alerts > 0 {
@@ -622,16 +743,24 @@ impl MonitoringObservabilityService {
 
     /// Get performance metrics for all operations
     pub async fn get_performance_overview(&self) -> HashMap<String, PerformanceMetrics> {
-        let mut perf_metrics = self.performance_metrics.write().unwrap();
-        
-        // Update percentiles for all operations when requesting overview
-        for (operation, metrics) in perf_metrics.iter_mut() {
-            let percentiles = self.calculate_percentiles(operation).await;
-            metrics.p50_response_time_ms = percentiles.0;
-            metrics.p95_response_time_ms = percentiles.1;
-            metrics.p99_response_time_ms = percentiles.2;
+        // Get list of operations to update percentiles for
+        let operations: Vec<String> = {
+            let perf_metrics = self.performance_metrics.read().unwrap();
+            perf_metrics.keys().cloned().collect()
+        };
+
+        // Update percentiles for all operations outside the lock
+        for operation in operations {
+            let percentiles = self.calculate_percentiles(&operation).await;
+            let mut perf_metrics = self.performance_metrics.write().unwrap();
+            if let Some(metrics) = perf_metrics.get_mut(&operation) {
+                metrics.p50_response_time_ms = percentiles.0;
+                metrics.p95_response_time_ms = percentiles.1;
+                metrics.p99_response_time_ms = percentiles.2;
+            }
         }
-        
+
+        let perf_metrics = self.performance_metrics.read().unwrap();
         perf_metrics.clone()
     }
 
@@ -718,21 +847,36 @@ impl MonitoringObservabilityService {
                     title: "CPU Usage".to_string(),
                     panel_type: PanelType::LineChart,
                     metrics: vec![MetricType::CpuUsagePercent],
-                    position: PanelPosition { x: 0, y: 0, width: 6, height: 3 },
+                    position: PanelPosition {
+                        x: 0,
+                        y: 0,
+                        width: 6,
+                        height: 3,
+                    },
                     configuration: serde_json::json!({"yAxis": {"max": 100}}),
                 },
                 DashboardPanel {
                     title: "Memory Usage".to_string(),
                     panel_type: PanelType::LineChart,
                     metrics: vec![MetricType::MemoryUsagePercent],
-                    position: PanelPosition { x: 6, y: 0, width: 6, height: 3 },
+                    position: PanelPosition {
+                        x: 6,
+                        y: 0,
+                        width: 6,
+                        height: 3,
+                    },
                     configuration: serde_json::json!({"yAxis": {"max": 100}}),
                 },
                 DashboardPanel {
                     title: "Response Time".to_string(),
                     panel_type: PanelType::LineChart,
                     metrics: vec![MetricType::ResponseTimeMs],
-                    position: PanelPosition { x: 0, y: 3, width: 12, height: 4 },
+                    position: PanelPosition {
+                        x: 0,
+                        y: 3,
+                        width: 12,
+                        height: 4,
+                    },
                     configuration: serde_json::json!({}),
                 },
             ],
@@ -748,21 +892,36 @@ impl MonitoringObservabilityService {
                     title: "Opportunities Detected".to_string(),
                     panel_type: PanelType::Counter,
                     metrics: vec![MetricType::OpportunitiesDetected],
-                    position: PanelPosition { x: 0, y: 0, width: 3, height: 2 },
+                    position: PanelPosition {
+                        x: 0,
+                        y: 0,
+                        width: 3,
+                        height: 2,
+                    },
                     configuration: serde_json::json!({}),
                 },
                 DashboardPanel {
                     title: "Trading Volume".to_string(),
                     panel_type: PanelType::Gauge,
                     metrics: vec![MetricType::TradingVolume],
-                    position: PanelPosition { x: 3, y: 0, width: 3, height: 2 },
+                    position: PanelPosition {
+                        x: 3,
+                        y: 0,
+                        width: 3,
+                        height: 2,
+                    },
                     configuration: serde_json::json!({}),
                 },
                 DashboardPanel {
                     title: "User Sessions".to_string(),
                     panel_type: PanelType::LineChart,
                     metrics: vec![MetricType::UserSessions],
-                    position: PanelPosition { x: 6, y: 0, width: 6, height: 4 },
+                    position: PanelPosition {
+                        x: 6,
+                        y: 0,
+                        width: 6,
+                        height: 4,
+                    },
                     configuration: serde_json::json!({}),
                 },
             ],
@@ -782,28 +941,37 @@ impl MonitoringObservabilityService {
     /// Start background monitoring tasks
     async fn start_monitoring_tasks(&self) -> ArbitrageResult<()> {
         // Start system metrics collection
-        let metrics_store = self.metrics_store.clone();
-        let alert_rules = self.alert_rules.clone();
-        let active_alerts = self.active_alerts.clone();
-        
+        let _metrics_store = self.metrics_store.clone();
+        let _alert_rules = self.alert_rules.clone();
+        let _active_alerts = self.active_alerts.clone();
+
         // Note: In WASM environment, we don't spawn background tasks
         // System metrics collection would be triggered by external events or periodic calls
-        log::info!("Monitoring service initialized - background metrics collection not available in WASM");
+        log::info!(
+            "Monitoring service initialized - background metrics collection not available in WASM"
+        );
 
         Ok(())
     }
 
     /// Check alert conditions for a new metric
     async fn check_alert_conditions(&self, metric: &MetricDataPoint) -> ArbitrageResult<()> {
-        let rules = self.alert_rules.read().unwrap();
-        
+        let rules = {
+            let rules_guard = self.alert_rules.read().unwrap();
+            rules_guard.clone()
+        };
+
         for rule in rules.iter() {
             if !rule.enabled {
                 continue;
             }
 
             let should_alert = match &rule.condition {
-                AlertCondition::Threshold { metric: rule_metric, operator, value } => {
+                AlertCondition::Threshold {
+                    metric: rule_metric,
+                    operator,
+                    value,
+                } => {
                     if *rule_metric == metric.metric_type {
                         let metric_value = metric.value.as_f64();
                         match operator.as_str() {
@@ -818,10 +986,17 @@ impl MonitoringObservabilityService {
                         false
                     }
                 }
-                AlertCondition::Rate { metric: rate_metric, operator, value, window_seconds } => {
+                AlertCondition::Rate {
+                    metric: rate_metric,
+                    operator,
+                    value,
+                    window_seconds,
+                } => {
                     if *rate_metric == metric.metric_type {
                         // Calculate rate over the specified time window
-                        let rate = self.calculate_metric_rate(&metric.metric_type, *window_seconds).await;
+                        let rate = self
+                            .calculate_metric_rate(&metric.metric_type, *window_seconds)
+                            .await;
                         match operator.as_str() {
                             ">" => rate > *value,
                             "<" => rate < *value,
@@ -833,10 +1008,18 @@ impl MonitoringObservabilityService {
                         false
                     }
                 }
-                AlertCondition::Anomaly { metric: anomaly_metric, sensitivity } => {
+                AlertCondition::Anomaly {
+                    metric: anomaly_metric,
+                    sensitivity,
+                } => {
                     if *anomaly_metric == metric.metric_type {
                         // Apply statistical anomaly detection
-                        self.detect_anomaly(&metric.metric_type, metric.value.as_f64(), *sensitivity).await
+                        self.detect_anomaly(
+                            &metric.metric_type,
+                            metric.value.as_f64(),
+                            *sensitivity,
+                        )
+                        .await
                     } else {
                         false
                     }
@@ -849,14 +1032,16 @@ impl MonitoringObservabilityService {
 
             if should_alert {
                 // Check if we're in cooldown period
-                let active_alerts = self.active_alerts.read().unwrap();
-                let recent_alert = active_alerts.iter().any(|alert| {
-                    alert.rule_id == rule.id && 
-                    (chrono::Utc::now().timestamp_millis() as u64 - alert.triggered_at) < (rule.cooldown_seconds * 1000)
-                });
+                let recent_alert = {
+                    let active_alerts = self.active_alerts.read().unwrap();
+                    active_alerts.iter().any(|alert| {
+                        alert.rule_id == rule.id
+                            && (chrono::Utc::now().timestamp_millis() as u64 - alert.triggered_at)
+                                < (rule.cooldown_seconds * 1000)
+                    })
+                };
 
                 if !recent_alert {
-                    drop(active_alerts); // Release read lock
                     self.trigger_alert(rule, metric.value.as_f64()).await?;
                 }
             }
@@ -873,41 +1058,52 @@ impl MonitoringObservabilityService {
         };
 
         let alert = Alert::new(rule, current_value, threshold_value);
-        
+
         {
             let mut alerts = self.active_alerts.write().unwrap();
             alerts.push(alert.clone());
         }
 
         // TODO: Send notifications through configured channels
-        log::warn!("Alert triggered: {} - Current value: {}, Threshold: {}", 
-                  alert.name, current_value, threshold_value);
+        log::warn!(
+            "Alert triggered: {} - Current value: {}, Threshold: {}",
+            alert.name,
+            current_value,
+            threshold_value
+        );
 
         Ok(())
     }
 
     /// Calculate overall system health score
-    fn calculate_health_score(&self, cpu: f64, memory: f64, error_rate: f64, critical_alerts: usize, warning_alerts: usize) -> f64 {
+    fn calculate_health_score(
+        &self,
+        cpu: f64,
+        memory: f64,
+        error_rate: f64,
+        critical_alerts: usize,
+        warning_alerts: usize,
+    ) -> f64 {
         let mut score = 1.0;
-        
+
         // CPU penalty
         if cpu > 80.0 {
             score -= (cpu - 80.0) / 100.0;
         }
-        
+
         // Memory penalty
         if memory > 80.0 {
             score -= (memory - 80.0) / 100.0;
         }
-        
+
         // Error rate penalty
         score -= error_rate * 2.0;
-        
+
         // Alert penalties
         score -= critical_alerts as f64 * 0.3;
         score -= warning_alerts as f64 * 0.1;
-        
-        score.max(0.0).min(1.0)
+
+        score.clamp(0.0, 1.0)
     }
 
     /// Get real CPU usage percentage using sysinfo
@@ -915,16 +1111,16 @@ impl MonitoringObservabilityService {
     async fn get_real_cpu_usage(&self) -> f64 {
         let mut system = self.system.write().unwrap();
         system.refresh_cpu_all();
-        
+
         // Note: In WASM, we can't sleep, so we'll refresh immediately
         system.refresh_cpu_all();
-        
+
         // Calculate average CPU usage across all cores
         let cpus = system.cpus();
         if cpus.is_empty() {
             return 0.0;
         }
-        
+
         let total_usage: f32 = cpus.iter().map(|cpu| cpu.cpu_usage()).sum();
         (total_usage / cpus.len() as f32) as f64
     }
@@ -934,14 +1130,14 @@ impl MonitoringObservabilityService {
     async fn get_real_memory_usage(&self) -> f64 {
         let mut system = self.system.write().unwrap();
         system.refresh_memory();
-        
+
         let used_memory = system.used_memory();
         let total_memory = system.total_memory();
-        
+
         if total_memory == 0 {
             return 0.0;
         }
-        
+
         (used_memory as f64 / total_memory as f64) * 100.0
     }
 
@@ -950,31 +1146,31 @@ impl MonitoringObservabilityService {
     async fn get_real_disk_usage(&self) -> f64 {
         let mut system = self.system.write().unwrap();
         system.refresh_all();
-        
+
         // let disks = system.disks(); // TODO: Fix sysinfo API compatibility
         // Temporary fallback until sysinfo API is fixed
-        return 50.0; // Simulated disk usage
-        
+        50.0 // Simulated disk usage
+
         /*
         if disks.is_empty() {
             return 0.0;
         }
-        
+
         // Calculate average disk usage across all disks
         let mut total_available = 0;
         let mut total_space = 0;
-        
+
         for disk in disks {
             total_available += disk.available_space();
             total_space += disk.total_space();
         }
         */
-        
+
         /*
         if total_space == 0 {
             return 0.0;
         }
-        
+
         let used_space = total_space - total_available;
         (used_space as f64 / total_space as f64) * 100.0
         */
@@ -1015,7 +1211,7 @@ impl MonitoringObservabilityService {
     /// Calculate metric rate over time window
     async fn calculate_metric_rate(&self, metric_type: &MetricType, window_seconds: u64) -> f64 {
         let metrics = self.get_metrics(metric_type, window_seconds / 3600).await;
-        
+
         if metrics.len() < 2 {
             return 0.0;
         }
@@ -1023,7 +1219,7 @@ impl MonitoringObservabilityService {
         // Calculate rate as the difference between latest and earliest values divided by time window
         let latest = metrics.last().unwrap();
         let earliest = metrics.first().unwrap();
-        
+
         let time_diff = (latest.timestamp - earliest.timestamp) as f64 / 1000.0; // Convert to seconds
         if time_diff > 0.0 {
             (latest.value.as_f64() - earliest.value.as_f64()) / time_diff
@@ -1033,15 +1229,23 @@ impl MonitoringObservabilityService {
     }
 
     /// Detect anomalies using statistical analysis
-    async fn detect_anomaly(&self, metric_type: &MetricType, current_value: f64, sensitivity: f64) -> bool {
+    async fn detect_anomaly(
+        &self,
+        metric_type: &MetricType,
+        current_value: f64,
+        sensitivity: f64,
+    ) -> bool {
         let historical_metrics = self.get_metrics(metric_type, 24).await;
-        
+
         if historical_metrics.len() < 10 {
             return false; // Need enough data for statistical analysis
         }
 
         // Calculate mean and standard deviation
-        let values: Vec<f64> = historical_metrics.iter().map(|m| m.value.as_f64()).collect();
+        let values: Vec<f64> = historical_metrics
+            .iter()
+            .map(|m| m.value.as_f64())
+            .collect();
         let mean = values.iter().sum::<f64>() / values.len() as f64;
         let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
         let std_dev = variance.sqrt();
@@ -1067,7 +1271,9 @@ impl MonitoringObservabilityService {
             }
             "telegram_service" => {
                 // Check if telegram messages are being sent
-                let telegram_metrics = self.get_metrics(&MetricType::TelegramMessagesPerHour, 1).await;
+                let telegram_metrics = self
+                    .get_metrics(&MetricType::TelegramMessagesPerHour, 1)
+                    .await;
                 if let Some(latest) = telegram_metrics.last() {
                     latest.value.as_f64() == 0.0 // Alert if no messages in last hour
                 } else {
@@ -1093,7 +1299,7 @@ impl MonitoringObservabilityService {
     /// Calculate percentiles from response time samples
     async fn calculate_percentiles(&self, operation: &str) -> (f64, f64, f64) {
         let samples = self.response_time_samples.read().unwrap();
-        
+
         if let Some(operation_samples) = samples.get(operation) {
             if operation_samples.is_empty() {
                 return (0.0, 0.0, 0.0);
@@ -1103,8 +1309,8 @@ impl MonitoringObservabilityService {
             let mut sorted_samples = operation_samples.clone();
             sorted_samples.sort_unstable();
 
-            let len = sorted_samples.len();
-            
+            let _len = sorted_samples.len();
+
             // Calculate percentiles using linear interpolation
             let p50 = calculate_percentile(&sorted_samples, 50.0);
             let p95 = calculate_percentile(&sorted_samples, 95.0);
@@ -1122,9 +1328,13 @@ impl MonitoringObservabilityService {
         user_id: &str,
     ) -> ArbitrageResult<SystemHealthSummary> {
         // Check SystemAdministration permission for system health access
-        if !self.check_user_permission(user_id, &CommandPermission::SystemAdministration).await {
+        if !self
+            .check_user_permission(user_id, &CommandPermission::SystemAdministration)
+            .await
+        {
             return Err(ArbitrageError::validation_error(
-                "Insufficient permissions: SystemAdministration required for system health access".to_string(),
+                "Insufficient permissions: SystemAdministration required for system health access"
+                    .to_string(),
             ));
         }
 
@@ -1138,9 +1348,13 @@ impl MonitoringObservabilityService {
         user_id: &str,
     ) -> ArbitrageResult<HashMap<String, PerformanceMetrics>> {
         // Check AdvancedAnalytics permission for performance metrics
-        if !self.check_user_permission(user_id, &CommandPermission::AdvancedAnalytics).await {
+        if !self
+            .check_user_permission(user_id, &CommandPermission::AdvancedAnalytics)
+            .await
+        {
             return Err(ArbitrageError::validation_error(
-                "Insufficient permissions: AdvancedAnalytics required for performance metrics".to_string(),
+                "Insufficient permissions: AdvancedAnalytics required for performance metrics"
+                    .to_string(),
             ));
         }
 
@@ -1154,9 +1368,13 @@ impl MonitoringObservabilityService {
         user_id: &str,
     ) -> ArbitrageResult<Vec<Alert>> {
         // Check SystemAdministration permission for alerts access
-        if !self.check_user_permission(user_id, &CommandPermission::SystemAdministration).await {
+        if !self
+            .check_user_permission(user_id, &CommandPermission::SystemAdministration)
+            .await
+        {
             return Err(ArbitrageError::validation_error(
-                "Insufficient permissions: SystemAdministration required for alerts access".to_string(),
+                "Insufficient permissions: SystemAdministration required for alerts access"
+                    .to_string(),
             ));
         }
 
@@ -1173,22 +1391,26 @@ impl MonitoringObservabilityService {
     ) -> ArbitrageResult<Vec<MetricDataPoint>> {
         // Check permission based on metric type sensitivity
         let required_permission = match metric_type {
-            MetricType::CpuUsagePercent | MetricType::MemoryUsagePercent | MetricType::DiskUsagePercent => {
-                CommandPermission::SystemAdministration
-            },
+            MetricType::CpuUsagePercent
+            | MetricType::MemoryUsagePercent
+            | MetricType::DiskUsagePercent => CommandPermission::SystemAdministration,
             MetricType::ErrorRate | MetricType::ResponseTimeMs | MetricType::RequestsPerSecond => {
                 CommandPermission::AdvancedAnalytics
-            },
+            }
             MetricType::OpportunitiesDetected | MetricType::UserSessions => {
                 CommandPermission::AdvancedAnalytics
-            },
+            }
             _ => CommandPermission::SystemAdministration, // Default to highest permission for unknown metrics
         };
 
-        if !self.check_user_permission(user_id, &required_permission).await {
-            return Err(ArbitrageError::validation_error(
-                format!("Insufficient permissions: {:?} required for {:?} metrics", required_permission, metric_type),
-            ));
+        if !self
+            .check_user_permission(user_id, &required_permission)
+            .await
+        {
+            return Err(ArbitrageError::validation_error(format!(
+                "Insufficient permissions: {:?} required for {:?} metrics",
+                required_permission, metric_type
+            )));
         }
 
         // Call the original get_metrics method
@@ -1219,7 +1441,7 @@ fn calculate_percentile(sorted_samples: &[u64], percentile: f64) -> f64 {
         let lower_value = sorted_samples[lower_index] as f64;
         let upper_value = sorted_samples[upper_index] as f64;
         let weight = index - lower_index as f64;
-        
+
         lower_value + weight * (upper_value - lower_value)
     }
 }
@@ -1258,7 +1480,7 @@ mod tests {
     #[tokio::test]
     async fn test_metric_recording() {
         let service = MonitoringObservabilityService::new();
-        
+
         let metric = MetricDataPoint::new(
             MetricType::CpuUsagePercent,
             MetricValue::gauge(75.5),
@@ -1275,13 +1497,19 @@ mod tests {
     #[tokio::test]
     async fn test_performance_recording() {
         let service = MonitoringObservabilityService::new();
-        
-        service.record_performance("test_operation", 150, false).await.unwrap();
-        service.record_performance("test_operation", 200, true).await.unwrap();
+
+        service
+            .record_performance("test_operation", 150, false)
+            .await
+            .unwrap();
+        service
+            .record_performance("test_operation", 200, true)
+            .await
+            .unwrap();
 
         let perf_overview = service.get_performance_overview().await;
         let test_metrics = perf_overview.get("test_operation").unwrap();
-        
+
         assert_eq!(test_metrics.request_count, 2);
         assert_eq!(test_metrics.error_count, 1);
         assert_eq!(test_metrics.avg_response_time_ms, 175.0);
@@ -1291,13 +1519,13 @@ mod tests {
     #[tokio::test]
     async fn test_trace_span() {
         let service = MonitoringObservabilityService::new();
-        
+
         let mut span = service.start_trace("test_operation".to_string()).await;
         span.add_tag("user_id".to_string(), "123".to_string());
         span.add_log("info".to_string(), "Operation started".to_string());
-        
+
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-        
+
         service.finish_trace(span).await.unwrap();
 
         let traces = service.trace_spans.read().unwrap();
@@ -1313,7 +1541,7 @@ mod tests {
 
         let rules = service.alert_rules.read().unwrap();
         assert!(!rules.is_empty());
-        
+
         // Check for high CPU alert rule
         let cpu_rule = rules.iter().find(|r| r.id == "high_cpu_usage");
         assert!(cpu_rule.is_some());
@@ -1323,13 +1551,16 @@ mod tests {
     #[tokio::test]
     async fn test_system_health_summary() {
         let service = MonitoringObservabilityService::new();
-        
+
         // Record some test metrics
-        service.record_metric(MetricDataPoint::new(
-            MetricType::CpuUsagePercent,
-            MetricValue::gauge(45.0),
-            "Test".to_string(),
-        )).await.unwrap();
+        service
+            .record_metric(MetricDataPoint::new(
+                MetricType::CpuUsagePercent,
+                MetricValue::gauge(45.0),
+                "Test".to_string(),
+            ))
+            .await
+            .unwrap();
 
         let health = service.get_system_health_summary().await;
         assert_eq!(health.status, "healthy");
@@ -1370,4 +1601,4 @@ mod tests {
         assert_eq!(alert.threshold_value, 80.0);
         assert!(!alert.is_resolved());
     }
-} 
+}

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use anyhow::{Result, anyhow};
+use rand::{Rng, thread_rng};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserReferralCode {
@@ -37,12 +38,34 @@ pub enum ReferralBonusType {
     SubscriptionDiscount, // Discount on subscription
 }
 
+impl ReferralBonusType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ReferralBonusType::FeatureAccess => "FeatureAccess",
+            ReferralBonusType::RevenueKickback => "RevenueKickback",
+            ReferralBonusType::Points => "Points",
+            ReferralBonusType::SubscriptionDiscount => "SubscriptionDiscount",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConversionStatus {
     Registered,       // User registered with referral code
     FirstTrade,       // User made their first trade
     Subscribed,       // User upgraded to paid subscription
     ActiveUser,       // User is actively using the platform
+}
+
+impl ConversionStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConversionStatus::Registered => "Registered",
+            ConversionStatus::FirstTrade => "FirstTrade",
+            ConversionStatus::Subscribed => "Subscribed",
+            ConversionStatus::ActiveUser => "ActiveUser",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +83,12 @@ pub struct ReferralStatistics {
 pub struct ReferralService {
     d1_service: D1Service,
 }
+
+// Configurable bonus constants
+const FEATURE_ACCESS_BONUS: f64 = 0.0;
+const REVENUE_KICKBACK_BONUS: f64 = 5.0;
+const POINTS_BONUS: f64 = 100.0;
+const SUBSCRIPTION_DISCOUNT_BONUS: f64 = 10.0;
 
 impl ReferralService {
     pub fn new(d1_service: D1Service) -> Self {
@@ -101,19 +130,44 @@ impl ReferralService {
         let result = self.d1_service.query(query, &[user_id.into()]).await?;
         
         if let Some(row) = result.first() {
+            let id = row.get("id")
+                .ok_or_else(|| anyhow!("Missing required field: id"))?;
+            let user_id = row.get("user_id")
+                .ok_or_else(|| anyhow!("Missing required field: user_id"))?;
+            let referral_code = row.get("referral_code")
+                .ok_or_else(|| anyhow!("Missing required field: referral_code"))?;
+            let is_active_str = row.get("is_active")
+                .ok_or_else(|| anyhow!("Missing required field: is_active"))?;
+            let is_active = is_active_str.parse::<bool>()
+                .map_err(|e| anyhow!("Invalid is_active value '{}': {}", is_active_str, e))?;
+            let created_at_str = row.get("created_at")
+                .ok_or_else(|| anyhow!("Missing required field: created_at"))?;
+            let created_at = DateTime::parse_from_rfc3339(created_at_str)
+                .map_err(|e| anyhow!("Invalid created_at format '{}': {}", created_at_str, e))?
+                .with_timezone(&Utc);
+            let updated_at_str = row.get("updated_at")
+                .ok_or_else(|| anyhow!("Missing required field: updated_at"))?;
+            let updated_at = DateTime::parse_from_rfc3339(updated_at_str)
+                .map_err(|e| anyhow!("Invalid updated_at format '{}': {}", updated_at_str, e))?
+                .with_timezone(&Utc);
+            let total_uses_str = row.get("total_uses")
+                .ok_or_else(|| anyhow!("Missing required field: total_uses"))?;
+            let total_uses = total_uses_str.parse::<u32>()
+                .map_err(|e| anyhow!("Invalid total_uses value '{}': {}", total_uses_str, e))?;
+            let total_bonuses_str = row.get("total_bonuses_earned")
+                .ok_or_else(|| anyhow!("Missing required field: total_bonuses_earned"))?;
+            let total_bonuses_earned = total_bonuses_str.parse::<f64>()
+                .map_err(|e| anyhow!("Invalid total_bonuses_earned value '{}': {}", total_bonuses_str, e))?;
+            
             Ok(UserReferralCode {
-                id: row.get("id").unwrap_or_default(),
-                user_id: row.get("user_id").unwrap_or_default(),
-                referral_code: row.get("referral_code").unwrap_or_default(),
-                is_active: row.get("is_active").unwrap_or("false").parse().unwrap_or(false),
-                created_at: DateTime::parse_from_rfc3339(row.get("created_at").unwrap_or_default())
-                    .map_err(|e| anyhow!("Invalid created_at format: {}", e))?
-                    .with_timezone(&Utc),
-                updated_at: DateTime::parse_from_rfc3339(row.get("updated_at").unwrap_or_default())
-                    .map_err(|e| anyhow!("Invalid updated_at format: {}", e))?
-                    .with_timezone(&Utc),
-                total_uses: row.get("total_uses").unwrap_or("0").parse().unwrap_or(0),
-                total_bonuses_earned: row.get("total_bonuses_earned").unwrap_or("0.0").parse().unwrap_or(0.0),
+                id,
+                user_id,
+                referral_code,
+                is_active,
+                created_at,
+                updated_at,
+                total_uses,
+                total_bonuses_earned,
                 last_used_at: row.get("last_used_at")
                     .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.with_timezone(&Utc)),
@@ -217,9 +271,16 @@ impl ReferralService {
         
         let mut leaderboard = Vec::new();
         for (index, row) in result.iter().enumerate() {
-            let user_id = row.get("user_id").unwrap_or_default();
-            let total_referrals: u32 = row.get("total_referrals").unwrap_or("0").parse().unwrap_or(0);
-            let total_bonuses: f64 = row.get("total_bonuses").unwrap_or("0.0").parse().unwrap_or(0.0);
+            let user_id = row.get("user_id")
+                .ok_or_else(|| anyhow!("Missing required field: user_id in leaderboard row {}", index + 1))?;
+            let total_referrals_str = row.get("total_referrals")
+                .ok_or_else(|| anyhow!("Missing required field: total_referrals in leaderboard row {}", index + 1))?;
+            let total_referrals: u32 = total_referrals_str.parse()
+                .map_err(|e| anyhow!("Invalid total_referrals value '{}' in row {}: {}", total_referrals_str, index + 1, e))?;
+            let total_bonuses_str = row.get("total_bonuses")
+                .ok_or_else(|| anyhow!("Missing required field: total_bonuses in leaderboard row {}", index + 1))?;
+            let total_bonuses: f64 = total_bonuses_str.parse()
+                .map_err(|e| anyhow!("Invalid total_bonuses value '{}' in row {}: {}", total_bonuses_str, index + 1, e))?;
             
             leaderboard.push(ReferralStatistics {
                 user_id,
@@ -255,8 +316,8 @@ impl ReferralService {
         
         self.d1_service.execute(query, &[
             bonus_amount.into(),
-            format!("{:?}", bonus_type).into(),
-            format!("{:?}", conversion_status).into(),
+            format!("{}", bonus_type.as_str()).into(),
+            format!("{}", conversion_status.as_str()).into(),
             referrer_user_id.into(),
             referred_user_id.into(),
         ]).await?;
@@ -374,8 +435,8 @@ impl ReferralService {
             usage.referral_code.clone().into(),
             usage.used_at.to_rfc3339().into(),
             usage.bonus_awarded.into(),
-            format!("{:?}", usage.bonus_type).into(),
-            format!("{:?}", usage.conversion_status).into(),
+            format!("{}", usage.bonus_type.as_str()).into(),
+            format!("{}", usage.conversion_status.as_str()).into(),
         ]).await?;
         
         Ok(())
@@ -421,11 +482,18 @@ impl ReferralService {
     }
 
     async fn count_successful_conversions(&self, user_id: &str) -> Result<u32> {
+        let subscribed_status = ConversionStatus::Subscribed.as_str();
+        let active_user_status = ConversionStatus::ActiveUser.as_str();
+        
         let query = r#"
             SELECT COUNT(*) as count FROM referral_usage 
-            WHERE referrer_user_id = ? AND conversion_status IN ('Subscribed', 'ActiveUser')
+            WHERE referrer_user_id = ? AND conversion_status IN (?, ?)
         "#;
-        let result = self.d1_service.query(query, &[user_id.into()]).await?;
+        let result = self.d1_service.query(query, &[
+            user_id.into(),
+            subscribed_status.into(),
+            active_user_status.into(),
+        ]).await?;
         
         if let Some(row) = result.first() {
             Ok(row.get("count").unwrap_or("0").parse().unwrap_or(0))
@@ -481,10 +549,10 @@ impl ReferralService {
 
     async fn calculate_referral_bonus(&self, bonus_type: &ReferralBonusType) -> Result<f64> {
         match bonus_type {
-            ReferralBonusType::FeatureAccess => Ok(0.0), // No monetary value, just feature access
-            ReferralBonusType::RevenueKickback => Ok(5.0), // $5 revenue kickback
-            ReferralBonusType::Points => Ok(100.0), // 100 points
-            ReferralBonusType::SubscriptionDiscount => Ok(10.0), // $10 discount value
+            ReferralBonusType::FeatureAccess => Ok(FEATURE_ACCESS_BONUS), // No monetary value, just feature access
+            ReferralBonusType::RevenueKickback => Ok(REVENUE_KICKBACK_BONUS), // $5 revenue kickback
+            ReferralBonusType::Points => Ok(POINTS_BONUS), // 100 points
+            ReferralBonusType::SubscriptionDiscount => Ok(SUBSCRIPTION_DISCOUNT_BONUS), // $10 discount value
         }
     }
 } 

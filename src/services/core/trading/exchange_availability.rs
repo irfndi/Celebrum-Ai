@@ -1,9 +1,9 @@
 use crate::services::{
-    core::trading::exchange::{SuperAdminApiConfig, ExchangeService},
-    core::user::user_profile::UserProfileService,
     core::infrastructure::d1_database::D1Service,
+    core::trading::exchange::{ExchangeService, SuperAdminApiConfig},
+    core::user::user_profile::UserProfileService,
 };
-use crate::types::{ExchangeIdEnum, UserApiKey, ApiKeyProvider, UserProfile};
+use crate::types::{ApiKeyProvider, ExchangeIdEnum, UserApiKey, UserProfile};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -58,7 +58,9 @@ pub struct ExchangeSelectionResult {
 pub struct ExchangeAvailabilityService {
     super_admin_config: SuperAdminApiConfig,
     user_profile_service: UserProfileService,
+    #[allow(dead_code)]
     exchange_service: ExchangeService,
+    #[allow(dead_code)]
     d1_service: D1Service,
     kv_store: KvStore,
     cache_ttl_seconds: u64,
@@ -89,15 +91,17 @@ impl ExchangeAvailabilityService {
         context_id: &str,
     ) -> ArbitrageResult<Vec<ExchangeAvailability>> {
         // Check cache first
-        let cache_key = format!("exchange_availability:{}:{}", level.to_cache_key(), context_id);
+        let cache_key = format!(
+            "exchange_availability:{}:{}",
+            level.to_cache_key(),
+            context_id
+        );
         if let Some(cached) = self.get_cached_availability(&cache_key).await? {
             return Ok(cached);
         }
 
         let availability = match level {
-            ExchangeAvailabilityLevel::Global => {
-                self.get_global_exchange_availability().await?
-            }
+            ExchangeAvailabilityLevel::Global => self.get_global_exchange_availability().await?,
             ExchangeAvailabilityLevel::Personal => {
                 self.get_personal_exchange_availability(context_id).await?
             }
@@ -153,9 +157,10 @@ impl ExchangeAvailabilityService {
                 .collect();
 
             if available_required.len() < required.len() {
-                return Err(ArbitrageError::validation_error(
-                    format!("Required exchanges not available: {:?}", required),
-                ));
+                return Err(ArbitrageError::validation_error(format!(
+                    "Required exchanges not available: {:?}",
+                    required
+                )));
             }
         }
 
@@ -167,7 +172,7 @@ impl ExchangeAvailabilityService {
         }
 
         // Select exchanges based on preference
-        let (long_exchange, short_exchange, fallback_used) = 
+        let (long_exchange, short_exchange, fallback_used) =
             self.select_optimal_exchange_pair(&suitable_exchanges, criteria)?;
 
         let selection_reason = if fallback_used {
@@ -193,14 +198,18 @@ impl ExchangeAvailabilityService {
         // Check each exchange in super admin config
         for exchange in ExchangeIdEnum::all_supported() {
             let is_available = self.super_admin_config.has_exchange_config(&exchange);
-            
+
             availability.push(ExchangeAvailability {
                 exchange,
                 level: ExchangeAvailabilityLevel::Global,
                 is_available,
                 is_read_only: true, // Super admin APIs are read-only
                 can_trade: false,   // Global level cannot trade
-                api_key_source: if is_available { Some("super_admin".to_string()) } else { None },
+                api_key_source: if is_available {
+                    Some("super_admin".to_string())
+                } else {
+                    None
+                },
                 last_checked: now,
             });
         }
@@ -225,9 +234,12 @@ impl ExchangeAvailabilityService {
         // Check each supported exchange
         for exchange in ExchangeIdEnum::all_supported() {
             let user_api_key = self.find_user_api_key_for_exchange(&user_profile, &exchange);
-            
+
             let (is_available, can_trade) = if let Some(api_key) = user_api_key {
-                (api_key.is_active, api_key.is_active && !api_key.is_read_only)
+                (
+                    api_key.is_active,
+                    api_key.is_active && !api_key.is_read_only,
+                )
             } else {
                 (false, false)
             };
@@ -238,7 +250,11 @@ impl ExchangeAvailabilityService {
                 is_available,
                 is_read_only: user_api_key.map(|k| k.is_read_only).unwrap_or(true),
                 can_trade,
-                api_key_source: if is_available { Some(user_id.to_string()) } else { None },
+                api_key_source: if is_available {
+                    Some(user_id.to_string())
+                } else {
+                    None
+                },
                 last_checked: now,
             });
         }
@@ -254,7 +270,7 @@ impl ExchangeAvailabilityService {
         // For now, group/channel level uses global availability with 2x multiplier
         // In the future, this could support group-specific API configurations
         let mut global_availability = self.get_global_exchange_availability().await?;
-        
+
         // Update level to GroupChannel
         for availability in &mut global_availability {
             availability.level = ExchangeAvailabilityLevel::GroupChannel;
@@ -281,13 +297,22 @@ impl ExchangeAvailabilityService {
         api_key: &UserApiKey,
         exchange: &ExchangeIdEnum,
     ) -> bool {
-        match (&api_key.provider, exchange) {
-            (ApiKeyProvider::Exchange(ExchangeIdEnum::Binance), ExchangeIdEnum::Binance) => true,
-            (ApiKeyProvider::Exchange(ExchangeIdEnum::Bybit), ExchangeIdEnum::Bybit) => true,
-            (ApiKeyProvider::Exchange(ExchangeIdEnum::OKX), ExchangeIdEnum::OKX) => true,
-            (ApiKeyProvider::Exchange(ExchangeIdEnum::Bitget), ExchangeIdEnum::Bitget) => true,
-            _ => false,
-        }
+        matches!(
+            (&api_key.provider, exchange),
+            (
+                ApiKeyProvider::Exchange(ExchangeIdEnum::Binance),
+                ExchangeIdEnum::Binance
+            ) | (
+                ApiKeyProvider::Exchange(ExchangeIdEnum::Bybit),
+                ExchangeIdEnum::Bybit
+            ) | (
+                ApiKeyProvider::Exchange(ExchangeIdEnum::OKX),
+                ExchangeIdEnum::OKX
+            ) | (
+                ApiKeyProvider::Exchange(ExchangeIdEnum::Bitget),
+                ExchangeIdEnum::Bitget
+            )
+        )
     }
 
     /// Select optimal exchange pair for arbitrage
@@ -296,10 +321,8 @@ impl ExchangeAvailabilityService {
         suitable_exchanges: &[&ExchangeAvailability],
         criteria: &ExchangeSelectionCriteria,
     ) -> ArbitrageResult<(ExchangeIdEnum, ExchangeIdEnum, bool)> {
-        let exchanges: Vec<ExchangeIdEnum> = suitable_exchanges
-            .iter()
-            .map(|ex| ex.exchange)
-            .collect();
+        let exchanges: Vec<ExchangeIdEnum> =
+            suitable_exchanges.iter().map(|ex| ex.exchange).collect();
 
         // Try to use preferred exchanges first
         if !criteria.preferred_exchanges.is_empty() {
@@ -378,7 +401,7 @@ impl ExchangeAvailabilityService {
         require_trading: bool,
     ) -> ArbitrageResult<bool> {
         let availability = self.get_available_exchanges(level, context_id).await?;
-        
+
         let long_available = availability
             .iter()
             .find(|ex| ex.exchange == long_exchange)
@@ -408,7 +431,7 @@ impl ExchangeAvailabilityLevel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{UserProfile, ApiKeyProvider};
+    use crate::types::UserProfile;
 
     #[test]
     fn test_exchange_availability_structure() {
@@ -462,8 +485,14 @@ mod tests {
     #[test]
     fn test_exchange_availability_level_cache_key() {
         assert_eq!(ExchangeAvailabilityLevel::Global.to_cache_key(), "global");
-        assert_eq!(ExchangeAvailabilityLevel::Personal.to_cache_key(), "personal");
-        assert_eq!(ExchangeAvailabilityLevel::GroupChannel.to_cache_key(), "group");
+        assert_eq!(
+            ExchangeAvailabilityLevel::Personal.to_cache_key(),
+            "personal"
+        );
+        assert_eq!(
+            ExchangeAvailabilityLevel::GroupChannel.to_cache_key(),
+            "group"
+        );
     }
 
     #[test]
@@ -480,7 +509,7 @@ mod tests {
     fn test_api_key_exchange_compatibility() {
         // This would be tested with a mock service in a full implementation
         let user_profile = UserProfile::new(Some(123456789), Some("testuser".to_string()));
-        
+
         // Test structure - actual compatibility logic would be in the service
         assert_eq!(user_profile.api_keys.len(), 0); // New profile has no API keys
     }
@@ -489,7 +518,7 @@ mod tests {
     fn test_exchange_selection_insufficient_exchanges() {
         // Test that we properly handle cases with insufficient exchanges
         let suitable_exchanges: Vec<&ExchangeAvailability> = vec![];
-        
+
         // This would fail in the actual service method
         assert_eq!(suitable_exchanges.len(), 0);
     }
@@ -508,9 +537,9 @@ mod tests {
 
         let serialized = serde_json::to_string(&availability).unwrap();
         let deserialized: ExchangeAvailability = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(deserialized.exchange, availability.exchange);
         assert_eq!(deserialized.level, availability.level);
         assert_eq!(deserialized.is_available, availability.is_available);
     }
-} 
+}

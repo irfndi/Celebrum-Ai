@@ -2,15 +2,15 @@
 // Task 9.2: Enhanced arbitrage detection with technical analysis confirmation
 
 use crate::log_error;
-use crate::services::core::trading::exchange::ExchangeInterface;
-use crate::services::core::trading::exchange::ExchangeService;
 use crate::services::core::analysis::market_analysis::{
     MarketAnalysisService, OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,
 };
-use crate::services::interfaces::telegram::telegram::TelegramService;
+use crate::services::core::trading::exchange::ExchangeInterface;
+use crate::services::core::trading::exchange::ExchangeService;
 use crate::services::core::user::user_trading_preferences::{
     ExperienceLevel, RiskTolerance, TradingFocus, UserTradingPreferencesService,
 };
+use crate::services::interfaces::telegram::telegram::TelegramService;
 use crate::types::{
     ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum, FundingRateInfo, StructuredTradingPair,
 };
@@ -321,8 +321,8 @@ impl EnhancedOpportunityService {
 
                                 let mut opportunity = ArbitrageOpportunity::new(
                                     pair.clone(),
-                                    long_exchange,    // **REQUIRED**: No longer optional
-                                    short_exchange,   // **REQUIRED**: No longer optional
+                                    long_exchange,  // **REQUIRED**: No longer optional
+                                    short_exchange, // **REQUIRED**: No longer optional
                                     Some(long_rate),
                                     Some(short_rate),
                                     rate_diff,
@@ -366,8 +366,8 @@ impl EnhancedOpportunityService {
         let technical_score = self
             .calculate_technical_confirmation_score(
                 pair,
-                Some(&arbitrage_opportunity.long_exchange),
-                Some(&arbitrage_opportunity.short_exchange),
+                &arbitrage_opportunity.long_exchange,
+                &arbitrage_opportunity.short_exchange,
             )
             .await?;
 
@@ -404,21 +404,14 @@ impl EnhancedOpportunityService {
     async fn calculate_technical_confirmation_score(
         &self,
         pair: &str,
-        long_exchange: Option<&ExchangeIdEnum>,
-        short_exchange: Option<&ExchangeIdEnum>,
+        long_exchange: &ExchangeIdEnum,
+        short_exchange: &ExchangeIdEnum,
     ) -> ArbitrageResult<f64> {
         let mut total_score = 0.0;
         let mut score_count = 0;
 
-        // Get price series for both exchanges if available
-        let exchanges_to_analyze = [long_exchange, short_exchange]
-            .iter()
-            .filter_map(|&ex| ex.map(|e| e.to_string()))
-            .collect::<Vec<_>>();
-
-        if exchanges_to_analyze.is_empty() {
-            return Ok(0.5); // Neutral score if no exchange data
-        }
+        // Get price series for both exchanges
+        let exchanges_to_analyze = vec![long_exchange.to_string(), short_exchange.to_string()];
 
         for exchange_id in &exchanges_to_analyze {
             if let Some(price_series) = self
@@ -490,7 +483,10 @@ impl EnhancedOpportunityService {
         }
 
         let prices: Vec<f64> = price_series.data_points.iter().map(|p| p.price).collect();
-        let volatility = crate::services::core::analysis::market_analysis::MathUtils::standard_deviation(&prices)?;
+        let volatility =
+            crate::services::core::analysis::market_analysis::MathUtils::standard_deviation(
+                &prices,
+            )?;
 
         // Calculate volatility as percentage of mean price
         let mean_price = prices.iter().sum::<f64>() / prices.len() as f64;
@@ -535,10 +531,11 @@ impl EnhancedOpportunityService {
                 return Ok(0.5); // Neutral score for insufficient data
             }
 
-            let correlation = crate::services::core::analysis::market_analysis::MathUtils::price_correlation(
-                &prices1[..min_length],
-                &prices2[..min_length],
-            )?;
+            let correlation =
+                crate::services::core::analysis::market_analysis::MathUtils::price_correlation(
+                    &prices1[..min_length],
+                    &prices2[..min_length],
+                )?;
 
             // Convert correlation to score
             if correlation >= self.config.correlation_threshold {

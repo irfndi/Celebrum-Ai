@@ -10,20 +10,34 @@ use crate::services::core::ai::ai_beta_integration::AIBetaIntegrationService;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use crate::log_info;
 use chrono::Utc;
+use rand;
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use worker::kv::KvStore;
 
+// Constants for technical analysis thresholds
+const FUNDING_RATE_THRESHOLD: f64 = 0.01; // 1% funding rate threshold
+const PRICE_MOMENTUM_THRESHOLD: f64 = 2.0; // 2% price change threshold
+
 /// Group/Channel Opportunity Service for generating group-specific opportunities
 /// Uses group/channel admin's exchange APIs to generate opportunities for group members
 pub struct GroupOpportunityService {
+    /// Service for interacting with cryptocurrency exchanges to fetch market data and execute trades
     exchange_service: Arc<ExchangeService>,
+    /// Service for managing user profiles, subscription tiers, and user-specific configurations
     user_profile_service: Arc<UserProfileService>,
+    /// Service for validating user access levels and permissions for different opportunity types
     user_access_service: Arc<UserAccessService>,
+    /// Service for generating personalized trading opportunities for individual users
     personal_opportunity_service: Arc<PersonalOpportunityService>,
+    /// Optional AI service for enhancing opportunities with artificial intelligence analysis
+    /// When present, provides AI-powered market sentiment, risk assessment, and opportunity scoring
     ai_service: Option<Arc<AIBetaIntegrationService>>,
+    /// Key-value store for caching group admin exchange credentials and opportunity data
     kv_store: KvStore,
+    /// Cache time-to-live in seconds for storing group admin exchange API credentials
+    /// Default is 600 seconds (10 minutes) to balance performance and security
     cache_ttl_seconds: u64,
 }
 
@@ -101,7 +115,10 @@ impl GroupOpportunityService {
 
         // Generate arbitrage opportunities using admin's exchanges
         let mut opportunities = Vec::new();
-        let symbols_to_check = symbols.unwrap_or_else(|| self.get_default_symbols());
+        let symbols_to_check = match symbols {
+            Some(provided_symbols) => provided_symbols,
+            None => self.get_default_symbols(),
+        };
 
         for symbol in symbols_to_check {
             let symbol_opportunities = self
@@ -116,7 +133,7 @@ impl GroupOpportunityService {
         // Apply AI enhancement if available
         if let Some(ai_service) = &self.ai_service {
             opportunities = self
-                .enhance_group_opportunities_with_ai(group_admin_id, opportunities, ai_service)
+                .enhance_group_opportunities_with_ai(group_admin_id, opportunities, ai_service.as_ref())
                 .await?;
         }
 
@@ -186,7 +203,10 @@ impl GroupOpportunityService {
 
         // Generate technical opportunities for each admin exchange
         let mut opportunities = Vec::new();
-        let symbols_to_check = symbols.unwrap_or_else(|| self.get_default_symbols());
+        let symbols_to_check = match symbols {
+            Some(provided_symbols) => provided_symbols,
+            None => self.get_default_symbols(),
+        };
 
         for (exchange_id, _credentials) in &admin_exchanges {
             for symbol in &symbols_to_check {
@@ -205,7 +225,7 @@ impl GroupOpportunityService {
         // Apply AI enhancement if available
         if let Some(ai_service) = &self.ai_service {
             opportunities = self
-                .enhance_group_technical_opportunities_with_ai(group_admin_id, opportunities, ai_service)
+                .enhance_group_technical_opportunities_with_ai(group_admin_id, opportunities, ai_service.as_ref())
                 .await?;
         }
 
@@ -279,9 +299,10 @@ impl GroupOpportunityService {
         if let Some(profile) = user_profile {
             if profile.has_trading_api_keys() && remaining.0 > 0 {
                 // Get personal opportunities using PersonalOpportunityService
+                // Pass slices instead of cloning vectors for better performance
                 let (personal_arbitrage, personal_technical) = self
                     .personal_opportunity_service
-                    .get_hybrid_opportunities(user_id, chat_context, final_arbitrage.clone(), final_technical.clone())
+                    .get_hybrid_opportunities_with_slices(user_id, chat_context, &final_arbitrage, &final_technical)
                     .await?;
 
                 final_arbitrage = personal_arbitrage;
@@ -603,17 +624,17 @@ impl GroupOpportunityService {
     fn determine_technical_signal(&self, ticker: &Ticker, funding_rate: &Option<FundingRateInfo>) -> String {
         // Simple technical signal determination
         if let Some(fr) = funding_rate {
-            if fr.funding_rate > 0.01 {
+            if fr.funding_rate > FUNDING_RATE_THRESHOLD {
                 return "SHORT".to_string();
-            } else if fr.funding_rate < -0.01 {
+            } else if fr.funding_rate < -FUNDING_RATE_THRESHOLD {
                 return "LONG".to_string();
             }
         }
 
         // Use price momentum as fallback
-        if ticker.price_change_percent > 2.0 {
+        if ticker.price_change_percent > PRICE_MOMENTUM_THRESHOLD {
             "LONG".to_string()
-        } else if ticker.price_change_percent < -2.0 {
+        } else if ticker.price_change_percent < -PRICE_MOMENTUM_THRESHOLD {
             "SHORT".to_string()
         } else {
             "NEUTRAL".to_string()
@@ -665,16 +686,16 @@ impl GroupOpportunityService {
     fn analyze_market_conditions(&self, ticker: &Ticker, funding_rate: &Option<FundingRateInfo>) -> String {
         let mut conditions = Vec::new();
 
-        if ticker.price_change_percent > 2.0 {
+        if ticker.price_change_percent > PRICE_MOMENTUM_THRESHOLD {
             conditions.push("Bullish momentum");
-        } else if ticker.price_change_percent < -2.0 {
+        } else if ticker.price_change_percent < -PRICE_MOMENTUM_THRESHOLD {
             conditions.push("Bearish momentum");
         }
 
         if let Some(fr) = funding_rate {
-            if fr.funding_rate > 0.01 {
+            if fr.funding_rate > FUNDING_RATE_THRESHOLD {
                 conditions.push("High funding rate");
-            } else if fr.funding_rate < -0.01 {
+            } else if fr.funding_rate < -FUNDING_RATE_THRESHOLD {
                 conditions.push("Negative funding rate");
             }
         }
@@ -718,7 +739,7 @@ impl GroupOpportunityService {
         &self,
         group_admin_id: &str,
         opportunities: Vec<ArbitrageOpportunity>,
-        ai_service: &mut AIBetaIntegrationService,
+        ai_service: &AIBetaIntegrationService,
     ) -> ArbitrageResult<Vec<ArbitrageOpportunity>> {
         // Check if group admin has AI access through UserAccessService
         let user_profile = self.user_profile_service.get_user_profile(group_admin_id).await?;
@@ -776,7 +797,7 @@ impl GroupOpportunityService {
         &self,
         group_admin_id: &str,
         opportunities: Vec<TechnicalOpportunity>,
-        ai_service: &mut AIBetaIntegrationService,
+        ai_service: &AIBetaIntegrationService,
     ) -> ArbitrageResult<Vec<TechnicalOpportunity>> {
         // Check if group admin has AI access
         let user_profile = self.user_profile_service.get_user_profile(group_admin_id).await?;
@@ -948,106 +969,324 @@ impl GroupOpportunityService {
 mod tests {
     use super::*;
     use crate::types::*;
+    use crate::services::{D1Service, UserProfileService, UserAccessService, ExchangeService};
+    use chrono::Utc;
+    use worker::{Env, kv::KvStore};
+
+    // Test helper functions
+    fn create_test_env() -> Env {
+        Env::default()
+    }
+
+    fn create_test_kv_store() -> KvStore {
+        KvStore::default()
+    }
+
+    fn create_test_d1_service() -> D1Service {
+        D1Service::new(&create_test_env()).unwrap()
+    }
+
+    fn create_test_exchange_service() -> Arc<ExchangeService> {
+        Arc::new(ExchangeService::new(&create_test_env()).unwrap())
+    }
+
+    fn create_test_user_profile_service() -> Arc<UserProfileService> {
+        Arc::new(UserProfileService::new(create_test_d1_service()))
+    }
+
+    fn create_test_user_access_service() -> Arc<UserAccessService> {
+        Arc::new(UserAccessService::new(
+            create_test_d1_service(),
+            UserProfileService::new(create_test_d1_service()),
+            create_test_kv_store(),
+        ))
+    }
+
+    fn create_test_personal_opportunity_service() -> Arc<PersonalOpportunityService> {
+        Arc::new(PersonalOpportunityService::new(
+            create_test_exchange_service(),
+            create_test_user_profile_service(),
+            create_test_user_access_service(),
+            create_test_kv_store(),
+        ))
+    }
+
+    fn create_test_group_opportunity_service() -> GroupOpportunityService {
+        GroupOpportunityService {
+            exchange_service: create_test_exchange_service(),
+            user_profile_service: create_test_user_profile_service(),
+            user_access_service: create_test_user_access_service(),
+            personal_opportunity_service: create_test_personal_opportunity_service(),
+            ai_service: None,
+            kv_store: create_test_kv_store(),
+            cache_ttl_seconds: 600,
+        }
+    }
+
+    fn create_test_arbitrage_opportunity(id: &str, symbol: &str) -> ArbitrageOpportunity {
+        ArbitrageOpportunity {
+            id: id.to_string(),
+            symbol: symbol.to_string(),
+            buy_exchange: ExchangeIdEnum::Binance,
+            sell_exchange: ExchangeIdEnum::Bybit,
+            buy_price: 50000.0,
+            sell_price: 50100.0,
+            price_difference: 100.0,
+            price_difference_percent: 0.2,
+            potential_profit_value: 100.0,
+            potential_profit_percent: 0.2,
+            arbitrage_type: ArbitrageType::Spot,
+            confidence_score: 0.8,
+            estimated_execution_time: 30,
+            risk_factors: vec![],
+            created_at: Utc::now().timestamp() as u64,
+            expires_at: (Utc::now().timestamp() + 300) as u64,
+            funding_rates: None,
+            volume_24h: 1000000.0,
+            liquidity_score: 0.9,
+        }
+    }
+
+    fn create_test_ticker(symbol: &str, price: f64, change_percent: f64) -> Ticker {
+        Ticker {
+            symbol: symbol.to_string(),
+            last_price: price,
+            price_change_percent: change_percent,
+            volume_24h: 1000000.0,
+            high_24h: price * 1.02,
+            low_24h: price * 0.98,
+            bid_price: price - 10.0,
+            ask_price: price + 10.0,
+            timestamp: Utc::now().timestamp() as u64,
+        }
+    }
 
     #[test]
     fn test_group_opportunity_service_creation() {
-        // Test that GroupOpportunityService can be created
-        // This is a placeholder test - full testing would require mock services
-        assert!(true);
+        // Test that GroupOpportunityService can be created with all required dependencies
+        let service = create_test_group_opportunity_service();
+        
+        // Verify service has correct cache TTL
+        assert_eq!(service.cache_ttl_seconds, 600);
+        
+        // Verify AI service is initially None
+        assert!(service.ai_service.is_none());
+        
+        // Verify service constants are correct
+        assert_eq!(GroupOpportunityService::GROUP_OPPORTUNITIES_PREFIX, "group_opportunities");
+        assert_eq!(GroupOpportunityService::GROUP_ADMIN_CACHE_PREFIX, "group_admin_apis");
+        assert_eq!(GroupOpportunityService::GROUP_CACHE_TTL, 600);
     }
 
     #[test]
     fn test_group_multiplier_logic() {
-        // Test that group multiplier creates 2x opportunities
-        let service = GroupOpportunityService {
-            exchange_service: Arc::new(ExchangeService::new(&Env::default()).unwrap()),
-            user_profile_service: Arc::new(UserProfileService::new(D1Service::new(&Env::default()).unwrap())),
-            user_access_service: Arc::new(UserAccessService::new(
-                D1Service::new(&Env::default()).unwrap(),
-                UserProfileService::new(D1Service::new(&Env::default()).unwrap()),
-                KvStore::default(),
-            )),
-            personal_opportunity_service: Arc::new(PersonalOpportunityService::new(
-                Arc::new(ExchangeService::new(&Env::default()).unwrap()),
-                Arc::new(UserProfileService::new(D1Service::new(&Env::default()).unwrap())),
-                Arc::new(UserAccessService::new(
-                    D1Service::new(&Env::default()).unwrap(),
-                    UserProfileService::new(D1Service::new(&Env::default()).unwrap()),
-                    KvStore::default(),
-                )),
-                KvStore::default(),
-            )),
-            ai_service: None,
-            kv_store: KvStore::default(),
-            cache_ttl_seconds: 600,
-        };
-
+        // Test that group multiplier creates 2x opportunities with proper variations
+        let service = create_test_group_opportunity_service();
         let original_opportunities = vec![
-            ArbitrageOpportunity {
-                id: "test_1".to_string(),
-                symbol: "BTCUSDT".to_string(),
-                buy_exchange: ExchangeIdEnum::Binance,
-                sell_exchange: ExchangeIdEnum::Bybit,
-                buy_price: 50000.0,
-                sell_price: 50100.0,
-                price_difference: 100.0,
-                price_difference_percent: 0.2,
-                potential_profit_value: 100.0,
-                potential_profit_percent: 0.2,
-                arbitrage_type: ArbitrageType::Spot,
-                confidence_score: 0.8,
-                estimated_execution_time: 30,
-                risk_factors: vec![],
-                created_at: Utc::now().timestamp() as u64,
-                expires_at: (Utc::now().timestamp() + 300) as u64,
-                funding_rates: None,
-                volume_24h: 1000000.0,
-                liquidity_score: 0.9,
-            }
+            create_test_arbitrage_opportunity("test_1", "BTCUSDT"),
+            create_test_arbitrage_opportunity("test_2", "ETHUSDT"),
         ];
 
-        let multiplied = service.apply_group_multiplier(original_opportunities);
-        assert_eq!(multiplied.len(), 2); // Should have 2x opportunities
+        let multiplied = service.apply_group_multiplier(original_opportunities.clone());
+        
+        // Should have 2x opportunities (original + group variations)
+        assert_eq!(multiplied.len(), 4);
+        
+        // Verify group multiplier IDs are created correctly
+        let group_ids: Vec<_> = multiplied.iter()
+            .filter(|opp| opp.id.contains("_group_2x"))
+            .collect();
+        assert_eq!(group_ids.len(), 2);
+        
+        // Verify opportunities are sorted by potential profit
+        for i in 1..multiplied.len() {
+            assert!(multiplied[i-1].potential_profit_percent >= multiplied[i].potential_profit_percent);
+        }
+        
+        // Verify limited to reasonable number (20 max)
+        let many_opportunities: Vec<_> = (0..30)
+            .map(|i| create_test_arbitrage_opportunity(&format!("test_{}", i), "BTCUSDT"))
+            .collect();
+        let multiplied_many = service.apply_group_multiplier(many_opportunities);
+        assert!(multiplied_many.len() <= 20);
     }
 
     #[test]
     fn test_technical_signal_determination() {
-        let service = GroupOpportunityService {
-            exchange_service: Arc::new(ExchangeService::new(&Env::default()).unwrap()),
-            user_profile_service: Arc::new(UserProfileService::new(D1Service::new(&Env::default()).unwrap())),
-            user_access_service: Arc::new(UserAccessService::new(
-                D1Service::new(&Env::default()).unwrap(),
-                UserProfileService::new(D1Service::new(&Env::default()).unwrap()),
-                KvStore::default(),
-            )),
-            personal_opportunity_service: Arc::new(PersonalOpportunityService::new(
-                Arc::new(ExchangeService::new(&Env::default()).unwrap()),
-                Arc::new(UserProfileService::new(D1Service::new(&Env::default()).unwrap())),
-                Arc::new(UserAccessService::new(
-                    D1Service::new(&Env::default()).unwrap(),
-                    UserProfileService::new(D1Service::new(&Env::default()).unwrap()),
-                    KvStore::default(),
-                )),
-                KvStore::default(),
-            )),
-            ai_service: None,
-            kv_store: KvStore::default(),
-            cache_ttl_seconds: 600,
-        };
+        let service = create_test_group_opportunity_service();
+        
+        // Test LONG signal with positive price momentum
+        let bullish_ticker = create_test_ticker("BTCUSDT", 50000.0, 3.0);
+        let signal = service.determine_technical_signal(&bullish_ticker, &None);
+        assert_eq!(signal, "LONG");
+        
+        // Test SHORT signal with negative price momentum
+        let bearish_ticker = create_test_ticker("ETHUSDT", 3000.0, -3.0);
+        let signal = service.determine_technical_signal(&bearish_ticker, &None);
+        assert_eq!(signal, "SHORT");
+        
+        // Test NEUTRAL signal with small price change
+        let neutral_ticker = create_test_ticker("ADAUSDT", 1.0, 0.5);
+        let signal = service.determine_technical_signal(&neutral_ticker, &None);
+        assert_eq!(signal, "NEUTRAL");
+        
+        // Test funding rate override - HIGH positive funding rate should signal SHORT
+        let high_funding = Some(FundingRateInfo {
+            symbol: "BTCUSDT".to_string(),
+            funding_rate: 0.02, // 2% funding rate
+            next_funding_time: chrono::Utc::now().timestamp() as u64 + 3600,
+            mark_price: 50000.0,
+        });
+        let signal = service.determine_technical_signal(&bullish_ticker, &high_funding);
+        assert_eq!(signal, "SHORT");
+        
+        // Test negative funding rate should signal LONG
+        let negative_funding = Some(FundingRateInfo {
+            symbol: "BTCUSDT".to_string(),
+            funding_rate: -0.02, // -2% funding rate
+            next_funding_time: chrono::Utc::now().timestamp() as u64 + 3600,
+            mark_price: 50000.0,
+        });
+        let signal = service.determine_technical_signal(&bullish_ticker, &negative_funding);
+        assert_eq!(signal, "LONG");
+    }
 
-        let ticker = Ticker {
+    #[test]
+    fn test_confidence_score_calculation() {
+        let service = create_test_group_opportunity_service();
+        
+        // Test high volume ticker
+        let high_volume_ticker = Ticker {
             symbol: "BTCUSDT".to_string(),
             last_price: 50000.0,
-            price_change_percent: 3.0,
-            volume_24h: 1000000.0,
+            price_change_percent: 2.5,
+            volume_24h: 2000000.0, // High volume
             high_24h: 51000.0,
             low_24h: 49000.0,
             bid_price: 49990.0,
             ask_price: 50010.0,
-            timestamp: Utc::now().timestamp() as u64,
+            timestamp: chrono::Utc::now().timestamp() as u64,
         };
+        
+        let high_funding = Some(FundingRateInfo {
+            symbol: "BTCUSDT".to_string(),
+            funding_rate: 0.02, // High funding rate
+            next_funding_time: chrono::Utc::now().timestamp() as u64 + 3600,
+            mark_price: 50000.0,
+        });
+        
+        let confidence = service.calculate_confidence_score(&high_volume_ticker, &high_funding);
+        assert!(confidence > 0.8); // Should be high confidence
+        
+        // Test low volume ticker
+        let low_volume_ticker = Ticker {
+            symbol: "ALTCOIN".to_string(),
+            last_price: 1.0,
+            price_change_percent: 0.5,
+            volume_24h: 50000.0, // Low volume
+            high_24h: 1.01,
+            low_24h: 0.99,
+            bid_price: 0.999,
+            ask_price: 1.001,
+            timestamp: chrono::Utc::now().timestamp() as u64,
+        };
+        
+        let low_confidence = service.calculate_confidence_score(&low_volume_ticker, &None);
+        assert!(low_confidence < 0.7); // Should be lower confidence
+    }
 
-        let signal = service.determine_technical_signal(&ticker, &None);
-        assert_eq!(signal, "LONG");
+    #[test]
+    fn test_arbitrage_confidence_calculation() {
+        let service = create_test_group_opportunity_service();
+        
+        // Test high price difference
+        let high_diff_confidence = service.calculate_arbitrage_confidence(2.0); // 2%
+        assert!(high_diff_confidence > 0.3);
+        
+        // Test low price difference
+        let low_diff_confidence = service.calculate_arbitrage_confidence(0.1); // 0.1%
+        assert!(low_diff_confidence < 0.1);
+        
+        // Test maximum confidence cap
+        let max_diff_confidence = service.calculate_arbitrage_confidence(10.0); // 10%
+        assert_eq!(max_diff_confidence, 1.0); // Should be capped at 1.0
+    }
+
+    #[test]
+    fn test_risk_factors_identification() {
+        let service = create_test_group_opportunity_service();
+        
+        // Test low liquidity risk
+        let low_liquidity_ticker_a = create_test_ticker("LOWLIQ", 100.0, 1.0);
+        let mut low_liquidity_ticker_a_modified = low_liquidity_ticker_a.clone();
+        low_liquidity_ticker_a_modified.volume_24h = 50000.0; // Low volume
+        
+        let low_liquidity_ticker_b = create_test_ticker("LOWLIQ", 101.0, 1.0);
+        let mut low_liquidity_ticker_b_modified = low_liquidity_ticker_b.clone();
+        low_liquidity_ticker_b_modified.volume_24h = 60000.0; // Low volume
+        
+        let risks = service.identify_risk_factors(&low_liquidity_ticker_a_modified, &low_liquidity_ticker_b_modified);
+        assert!(risks.contains(&"Low liquidity".to_string()));
+        
+        // Test high volatility divergence risk
+        let volatile_ticker_a = create_test_ticker("VOLATILE", 100.0, 10.0); // +10%
+        let volatile_ticker_b = create_test_ticker("VOLATILE", 101.0, -5.0); // -5%
+        
+        let volatility_risks = service.identify_risk_factors(&volatile_ticker_a, &volatile_ticker_b);
+        assert!(volatility_risks.contains(&"High volatility divergence".to_string()));
+        
+        // Test no risks scenario
+        let stable_ticker_a = create_test_ticker("STABLE", 100.0, 1.0);
+        let mut stable_ticker_a_modified = stable_ticker_a.clone();
+        stable_ticker_a_modified.volume_24h = 2000000.0; // High volume
+        
+        let stable_ticker_b = create_test_ticker("STABLE", 101.0, 1.2);
+        let mut stable_ticker_b_modified = stable_ticker_b.clone();
+        stable_ticker_b_modified.volume_24h = 2100000.0; // High volume
+        
+        let no_risks = service.identify_risk_factors(&stable_ticker_a_modified, &stable_ticker_b_modified);
+        assert!(no_risks.is_empty());
+    }
+
+    #[test]
+    fn test_liquidity_score_calculation() {
+        let service = create_test_group_opportunity_service();
+        
+        // Test high liquidity
+        let high_vol_ticker_a = create_test_ticker("HIGHVOL", 100.0, 1.0);
+        let mut high_vol_ticker_a_modified = high_vol_ticker_a.clone();
+        high_vol_ticker_a_modified.volume_24h = 5000000.0;
+        
+        let high_vol_ticker_b = create_test_ticker("HIGHVOL", 101.0, 1.0);
+        let mut high_vol_ticker_b_modified = high_vol_ticker_b.clone();
+        high_vol_ticker_b_modified.volume_24h = 5000000.0;
+        
+        let high_liquidity = service.calculate_liquidity_score(&high_vol_ticker_a_modified, &high_vol_ticker_b_modified);
+        assert_eq!(high_liquidity, 1.0); // Should be capped at 1.0
+        
+        // Test low liquidity
+        let low_vol_ticker_a = create_test_ticker("LOWVOL", 100.0, 1.0);
+        let mut low_vol_ticker_a_modified = low_vol_ticker_a.clone();
+        low_vol_ticker_a_modified.volume_24h = 100000.0;
+        
+        let low_vol_ticker_b = create_test_ticker("LOWVOL", 101.0, 1.0);
+        let mut low_vol_ticker_b_modified = low_vol_ticker_b.clone();
+        low_vol_ticker_b_modified.volume_24h = 100000.0;
+        
+        let low_liquidity = service.calculate_liquidity_score(&low_vol_ticker_a_modified, &low_vol_ticker_b_modified);
+        assert!(low_liquidity < 0.2);
+    }
+
+    #[test]
+    fn test_default_symbols() {
+        let service = create_test_group_opportunity_service();
+        let symbols = service.get_default_symbols();
+        
+        assert_eq!(symbols.len(), 5);
+        assert!(symbols.contains(&"BTCUSDT".to_string()));
+        assert!(symbols.contains(&"ETHUSDT".to_string()));
+        assert!(symbols.contains(&"BNBUSDT".to_string()));
+        assert!(symbols.contains(&"ADAUSDT".to_string()));
+        assert!(symbols.contains(&"SOLUSDT".to_string()));
     }
 } 

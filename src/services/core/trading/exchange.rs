@@ -101,6 +101,16 @@ pub trait ExchangeInterface {
         api_key: &str,
         secret: &str,
     ) -> ArbitrageResult<Value>;
+
+    #[allow(async_fn_in_trait)]
+    async fn test_api_connection_with_options(
+        &self,
+        exchange_id: &str,
+        api_key: &str,
+        secret: &str,
+        leverage: Option<i32>,
+        exchange_type: Option<&str>,
+    ) -> ArbitrageResult<Value>;
 }
 
 // RBAC-protected exchange operations are now handled by UserExchangeApiService
@@ -176,6 +186,7 @@ impl ApiKeySource {
     }
 }
 
+#[allow(dead_code)]
 pub struct ExchangeService {
     client: Client,
     kv: worker::kv::KvStore,
@@ -208,6 +219,7 @@ impl ExchangeService {
     }
 
     /// Check if user has required permission using database-based RBAC
+    #[allow(dead_code)]
     async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
         // If UserProfile service is not available, deny access for security
         let Some(ref user_profile_service) = self.user_profile_service else {
@@ -838,8 +850,8 @@ impl ExchangeInterface for ExchangeService {
                 "get_trading_fees not implemented for exchange: {}",
                 exchange_id
             ))),
+        }
     }
-}
 
     async fn test_api_connection(
         &self,
@@ -847,26 +859,37 @@ impl ExchangeInterface for ExchangeService {
         api_key: &str,
         secret: &str,
     ) -> ArbitrageResult<Value> {
+        // Use default values for backward compatibility
+        self.test_api_connection_with_options(exchange_id, api_key, secret, None, None)
+            .await
+    }
+
+    async fn test_api_connection_with_options(
+        &self,
+        exchange_id: &str,
+        api_key: &str,
+        secret: &str,
+        leverage: Option<i32>,
+        exchange_type: Option<&str>,
+    ) -> ArbitrageResult<Value> {
         let credentials = ExchangeCredentials {
             api_key: api_key.to_string(),
             secret: secret.to_string(),
-            default_leverage: 1,
-            exchange_type: "spot".to_string(),
+            default_leverage: leverage.unwrap_or(1),
+            exchange_type: exchange_type.unwrap_or("spot").to_string(),
         };
 
         match exchange_id {
             "binance" => {
                 // Test Binance API connection by getting account info
-                match self.binance_request(
-                    "/api/v3/account",
-                    Method::GET,
-                    None,
-                    Some(&credentials),
-                ).await {
+                match self
+                    .binance_request("/api/v3/account", Method::GET, None, Some(&credentials))
+                    .await
+                {
                     Ok(response) => {
                         // Check if we can read account data
                         let can_read = response.get("balances").is_some();
-                        
+
                         // Check permissions from response
                         let permissions = response.get("permissions").and_then(|p| p.as_array());
                         let can_trade = permissions
@@ -885,29 +908,30 @@ impl ExchangeInterface for ExchangeService {
                             }
                         }))
                     }
-                    Err(e) => {
-                        Ok(serde_json::json!({
-                            "exchange": "binance",
-                            "status": "error",
-                            "can_read": false,
-                            "can_trade": false,
-                            "error": e.to_string()
-                        }))
-                    }
+                    Err(e) => Ok(serde_json::json!({
+                        "exchange": "binance",
+                        "status": "error",
+                        "can_read": false,
+                        "can_trade": false,
+                        "error": e.to_string()
+                    })),
                 }
             }
             "bybit" => {
                 // Test Bybit API connection by getting account info
-                match self.bybit_request(
-                    "/v5/account/wallet-balance",
-                    Method::GET,
-                    Some(serde_json::json!({"accountType": "UNIFIED"})),
-                    Some(&credentials),
-                ).await {
+                match self
+                    .bybit_request(
+                        "/v5/account/wallet-balance",
+                        Method::GET,
+                        Some(serde_json::json!({"accountType": "UNIFIED"})),
+                        Some(&credentials),
+                    )
+                    .await
+                {
                     Ok(response) => {
                         // Check if we can read account data
                         let can_read = response.get("result").is_some();
-                        
+
                         // For Bybit, assume trading is available if we can read account
                         let can_trade = can_read;
 
@@ -923,15 +947,13 @@ impl ExchangeInterface for ExchangeService {
                             }
                         }))
                     }
-                    Err(e) => {
-                        Ok(serde_json::json!({
-                            "exchange": "bybit",
-                            "status": "error",
-                            "can_read": false,
-                            "can_trade": false,
-                            "error": e.to_string()
-                        }))
-                    }
+                    Err(e) => Ok(serde_json::json!({
+                        "exchange": "bybit",
+                        "status": "error",
+                        "can_read": false,
+                        "can_trade": false,
+                        "error": e.to_string()
+                    })),
                 }
             }
             _ => Err(ArbitrageError::not_implemented(format!(

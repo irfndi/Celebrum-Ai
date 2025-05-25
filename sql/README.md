@@ -44,7 +44,7 @@ This directory contains database migrations for the ArbEdge trading platform, ma
 - Audit log entry for superadmin creation
 
 ### Migration 004: Invitation System Foundation (2025-01-28)
-**File**: `migrations/004_test_minimal.sql`
+**File**: `migrations/004_test_minimal.sql` *(Note: Consider renaming to `004_invitation_foundation.sql` for clarity)*
 **Status**: ✅ Applied to Production
 **Description**: Creates basic invitation_codes table for invitation system foundation
 
@@ -67,7 +67,7 @@ This directory contains database migrations for the ArbEdge trading platform, ma
 - 14 configuration entries for invitation system management
 
 ## Migration Status (Production)
-- **Total Queries Executed**: 148+ (47 + 93 + 2 + 8)
+- **Total Queries Executed**: 150+ (47 + 93 + 2 + 8)
 - **Database Size**: 0.66 MB
 - **Tables Created**: 28+ tables plus indexes and views
 - **RBAC System**: ✅ **FULLY OPERATIONAL**

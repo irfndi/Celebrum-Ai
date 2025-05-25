@@ -3,6 +3,7 @@
 use crate::services::D1Service;
 use crate::types::{ExchangeIdEnum, InvitationCode, UserApiKey, UserProfile, UserSession};
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use worker::console_log;
 use worker::kv::KvStore;
 // use std::collections::HashMap; // TODO: Re-enable when implementing HashMap functionality
 
@@ -277,17 +278,12 @@ impl UserProfileService {
     }
 
     pub async fn validate_and_use_invitation_code(&self, code: &str) -> ArbitrageResult<()> {
-        // Check KV cache first for fast validation
-        let mut invitation = match self.get_invitation_code_from_cache(code).await? {
-            Some(inv) => inv,
-            None => {
-                // Get from D1 if not in cache
-                self.d1_service
-                    .get_invitation_code(code)
-                    .await?
-                    .ok_or_else(|| ArbitrageError::validation_error("Invalid invitation code"))?
-            }
-        };
+        // Always get from D1 for authoritative data to ensure consistency
+        let mut invitation = self
+            .d1_service
+            .get_invitation_code(code)
+            .await?
+            .ok_or_else(|| ArbitrageError::validation_error("Invalid invitation code"))?;
 
         if !invitation.can_be_used() {
             return Err(ArbitrageError::validation_error(
@@ -297,9 +293,15 @@ impl UserProfileService {
 
         invitation.use_code();
 
-        // Update in both D1 and cache
+        // Update D1 first (authoritative source)
         self.d1_service.update_invitation_code(&invitation).await?;
-        self.store_invitation_code(&invitation).await?;
+
+        // Update cache after successful D1 update (best effort)
+        // If cache update fails, it's not critical as D1 is authoritative
+        if let Err(e) = self.store_invitation_code(&invitation).await {
+            // Log the cache update failure but don't fail the operation
+            console_log!("⚠️ Cache update failed for invitation code {}: {}", code, e);
+        }
 
         Ok(())
     }

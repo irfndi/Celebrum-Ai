@@ -13,6 +13,7 @@ use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use worker::kv::KvStore;
+use secrecy::{SecretString, ExposeSecret};
 
 /// User Exchange API Management Service
 /// Provides secure CRUD operations, validation, and compatibility checking for user exchange APIs
@@ -21,7 +22,7 @@ pub struct UserExchangeApiService {
     exchange_service: Arc<ExchangeService>,
     d1_service: Arc<D1Service>,
     kv_store: KvStore,
-    encryption_key: String,
+    encryption_key: SecretString,
 }
 
 /// API Key Validation Result
@@ -94,7 +95,7 @@ impl UserExchangeApiService {
             exchange_service,
             d1_service,
             kv_store,
-            encryption_key,
+            encryption_key: SecretString::new(encryption_key),
         }
     }
 
@@ -444,39 +445,70 @@ impl UserExchangeApiService {
         }
     }
 
-    /// Simple encryption for API keys (using XOR with key for demo - use proper encryption in production)
+    /// AES-GCM encryption for API keys with secure key derivation
     fn encrypt_string(&self, plaintext: &str) -> ArbitrageResult<String> {
+        use aes_gcm::{Aes256Gcm, Key, Nonce, KeyInit, AeadCore, Aead};
         use base64::{Engine as _, engine::general_purpose};
+        use sha2::{Sha256, Digest};
+        use rand::rngs::OsRng;
         
-        let key_bytes = self.encryption_key.as_bytes();
-        let plaintext_bytes = plaintext.as_bytes();
+        // Derive a 256-bit key from the encryption key using SHA-256
+        let mut hasher = Sha256::new();
+        hasher.update(self.encryption_key.expose_secret().as_bytes());
+        let key_bytes = hasher.finalize();
+        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
         
-        let encrypted: Vec<u8> = plaintext_bytes
-            .iter()
-            .enumerate()
-            .map(|(i, &byte)| byte ^ key_bytes[i % key_bytes.len()])
-            .collect();
+        // Create cipher instance
+        let cipher = Aes256Gcm::new(key);
         
-        Ok(general_purpose::STANDARD.encode(encrypted))
+        // Generate a random 96-bit nonce
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        
+        // Encrypt the plaintext
+        let ciphertext = cipher.encrypt(&nonce, plaintext.as_bytes())
+            .map_err(|e| ArbitrageError::parse_error(format!("Encryption failed: {}", e)))?;
+        
+        // Combine nonce + ciphertext and encode as base64
+        let mut encrypted_data = nonce.to_vec();
+        encrypted_data.extend_from_slice(&ciphertext);
+        
+        Ok(general_purpose::STANDARD.encode(encrypted_data))
     }
 
-    /// Simple decryption for API keys
+    /// AES-GCM decryption for API keys
     fn decrypt_string(&self, encrypted: &str) -> ArbitrageResult<String> {
+        use aes_gcm::{Aes256Gcm, Key, Nonce, KeyInit, Aead};
         use base64::{Engine as _, engine::general_purpose};
+        use sha2::{Sha256, Digest};
         
-        let encrypted_bytes = general_purpose::STANDARD.decode(encrypted)
+        // Decode the base64 encrypted data
+        let encrypted_data = general_purpose::STANDARD.decode(encrypted)
             .map_err(|e| ArbitrageError::parse_error(format!("Failed to decode encrypted string: {}", e)))?;
         
-        let key_bytes = self.encryption_key.as_bytes();
+        // Ensure we have at least nonce (12 bytes) + some ciphertext
+        if encrypted_data.len() < 12 {
+            return Err(ArbitrageError::parse_error("Invalid encrypted data length".to_string()));
+        }
         
-        let decrypted: Vec<u8> = encrypted_bytes
-            .iter()
-            .enumerate()
-            .map(|(i, &byte)| byte ^ key_bytes[i % key_bytes.len()])
-            .collect();
+        // Derive the same 256-bit key from the encryption key using SHA-256
+        let mut hasher = Sha256::new();
+        hasher.update(self.encryption_key.expose_secret().as_bytes());
+        let key_bytes = hasher.finalize();
+        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
         
-        String::from_utf8(decrypted)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to decrypt string: {}", e)))
+        // Create cipher instance
+        let cipher = Aes256Gcm::new(key);
+        
+        // Extract nonce (first 12 bytes) and ciphertext (remaining bytes)
+        let (nonce_bytes, ciphertext) = encrypted_data.split_at(12);
+        let nonce = Nonce::from_slice(nonce_bytes);
+        
+        // Decrypt the ciphertext
+        let plaintext = cipher.decrypt(nonce, ciphertext)
+            .map_err(|e| ArbitrageError::parse_error(format!("Decryption failed: {}", e)))?;
+        
+        String::from_utf8(plaintext)
+            .map_err(|e| ArbitrageError::parse_error(format!("Failed to convert decrypted data to string: {}", e)))
     }
 
     /// Cache validation result
@@ -560,7 +592,7 @@ mod tests {
             exchange_service: Arc::new(ExchangeService::new(&Env::default()).unwrap()),
             d1_service: Arc::new(D1Service::new(&Env::default()).unwrap()),
             kv_store: KvStore::default(),
-            encryption_key: "test_encryption_key_123".to_string(),
+            encryption_key: SecretString::new("fake_test_encryption_key_for_testing_only".to_string()),
         };
 
         let original = "test_api_key_12345";

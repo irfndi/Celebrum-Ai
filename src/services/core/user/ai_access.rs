@@ -25,6 +25,45 @@ impl AIAccessService {
         }
     }
 
+    /// Helper function to extract f64 field from database row
+    fn get_field_as_f64(row: &Value, field: &str, default: f64) -> f64 {
+        row.get(field)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(default)
+    }
+
+    /// Helper function to extract u32 field from database row
+    fn get_field_as_u32(row: &Value, field: &str, default: u32) -> u32 {
+        Self::get_field_as_f64(row, field, default as f64) as u32
+    }
+
+    /// Helper function to extract u64 field from database row
+    fn get_field_as_u64(row: &Value, field: &str, default: u64) -> u64 {
+        Self::get_field_as_f64(row, field, default as f64) as u64
+    }
+
+    /// Helper function to extract string field from database row
+    fn get_field_as_string(row: &Value, field: &str) -> Option<String> {
+        row.get(field)
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    }
+
+    /// Helper function to extract JSON field as HashMap from database row
+    fn get_field_as_json_map(row: &Value, field: &str) -> HashMap<String, f64> {
+        row.get(field)
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default()
+    }
+
+    /// Helper function to extract boolean field from database row
+    fn get_field_as_bool(row: &Value, field: &str, default: bool) -> bool {
+        row.get(field)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(default)
+    }
+
     /// Get user's AI access level with caching
     pub async fn get_user_ai_access_level(&self, user_profile: &UserProfile) -> Result<AIAccessLevel, String> {
         let cache_key = format!("ai_access_level:{}", user_profile.user_id);
@@ -62,32 +101,13 @@ impl AIAccessService {
 
             match self.d1_service.query_first(query, params).await {
                 Ok(Some(row)) => {
-                    // Parse existing tracker
-                    let ai_calls_used = row.get("ai_calls_used")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0) as u32;
-                    
-                    let ai_calls_limit = row.get("ai_calls_limit")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0) as u32;
-                    
-                    let last_reset = row.get("last_reset")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0) as u64;
-                    
-                    let total_cost_usd = row.get("total_cost_usd")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                    
-                    let cost_breakdown_by_provider: HashMap<String, f64> = row.get("cost_breakdown_by_provider")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| serde_json::from_str(s).ok())
-                        .unwrap_or_default();
-                    
-                    let cost_breakdown_by_feature: HashMap<String, f64> = row.get("cost_breakdown_by_feature")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| serde_json::from_str(s).ok())
-                        .unwrap_or_default();
+                    // Parse existing tracker using helper functions
+                    let ai_calls_used = Self::get_field_as_u32(&row, "ai_calls_used", 0);
+                    let ai_calls_limit = Self::get_field_as_u32(&row, "ai_calls_limit", 0);
+                    let last_reset = Self::get_field_as_u64(&row, "last_reset", 0);
+                    let total_cost_usd = Self::get_field_as_f64(&row, "total_cost_usd", 0.0);
+                    let cost_breakdown_by_provider = Self::get_field_as_json_map(&row, "cost_breakdown_by_provider");
+                    let cost_breakdown_by_feature = Self::get_field_as_json_map(&row, "cost_breakdown_by_feature");
 
                     Ok(AIUsageTracker {
                         user_id: user_id.to_string(),
@@ -341,7 +361,10 @@ impl AIAccessService {
             "trading_decision_support" => AITemplateType::TradingDecisionSupport,
             "risk_assessment" => AITemplateType::RiskAssessment,
             "position_sizing" => AITemplateType::PositionSizing,
-            _ => return Err(format!("Invalid template type: {}", template_type_str)),
+            _ => return Err(format!(
+                "Invalid template type: '{}'. Valid types are: global_opportunity_analysis, personal_opportunity_generation, trading_decision_support, risk_assessment, position_sizing", 
+                template_type_str
+            )),
         };
 
         let access_level_str = row.get("access_level")
@@ -367,21 +390,11 @@ impl AIAccessService {
         let parameters: AITemplateParameters = serde_json::from_str(parameters_str)
             .map_err(|e| format!("Failed to parse template parameters: {}", e))?;
 
-        let created_by = row.get("created_by")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        let created_by = Self::get_field_as_string(&row, "created_by");
+        let is_system_default = Self::get_field_as_bool(&row, "is_system_default", false);
 
-        let is_system_default = row.get("is_system_default")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        let created_at = row.get("created_at")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as u64;
-
-        let updated_at = row.get("updated_at")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as u64;
+        let created_at = Self::get_field_as_u64(&row, "created_at", 0);
+        let updated_at = Self::get_field_as_u64(&row, "updated_at", 0);
 
         Ok(AITemplate {
             template_id,
@@ -450,19 +463,19 @@ impl AIAccessService {
     ) -> Result<bool, String> {
         match provider {
             ApiKeyProvider::OpenAI => {
-                // Validate OpenAI API key format
-                if api_key.starts_with("sk-") && api_key.len() >= 20 {
+                // OpenAI keys are typically 51 characters starting with sk-
+                if api_key.starts_with("sk-") && api_key.len() == 51 && api_key.chars().all(|c| c.is_alphanumeric() || c == '-') {
                     Ok(true)
                 } else {
-                    Err("Invalid OpenAI API key format".to_string())
+                    Err("Invalid OpenAI API key format. Expected format: sk-<48 alphanumeric characters>".to_string())
                 }
             },
             ApiKeyProvider::Anthropic => {
-                // Validate Anthropic API key format
-                if api_key.starts_with("sk-ant-") && api_key.len() >= 20 {
+                // Anthropic keys have a specific format
+                if api_key.starts_with("sk-ant-") && api_key.len() > 20 && api_key.chars().all(|c| c.is_alphanumeric() || c == '-') {
                     Ok(true)
                 } else {
-                    Err("Invalid Anthropic API key format".to_string())
+                    Err("Invalid Anthropic API key format. Expected format: sk-ant-<alphanumeric characters>".to_string())
                 }
             },
             ApiKeyProvider::Custom => {

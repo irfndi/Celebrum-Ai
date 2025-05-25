@@ -918,8 +918,8 @@ mod tests {
     fn create_test_opportunity() -> ArbitrageOpportunity {
         ArbitrageOpportunity::new(
             "BTCUSDT".to_string(),
-            crate::types::ExchangeIdEnum::Binance,    // **REQUIRED**: No longer optional
-            crate::types::ExchangeIdEnum::Bybit,      // **REQUIRED**: No longer optional
+            crate::types::ExchangeIdEnum::Binance, // **REQUIRED**: No longer optional
+            crate::types::ExchangeIdEnum::Bybit,   // **REQUIRED**: No longer optional
             Some(43250.0),
             Some(44000.0),
             2.5,

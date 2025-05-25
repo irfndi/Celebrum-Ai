@@ -2,7 +2,9 @@
 // Task 9.5: User Experience & Opportunity Categorization
 
 use crate::services::{
-    core::analysis::market_analysis::{OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity},
+    core::analysis::market_analysis::{
+        OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,
+    },
     core::user::user_trading_preferences::{
         ExperienceLevel, RiskTolerance, TradingFocus, UserTradingPreferences,
     },

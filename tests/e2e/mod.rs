@@ -11,4 +11,4 @@ pub mod service_integration_e2e_test;
 pub mod rbac_comprehensive_user_journey_test;
 
 // Invitation System Tests - Complete invitation flow testing
-pub mod invitation_system_e2e_test; 
+pub mod invitation_system_e2e_test;

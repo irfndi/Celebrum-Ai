@@ -7,11 +7,13 @@ pub mod utils;
 
 use serde_json::json;
 use services::core::infrastructure::d1_database::D1Service;
-use services::core::trading::exchange::{ExchangeInterface, ExchangeService};
 use services::core::opportunities::opportunity::{OpportunityService, OpportunityServiceConfig};
-use services::core::trading::positions::{CreatePositionData, ProductionPositionsService, UpdatePositionData};
-use services::interfaces::telegram::telegram::TelegramService;
+use services::core::trading::exchange::{ExchangeInterface, ExchangeService};
+use services::core::trading::positions::{
+    CreatePositionData, ProductionPositionsService, UpdatePositionData,
+};
 use services::core::user::user_profile::UserProfileService;
+use services::interfaces::telegram::telegram::TelegramService;
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{AccountInfo, ExchangeIdEnum, StructuredTradingPair};
@@ -202,6 +204,7 @@ async fn create_opportunity_service(
             services::interfaces::telegram::telegram::TelegramConfig {
                 bot_token: bot_token.to_string(),
                 chat_id: "0".to_string(), // Not used - we broadcast to registered groups from DB
+                is_test_mode: false,
             },
         )))
     } else {
@@ -370,6 +373,7 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
         TelegramService::new(services::interfaces::telegram::telegram::TelegramConfig {
             bot_token: bot_token.to_string(),
             chat_id: "0".to_string(), // Not used for webhook responses
+            is_test_mode: false,
         })
     } else {
         return Response::error("Telegram bot token not found", 500);
@@ -377,12 +381,37 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
 
     // Initialize UserProfileService for RBAC
     let _custom_env = types::Env::new(env.clone());
-    if let Ok(kv_store) = env.kv("ArbEdgeKV") {
-        if let Ok(d1_service) = D1Service::new(&env) {
-            if let Ok(encryption_key) = env.var("ENCRYPTION_KEY") {
-                let user_profile_service = UserProfileService::new(kv_store, d1_service, encryption_key.to_string());
-                telegram_service.set_user_profile_service(user_profile_service);
+    match env.kv("ArbEdgeKV") {
+        Ok(kv_store) => {
+            console_log!("✅ KV store initialized successfully for RBAC");
+            match D1Service::new(&env) {
+                Ok(d1_service) => {
+                    console_log!("✅ D1Service initialized successfully for RBAC");
+                    match env.var("ENCRYPTION_KEY") {
+                        Ok(encryption_key) => {
+                            console_log!(
+                                "✅ ENCRYPTION_KEY found, initializing UserProfileService for RBAC"
+                            );
+                            let user_profile_service = UserProfileService::new(
+                                kv_store,
+                                d1_service,
+                                encryption_key.to_string(),
+                            );
+                            telegram_service.set_user_profile_service(user_profile_service);
+                            console_log!("✅ RBAC UserProfileService initialized successfully");
+                        }
+                        Err(e) => {
+                            console_log!("❌ RBAC SECURITY WARNING: ENCRYPTION_KEY not found - UserProfileService not initialized: {:?}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    console_log!("❌ RBAC SECURITY WARNING: D1Service initialization failed - UserProfileService not initialized: {:?}", e);
+                }
             }
+        }
+        Err(e) => {
+            console_log!("❌ RBAC SECURITY WARNING: KV store initialization failed - UserProfileService not initialized: {:?}", e);
         }
     }
 

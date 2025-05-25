@@ -1,11 +1,12 @@
+#![allow(unused_imports, unused_variables, unused_mut, dead_code)]
+
 // GlobalOpportunityService Unit Tests
 // Comprehensive testing of opportunity generation, distribution, user eligibility, and queue management
 
-use arb_edge::types::{
-    ExchangeIdEnum, StructuredTradingPair, UserAccessLevel, UserOpportunityLimits,
-    RiskLevel
-};
 use arb_edge::services::core::analysis::market_analysis::OpportunityType;
+use arb_edge::types::{
+    ExchangeIdEnum, RiskLevel, StructuredTradingPair, UserAccessLevel, UserOpportunityLimits,
+};
 use arb_edge::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -100,10 +101,15 @@ impl MockD1Service {
         self.error_simulation = None;
     }
 
-    async fn mock_get_user_limits(&self, user_id: &str) -> ArbitrageResult<Option<UserOpportunityLimits>> {
+    async fn mock_get_user_limits(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<Option<UserOpportunityLimits>> {
         if let Some(ref error_type) = self.error_simulation {
             return match error_type.as_str() {
-                "database_error" => Err(ArbitrageError::database_error("Database connection failed")),
+                "database_error" => {
+                    Err(ArbitrageError::database_error("Database connection failed"))
+                }
                 "user_not_found" => Ok(None),
                 _ => Err(ArbitrageError::validation_error("Unknown database error")),
             };
@@ -112,15 +118,22 @@ impl MockD1Service {
         Ok(self.user_limits.get(user_id).cloned())
     }
 
-    async fn mock_update_user_distribution(&mut self, user_id: &str, opportunity_id: &str) -> ArbitrageResult<()> {
+    async fn mock_update_user_distribution(
+        &mut self,
+        user_id: &str,
+        opportunity_id: &str,
+    ) -> ArbitrageResult<()> {
         if let Some(ref error_type) = self.error_simulation {
             return match error_type.as_str() {
-                "update_failed" => Err(ArbitrageError::database_error("Failed to update distribution tracking")),
+                "update_failed" => Err(ArbitrageError::database_error(
+                    "Failed to update distribution tracking",
+                )),
                 _ => Err(ArbitrageError::validation_error("Unknown update error")),
             };
         }
 
-        let tracking = self.user_distribution_tracking
+        let tracking = self
+            .user_distribution_tracking
             .entry(user_id.to_string())
             .or_insert_with(|| MockUserDistributionTracking {
                 user_id: user_id.to_string(),
@@ -153,7 +166,8 @@ impl MockD1Service {
     }
 
     fn get_opportunities_for_user(&self, user_id: &str) -> Vec<&MockOpportunity> {
-        self.opportunity_queue.iter()
+        self.opportunity_queue
+            .iter()
             .filter(|opp| opp.user_eligibility.contains(&user_id.to_string()))
             .collect()
     }
@@ -181,18 +195,25 @@ impl MockUserAccessService {
     }
 
     fn set_user_access_level(&mut self, user_id: &str, access_level: UserAccessLevel) {
-        self.user_access_levels.insert(user_id.to_string(), access_level);
+        self.user_access_levels
+            .insert(user_id.to_string(), access_level);
     }
 
     async fn mock_get_user_access_level(&self, user_id: &str) -> ArbitrageResult<UserAccessLevel> {
-        Ok(self.user_access_levels.get(user_id)
+        Ok(self
+            .user_access_levels
+            .get(user_id)
             .cloned()
             .unwrap_or(UserAccessLevel::FreeWithoutAPI))
     }
 
-    async fn mock_check_user_eligibility(&self, user_id: &str, opportunity: &MockOpportunity) -> ArbitrageResult<bool> {
+    async fn mock_check_user_eligibility(
+        &self,
+        user_id: &str,
+        opportunity: &MockOpportunity,
+    ) -> ArbitrageResult<bool> {
         let access_level = self.mock_get_user_access_level(user_id).await?;
-        
+
         // Basic eligibility logic
         Ok(match access_level {
             UserAccessLevel::FreeWithoutAPI => {
@@ -247,9 +268,15 @@ impl MockGlobalOpportunityService {
         }
     }
 
-    async fn mock_generate_arbitrage_opportunity(&mut self, trading_pair: &str, exchanges: Vec<ExchangeIdEnum>) -> ArbitrageResult<MockOpportunity> {
+    async fn mock_generate_arbitrage_opportunity(
+        &mut self,
+        trading_pair: &str,
+        exchanges: Vec<ExchangeIdEnum>,
+    ) -> ArbitrageResult<MockOpportunity> {
         if exchanges.len() != 2 {
-            return Err(ArbitrageError::validation_error("Arbitrage opportunities require exactly 2 exchanges"));
+            return Err(ArbitrageError::validation_error(
+                "Arbitrage opportunities require exactly 2 exchanges",
+            ));
         }
 
         let opportunity = MockOpportunity {
@@ -267,14 +294,18 @@ impl MockGlobalOpportunityService {
             exchanges,
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + (30 * 60 * 1000), // 30 minutes
-            priority_score: 0.0, // Will be calculated
+            priority_score: 0.0,          // Will be calculated
             user_eligibility: Vec::new(), // Will be populated during distribution
         };
 
         Ok(opportunity)
     }
 
-    async fn mock_generate_technical_opportunity(&mut self, trading_pair: &str, exchange: ExchangeIdEnum) -> ArbitrageResult<MockOpportunity> {
+    async fn mock_generate_technical_opportunity(
+        &mut self,
+        trading_pair: &str,
+        exchange: ExchangeIdEnum,
+    ) -> ArbitrageResult<MockOpportunity> {
         let opportunity = MockOpportunity {
             opportunity_id: format!("tech_{}", Uuid::new_v4()),
             opportunity_type: OpportunityType::Technical,
@@ -290,20 +321,24 @@ impl MockGlobalOpportunityService {
             exchanges: vec![exchange],
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
-            priority_score: 0.0, // Will be calculated
+            priority_score: 0.0,          // Will be calculated
             user_eligibility: Vec::new(), // Will be populated during distribution
         };
 
         Ok(opportunity)
     }
 
-    fn mock_calculate_priority_score(&self, opportunity: &MockOpportunity, user_tracking: &MockUserDistributionTracking) -> f64 {
+    fn mock_calculate_priority_score(
+        &self,
+        opportunity: &MockOpportunity,
+        user_tracking: &MockUserDistributionTracking,
+    ) -> f64 {
         let mut score = 0.0;
 
         // Base score from opportunity characteristics
         score += opportunity.confidence_score * 0.4; // 40% weight on confidence
         score += opportunity.expected_return * 10.0; // 10x weight on expected return
-        
+
         // Risk level adjustment
         score += match opportunity.risk_level {
             RiskLevel::Low => 20.0,
@@ -321,20 +356,25 @@ impl MockGlobalOpportunityService {
 
         // User fairness adjustment
         score *= user_tracking.fairness_score;
-        
+
         // Activity boost adjustment
         score *= user_tracking.activity_boost_multiplier;
 
         score
     }
 
-    async fn mock_distribute_opportunity(&mut self, mut opportunity: MockOpportunity, eligible_users: Vec<String>) -> ArbitrageResult<Vec<String>> {
+    async fn mock_distribute_opportunity(
+        &mut self,
+        mut opportunity: MockOpportunity,
+        eligible_users: Vec<String>,
+    ) -> ArbitrageResult<Vec<String>> {
         let mut distributed_users = Vec::new();
 
         for user_id in eligible_users {
             // Check user limits
             if let Some(limits) = self.d1_service.mock_get_user_limits(&user_id).await? {
-                let total_used = limits.arbitrage_opportunities_received + limits.technical_opportunities_received;
+                let total_used = limits.arbitrage_opportunities_received
+                    + limits.technical_opportunities_received;
                 let total_limit = limits.arbitrage_limit + limits.technical_limit;
                 if total_used >= total_limit {
                     continue; // Skip user who has reached daily limit
@@ -342,7 +382,11 @@ impl MockGlobalOpportunityService {
             }
 
             // Check user eligibility based on access level
-            if !self.user_access_service.mock_check_user_eligibility(&user_id, &opportunity).await? {
+            if !self
+                .user_access_service
+                .mock_check_user_eligibility(&user_id, &opportunity)
+                .await?
+            {
                 continue; // Skip ineligible user
             }
 
@@ -351,10 +395,13 @@ impl MockGlobalOpportunityService {
             distributed_users.push(user_id.clone());
 
             // Update user distribution tracking
-            self.d1_service.mock_update_user_distribution(&user_id, &opportunity.opportunity_id).await?;
+            self.d1_service
+                .mock_update_user_distribution(&user_id, &opportunity.opportunity_id)
+                .await?;
 
             // Respect distribution limits
-            if distributed_users.len() >= 10 { // Max 10 users per opportunity
+            if distributed_users.len() >= 10 {
+                // Max 10 users per opportunity
                 break;
             }
         }
@@ -369,12 +416,15 @@ impl MockGlobalOpportunityService {
         let mut boost = self.activity_boost_config.base_activity_multiplier;
 
         // Consecutive days boost
-        if user_tracking.consecutive_days_active >= self.activity_boost_config.consecutive_days_threshold {
+        if user_tracking.consecutive_days_active
+            >= self.activity_boost_config.consecutive_days_threshold
+        {
             boost += self.activity_boost_config.weekly_activity_bonus;
         }
 
         // Daily activity boost
-        boost += user_tracking.consecutive_days_active as f64 * self.activity_boost_config.daily_activity_boost;
+        boost += user_tracking.consecutive_days_active as f64
+            * self.activity_boost_config.daily_activity_boost;
 
         // Cap the boost
         boost.min(self.activity_boost_config.max_activity_boost)
@@ -385,7 +435,8 @@ impl MockGlobalOpportunityService {
 
         // Time since last opportunity boost
         if let Some(last_opportunity_at) = user_tracking.last_opportunity_at {
-            let time_since_last = chrono::Utc::now().timestamp_millis() as u64 - last_opportunity_at;
+            let time_since_last =
+                chrono::Utc::now().timestamp_millis() as u64 - last_opportunity_at;
             let hours_since_last = time_since_last as f64 / (1000.0 * 60.0 * 60.0);
             score += hours_since_last * self.fairness_config.time_since_last_opportunity_boost;
         } else {
@@ -401,7 +452,9 @@ impl MockGlobalOpportunityService {
         let current_time = chrono::Utc::now().timestamp_millis() as u64;
         let initial_count = self.d1_service.opportunity_queue.len();
 
-        self.d1_service.opportunity_queue.retain(|opp| opp.expires_at > current_time);
+        self.d1_service
+            .opportunity_queue
+            .retain(|opp| opp.expires_at > current_time);
 
         let removed_count = initial_count - self.d1_service.opportunity_queue.len();
         Ok(removed_count as u32)
@@ -417,10 +470,12 @@ mod tests {
         let mut service = MockGlobalOpportunityService::new();
 
         // Test arbitrage opportunity generation
-        let arbitrage_result = service.mock_generate_arbitrage_opportunity(
-            "BTC/USDT",
-            vec![ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit]
-        ).await;
+        let arbitrage_result = service
+            .mock_generate_arbitrage_opportunity(
+                "BTC/USDT",
+                vec![ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit],
+            )
+            .await;
 
         assert!(arbitrage_result.is_ok());
         let arbitrage_opp = arbitrage_result.unwrap();
@@ -430,10 +485,9 @@ mod tests {
         assert!(arbitrage_opp.expected_return > 0.0);
 
         // Test technical opportunity generation
-        let technical_result = service.mock_generate_technical_opportunity(
-            "ETH/USDT",
-            ExchangeIdEnum::Binance
-        ).await;
+        let technical_result = service
+            .mock_generate_technical_opportunity("ETH/USDT", ExchangeIdEnum::Binance)
+            .await;
 
         assert!(technical_result.is_ok());
         let technical_opp = technical_result.unwrap();
@@ -443,13 +497,18 @@ mod tests {
         assert!(technical_opp.expected_return > 0.0);
 
         // Test invalid arbitrage opportunity (wrong number of exchanges)
-        let invalid_arbitrage = service.mock_generate_arbitrage_opportunity(
-            "BTC/USDT",
-            vec![ExchangeIdEnum::Binance] // Only 1 exchange
-        ).await;
+        let invalid_arbitrage = service
+            .mock_generate_arbitrage_opportunity(
+                "BTC/USDT",
+                vec![ExchangeIdEnum::Binance], // Only 1 exchange
+            )
+            .await;
 
         assert!(invalid_arbitrage.is_err());
-        assert!(invalid_arbitrage.unwrap_err().to_string().contains("exactly 2 exchanges"));
+        assert!(invalid_arbitrage
+            .unwrap_err()
+            .to_string()
+            .contains("exactly 2 exchanges"));
     }
 
     #[tokio::test]
@@ -457,9 +516,15 @@ mod tests {
         let mut service = MockGlobalOpportunityService::new();
 
         // Set up test users with different access levels
-        service.user_access_service.set_user_access_level("free_user", UserAccessLevel::FreeWithoutAPI);
-        service.user_access_service.set_user_access_level("api_user", UserAccessLevel::FreeWithAPI);
-        service.user_access_service.set_user_access_level("premium_user", UserAccessLevel::SubscriptionWithAPI);
+        service
+            .user_access_service
+            .set_user_access_level("free_user", UserAccessLevel::FreeWithoutAPI);
+        service
+            .user_access_service
+            .set_user_access_level("api_user", UserAccessLevel::FreeWithAPI);
+        service
+            .user_access_service
+            .set_user_access_level("premium_user", UserAccessLevel::SubscriptionWithAPI);
 
         // Create opportunities with different risk levels
         let low_risk_opp = MockOpportunity {
@@ -501,10 +566,26 @@ mod tests {
         };
 
         // Test eligibility for different user types
-        let free_user_low_risk = service.user_access_service.mock_check_user_eligibility("free_user", &low_risk_opp).await.unwrap();
-        let free_user_high_risk = service.user_access_service.mock_check_user_eligibility("free_user", &high_risk_opp).await.unwrap();
-        let api_user_high_risk = service.user_access_service.mock_check_user_eligibility("api_user", &high_risk_opp).await.unwrap();
-        let premium_user_high_risk = service.user_access_service.mock_check_user_eligibility("premium_user", &high_risk_opp).await.unwrap();
+        let free_user_low_risk = service
+            .user_access_service
+            .mock_check_user_eligibility("free_user", &low_risk_opp)
+            .await
+            .unwrap();
+        let free_user_high_risk = service
+            .user_access_service
+            .mock_check_user_eligibility("free_user", &high_risk_opp)
+            .await
+            .unwrap();
+        let api_user_high_risk = service
+            .user_access_service
+            .mock_check_user_eligibility("api_user", &high_risk_opp)
+            .await
+            .unwrap();
+        let premium_user_high_risk = service
+            .user_access_service
+            .mock_check_user_eligibility("premium_user", &high_risk_opp)
+            .await
+            .unwrap();
 
         // Free users should only get low risk opportunities
         assert!(free_user_low_risk);
@@ -522,42 +603,58 @@ mod tests {
         let mut service = MockGlobalOpportunityService::new();
 
         // Set up user limits
-        service.d1_service.add_mock_user_limits("user1", UserOpportunityLimits {
-            user_id: "user1".to_string(),
-            access_level: UserAccessLevel::FreeWithAPI,
-            date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
-            arbitrage_opportunities_received: 3,
-            technical_opportunities_received: 2,
-            arbitrage_limit: 10,
-            technical_limit: 10,
-            last_reset: chrono::Utc::now().timestamp_millis() as u64,
-            is_group_context: false,
-            group_multiplier_applied: false,
-        });
+        service.d1_service.add_mock_user_limits(
+            "user1",
+            UserOpportunityLimits {
+                user_id: "user1".to_string(),
+                access_level: UserAccessLevel::FreeWithAPI,
+                date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
+                arbitrage_opportunities_received: 3,
+                technical_opportunities_received: 2,
+                arbitrage_limit: 10,
+                technical_limit: 10,
+                last_reset: chrono::Utc::now().timestamp_millis() as u64,
+                is_group_context: false,
+                group_multiplier_applied: false,
+            },
+        );
 
-        service.d1_service.add_mock_user_limits("user2", UserOpportunityLimits {
-            user_id: "user2".to_string(),
-            access_level: UserAccessLevel::FreeWithAPI,
-            date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
-            arbitrage_opportunities_received: 10,
-            technical_opportunities_received: 10,
-            arbitrage_limit: 10,
-            technical_limit: 10,
-            last_reset: chrono::Utc::now().timestamp_millis() as u64,
-            is_group_context: false,
-            group_multiplier_applied: false,
-        });
+        service.d1_service.add_mock_user_limits(
+            "user2",
+            UserOpportunityLimits {
+                user_id: "user2".to_string(),
+                access_level: UserAccessLevel::FreeWithAPI,
+                date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
+                arbitrage_opportunities_received: 10,
+                technical_opportunities_received: 10,
+                arbitrage_limit: 10,
+                technical_limit: 10,
+                last_reset: chrono::Utc::now().timestamp_millis() as u64,
+                is_group_context: false,
+                group_multiplier_applied: false,
+            },
+        );
 
         // Set user access levels
-        service.user_access_service.set_user_access_level("user1", UserAccessLevel::FreeWithAPI);
-        service.user_access_service.set_user_access_level("user2", UserAccessLevel::FreeWithAPI);
+        service
+            .user_access_service
+            .set_user_access_level("user1", UserAccessLevel::FreeWithAPI);
+        service
+            .user_access_service
+            .set_user_access_level("user2", UserAccessLevel::FreeWithAPI);
 
         // Create a test opportunity
-        let opportunity = service.mock_generate_technical_opportunity("BTC/USDT", ExchangeIdEnum::Binance).await.unwrap();
+        let opportunity = service
+            .mock_generate_technical_opportunity("BTC/USDT", ExchangeIdEnum::Binance)
+            .await
+            .unwrap();
 
         // Test distribution
         let eligible_users = vec!["user1".to_string(), "user2".to_string()];
-        let distributed_users = service.mock_distribute_opportunity(opportunity, eligible_users).await.unwrap();
+        let distributed_users = service
+            .mock_distribute_opportunity(opportunity, eligible_users)
+            .await
+            .unwrap();
 
         // Only user1 should receive the opportunity (user2 is at limit)
         assert_eq!(distributed_users.len(), 1);
@@ -634,10 +731,14 @@ mod tests {
         };
 
         // Calculate priority scores
-        let active_user_high_conf_score = service.mock_calculate_priority_score(&high_confidence_opp, &high_activity_user);
-        let active_user_low_conf_score = service.mock_calculate_priority_score(&low_confidence_opp, &high_activity_user);
-        let new_user_high_conf_score = service.mock_calculate_priority_score(&high_confidence_opp, &new_user);
-        let new_user_low_conf_score = service.mock_calculate_priority_score(&low_confidence_opp, &new_user);
+        let active_user_high_conf_score =
+            service.mock_calculate_priority_score(&high_confidence_opp, &high_activity_user);
+        let active_user_low_conf_score =
+            service.mock_calculate_priority_score(&low_confidence_opp, &high_activity_user);
+        let new_user_high_conf_score =
+            service.mock_calculate_priority_score(&high_confidence_opp, &new_user);
+        let new_user_low_conf_score =
+            service.mock_calculate_priority_score(&low_confidence_opp, &new_user);
 
         // High confidence opportunities should score higher than low confidence
         assert!(active_user_high_conf_score > active_user_low_conf_score);
@@ -695,12 +796,19 @@ mod tests {
         let active_user_boost = service.mock_calculate_activity_boost(&active_user_tracking);
 
         // Activity boost should increase with consecutive days
-        assert_eq!(new_user_boost, service.activity_boost_config.base_activity_multiplier);
+        assert_eq!(
+            new_user_boost,
+            service.activity_boost_config.base_activity_multiplier
+        );
         assert!(moderate_user_boost > new_user_boost);
         assert!(active_user_boost > moderate_user_boost);
 
         // Active user should get weekly bonus
-        assert!(active_user_boost >= service.activity_boost_config.base_activity_multiplier + service.activity_boost_config.weekly_activity_bonus);
+        assert!(
+            active_user_boost
+                >= service.activity_boost_config.base_activity_multiplier
+                    + service.activity_boost_config.weekly_activity_bonus
+        );
 
         // Boost should not exceed maximum
         assert!(active_user_boost <= service.activity_boost_config.max_activity_boost);
@@ -752,7 +860,10 @@ mod tests {
         let waiting_user_fairness = service.mock_calculate_fairness_score(&waiting_user_tracking);
 
         // New users should get maximum fairness boost
-        assert_eq!(new_user_fairness, service.fairness_config.max_fairness_boost);
+        assert_eq!(
+            new_user_fairness,
+            service.fairness_config.max_fairness_boost
+        );
 
         // Users who haven't received opportunities recently should get higher fairness scores
         assert!(waiting_user_fairness > recent_user_fairness);
@@ -768,9 +879,24 @@ mod tests {
         let mut service = MockGlobalOpportunityService::new();
 
         // Create multiple opportunities
-        let opp1 = service.mock_generate_arbitrage_opportunity("BTC/USDT", vec![ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit]).await.unwrap();
-        let opp2 = service.mock_generate_technical_opportunity("ETH/USDT", ExchangeIdEnum::Binance).await.unwrap();
-        let opp3 = service.mock_generate_arbitrage_opportunity("ADA/USDT", vec![ExchangeIdEnum::Bybit, ExchangeIdEnum::OKX]).await.unwrap();
+        let opp1 = service
+            .mock_generate_arbitrage_opportunity(
+                "BTC/USDT",
+                vec![ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit],
+            )
+            .await
+            .unwrap();
+        let opp2 = service
+            .mock_generate_technical_opportunity("ETH/USDT", ExchangeIdEnum::Binance)
+            .await
+            .unwrap();
+        let opp3 = service
+            .mock_generate_arbitrage_opportunity(
+                "ADA/USDT",
+                vec![ExchangeIdEnum::Bybit, ExchangeIdEnum::OKX],
+            )
+            .await
+            .unwrap();
 
         // Add opportunities to queue
         service.d1_service.add_mock_opportunity(opp1);
@@ -784,7 +910,10 @@ mod tests {
 
         // Test opportunity expiry cleanup
         // Create an expired opportunity
-        let mut expired_opp = service.mock_generate_technical_opportunity("EXPIRED/USDT", ExchangeIdEnum::Binance).await.unwrap();
+        let mut expired_opp = service
+            .mock_generate_technical_opportunity("EXPIRED/USDT", ExchangeIdEnum::Binance)
+            .await
+            .unwrap();
         expired_opp.expires_at = chrono::Utc::now().timestamp_millis() as u64 - 1000; // Expired 1 second ago
         service.d1_service.add_mock_opportunity(expired_opp);
 
@@ -805,7 +934,10 @@ mod tests {
 
         let result = service.d1_service.mock_get_user_limits("test_user").await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Database connection failed"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Database connection failed"));
 
         // Test recovery after error
         service.d1_service.reset_error_simulation();
@@ -816,15 +948,24 @@ mod tests {
         // Test update failure simulation
         service.d1_service.simulate_error("update_failed");
 
-        let update_result = service.d1_service.mock_update_user_distribution("test_user", "test_opp").await;
+        let update_result = service
+            .d1_service
+            .mock_update_user_distribution("test_user", "test_opp")
+            .await;
         assert!(update_result.is_err());
-        assert!(update_result.unwrap_err().to_string().contains("Failed to update distribution tracking"));
+        assert!(update_result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to update distribution tracking"));
 
         // Test user not found scenario
         service.d1_service.reset_error_simulation();
         service.d1_service.simulate_error("user_not_found");
 
-        let not_found_result = service.d1_service.mock_get_user_limits("nonexistent_user").await;
+        let not_found_result = service
+            .d1_service
+            .mock_get_user_limits("nonexistent_user")
+            .await;
         assert!(not_found_result.is_ok());
         assert!(not_found_result.unwrap().is_none());
     }
@@ -842,34 +983,42 @@ mod tests {
         ];
 
         for (user_id, access_level, opportunities_used) in users {
-            service.user_access_service.set_user_access_level(user_id, access_level.clone());
-            service.d1_service.add_mock_user_limits(user_id, UserOpportunityLimits {
-                user_id: user_id.to_string(),
-                access_level: access_level.clone(),
-                date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
-                arbitrage_opportunities_received: opportunities_used / 2,
-                technical_opportunities_received: opportunities_used / 2,
-                arbitrage_limit: match &access_level {
-                    UserAccessLevel::FreeWithoutAPI => 3,
-                    UserAccessLevel::FreeWithAPI => 10,
-                    UserAccessLevel::SubscriptionWithAPI => 50,
+            service
+                .user_access_service
+                .set_user_access_level(user_id, access_level.clone());
+            service.d1_service.add_mock_user_limits(
+                user_id,
+                UserOpportunityLimits {
+                    user_id: user_id.to_string(),
+                    access_level: access_level.clone(),
+                    date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
+                    arbitrage_opportunities_received: opportunities_used / 2,
+                    technical_opportunities_received: opportunities_used / 2,
+                    arbitrage_limit: match &access_level {
+                        UserAccessLevel::FreeWithoutAPI => 3,
+                        UserAccessLevel::FreeWithAPI => 10,
+                        UserAccessLevel::SubscriptionWithAPI => 50,
+                    },
+                    technical_limit: match &access_level {
+                        UserAccessLevel::FreeWithoutAPI => 3,
+                        UserAccessLevel::FreeWithAPI => 10,
+                        UserAccessLevel::SubscriptionWithAPI => 50,
+                    },
+                    last_reset: chrono::Utc::now().timestamp_millis() as u64,
+                    is_group_context: false,
+                    group_multiplier_applied: false,
                 },
-                technical_limit: match &access_level {
-                    UserAccessLevel::FreeWithoutAPI => 3,
-                    UserAccessLevel::FreeWithAPI => 10,
-                    UserAccessLevel::SubscriptionWithAPI => 50,
-                },
-                last_reset: chrono::Utc::now().timestamp_millis() as u64,
-                is_group_context: false,
-                group_multiplier_applied: false,
-            });
+            );
         }
 
         // Create and distribute a high-quality opportunity
-        let opportunity = service.mock_generate_arbitrage_opportunity(
-            "BTC/USDT",
-            vec![ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit]
-        ).await.unwrap();
+        let opportunity = service
+            .mock_generate_arbitrage_opportunity(
+                "BTC/USDT",
+                vec![ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit],
+            )
+            .await
+            .unwrap();
 
         let eligible_users = vec![
             "new_user".to_string(),
@@ -878,11 +1027,14 @@ mod tests {
             "active_user".to_string(),
         ];
 
-        let distributed_users = service.mock_distribute_opportunity(opportunity, eligible_users).await.unwrap();
+        let distributed_users = service
+            .mock_distribute_opportunity(opportunity, eligible_users)
+            .await
+            .unwrap();
 
         // Verify distribution results
         assert!(!distributed_users.is_empty());
-        
+
         // Premium user should always be included (if eligible)
         assert!(distributed_users.contains(&"premium_user".to_string()));
 
@@ -932,7 +1084,9 @@ mod tests {
         // Validate fairness configuration
         assert!(fairness_config.base_fairness_score > 0.0);
         assert!(fairness_config.max_fairness_boost >= fairness_config.base_fairness_score);
-        assert!(fairness_config.fairness_decay_rate > 0.0 && fairness_config.fairness_decay_rate < 1.0);
+        assert!(
+            fairness_config.fairness_decay_rate > 0.0 && fairness_config.fairness_decay_rate < 1.0
+        );
         assert!(fairness_config.consecutive_opportunity_penalty > 0.0);
         assert!(fairness_config.time_since_last_opportunity_boost > 0.0);
 
@@ -951,4 +1105,4 @@ mod tests {
         assert!(activity_config.daily_activity_boost > 0.0);
         assert!(activity_config.weekly_activity_bonus > 0.0);
     }
-} 
+}

@@ -2,4 +2,4 @@
 // Individual service and component testing
 
 // Core Service Unit Tests
-pub mod core; 
+pub mod core;

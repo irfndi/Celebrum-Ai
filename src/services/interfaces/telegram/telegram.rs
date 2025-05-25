@@ -4,11 +4,13 @@ use crate::services::core::ai::ai_intelligence::{
     AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion,
 };
 use crate::services::core::opportunities::opportunity_categorization::CategorizedOpportunity;
-use crate::services::interfaces::telegram::telegram_keyboard::{InlineKeyboard, InlineKeyboardButton};
 use crate::services::core::user::user_profile::UserProfileService;
+use crate::services::interfaces::telegram::telegram_keyboard::{
+    InlineKeyboard, InlineKeyboardButton,
+};
 use crate::types::{
     ArbitrageOpportunity, CommandPermission, GroupRateLimitConfig, GroupRegistration,
-    MessageAnalytics, UserRole,
+    MessageAnalytics, UserProfile, UserRole,
 };
 use crate::utils::formatter::{
     escape_markdown_v2, format_ai_enhancement_message, format_categorized_opportunity_message,
@@ -67,12 +69,14 @@ impl ChatContext {
             ArbitrageError::validation_error("Missing chat in message".to_string())
         })?;
 
-        let chat_id = chat.get("id")
+        let chat_id = chat
+            .get("id")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| ArbitrageError::validation_error("Missing chat ID".to_string()))?
             .to_string();
 
-        let chat_type_str = chat.get("type")
+        let chat_type_str = chat
+            .get("type")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ArbitrageError::validation_error("Missing chat type".to_string()))?;
 
@@ -89,7 +93,8 @@ impl ChatContext {
             }
         };
 
-        let user_id = message.get("from")
+        let user_id = message
+            .get("from")
             .and_then(|from| from.get("id"))
             .and_then(|id| id.as_u64())
             .map(|id| id.to_string());
@@ -102,6 +107,7 @@ impl ChatContext {
 pub struct TelegramConfig {
     pub bot_token: String,
     pub chat_id: String,
+    pub is_test_mode: bool,
 }
 
 pub struct TelegramService {
@@ -303,7 +309,10 @@ impl TelegramService {
             .send()
             .await
             .map_err(|e| {
-                ArbitrageError::network_error(format!("Failed to send Telegram message with keyboard: {}", e))
+                ArbitrageError::network_error(format!(
+                    "Failed to send Telegram message with keyboard: {}",
+                    e
+                ))
             })?;
 
         if !response.status().is_success() {
@@ -486,7 +495,8 @@ impl TelegramService {
                 let chat_context = ChatContext::from_telegram_update(&update)?;
 
                 // Properly handle missing user ID by returning an error instead of empty string
-                let user_id = message.get("from")
+                let user_id = message
+                    .get("from")
                     .and_then(|from| from.get("id"))
                     .and_then(|id| id.as_u64())
                     .ok_or_else(|| {
@@ -510,7 +520,9 @@ impl TelegramService {
                     let keyboard = if chat_context.is_private() {
                         // Create main menu and filter by user permissions
                         let main_menu = InlineKeyboard::create_main_menu();
-                        main_menu.filter_by_permissions(&self.user_profile_service, &user_id).await
+                        main_menu
+                            .filter_by_permissions(&self.user_profile_service, &user_id)
+                            .await
                     } else {
                         // For groups, create a simple menu with basic commands
                         let mut group_keyboard = InlineKeyboard::new();
@@ -518,14 +530,18 @@ impl TelegramService {
                             InlineKeyboardButton::new("📊 Opportunities", "opportunities"),
                             InlineKeyboardButton::new("❓ Help", "help"),
                         ]);
-                        group_keyboard.add_row(vec![
-                            InlineKeyboardButton::new("⚙️ Settings", "settings"),
-                        ]);
+                        group_keyboard
+                            .add_row(vec![InlineKeyboardButton::new("⚙️ Settings", "settings")]);
                         group_keyboard
                     };
 
                     // Send message with keyboard directly
-                    self.send_message_with_keyboard(&chat_context.chat_id, &welcome_message, &keyboard).await?;
+                    self.send_message_with_keyboard(
+                        &chat_context.chat_id,
+                        &welcome_message,
+                        &keyboard,
+                    )
+                    .await?;
                     return Ok(Some("OK".to_string()));
                 }
 
@@ -545,7 +561,7 @@ impl TelegramService {
     ) -> ArbitrageResult<Option<String>> {
         let parts: Vec<&str> = text.split_whitespace().collect();
         let command = parts.first().unwrap_or(&"");
-        let args = &parts[1..];
+        let args = if parts.len() > 1 { &parts[1..] } else { &[] };
 
         // Group/Channel Command Restrictions - Limited command set with global opportunities
         if chat_context.is_group_or_channel() {
@@ -1056,90 +1072,112 @@ impl TelegramService {
     }
 
     async fn get_profile_message(&self, user_id: &str) -> String {
-        // Try to get user profile from database
+        if let Some(profile_message) = self.get_database_profile_message(user_id).await {
+            return profile_message;
+        }
+        self.get_fallback_profile_message(user_id)
+    }
+
+    /// Get profile message from database if available
+    async fn get_database_profile_message(&self, user_id: &str) -> Option<String> {
         if let Some(ref user_profile_service) = self.user_profile_service {
             if let Ok(telegram_id) = user_id.parse::<i64>() {
-                if let Ok(Some(profile)) = user_profile_service.get_user_by_telegram_id(telegram_id).await {
-                    let subscription_status = if profile.subscription.is_active {
-                        "✅ Active"
-                    } else {
-                        "❌ Inactive"
-                    };
-
-                    let api_keys_count = profile.api_keys.len();
-                    let active_exchanges: Vec<String> = profile.get_active_exchanges()
-                        .iter()
-                        .map(|e| format!("{:?}", e))
-                        .collect();
-                    
-                    let username = profile.telegram_username.clone().unwrap_or("Not set".to_string());
-                    let user_id = profile.user_id.clone();
-                    let is_active = profile.is_active;
-                    let created_at = profile.created_at;
-                    let subscription_tier = profile.subscription.tier.clone();
-                    let features_count = profile.subscription.features.len();
-                    let can_trade = profile.can_trade();
-                    let total_trades = profile.total_trades;
-                    let total_pnl = profile.total_pnl_usdt;
-                    let trading_mode = profile.get_trading_mode();
-                    let max_leverage = profile.configuration.max_leverage;
-                    let max_entry_size = profile.configuration.max_entry_size_usdt;
-                    let risk_tolerance = profile.configuration.risk_tolerance_percentage * 100.0;
-                    let auto_trading_enabled = profile.configuration.auto_trading_enabled;
-
-                    return format!(
-                        "👤 *Your Profile*\n\n\
-                        📋 *Account Information:*\n\
-                        • User ID: `{}`\n\
-                        • Telegram ID: `{}`\n\
-                        • Username: `{}`\n\
-                        • Account Status: `{}`\n\
-                        • Member Since: `{}`\n\n\
-                        💎 *Subscription Details:*\n\
-                        • Tier: `{:?}`\n\
-                        • Status: {}\n\
-                        • Features: `{} enabled`\n\n\
-                        🔑 *API Keys:*\n\
-                        • Total Keys: `{}`\n\
-                        • Active Exchanges: `{}`\n\
-                        • Trading Enabled: `{}`\n\n\
-                        📊 *Trading Statistics:*\n\
-                        • Total Trades: `{}`\n\
-                        • Total P&L: `${:.2}`\n\
-                        • Trading Mode: `{:?}`\n\n\
-                        ⚙️ *Configuration:*\n\
-                        • Max Leverage: `{}x`\n\
-                        • Max Entry Size: `${:.2}`\n\
-                        • Risk Tolerance: `{:.1}%`\n\
-                        • Auto Trading: `{}`\n\n\
-                        💡 Use /settings to modify your configuration or contact support for subscription changes\\.",
-                        escape_markdown_v2(&user_id),
-                        telegram_id,
-                        escape_markdown_v2(&username),
-                        if is_active { "Active" } else { "Inactive" },
-                        escape_markdown_v2(&chrono::DateTime::from_timestamp_millis(created_at as i64)
-                            .unwrap_or_default()
-                            .format("%Y-%m-%d")
-                            .to_string()),
-                        subscription_tier,
-                        subscription_status,
-                        features_count,
-                        api_keys_count,
-                        if active_exchanges.is_empty() { "None".to_string() } else { active_exchanges.join(", ") },
-                        if can_trade { "Yes" } else { "No" },
-                        total_trades,
-                        total_pnl,
-                        trading_mode,
-                        max_leverage,
-                        max_entry_size,
-                        risk_tolerance,
-                        if auto_trading_enabled { "Enabled" } else { "Disabled" }
-                    );
+                if let Ok(Some(profile)) = user_profile_service
+                    .get_user_by_telegram_id(telegram_id)
+                    .await
+                {
+                    return Some(self.format_user_profile(&profile, telegram_id));
                 }
             }
         }
+        None
+    }
 
-        // Fallback if user not found or service unavailable
+    /// Format user profile data into a message
+    fn format_user_profile(&self, profile: &UserProfile, telegram_id: i64) -> String {
+        let subscription_status = if profile.subscription.is_active {
+            "✅ Active"
+        } else {
+            "❌ Inactive"
+        };
+
+        let api_keys_count = profile.api_keys.len();
+        let active_exchanges: Vec<String> = profile
+            .get_active_exchanges()
+            .iter()
+            .map(|e| format!("{:?}", e))
+            .collect();
+
+        let username = profile
+            .telegram_username
+            .clone()
+            .unwrap_or("Not set".to_string());
+        let user_id = profile.user_id.clone();
+        let is_active = profile.is_active;
+        let created_at = profile.created_at;
+        let subscription_tier = profile.subscription.tier.clone();
+        let features_count = profile.subscription.features.len();
+        let can_trade = profile.can_trade();
+        let total_trades = profile.total_trades;
+        let total_pnl = profile.total_pnl_usdt;
+        let trading_mode = profile.get_trading_mode();
+        let max_leverage = profile.configuration.max_leverage;
+        let max_entry_size = profile.configuration.max_entry_size_usdt;
+        let risk_tolerance = profile.configuration.risk_tolerance_percentage * 100.0;
+        let auto_trading_enabled = profile.configuration.auto_trading_enabled;
+
+        format!(
+            "👤 *Your Profile*\n\n\
+            📋 *Account Information:*\n\
+            • User ID: `{}`\n\
+            • Telegram ID: `{}`\n\
+            • Username: `{}`\n\
+            • Account Status: `{}`\n\
+            • Member Since: `{}`\n\n\
+            💎 *Subscription Details:*\n\
+            • Tier: `{:?}`\n\
+            • Status: {}\n\
+            • Features: `{} enabled`\n\n\
+            🔑 *API Keys:*\n\
+            • Total Keys: `{}`\n\
+            • Active Exchanges: `{}`\n\
+            • Trading Enabled: `{}`\n\n\
+            📊 *Trading Statistics:*\n\
+            • Total Trades: `{}`\n\
+            • Total P&L: `${:.2}`\n\
+            • Trading Mode: `{:?}`\n\n\
+            ⚙️ *Configuration:*\n\
+            • Max Leverage: `{}x`\n\
+            • Max Entry Size: `${:.2}`\n\
+            • Risk Tolerance: `{:.1}%`\n\
+            • Auto Trading: `{}`\n\n\
+            💡 Use /settings to modify your configuration or contact support for subscription changes\\.",
+            escape_markdown_v2(&user_id),
+            telegram_id,
+            escape_markdown_v2(&username),
+            if is_active { "Active" } else { "Inactive" },
+            escape_markdown_v2(&chrono::DateTime::from_timestamp_millis(created_at as i64)
+                .unwrap_or_default()
+                .format("%Y-%m-%d")
+                .to_string()),
+            subscription_tier,
+            subscription_status,
+            features_count,
+            api_keys_count,
+            if active_exchanges.is_empty() { "None".to_string() } else { active_exchanges.join(", ") },
+            if can_trade { "Yes" } else { "No" },
+            total_trades,
+            total_pnl,
+            trading_mode,
+            max_leverage,
+            max_entry_size,
+            risk_tolerance,
+            if auto_trading_enabled { "Enabled" } else { "Disabled" }
+        )
+    }
+
+    /// Get fallback profile message for guest users
+    fn get_fallback_profile_message(&self, user_id: &str) -> String {
         format!(
             "👤 *Your Profile*\n\n\
             📋 *Account Information:*\n\
@@ -2028,6 +2066,7 @@ mod tests {
         TelegramConfig {
             bot_token: "test_token_123456789:ABCDEF".to_string(),
             chat_id: "-123456789".to_string(),
+            is_test_mode: true,
         }
     }
 
@@ -2330,6 +2369,7 @@ mod tests {
             let invalid_config = TelegramConfig {
                 bot_token: "".to_string(),
                 chat_id: "".to_string(),
+                is_test_mode: true,
             };
 
             // Service should still be created (validation happens during use)
@@ -2341,6 +2381,7 @@ mod tests {
             let config = TelegramConfig {
                 bot_token: "valid_token:ABC123".to_string(),
                 chat_id: "invalid_chat_id".to_string(),
+                is_test_mode: true,
             };
 
             let _service = TelegramService::new(config);

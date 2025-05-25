@@ -20,6 +20,28 @@ pub struct InvitationUsage {
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
 
+// Type aliases for better readability
+type UserOpportunityPreferences =
+    crate::services::core::opportunities::opportunity_categorization::UserOpportunityPreferences;
+type BalanceHistoryEntry =
+    crate::services::core::infrastructure::fund_monitoring::BalanceHistoryEntry;
+type DynamicConfigTemplate = crate::services::core::user::dynamic_config::DynamicConfigTemplate;
+type ConfigPreset = crate::services::core::user::dynamic_config::ConfigPreset;
+type UserConfigInstance = crate::services::core::user::dynamic_config::UserConfigInstance;
+type NotificationTemplate =
+    crate::services::core::infrastructure::notifications::NotificationTemplate;
+type AlertTrigger = crate::services::core::infrastructure::notifications::AlertTrigger;
+type Notification = crate::services::core::infrastructure::notifications::Notification;
+type NotificationHistory =
+    crate::services::core::infrastructure::notifications::NotificationHistory;
+type AiOpportunityEnhancement =
+    crate::services::core::ai::ai_intelligence::AiOpportunityEnhancement;
+type AiPortfolioAnalysis = crate::services::core::ai::ai_intelligence::AiPortfolioAnalysis;
+type AiPerformanceInsights = crate::services::core::ai::ai_intelligence::AiPerformanceInsights;
+type ParameterSuggestion = crate::services::core::ai::ai_intelligence::ParameterSuggestion;
+type AiOpportunityAnalysis =
+    crate::services::core::trading::ai_exchange_router::AiOpportunityAnalysis;
+
 /// D1Service provides database operations using Cloudflare D1 SQL database
 /// This service handles persistent storage for user profiles, invitations, analytics, orders, opporunities, etc.
 pub struct D1Service {
@@ -87,7 +109,11 @@ impl D1Service {
             profile.is_active.into(),
             (profile.total_trades as i64).into(),
             profile.total_pnl_usdt.into(),
-            profile.beta_expires_at.map(|t| t as i64).unwrap_or(0).into(),
+            profile
+                .beta_expires_at
+                .map(|t| t as i64)
+                .unwrap_or(0)
+                .into(),
         ])
         .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
         .run()
@@ -552,9 +578,7 @@ impl D1Service {
     pub async fn get_user_opportunity_preferences(
         &self,
         user_id: &str,
-    ) -> ArbitrageResult<
-        Option<crate::services::core::opportunities::opportunity_categorization::UserOpportunityPreferences>,
-    > {
+    ) -> ArbitrageResult<Option<UserOpportunityPreferences>> {
         let stmt = self.db.prepare(
             "SELECT preferences_data FROM user_opportunity_preferences WHERE user_id = ? LIMIT 1",
         );
@@ -573,9 +597,13 @@ impl D1Service {
         match result {
             Some(row) => {
                 let preferences_json = self.get_string_field(&row, "preferences_data")?;
-                let preferences: crate::services::core::opportunities::opportunity_categorization::UserOpportunityPreferences =
-                    serde_json::from_str(&preferences_json)
-                        .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse user opportunity preferences: {}", e)))?;
+                let preferences: UserOpportunityPreferences =
+                    serde_json::from_str(&preferences_json).map_err(|e| {
+                        ArbitrageError::parse_error(format!(
+                            "Failed to parse user opportunity preferences: {}",
+                            e
+                        ))
+                    })?;
                 Ok(Some(preferences))
             }
             None => Ok(None),
@@ -723,8 +751,8 @@ impl D1Service {
             usage.invitation_id.clone().into(),
             usage.user_id.clone().into(),
             usage.telegram_id.into(),
-            usage.used_at.to_rfc3339().into(),
-            usage.beta_expires_at.to_rfc3339().into(),
+            usage.used_at.timestamp_millis().into(),
+            usage.beta_expires_at.timestamp_millis().into(),
         ])
         .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
         .run()
@@ -735,10 +763,13 @@ impl D1Service {
     }
 
     /// Get invitation usage by user ID
-    pub async fn get_invitation_usage_by_user(&self, user_id: &str) -> ArbitrageResult<Option<InvitationUsage>> {
-        let stmt = self.db.prepare(
-            "SELECT * FROM invitation_usage WHERE user_id = ? LIMIT 1"
-        );
+    pub async fn get_invitation_usage_by_user(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<Option<InvitationUsage>> {
+        let stmt = self
+            .db
+            .prepare("SELECT * FROM invitation_usage WHERE user_id = ? LIMIT 1");
 
         let result = stmt
             .bind(&[user_id.into()])
@@ -762,12 +793,16 @@ impl D1Service {
 
     /// Check if user has active beta access
     pub async fn has_active_beta_access(&self, user_id: &str) -> ArbitrageResult<bool> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
         let stmt = self.db.prepare(
-            "SELECT beta_expires_at FROM invitation_usage WHERE user_id = ? AND beta_expires_at > datetime('now') LIMIT 1"
+            "SELECT beta_expires_at FROM invitation_usage WHERE user_id = ? AND (
+                (typeof(beta_expires_at) = 'integer' AND beta_expires_at > ?) OR
+                (typeof(beta_expires_at) = 'text' AND beta_expires_at > datetime('now'))
+            ) LIMIT 1",
         );
 
         let result = stmt
-            .bind(&[user_id.into()])
+            .bind(&[user_id.into(), now_ms.into()])
             .map_err(|e| {
                 ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
             })?
@@ -1132,16 +1167,41 @@ impl D1Service {
         let invitation_id = self.get_string_field(&row, "invitation_id")?;
         let user_id = self.get_string_field(&row, "user_id")?;
         let telegram_id = self.get_i64_field(&row, "telegram_id", 0);
-        
-        let used_at_str = self.get_string_field(&row, "used_at")?;
-        let used_at = chrono::DateTime::parse_from_rfc3339(&used_at_str)
-            .map_err(|e| ArbitrageError::parse_error(format!("Invalid used_at format: {}", e)))?
-            .with_timezone(&chrono::Utc);
 
-        let beta_expires_at_str = self.get_string_field(&row, "beta_expires_at")?;
-        let beta_expires_at = chrono::DateTime::parse_from_rfc3339(&beta_expires_at_str)
-            .map_err(|e| ArbitrageError::parse_error(format!("Invalid beta_expires_at format: {}", e)))?
-            .with_timezone(&chrono::Utc);
+        // Handle both integer timestamps (new format) and RFC3339 strings (legacy format) for backward compatibility
+        let used_at = if let Some(timestamp_ms) = row.get("used_at").and_then(|v| v.as_i64()) {
+            // New integer timestamp format
+            chrono::DateTime::from_timestamp_millis(timestamp_ms)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .ok_or_else(|| {
+                    ArbitrageError::parse_error("Invalid used_at timestamp".to_string())
+                })?
+        } else {
+            // Legacy RFC3339 string format for backward compatibility
+            let used_at_str = self.get_string_field(&row, "used_at")?;
+            chrono::DateTime::parse_from_rfc3339(&used_at_str)
+                .map_err(|e| ArbitrageError::parse_error(format!("Invalid used_at format: {}", e)))?
+                .with_timezone(&chrono::Utc)
+        };
+
+        let beta_expires_at = if let Some(timestamp_ms) =
+            row.get("beta_expires_at").and_then(|v| v.as_i64())
+        {
+            // New integer timestamp format
+            chrono::DateTime::from_timestamp_millis(timestamp_ms)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .ok_or_else(|| {
+                    ArbitrageError::parse_error("Invalid beta_expires_at timestamp".to_string())
+                })?
+        } else {
+            // Legacy RFC3339 string format for backward compatibility
+            let beta_expires_at_str = self.get_string_field(&row, "beta_expires_at")?;
+            chrono::DateTime::parse_from_rfc3339(&beta_expires_at_str)
+                .map_err(|e| {
+                    ArbitrageError::parse_error(format!("Invalid beta_expires_at format: {}", e))
+                })?
+                .with_timezone(&chrono::Utc)
+        };
 
         Ok(InvitationUsage {
             invitation_id,
@@ -1380,7 +1440,7 @@ impl D1Service {
     /// Store opportunity analysis in D1 database
     pub async fn store_opportunity_analysis(
         &self,
-        analysis: &crate::services::core::trading::ai_exchange_router::AiOpportunityAnalysis,
+        analysis: &AiOpportunityAnalysis,
     ) -> ArbitrageResult<()> {
         let stmt = self.db.prepare(
             "INSERT INTO ai_opportunity_analysis (
@@ -1517,10 +1577,7 @@ impl D1Service {
     // ============= FUND MONITORING OPERATIONS =============
 
     /// Store balance history entry
-    pub async fn store_balance_history(
-        &self,
-        entry: &crate::services::core::infrastructure::fund_monitoring::BalanceHistoryEntry,
-    ) -> ArbitrageResult<()> {
+    pub async fn store_balance_history(&self, entry: &BalanceHistoryEntry) -> ArbitrageResult<()> {
         let balance_json = serde_json::to_string(&entry.balance).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize balance: {}", e))
         })?;
@@ -1561,7 +1618,7 @@ impl D1Service {
         from_timestamp: Option<u64>,
         to_timestamp: Option<u64>,
         limit: Option<u32>,
-    ) -> ArbitrageResult<Vec<crate::services::core::infrastructure::fund_monitoring::BalanceHistoryEntry>> {
+    ) -> ArbitrageResult<Vec<BalanceHistoryEntry>> {
         let mut query = "SELECT * FROM balance_history WHERE user_id = ?".to_string();
         let mut params: Vec<serde_json::Value> = vec![user_id.into()];
 
@@ -1631,7 +1688,7 @@ impl D1Service {
     fn row_to_balance_history(
         &self,
         row: HashMap<String, Value>,
-    ) -> ArbitrageResult<crate::services::core::infrastructure::fund_monitoring::BalanceHistoryEntry> {
+    ) -> ArbitrageResult<BalanceHistoryEntry> {
         let balance_data = row
             .get("balance_data")
             .and_then(|v| v.as_str())
@@ -1641,7 +1698,7 @@ impl D1Service {
             ArbitrageError::parse_error(format!("Failed to parse balance data: {}", e))
         })?;
 
-        Ok(crate::services::core::infrastructure::fund_monitoring::BalanceHistoryEntry {
+        Ok(BalanceHistoryEntry {
             id: row
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -1678,7 +1735,7 @@ impl D1Service {
     /// Store a dynamic configuration template
     pub async fn store_config_template(
         &self,
-        template: &crate::services::core::user::dynamic_config::DynamicConfigTemplate,
+        template: &DynamicConfigTemplate,
     ) -> ArbitrageResult<()> {
         let template_json = serde_json::to_string(template).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize template: {}", e))
@@ -1749,10 +1806,7 @@ impl D1Service {
     }
 
     /// Store a dynamic configuration preset
-    pub async fn store_config_preset(
-        &self,
-        preset: &crate::services::core::user::dynamic_config::ConfigPreset,
-    ) -> ArbitrageResult<()> {
+    pub async fn store_config_preset(&self, preset: &ConfigPreset) -> ArbitrageResult<()> {
         let stmt = self.db.prepare(
             "
             INSERT INTO dynamic_config_presets (
@@ -1822,7 +1876,7 @@ impl D1Service {
     /// Store a user configuration instance
     pub async fn store_user_config_instance(
         &self,
-        instance: &crate::services::core::user::dynamic_config::UserConfigInstance,
+        instance: &UserConfigInstance,
     ) -> ArbitrageResult<()> {
         let stmt = self.db.prepare(
             "
@@ -1893,7 +1947,7 @@ impl D1Service {
     /// Store a notification template
     pub async fn store_notification_template(
         &self,
-        template: &crate::services::core::infrastructure::notifications::NotificationTemplate,
+        template: &NotificationTemplate,
     ) -> ArbitrageResult<()> {
         let stmt = self.db.prepare(
             "
@@ -1940,7 +1994,7 @@ impl D1Service {
     pub async fn get_notification_template(
         &self,
         template_id: &str,
-    ) -> ArbitrageResult<Option<crate::services::core::infrastructure::notifications::NotificationTemplate>> {
+    ) -> ArbitrageResult<Option<NotificationTemplate>> {
         let stmt = self.db.prepare(
             "SELECT * FROM notification_templates WHERE template_id = ? AND is_active = TRUE",
         );
@@ -1964,18 +2018,28 @@ impl D1Service {
     }
 
     /// Store an alert trigger
-    pub async fn store_alert_trigger(
-        &self,
-        trigger: &crate::services::core::infrastructure::notifications::AlertTrigger,
-    ) -> ArbitrageResult<()> {
+    pub async fn store_alert_trigger(&self, trigger: &AlertTrigger) -> ArbitrageResult<()> {
+        // Use INSERT with ON CONFLICT instead of INSERT OR REPLACE to be compatible with triggers
         let stmt = self.db.prepare(
             "
-            INSERT OR REPLACE INTO alert_triggers (
+            INSERT INTO alert_triggers (
                 trigger_id, user_id, name, description, trigger_type, 
                 conditions, template_id, is_active, priority, channels, 
                 cooldown_minutes, max_alerts_per_hour, created_at, 
                 updated_at, last_triggered_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(trigger_id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                trigger_type = excluded.trigger_type,
+                conditions = excluded.conditions,
+                template_id = excluded.template_id,
+                is_active = excluded.is_active,
+                priority = excluded.priority,
+                channels = excluded.channels,
+                cooldown_minutes = excluded.cooldown_minutes,
+                max_alerts_per_hour = excluded.max_alerts_per_hour,
+                updated_at = excluded.updated_at
         ",
         );
 
@@ -2020,7 +2084,7 @@ impl D1Service {
     pub async fn get_user_alert_triggers(
         &self,
         user_id: &str,
-    ) -> ArbitrageResult<Vec<crate::services::core::infrastructure::notifications::AlertTrigger>> {
+    ) -> ArbitrageResult<Vec<AlertTrigger>> {
         let stmt = self.db.prepare(
             "
             SELECT * FROM alert_triggers 
@@ -2053,10 +2117,7 @@ impl D1Service {
     }
 
     /// Store a notification
-    pub async fn store_notification(
-        &self,
-        notification: &crate::services::core::infrastructure::notifications::Notification,
-    ) -> ArbitrageResult<()> {
+    pub async fn store_notification(&self, notification: &Notification) -> ArbitrageResult<()> {
         let stmt = self.db.prepare(
             "
             INSERT INTO notifications (
@@ -2137,7 +2198,7 @@ impl D1Service {
     /// Store notification delivery history
     pub async fn store_notification_history(
         &self,
-        history: &crate::services::core::infrastructure::notifications::NotificationHistory,
+        history: &NotificationHistory,
     ) -> ArbitrageResult<()> {
         let stmt = self.db.prepare(
             "
@@ -2183,7 +2244,7 @@ impl D1Service {
         &self,
         user_id: &str,
         limit: Option<i32>,
-    ) -> ArbitrageResult<Vec<crate::services::core::infrastructure::notifications::NotificationHistory>> {
+    ) -> ArbitrageResult<Vec<NotificationHistory>> {
         let limit_clause = limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default();
         let query = format!(
             "
@@ -2226,7 +2287,7 @@ impl D1Service {
         &self,
         notification_id: &str,
         channel: &str,
-    ) -> ArbitrageResult<Option<crate::services::core::infrastructure::notifications::NotificationHistory>> {
+    ) -> ArbitrageResult<Option<NotificationHistory>> {
         let stmt = self.db.prepare(
             "SELECT * FROM notification_history 
              WHERE notification_id = ? AND channel = ? 
@@ -2486,7 +2547,7 @@ impl D1Service {
     fn row_to_notification_template(
         &self,
         row: HashMap<String, Value>,
-    ) -> ArbitrageResult<crate::services::core::infrastructure::notifications::NotificationTemplate> {
+    ) -> ArbitrageResult<NotificationTemplate> {
         let template_id = self.get_string_field(&row, "template_id")?;
         let name = self.get_string_field(&row, "name")?;
         let category = self.get_string_field(&row, "category")?;
@@ -2512,7 +2573,7 @@ impl D1Service {
             ))
         })?;
 
-        Ok(crate::services::core::infrastructure::notifications::NotificationTemplate {
+        Ok(NotificationTemplate {
             template_id,
             name,
             description,
@@ -2530,10 +2591,7 @@ impl D1Service {
     }
 
     #[allow(clippy::result_large_err)]
-    fn row_to_alert_trigger(
-        &self,
-        row: HashMap<String, Value>,
-    ) -> ArbitrageResult<crate::services::core::infrastructure::notifications::AlertTrigger> {
+    fn row_to_alert_trigger(&self, row: HashMap<String, Value>) -> ArbitrageResult<AlertTrigger> {
         let trigger_id = self.get_string_field(&row, "trigger_id")?;
         let user_id = self.get_string_field(&row, "user_id")?;
         let name = self.get_string_field(&row, "name")?;
@@ -2566,7 +2624,7 @@ impl D1Service {
             None
         };
 
-        Ok(crate::services::core::infrastructure::notifications::AlertTrigger {
+        Ok(AlertTrigger {
             trigger_id,
             user_id,
             name,
@@ -2589,7 +2647,7 @@ impl D1Service {
     fn row_to_notification_history(
         &self,
         row: HashMap<String, Value>,
-    ) -> ArbitrageResult<crate::services::core::infrastructure::notifications::NotificationHistory> {
+    ) -> ArbitrageResult<NotificationHistory> {
         let history_id = self.get_string_field(&row, "history_id")?;
         let notification_id = self.get_string_field(&row, "notification_id")?;
         let user_id = self.get_string_field(&row, "user_id")?;
@@ -2620,7 +2678,7 @@ impl D1Service {
             None
         };
 
-        Ok(crate::services::core::infrastructure::notifications::NotificationHistory {
+        Ok(NotificationHistory {
             history_id,
             notification_id,
             user_id,
@@ -2640,7 +2698,7 @@ impl D1Service {
     /// Store AI opportunity enhancement in D1 database
     pub async fn store_ai_opportunity_enhancement(
         &self,
-        enhancement: &crate::services::core::ai::ai_intelligence::AiOpportunityEnhancement,
+        enhancement: &AiOpportunityEnhancement,
     ) -> ArbitrageResult<()> {
         let enhancement_json = serde_json::to_string(enhancement).map_err(|e| {
             ArbitrageError::parse_error(format!(
@@ -2704,7 +2762,7 @@ impl D1Service {
     /// Store AI portfolio analysis in D1 database
     pub async fn store_ai_portfolio_analysis(
         &self,
-        analysis: &crate::services::core::ai::ai_intelligence::AiPortfolioAnalysis,
+        analysis: &AiPortfolioAnalysis,
     ) -> ArbitrageResult<()> {
         let analysis_json = serde_json::to_string(analysis).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize AI portfolio analysis: {}", e))
@@ -2765,7 +2823,7 @@ impl D1Service {
     /// Store AI performance insights in D1 database
     pub async fn store_ai_performance_insights(
         &self,
-        insights: &crate::services::core::ai::ai_intelligence::AiPerformanceInsights,
+        insights: &AiPerformanceInsights,
     ) -> ArbitrageResult<()> {
         let insights_json = serde_json::to_string(insights).map_err(|e| {
             ArbitrageError::parse_error(format!(
@@ -2843,7 +2901,7 @@ impl D1Service {
     pub async fn store_ai_parameter_suggestion(
         &self,
         user_id: &str,
-        suggestion: &crate::services::core::ai::ai_intelligence::ParameterSuggestion,
+        suggestion: &ParameterSuggestion,
     ) -> ArbitrageResult<()> {
         let suggestion_json = serde_json::to_string(suggestion).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize parameter suggestion: {}", e))
@@ -2901,7 +2959,7 @@ impl D1Service {
         &self,
         user_id: &str,
         limit: Option<i32>,
-    ) -> ArbitrageResult<Vec<crate::services::core::ai::ai_intelligence::AiOpportunityEnhancement>> {
+    ) -> ArbitrageResult<Vec<AiOpportunityEnhancement>> {
         let limit_val = limit.unwrap_or(50);
 
         let stmt = self.db.prepare(
@@ -2931,8 +2989,8 @@ impl D1Service {
 
         for row in results {
             let enhancement_data = self.get_string_field(&row, "enhancement_data")?;
-            let enhancement: crate::services::core::ai::ai_intelligence::AiOpportunityEnhancement =
-                serde_json::from_str(&enhancement_data).map_err(|e| {
+            let enhancement: AiOpportunityEnhancement = serde_json::from_str(&enhancement_data)
+                .map_err(|e| {
                     ArbitrageError::parse_error(format!(
                         "Failed to parse AI opportunity enhancement: {}",
                         e
@@ -2949,7 +3007,7 @@ impl D1Service {
         &self,
         user_id: &str,
         limit: Option<i32>,
-    ) -> ArbitrageResult<Vec<crate::services::core::ai::ai_intelligence::AiPerformanceInsights>> {
+    ) -> ArbitrageResult<Vec<AiPerformanceInsights>> {
         let limit_val = limit.unwrap_or(10);
 
         let stmt = self.db.prepare(
@@ -2979,7 +3037,7 @@ impl D1Service {
 
         for row in results {
             let insights_data = self.get_string_field(&row, "insights_data")?;
-            let insights: crate::services::core::ai::ai_intelligence::AiPerformanceInsights =
+            let insights: AiPerformanceInsights =
                 serde_json::from_str(&insights_data).map_err(|e| {
                     ArbitrageError::parse_error(format!(
                         "Failed to parse AI performance insights: {}",

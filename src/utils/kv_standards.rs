@@ -1,5 +1,5 @@
 //! KV Store Standardization Utilities
-//! 
+//!
 //! Provides consistent patterns for KV store usage across all services:
 //! - Standardized key naming conventions
 //! - TTL policies and cache invalidation
@@ -10,24 +10,81 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use worker::kv::KvStore;
 
+/// Configuration for TTL values
+#[derive(Debug, Clone)]
+pub struct TtlConfig {
+    pub real_time: u64,
+    pub short: u64,
+    pub medium: u64,
+    pub long: u64,
+    pub very_long: u64,
+}
+
+impl Default for TtlConfig {
+    fn default() -> Self {
+        Self {
+            real_time: 30,     // 30 seconds - real-time market data
+            short: 300,        // 5 minutes - user sessions, temporary state
+            medium: 3600,      // 1 hour - user profiles, preferences
+            long: 86400,       // 24 hours - configuration, static data
+            very_long: 604800, // 7 days - historical data, analytics
+        }
+    }
+}
+
+impl TtlConfig {
+    /// Create a new TTL configuration with custom values
+    pub fn new(real_time: u64, short: u64, medium: u64, long: u64, very_long: u64) -> Self {
+        Self {
+            real_time,
+            short,
+            medium,
+            long,
+            very_long,
+        }
+    }
+
+    /// Create configuration optimized for market data with longer real-time TTL
+    pub fn market_optimized() -> Self {
+        Self {
+            real_time: 60,     // 1 minute - less aggressive for market data
+            short: 300,        // 5 minutes
+            medium: 3600,      // 1 hour
+            long: 86400,       // 24 hours
+            very_long: 604800, // 7 days
+        }
+    }
+}
+
 /// Standard TTL policies for different data types
 #[derive(Debug, Clone, Copy)]
 pub enum CacheTTL {
-    /// Very short-lived data (30 seconds) - real-time market data
-    RealTime = 30,
-    /// Short-lived data (5 minutes) - user sessions, temporary state
-    Short = 300,
-    /// Medium-lived data (1 hour) - user profiles, preferences
-    Medium = 3600,
-    /// Long-lived data (24 hours) - configuration, static data
-    Long = 86400,
-    /// Very long-lived data (7 days) - historical data, analytics
-    VeryLong = 604800,
+    /// Very short-lived data - real-time market data
+    RealTime,
+    /// Short-lived data - user sessions, temporary state
+    Short,
+    /// Medium-lived data - user profiles, preferences
+    Medium,
+    /// Long-lived data - configuration, static data
+    Long,
+    /// Very long-lived data - historical data, analytics
+    VeryLong,
 }
 
 impl CacheTTL {
-    pub fn as_seconds(&self) -> u64 {
-        *self as u64
+    pub fn as_seconds(&self, config: &TtlConfig) -> u64 {
+        match self {
+            CacheTTL::RealTime => config.real_time,
+            CacheTTL::Short => config.short,
+            CacheTTL::Medium => config.medium,
+            CacheTTL::Long => config.long,
+            CacheTTL::VeryLong => config.very_long,
+        }
+    }
+
+    /// Backward compatibility method using default configuration
+    pub fn as_seconds_default(&self) -> u64 {
+        self.as_seconds(&TtlConfig::default())
     }
 }
 
@@ -87,6 +144,16 @@ impl KvKeyBuilder {
         self
     }
 
+    /// Add timestamp component for uniqueness in metrics and time-series data
+    pub fn add_timestamp_component(mut self) -> Self {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        self.components.push(timestamp.to_string());
+        self
+    }
+
     pub fn build(self) -> String {
         let mut key = self.prefix.as_str().to_string();
         for component in self.components {
@@ -110,14 +177,23 @@ pub struct CacheMetadata {
 
 impl CacheMetadata {
     pub fn new(ttl: CacheTTL, data_size: usize, service_name: String) -> Self {
+        Self::new_with_config(ttl, data_size, service_name, &TtlConfig::default())
+    }
+
+    pub fn new_with_config(
+        ttl: CacheTTL,
+        data_size: usize,
+        service_name: String,
+        config: &TtlConfig,
+    ) -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         Self {
             created_at: now,
-            expires_at: now + ttl.as_seconds(),
+            expires_at: now + ttl.as_seconds(config),
             access_count: 0,
             last_accessed: now,
             data_size,
@@ -151,10 +227,19 @@ pub struct CachedData<T> {
 
 impl<T> CachedData<T> {
     pub fn new(data: T, ttl: CacheTTL, service_name: String) -> Self {
+        Self::new_with_config(data, ttl, service_name, &TtlConfig::default())
+    }
+
+    pub fn new_with_config(
+        data: T,
+        ttl: CacheTTL,
+        service_name: String,
+        config: &TtlConfig,
+    ) -> Self {
         let data_size = std::mem::size_of_val(&data);
         Self {
             data,
-            metadata: CacheMetadata::new(ttl, data_size, service_name),
+            metadata: CacheMetadata::new_with_config(ttl, data_size, service_name, config),
         }
     }
 
@@ -172,13 +257,19 @@ impl<T> CachedData<T> {
 pub struct StandardKvOperations {
     kv_store: KvStore,
     service_name: String,
+    ttl_config: TtlConfig,
 }
 
 impl StandardKvOperations {
     pub fn new(kv_store: KvStore, service_name: String) -> Self {
+        Self::with_ttl_config(kv_store, service_name, TtlConfig::default())
+    }
+
+    pub fn with_ttl_config(kv_store: KvStore, service_name: String, ttl_config: TtlConfig) -> Self {
         Self {
             kv_store,
             service_name,
+            ttl_config,
         }
     }
 
@@ -190,19 +281,21 @@ impl StandardKvOperations {
         ttl: CacheTTL,
     ) -> Result<(), worker::Error> {
         let key = key_builder.build();
-        let cached_data = CachedData::new(data, ttl, self.service_name.clone());
-        
+        let cached_data =
+            CachedData::new_with_config(data, ttl, self.service_name.clone(), &self.ttl_config);
+
         let serialized = serde_json::to_string(&cached_data)
             .map_err(|e| worker::Error::RustError(format!("Serialization error: {}", e)))?;
 
         self.kv_store
             .put(&key, serialized)?
-            .expiration_ttl(ttl.as_seconds())
+            .expiration_ttl(ttl.as_seconds(&self.ttl_config))
             .execute()
             .await?;
 
         // Record metrics
-        self.record_cache_operation("put", &key, cached_data.metadata.data_size).await;
+        self.record_cache_operation("put", &key, cached_data.metadata.data_size)
+            .await;
 
         Ok(())
     }
@@ -213,25 +306,29 @@ impl StandardKvOperations {
         key_builder: KvKeyBuilder,
     ) -> Result<Option<T>, worker::Error> {
         let key = key_builder.build();
-        
+
         match self.kv_store.get(&key).text().await? {
             Some(serialized) => {
-                let mut cached_data: CachedData<T> = serde_json::from_str(&serialized)
-                    .map_err(|e| worker::Error::RustError(format!("Deserialization error: {}", e)))?;
+                let mut cached_data: CachedData<T> =
+                    serde_json::from_str(&serialized).map_err(|e| {
+                        worker::Error::RustError(format!("Deserialization error: {}", e))
+                    })?;
 
                 if cached_data.is_valid() {
                     let data = cached_data.access_data().clone();
-                    
+
                     // Update metadata in cache
-                    let updated_serialized = serde_json::to_string(&cached_data)
-                        .map_err(|e| worker::Error::RustError(format!("Serialization error: {}", e)))?;
-                    
+                    let updated_serialized = serde_json::to_string(&cached_data).map_err(|e| {
+                        worker::Error::RustError(format!("Serialization error: {}", e))
+                    })?;
+
                     // Update cache with new metadata (fire and forget)
                     let _ = self.kv_store.put(&key, updated_serialized)?.execute().await;
-                    
+
                     // Record metrics
-                    self.record_cache_operation("hit", &key, cached_data.metadata.data_size).await;
-                    
+                    self.record_cache_operation("hit", &key, cached_data.metadata.data_size)
+                        .await;
+
                     Ok(Some(data))
                 } else {
                     // Data expired, remove from cache
@@ -268,26 +365,44 @@ impl StandardKvOperations {
         let computed_data = compute_fn().await?;
 
         // Store in cache
-        self.put_with_ttl(key_builder, computed_data.clone(), ttl).await?;
+        self.put_with_ttl(key_builder, computed_data.clone(), ttl)
+            .await?;
 
         Ok(computed_data)
     }
 
-    /// Invalidate cache entries by pattern
-    pub async fn invalidate_pattern(&self, pattern: &str) -> Result<u32, worker::Error> {
+    /// Record cache invalidation attempt (no-op implementation)
+    /// Note: KV doesn't support pattern deletion, so this is a placeholder for metrics only
+    pub async fn record_invalidation_attempt(&self, pattern: &str) -> Result<u32, worker::Error> {
         // Note: KV doesn't support pattern deletion, so this would need to be implemented
         // by maintaining an index of keys or using a different approach
-        // For now, we'll just record the invalidation attempt
-        self.record_cache_operation("invalidate_pattern", pattern, 0).await;
-        Ok(0)
+        // For now, we'll just record the invalidation attempt for metrics
+        self.record_cache_operation("invalidate_pattern_attempt", pattern, 0)
+            .await;
+        Ok(0) // Returns 0 to indicate no keys were actually invalidated
     }
 
     /// Record cache operation metrics
+    ///
+    /// **LIMITATION**: KV store for metrics has significant limitations:
+    /// - No aggregation capabilities (can't sum, average, or group metrics)
+    /// - Difficult to query across time ranges or perform analytics
+    /// - No built-in time-series functionality
+    /// - Limited to simple key-value storage
+    ///
+    /// **RECOMMENDED ALTERNATIVES**:
+    /// - Cloudflare Analytics Engine for time-series metrics with aggregation
+    /// - External metrics service (Prometheus, DataDog, etc.)
+    /// - Cloudflare Workers Analytics API for request-level metrics
+    /// - Custom aggregation service with D1 database for complex queries
+    ///
+    /// **CURRENT IMPLEMENTATION**: Basic metric storage for debugging and simple monitoring only
     async fn record_cache_operation(&self, operation: &str, key: &str, size: usize) {
         let metrics_key = KvKeyBuilder::new(KeyPrefix::Metrics)
             .add_component("cache")
             .add_component(&self.service_name)
             .add_component(operation)
+            .add_timestamp_component() // Add timestamp for uniqueness
             .build();
 
         let metric_data = serde_json::json!({
@@ -295,14 +410,21 @@ impl StandardKvOperations {
             "operation": operation,
             "key": key,
             "size": size,
-            "service": self.service_name
+            "service": self.service_name,
+            "limitations": {
+                "no_aggregation": true,
+                "no_time_series": true,
+                "basic_storage_only": true
+            },
+            "recommended_migration": "Consider Cloudflare Analytics Engine for production metrics"
         });
 
-        // Store metrics (fire and forget)
-        let _ = self.kv_store
+        // Store metrics (fire and forget) - Note: This is not suitable for production metrics
+        let _ = self
+            .kv_store
             .put(&metrics_key, metric_data.to_string())
             .unwrap()
-            .expiration_ttl(CacheTTL::Long.as_seconds())
+            .expiration_ttl(CacheTTL::Long.as_seconds_default())
             .execute()
             .await;
     }
@@ -328,9 +450,8 @@ pub mod service_helpers {
             &self,
             user_id: &str,
         ) -> Result<Option<T>, worker::Error> {
-            let key = KvKeyBuilder::new(KeyPrefix::UserProfile)
-                .add_component(user_id);
-            
+            let key = KvKeyBuilder::new(KeyPrefix::UserProfile).add_component(user_id);
+
             self.kv_ops.get_with_metadata(key).await
         }
 
@@ -339,10 +460,11 @@ pub mod service_helpers {
             user_id: &str,
             profile: T,
         ) -> Result<(), worker::Error> {
-            let key = KvKeyBuilder::new(KeyPrefix::UserProfile)
-                .add_component(user_id);
-            
-            self.kv_ops.put_with_ttl(key, profile, CacheTTL::Medium).await
+            let key = KvKeyBuilder::new(KeyPrefix::UserProfile).add_component(user_id);
+
+            self.kv_ops
+                .put_with_ttl(key, profile, CacheTTL::Medium)
+                .await
         }
     }
 
@@ -362,9 +484,8 @@ pub mod service_helpers {
             &self,
             user_id: &str,
         ) -> Result<Option<T>, worker::Error> {
-            let key = KvKeyBuilder::new(KeyPrefix::Position)
-                .add_component(user_id);
-            
+            let key = KvKeyBuilder::new(KeyPrefix::Position).add_component(user_id);
+
             self.kv_ops.get_with_metadata(key).await
         }
 
@@ -373,18 +494,18 @@ pub mod service_helpers {
             user_id: &str,
             positions: T,
         ) -> Result<(), worker::Error> {
-            let key = KvKeyBuilder::new(KeyPrefix::Position)
-                .add_component(user_id);
-            
-            self.kv_ops.put_with_ttl(key, positions, CacheTTL::Short).await
+            let key = KvKeyBuilder::new(KeyPrefix::Position).add_component(user_id);
+
+            self.kv_ops
+                .put_with_ttl(key, positions, CacheTTL::Short)
+                .await
         }
 
         pub async fn get_position_index<T: for<'de> Deserialize<'de> + Serialize + Clone>(
             &self,
         ) -> Result<Option<T>, worker::Error> {
-            let key = KvKeyBuilder::new(KeyPrefix::Position)
-                .add_component("index");
-            
+            let key = KvKeyBuilder::new(KeyPrefix::Position).add_component("index");
+
             self.kv_ops.get_with_metadata(key).await
         }
 
@@ -392,9 +513,8 @@ pub mod service_helpers {
             &self,
             index: T,
         ) -> Result<(), worker::Error> {
-            let key = KvKeyBuilder::new(KeyPrefix::Position)
-                .add_component("index");
-            
+            let key = KvKeyBuilder::new(KeyPrefix::Position).add_component("index");
+
             self.kv_ops.put_with_ttl(key, index, CacheTTL::Short).await
         }
     }
@@ -420,7 +540,7 @@ pub mod service_helpers {
                 .add_component("ticker")
                 .add_component(exchange)
                 .add_component(symbol);
-            
+
             self.kv_ops.get_with_metadata(key).await
         }
 
@@ -434,8 +554,10 @@ pub mod service_helpers {
                 .add_component("ticker")
                 .add_component(exchange)
                 .add_component(symbol);
-            
-            self.kv_ops.put_with_ttl(key, ticker, CacheTTL::RealTime).await
+
+            self.kv_ops
+                .put_with_ttl(key, ticker, CacheTTL::RealTime)
+                .await
         }
     }
 }
@@ -450,7 +572,7 @@ mod tests {
             .add_component("user123")
             .add_component("preferences")
             .build();
-        
+
         assert_eq!(key, "user_profile:user123:preferences");
     }
 
@@ -458,7 +580,7 @@ mod tests {
     fn test_cache_metadata_expiration() {
         let metadata = CacheMetadata::new(CacheTTL::Short, 100, "test_service".to_string());
         assert!(!metadata.is_expired());
-        
+
         // Test with expired metadata
         let mut expired_metadata = metadata.clone();
         expired_metadata.expires_at = 0; // Set to past
@@ -474,11 +596,12 @@ mod tests {
 
     #[test]
     fn test_ttl_values() {
-        assert_eq!(CacheTTL::RealTime.as_seconds(), 30);
-        assert_eq!(CacheTTL::Short.as_seconds(), 300);
-        assert_eq!(CacheTTL::Medium.as_seconds(), 3600);
-        assert_eq!(CacheTTL::Long.as_seconds(), 86400);
-        assert_eq!(CacheTTL::VeryLong.as_seconds(), 604800);
+        let config = TtlConfig::default();
+        assert_eq!(CacheTTL::RealTime.as_seconds(&config), 30);
+        assert_eq!(CacheTTL::Short.as_seconds(&config), 300);
+        assert_eq!(CacheTTL::Medium.as_seconds(&config), 3600);
+        assert_eq!(CacheTTL::Long.as_seconds(&config), 86400);
+        assert_eq!(CacheTTL::VeryLong.as_seconds(&config), 604800);
     }
 
     #[test]
@@ -487,4 +610,4 @@ mod tests {
         assert_eq!(KeyPrefix::Position.as_str(), "positions");
         assert_eq!(KeyPrefix::MarketData.as_str(), "market_data");
     }
-} 
+}

@@ -3,8 +3,8 @@
 use crate::log_error;
 use crate::services::core::trading::exchange::ExchangeInterface;
 use crate::services::core::trading::exchange::ExchangeService;
-use crate::services::interfaces::telegram::telegram::TelegramService;
 use crate::services::core::user::user_profile::UserProfileService;
+use crate::services::interfaces::telegram::telegram::TelegramService;
 use crate::types::{
     ArbitrageOpportunity, ArbitrageType, CommandPermission, ExchangeIdEnum, FundingRateInfo,
     StructuredTradingPair, UserProfile,
@@ -338,13 +338,13 @@ impl OpportunityService {
 
                                 // For now, we'll set net difference same as rate difference
                                 // In a real implementation, you'd fetch trading fees and subtract them
-                                let net_difference = Some(rate_diff);
+                                let _net_difference = Some(rate_diff);
 
                                 // Create opportunity using new constructor
                                 let mut opportunity = ArbitrageOpportunity::new(
                                     pair.clone(),
-                                    long_exchange,    // **REQUIRED**: No longer optional
-                                    short_exchange,   // **REQUIRED**: No longer optional
+                                    long_exchange,  // **REQUIRED**: No longer optional
+                                    short_exchange, // **REQUIRED**: No longer optional
                                     Some(long_rate),
                                     Some(short_rate),
                                     rate_diff,

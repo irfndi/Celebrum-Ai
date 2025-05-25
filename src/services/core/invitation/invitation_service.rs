@@ -72,26 +72,25 @@ impl InvitationService {
     }
 
     /// Validate and use an invitation code during user registration
-    pub async fn use_invitation_code(&self, code: &str, telegram_id: i64) -> Result<InvitationUsage> {
+    pub async fn use_invitation_code(&self, code: &str, user_id: &str, telegram_id: i64) -> Result<InvitationUsage> {
         // Find the invitation code
         let invitation = self.find_invitation_by_code(code).await?;
         
         // Validate the code
         self.validate_invitation_code(&invitation)?;
 
-        // Mark code as used
-        let user_id = Uuid::new_v4().to_string();
+        // Mark code as used with provided user_id
         let beta_expires_at = Utc::now() + Duration::days(90); // 90-day beta period
         
         let usage = InvitationUsage {
             invitation_id: invitation.id.clone(),
-            user_id: user_id.clone(),
+            user_id: user_id.to_string(),
             telegram_id,
             used_at: Utc::now(),
             beta_expires_at,
         };
 
-        self.mark_invitation_used(&invitation.id, &user_id).await?;
+        self.mark_invitation_used(&invitation.id, user_id).await?;
         
         // Convert to D1Service InvitationUsage struct
         let d1_usage = crate::services::core::infrastructure::d1_database::InvitationUsage {
@@ -190,9 +189,9 @@ impl InvitationService {
     }
 
     fn generate_random_code(&self) -> String {
-        use rand::Rng;
+        use rand::{Rng, rngs::OsRng};
         const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        let mut rng = rand::thread_rng();
+        let mut rng = OsRng;
         
         (0..8)
             .map(|_| {
@@ -203,25 +202,33 @@ impl InvitationService {
     }
 
     async fn verify_admin_permission(&self, user_id: &str) -> Result<bool> {
-        // Query user profile to check if they have super admin role
-        let query = "SELECT profile_metadata, subscription_tier FROM user_profiles WHERE user_id = ?";
+        // Use subscription_tier as the single source of truth for admin status
+        let query = "SELECT subscription_tier, profile_metadata FROM user_profiles WHERE user_id = ?";
         let result = self.d1_service.query(query, &[user_id.into()]).await?;
         
         if let Some(row) = result.first() {
-            // Check subscription tier
+            // Primary check: subscription tier (single source of truth)
             if let Some(tier_str) = row.get("subscription_tier") {
                 if tier_str == "SuperAdmin" {
                     return Ok(true);
                 }
             }
             
-            // Check role in metadata
+            // Fallback check: role in metadata (with proper error logging)
             if let Some(metadata_str) = row.get("profile_metadata") {
-                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(metadata_str) {
-                    if let Some(role) = metadata.get("role") {
-                        if role == "SuperAdmin" {
-                            return Ok(true);
+                match serde_json::from_str::<serde_json::Value>(metadata_str) {
+                    Ok(metadata) => {
+                        if let Some(role) = metadata.get("role") {
+                            if role == "SuperAdmin" {
+                                // Log inconsistency between subscription_tier and metadata
+                                eprintln!("⚠️ Admin permission inconsistency for user {}: metadata role is SuperAdmin but subscription_tier is not", user_id);
+                                return Ok(true);
+                            }
                         }
+                    }
+                    Err(e) => {
+                        // Log JSON parsing error for debugging
+                        eprintln!("❌ Failed to parse profile_metadata JSON for user {}: {}", user_id, e);
                     }
                 }
             }
@@ -272,21 +279,52 @@ impl InvitationService {
         let result = self.d1_service.query(query, &[code.into()]).await?;
         
         if let Some(row) = result.first() {
+            // Explicitly check required fields and return errors if missing
+            let id = row.get("id")
+                .ok_or_else(|| anyhow!("Missing required field: id"))?;
+            
+            let code = row.get("code")
+                .ok_or_else(|| anyhow!("Missing required field: code"))?;
+            
+            let created_by_admin_id = row.get("created_by_admin_id")
+                .ok_or_else(|| anyhow!("Missing required field: created_by_admin_id"))?;
+            
+            let expires_at_str = row.get("expires_at")
+                .ok_or_else(|| anyhow!("Missing required field: expires_at"))?;
+            
+            let created_at_str = row.get("created_at")
+                .ok_or_else(|| anyhow!("Missing required field: created_at"))?;
+            
+            let is_active_str = row.get("is_active")
+                .ok_or_else(|| anyhow!("Missing required field: is_active"))?;
+            
+            // Parse required fields with proper error handling
+            let expires_at = DateTime::parse_from_rfc3339(expires_at_str)
+                .map_err(|e| anyhow!("Invalid expires_at format '{}': {}", expires_at_str, e))?
+                .with_timezone(&Utc);
+            
+            let created_at = DateTime::parse_from_rfc3339(created_at_str)
+                .map_err(|e| anyhow!("Invalid created_at format '{}': {}", created_at_str, e))?
+                .with_timezone(&Utc);
+            
+            let is_active = is_active_str.parse::<bool>()
+                .map_err(|e| anyhow!("Invalid is_active format '{}': {}", is_active_str, e))?;
+            
+            // Optional fields can use safe defaults
+            let used_by_user_id = row.get("used_by_user_id");
+            let used_at = row.get("used_at")
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.with_timezone(&Utc));
+            
             Ok(InvitationCode {
-                id: row.get("id").unwrap_or_default(),
-                code: row.get("code").unwrap_or_default(),
-                created_by_admin_id: row.get("created_by_admin_id").unwrap_or_default(),
-                used_by_user_id: row.get("used_by_user_id"),
-                expires_at: DateTime::parse_from_rfc3339(row.get("expires_at").unwrap_or_default())
-                    .map_err(|e| anyhow!("Invalid expires_at format: {}", e))?
-                    .with_timezone(&Utc),
-                created_at: DateTime::parse_from_rfc3339(row.get("created_at").unwrap_or_default())
-                    .map_err(|e| anyhow!("Invalid created_at format: {}", e))?
-                    .with_timezone(&Utc),
-                used_at: row.get("used_at")
-                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                    .map(|dt| dt.with_timezone(&Utc)),
-                is_active: row.get("is_active").unwrap_or("false").parse().unwrap_or(false),
+                id,
+                code,
+                created_by_admin_id,
+                used_by_user_id,
+                expires_at,
+                created_at,
+                used_at,
+                is_active,
             })
         } else {
             Err(anyhow!("Invitation code not found"))
@@ -308,8 +346,6 @@ impl InvitationService {
         
         Ok(())
     }
-
-
 
     async fn count_total_invitations(&self) -> Result<u32> {
         let query = "SELECT COUNT(*) as count FROM invitation_codes";

@@ -1,7 +1,9 @@
-use arb_edge::services::interfaces::telegram::telegram::{TelegramConfig, TelegramService};
-use arb_edge::services::core::user::user_profile::UserProfileService;
+#![allow(unused_imports, unused_variables, unused_mut, dead_code)]
+
 use arb_edge::services::core::infrastructure::d1_database::D1Service;
-use arb_edge::types::{UserProfile, SubscriptionTier, CommandPermission};
+use arb_edge::services::core::user::user_profile::UserProfileService;
+use arb_edge::services::interfaces::telegram::telegram::{TelegramConfig, TelegramService};
+use arb_edge::types::{CommandPermission, SubscriptionTier, UserProfile};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use worker::kv::KvStore;
@@ -66,13 +68,14 @@ mod telegram_bot_integration_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let mut telegram_service = TelegramService::new(config);
-        
+
         // Mock UserProfileService setup would go here in a real test
         // For now, we'll test the basic functionality
-        
+
         let update = create_telegram_update(123456789, "/start", "private");
 
         // Act
@@ -85,7 +88,7 @@ mod telegram_bot_integration_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("Welcome to ArbEdge"));
         assert!(response_text.contains("arbitrage opportunities"));
@@ -97,8 +100,9 @@ mod telegram_bot_integration_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/start", "group");
 
@@ -109,7 +113,7 @@ mod telegram_bot_integration_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("Welcome to ArbEdge"));
         assert!(response_text.contains("group"));
@@ -121,8 +125,9 @@ mod telegram_bot_integration_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/help", "private");
 
@@ -133,7 +138,7 @@ mod telegram_bot_integration_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("ArbEdge Bot Commands"));
         assert!(response_text.contains("/opportunities"));
@@ -147,8 +152,9 @@ mod telegram_bot_integration_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/profile", "private");
 
@@ -159,7 +165,7 @@ mod telegram_bot_integration_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("Your Profile"));
         assert!(response_text.contains("Guest User"));
@@ -172,8 +178,9 @@ mod telegram_bot_integration_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/opportunities", "private");
 
@@ -184,10 +191,13 @@ mod telegram_bot_integration_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         println!("Opportunities response: {}", response_text);
-        assert!(response_text.contains("Trading Opportunities") || response_text.contains("Recent Arbitrage Opportunities"));
+        assert!(
+            response_text.contains("Trading Opportunities")
+                || response_text.contains("Recent Arbitrage Opportunities")
+        );
     }
 
     #[tokio::test]
@@ -196,8 +206,9 @@ mod telegram_bot_integration_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/categories", "private");
 
@@ -208,7 +219,7 @@ mod telegram_bot_integration_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("Opportunity Categories"));
     }
@@ -219,8 +230,9 @@ mod telegram_bot_integration_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/settings", "private");
 
@@ -231,7 +243,7 @@ mod telegram_bot_integration_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("Bot Configuration"));
         assert!(response_text.contains("Notification Settings"));
@@ -243,8 +255,9 @@ mod telegram_bot_integration_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
         let update = create_telegram_update(123456789, "/unknown_command", "private");
 
@@ -264,10 +277,11 @@ mod telegram_bot_integration_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
-        
+
         // Test that trading commands are restricted in groups
         let update = create_telegram_update(123456789, "/balance", "group");
 
@@ -278,7 +292,7 @@ mod telegram_bot_integration_tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.is_some());
-        
+
         let response_text = response.unwrap();
         assert!(response_text.contains("Security Notice"));
         assert!(response_text.contains("private chats"));
@@ -290,10 +304,11 @@ mod telegram_bot_integration_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
-        
+
         // Create malformed update (missing required fields)
         let update = json!({
             "update_id": 123456789
@@ -315,10 +330,11 @@ mod telegram_bot_integration_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
-        
+
         // Create update without text (e.g., photo, sticker, etc.)
         let update = json!({
             "update_id": 123456789,
@@ -357,7 +373,9 @@ mod telegram_bot_integration_tests {
 #[cfg(test)]
 mod telegram_keyboard_integration_tests {
     use super::*;
-    use arb_edge::services::interfaces::telegram::telegram_keyboard::{InlineKeyboard, InlineKeyboardButton};
+    use arb_edge::services::interfaces::telegram::telegram_keyboard::{
+        InlineKeyboard, InlineKeyboardButton,
+    };
 
     #[tokio::test]
     async fn test_main_menu_keyboard_creation() {
@@ -366,18 +384,13 @@ mod telegram_keyboard_integration_tests {
 
         // Assert
         assert!(!keyboard.buttons.is_empty());
-        
+
         // Check that basic buttons are present
-        let all_buttons: Vec<&InlineKeyboardButton> = keyboard.buttons
-            .iter()
-            .flat_map(|row| row.iter())
-            .collect();
-        
-        let button_texts: Vec<&str> = all_buttons
-            .iter()
-            .map(|btn| btn.text.as_str())
-            .collect();
-        
+        let all_buttons: Vec<&InlineKeyboardButton> =
+            keyboard.buttons.iter().flat_map(|row| row.iter()).collect();
+
+        let button_texts: Vec<&str> = all_buttons.iter().map(|btn| btn.text.as_str()).collect();
+
         assert!(button_texts.contains(&"📊 Opportunities"));
         assert!(button_texts.contains(&"📈 Categories"));
         assert!(button_texts.contains(&"👤 Profile"));
@@ -389,9 +402,10 @@ mod telegram_keyboard_integration_tests {
     async fn test_keyboard_json_conversion() {
         // Arrange
         let mut keyboard = InlineKeyboard::new();
-        keyboard.add_row(vec![
-            InlineKeyboardButton::new("Test Button", "test_callback")
-        ]);
+        keyboard.add_row(vec![InlineKeyboardButton::new(
+            "Test Button",
+            "test_callback",
+        )]);
 
         // Act
         let json = keyboard.to_json();
@@ -400,10 +414,10 @@ mod telegram_keyboard_integration_tests {
         assert!(json["inline_keyboard"].is_array());
         let inline_keyboard = &json["inline_keyboard"];
         assert_eq!(inline_keyboard.as_array().unwrap().len(), 1);
-        
+
         let first_row = &inline_keyboard[0];
         assert_eq!(first_row.as_array().unwrap().len(), 1);
-        
+
         let button = &first_row[0];
         assert_eq!(button["text"], "Test Button");
         assert_eq!(button["callback_data"], "test_callback");
@@ -413,26 +427,29 @@ mod telegram_keyboard_integration_tests {
     async fn test_permission_based_button_filtering() {
         // This test would require a mock UserProfileService
         // For now, we test the structure
-        
+
         // Arrange
         let keyboard = InlineKeyboard::create_main_menu();
-        
+
         // Act - Filter with no user profile service (should show only public buttons)
         let filtered_keyboard = keyboard.filter_by_permissions(&None, "123456789").await;
 
         // Assert
         assert!(!filtered_keyboard.buttons.is_empty());
-        
+
         // All remaining buttons should have no permission requirements
-        let all_buttons: Vec<&InlineKeyboardButton> = filtered_keyboard.buttons
+        let all_buttons: Vec<&InlineKeyboardButton> = filtered_keyboard
+            .buttons
             .iter()
             .flat_map(|row| row.iter())
             .collect();
-        
+
         for button in all_buttons {
-            assert!(button.required_permission.is_none(), 
-                "Button '{}' should not require permissions when no user service is available", 
-                button.text);
+            assert!(
+                button.required_permission.is_none(),
+                "Button '{}' should not require permissions when no user service is available",
+                button.text
+            );
         }
     }
 }
@@ -447,10 +464,11 @@ mod telegram_webhook_error_handling_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
-        
+
         // Create update with missing user ID
         let update = json!({
             "update_id": 123456789,
@@ -483,10 +501,11 @@ mod telegram_webhook_error_handling_tests {
         let config = TelegramConfig {
             bot_token: "test_token".to_string(),
             chat_id: "123456789".to_string(),
+            is_test_mode: true,
         };
-        
+
         let telegram_service = TelegramService::new(config);
-        
+
         // Create update with invalid chat context
         let update = json!({
             "update_id": 123456789,
@@ -513,4 +532,4 @@ mod telegram_webhook_error_handling_tests {
         // The exact behavior depends on ChatContext::from_telegram_update implementation
         assert!(result.is_ok() || result.is_err());
     }
-} 
+}

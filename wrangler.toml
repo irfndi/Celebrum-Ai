@@ -18,6 +18,7 @@ preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
 binding = "ArbEdgeD1"
 database_name = "prod-arb-edge"
 database_id = "879bf844-93b2-433d-9319-6e6065bbfdfd"
+migrations_dir = "sql/migrations"
 
 # Durable Object migrations - Delete old PositionsManager
 [[migrations]]

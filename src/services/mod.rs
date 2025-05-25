@@ -3,99 +3,128 @@
 // Core services organized by domain
 pub mod core {
     pub mod user {
-    pub mod user_profile;
-    pub mod user_access;
-        pub mod user_trading_preferences;
         pub mod dynamic_config;
-        
+        pub mod user_access;
+        pub mod user_profile;
+        pub mod user_trading_preferences;
+
+        pub use dynamic_config::DynamicConfigService;
         pub use user_profile::UserProfileService;
         pub use user_trading_preferences::UserTradingPreferencesService;
-        pub use dynamic_config::DynamicConfigService;
     }
-    
+
     pub mod trading {
+        pub mod ai_exchange_router;
         pub mod exchange;
         pub mod exchange_availability;
         pub mod positions;
-        pub mod ai_exchange_router;
-        
+
+        pub use ai_exchange_router::AiExchangeRouterService;
         pub use exchange::ExchangeService;
         pub use exchange_availability::ExchangeAvailabilityService;
         pub use positions::PositionsService;
-        pub use ai_exchange_router::AiExchangeRouterService;
     }
-    
+
     pub mod opportunities {
-        pub mod opportunity;
         pub mod global_opportunity;
+        pub mod opportunity;
+        pub mod opportunity_categorization;
         pub mod opportunity_enhanced;
         pub mod technical_trading;
-        pub mod opportunity_categorization;
-        
-        pub use opportunity::OpportunityService;
+
         pub use global_opportunity::GlobalOpportunityService;
+        pub use opportunity::OpportunityService;
+        pub use opportunity_categorization::OpportunityCategorizationService;
         pub use opportunity_enhanced::EnhancedOpportunityService;
         pub use technical_trading::TechnicalTradingService;
-        pub use opportunity_categorization::OpportunityCategorizationService;
     }
-    
+
     pub mod analysis {
+        pub mod correlation_analysis;
         pub mod market_analysis;
         pub mod technical_analysis;
-        pub mod correlation_analysis;
-        
+
+        pub use correlation_analysis::CorrelationAnalysisService;
         pub use market_analysis::MarketAnalysisService;
         pub use technical_analysis::TechnicalAnalysisService;
-        pub use correlation_analysis::CorrelationAnalysisService;
     }
-    
+
     pub mod ai {
         pub mod ai_beta_integration;
-        pub mod ai_intelligence;
         pub mod ai_integration;
-        
+        pub mod ai_intelligence;
+
         pub use ai_beta_integration::AiBetaIntegrationService;
-        pub use ai_intelligence::AiIntelligenceService;
         pub use ai_integration::AiIntegrationService;
+        pub use ai_intelligence::AiIntelligenceService;
     }
-    
+
+    // TODO: Fix invitation services - currently have compilation errors
+    // pub mod invitation {
+    //     pub mod affiliation_service;
+    //     pub mod invitation_service;
+    //     pub mod referral_service;
+
+    //     pub use affiliation_service::AffiliationService;
+    //     pub use invitation_service::InvitationService;
+    //     pub use referral_service::ReferralService;
+    // }
+
     pub mod infrastructure {
-        pub mod monitoring_observability;
         pub mod d1_database;
-        pub mod notifications;
         pub mod fund_monitoring;
-        
-        pub use monitoring_observability::MonitoringObservabilityService;
+        pub mod monitoring_observability;
+        pub mod notifications;
+
         pub use d1_database::D1Service;
-        pub use notifications::NotificationService;
         pub use fund_monitoring::FundMonitoringService;
+        pub use monitoring_observability::MonitoringObservabilityService;
+        pub use notifications::NotificationService;
     }
 }
 
 // Interface services for different platforms
 pub mod interfaces {
     pub mod telegram {
+        #[allow(clippy::module_inception)]
         pub mod telegram;
         pub mod telegram_keyboard;
-        
+
         pub use telegram::TelegramService;
         pub use telegram_keyboard::{InlineKeyboard, InlineKeyboardButton};
     }
-    
+
     pub mod api {
-        // Future API interface modules
+        // TODO: Implement REST API interface modules
+        // - api_service.rs: Core API service for HTTP endpoints
+        // - api_middleware.rs: Authentication and rate limiting middleware
+        // - api_routes.rs: Route definitions and handlers
     }
-    
+
     pub mod discord {
-        // Future Discord interface modules
+        // TODO: Implement Discord bot interface modules
+        // - discord_service.rs: Core Discord bot service
+        // - discord_commands.rs: Discord slash commands and interactions
+        // - discord_embeds.rs: Rich embed formatting for Discord messages
     }
 }
 
 // Re-export commonly used services for backward compatibility
-pub use core::user::{UserProfileService, UserTradingPreferencesService, DynamicConfigService};
-pub use core::trading::{ExchangeService, ExchangeAvailabilityService, PositionsService, AiExchangeRouterService};
-pub use core::opportunities::{OpportunityService, GlobalOpportunityService, EnhancedOpportunityService, TechnicalTradingService, OpportunityCategorizationService};
-pub use core::analysis::{MarketAnalysisService, TechnicalAnalysisService, CorrelationAnalysisService};
-pub use core::ai::{AiBetaIntegrationService, AiIntelligenceService, AiIntegrationService};
-pub use core::infrastructure::{MonitoringObservabilityService, D1Service, NotificationService, FundMonitoringService};
-pub use interfaces::telegram::{TelegramService, InlineKeyboard, InlineKeyboardButton};
+pub use core::ai::{AiBetaIntegrationService, AiIntegrationService, AiIntelligenceService};
+pub use core::analysis::{
+    CorrelationAnalysisService, MarketAnalysisService, TechnicalAnalysisService,
+};
+pub use core::infrastructure::{
+    D1Service, FundMonitoringService, MonitoringObservabilityService, NotificationService,
+};
+// TODO: Re-enable when invitation services are fixed
+// pub use core::invitation::{AffiliationService, InvitationService, ReferralService};
+pub use core::opportunities::{
+    EnhancedOpportunityService, GlobalOpportunityService, OpportunityCategorizationService,
+    OpportunityService, TechnicalTradingService,
+};
+pub use core::trading::{
+    AiExchangeRouterService, ExchangeAvailabilityService, ExchangeService, PositionsService,
+};
+pub use core::user::{DynamicConfigService, UserProfileService, UserTradingPreferencesService};
+pub use interfaces::telegram::{InlineKeyboard, InlineKeyboardButton, TelegramService};
