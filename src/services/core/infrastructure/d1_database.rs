@@ -17,8 +17,7 @@ pub struct InvitationUsage {
     pub beta_expires_at: DateTime<Utc>,
 }
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsValue;
+use worker::wasm_bindgen::JsValue;
 
 // Type aliases for better readability
 type UserOpportunityPreferences =
@@ -97,7 +96,7 @@ impl D1Service {
         // Bind parameters and execute
         stmt.bind(&[
             profile.user_id.clone().into(),
-            profile.telegram_user_id.unwrap_or(0).into(),
+            JsValue::from_f64(profile.telegram_user_id.unwrap_or(0) as f64),
             profile.telegram_username.clone().unwrap_or_default().into(),
             api_keys_json.into(),
             subscription_json.into(),
@@ -159,7 +158,7 @@ impl D1Service {
             .prepare("SELECT * FROM user_profiles WHERE telegram_user_id = ?");
 
         let result = stmt
-            .bind(&[telegram_user_id.into()])
+            .bind(&[JsValue::from_f64(telegram_user_id as f64)])
             .map_err(|e| {
                 ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
             })?
@@ -750,7 +749,7 @@ impl D1Service {
         stmt.bind(&[
             usage.invitation_id.clone().into(),
             usage.user_id.clone().into(),
-            usage.telegram_id.into(),
+            JsValue::from_f64(usage.telegram_id as f64),
             usage.used_at.timestamp_millis().into(),
             usage.beta_expires_at.timestamp_millis().into(),
         ])
