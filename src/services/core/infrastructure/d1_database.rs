@@ -85,11 +85,11 @@ impl D1Service {
         let stmt = self.db.prepare(
             "
             INSERT OR REPLACE INTO user_profiles (
-                user_id, telegram_user_id, telegram_username, api_keys, 
-                subscription, configuration, invitation_code,
-                created_at, updated_at, last_active, is_active, 
-                total_trades, total_pnl_usdt, beta_expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                user_id, telegram_id, username, api_keys, 
+                subscription_tier, trading_preferences, 
+                created_at, updated_at, last_login_at, account_status, 
+                beta_expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ",
         );
 
@@ -101,13 +101,15 @@ impl D1Service {
             api_keys_json.into(),
             subscription_json.into(),
             configuration_json.into(),
-            profile.invitation_code.clone().unwrap_or_default().into(),
             (profile.created_at as i64).into(),
             (profile.updated_at as i64).into(),
             (profile.last_active as i64).into(),
-            profile.is_active.into(),
-            (profile.total_trades as i64).into(),
-            profile.total_pnl_usdt.into(),
+            if profile.is_active {
+                "active"
+            } else {
+                "deactivated"
+            }
+            .into(),
             profile
                 .beta_expires_at
                 .map(|t| t as i64)
@@ -155,7 +157,7 @@ impl D1Service {
     ) -> ArbitrageResult<Option<UserProfile>> {
         let stmt = self
             .db
-            .prepare("SELECT * FROM user_profiles WHERE telegram_user_id = ?");
+            .prepare("SELECT * FROM user_profiles WHERE telegram_id = ?");
 
         let result = stmt
             .bind(&[JsValue::from_f64(telegram_user_id as f64)])
@@ -1012,12 +1014,12 @@ impl D1Service {
             .to_string();
 
         let telegram_user_id = row
-            .get("telegram_user_id")
+            .get("telegram_id")
             .and_then(|v| v.as_i64())
             .filter(|&id| id > 0); // Convert to Option, filtering out invalid IDs
 
         let telegram_username = row
-            .get("telegram_username")
+            .get("username")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
@@ -1059,15 +1061,9 @@ impl D1Service {
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
-        let total_trades = row
-            .get("total_trades")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as u32;
+        let total_trades = 0u32; // Default value since column doesn't exist yet
 
-        let total_pnl_usdt = row
-            .get("total_pnl_usdt")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+        let total_pnl_usdt = 0.0f64; // Default value since column doesn't exist yet
 
         // Parse profile_metadata field
         let profile_metadata = row
