@@ -37,7 +37,7 @@ mod service_communication_tests {
     #[tokio::test]
     async fn test_service_dependency_injection_pattern() {
         let config = create_test_telegram_config();
-        let mut telegram_service = TelegramService::new(config);
+        let telegram_service = TelegramService::new(config);
 
         // Test that services can be injected without requiring all dependencies
         // This tests the optional dependency pattern used throughout the codebase

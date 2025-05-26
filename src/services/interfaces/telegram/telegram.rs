@@ -245,7 +245,6 @@ impl TelegramService {
     }
 
     /// Parse group registration from database row
-    #[allow(dead_code)]
     fn parse_group_registration_from_row(
         &self,
         row: &std::collections::HashMap<String, String>,
@@ -340,7 +339,6 @@ impl TelegramService {
     }
 
     /// Track message analytics for analysis
-    #[allow(dead_code)]
     #[allow(clippy::too_many_arguments)]
     async fn track_message_analytics(
         &self,

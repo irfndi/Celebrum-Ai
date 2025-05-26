@@ -11,6 +11,12 @@ pub struct MockKvStore {
     data: Arc<Mutex<HashMap<String, String>>>,
 }
 
+impl Default for MockKvStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockKvStore {
     pub fn new() -> Self {
         Self {
@@ -41,6 +47,12 @@ impl MockKvStore {
 pub struct MockD1Service {
     sessions: Arc<Mutex<HashMap<String, EnhancedUserSession>>>,
     analytics: Arc<Mutex<Vec<HashMap<String, serde_json::Value>>>>,
+}
+
+impl Default for MockD1Service {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MockD1Service {
@@ -727,9 +739,7 @@ mod e2e_workflow_tests {
 
         // Simulate opportunity distribution to top 2 users
         let opportunity = create_test_opportunity();
-        for i in 0..2 {
-            let user_id = &user_priorities[i].0;
-
+        for (user_id, _) in user_priorities.iter().take(2) {
             // Record distribution
             let distribution_key = format!("distributed_to:{}", user_id);
             mock_kv
@@ -747,8 +757,7 @@ mod e2e_workflow_tests {
         }
 
         // Verify distribution
-        for i in 0..2 {
-            let user_id = &user_priorities[i].0;
+        for (user_id, _) in user_priorities.iter().take(2) {
             let distribution_key = format!("distributed_to:{}", user_id);
             let distributed = mock_kv.get(&distribution_key).await.unwrap();
             assert!(distributed.is_some());
@@ -756,8 +765,7 @@ mod e2e_workflow_tests {
         }
 
         // Verify non-distributed users
-        for i in 2..4 {
-            let user_id = &user_priorities[i].0;
+        for (user_id, _) in user_priorities.iter().skip(2).take(2) {
             let distribution_key = format!("distributed_to:{}", user_id);
             let distributed = mock_kv.get(&distribution_key).await.unwrap();
             assert!(distributed.is_none());

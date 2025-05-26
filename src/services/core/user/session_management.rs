@@ -163,6 +163,9 @@ impl SessionManagementService {
             "SELECT * FROM user_sessions WHERE telegram_id = ? AND session_state = 'active' ORDER BY created_at DESC LIMIT 1"
         );
 
+        // Validate telegram_id is within JavaScript safe integer range
+        Self::validate_telegram_id_for_js(telegram_id)?;
+
         let result = stmt
             .bind(&[JsValue::from_f64(telegram_id as f64)])
             .map_err(|e| {
@@ -335,8 +338,24 @@ impl SessionManagementService {
 
     // Private helper methods
 
+    /// Validate telegram_id is within JavaScript safe integer range
+    fn validate_telegram_id_for_js(telegram_id: i64) -> ArbitrageResult<()> {
+        const JS_MAX_SAFE_INTEGER: i64 = 9007199254740991; // 2^53 - 1
+        const JS_MIN_SAFE_INTEGER: i64 = -9007199254740991; // -(2^53 - 1)
+
+        if !(JS_MIN_SAFE_INTEGER..=JS_MAX_SAFE_INTEGER).contains(&telegram_id) {
+            return Err(ArbitrageError::validation_error(format!(
+                "Telegram ID {} exceeds JavaScript safe integer range",
+                telegram_id
+            )));
+        }
+        Ok(())
+    }
+
     /// Store session in database
     async fn store_session(&self, session: &EnhancedUserSession) -> ArbitrageResult<()> {
+        // Validate telegram_id before storing
+        Self::validate_telegram_id_for_js(session.telegram_id)?;
         let stmt = self.d1_service.database().prepare(
             r#"
             INSERT OR REPLACE INTO user_sessions (
@@ -584,7 +603,7 @@ impl SessionManagementService {
             "started_at": session.started_at,
             "ended_at": session.last_activity_at,
             "duration_seconds": session_duration,
-            "outcome": format!("{:?}", outcome),
+            "outcome": outcome.to_stable_string(),
             "onboarding_completed": session.onboarding_completed,
             "preferences_set": session.preferences_set,
             "event_type": "session_end",
@@ -603,7 +622,7 @@ impl SessionManagementService {
         // Update outcome-specific counters
         let outcome_key = format!(
             "session_outcome:{}:{}",
-            format!("{:?}", outcome).to_lowercase(),
+            outcome.to_stable_string(),
             chrono::Utc::now().format("%Y-%m-%d")
         );
         let current_count = self

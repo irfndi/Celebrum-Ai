@@ -1642,6 +1642,31 @@ pub enum SessionOutcome {
     Error,      // Session ended due to an error
 }
 
+impl SessionOutcome {
+    /// Get stable string representation for database storage and API responses
+    pub fn to_stable_string(&self) -> &'static str {
+        match self {
+            SessionOutcome::Completed => "completed",
+            SessionOutcome::Abandoned => "abandoned",
+            SessionOutcome::Expired => "expired",
+            SessionOutcome::Terminated => "terminated",
+            SessionOutcome::Error => "error",
+        }
+    }
+
+    /// Parse from stable string representation
+    pub fn from_stable_string(s: &str) -> Result<Self, String> {
+        match s {
+            "completed" => Ok(SessionOutcome::Completed),
+            "abandoned" => Ok(SessionOutcome::Abandoned),
+            "expired" => Ok(SessionOutcome::Expired),
+            "terminated" => Ok(SessionOutcome::Terminated),
+            "error" => Ok(SessionOutcome::Error),
+            _ => Err(format!("Invalid session outcome: {}", s)),
+        }
+    }
+}
+
 /// Configuration for session management behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionConfig {

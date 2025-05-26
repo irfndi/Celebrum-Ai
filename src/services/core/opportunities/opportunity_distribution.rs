@@ -32,6 +32,7 @@ pub struct DistributionConfig {
     pub cooldown_period_minutes: u32,
     pub batch_size: u32,
     pub distribution_interval_seconds: u32,
+    pub max_participants_per_opportunity: Option<u32>,
     pub fairness_config: FairnessConfig,
 }
 
@@ -43,6 +44,7 @@ impl Default for DistributionConfig {
             cooldown_period_minutes: 240, // 4 hours
             batch_size: 50,
             distribution_interval_seconds: 30,
+            max_participants_per_opportunity: Some(100), // Default to 100 participants
             fairness_config: FairnessConfig::default(),
         }
     }
@@ -100,7 +102,7 @@ impl OpportunityDistributionService {
             expiry_timestamp: chrono::Utc::now().timestamp_millis() as u64 + (10 * 60 * 1000), // 10 minutes
             priority_score: self.calculate_priority_score(&opportunity).await?,
             distributed_to: Vec::new(),
-            max_participants: Some(100), // Configurable limit
+            max_participants: self.config.max_participants_per_opportunity,
             current_participants: 0,
             distribution_strategy: DistributionStrategy::RoundRobin,
             source: OpportunitySource::SystemGenerated,
@@ -250,9 +252,6 @@ impl OpportunityDistributionService {
         if !self.check_user_rate_limit(user_id).await? {
             return Ok(false);
         }
-
-        // Format opportunity message
-        let _message = self.format_opportunity_message(opportunity);
 
         // Send via notification sender if available
         if let Some(ref notification_sender) = self.notification_sender {
@@ -415,29 +414,6 @@ impl OpportunityDistributionService {
         }
 
         Ok(score)
-    }
-
-    /// Format opportunity message for user notification
-    fn format_opportunity_message(&self, opportunity: &GlobalOpportunity) -> String {
-        let opp = &opportunity.opportunity;
-
-        format!(
-            "🚀 *New Arbitrage Opportunity*\n\n\
-            📈 **Pair:** `{}`\n\
-            🔄 **Exchanges:** {} ↔ {}\n\
-            💰 **Rate Difference:** `{:.4}%`\n\
-            💵 **Potential Profit:** `${:.2}`\n\
-            ⭐ **Priority Score:** `{:.1}`\n\
-            ⏰ **Expires:** {} minutes\n\n\
-            🎯 Use `/opportunities` for more details\\!",
-            crate::utils::formatter::escape_markdown_v2(&opp.pair),
-            crate::utils::formatter::format_exchange(&opp.long_exchange),
-            crate::utils::formatter::format_exchange(&opp.short_exchange),
-            opp.rate_difference * 100.0,
-            opp.potential_profit_value.unwrap_or(0.0),
-            opportunity.priority_score,
-            (opportunity.expiry_timestamp - opportunity.detection_timestamp) / (60 * 1000)
-        )
     }
 
     /// Record distribution analytics
@@ -739,6 +715,7 @@ mod tests {
             cooldown_period_minutes: 240, // 4 hours
             batch_size: 50,
             distribution_interval_seconds: 30,
+            max_participants_per_opportunity: Some(100),
             fairness_config: FairnessConfig::default(),
         };
 
