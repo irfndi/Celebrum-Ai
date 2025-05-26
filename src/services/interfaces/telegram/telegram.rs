@@ -3384,6 +3384,7 @@ impl TelegramService {
 }
 
 // Implement NotificationSender trait for TelegramService
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
 impl NotificationSender for TelegramService {
     async fn send_opportunity_notification(
@@ -3410,10 +3411,91 @@ impl NotificationSender for TelegramService {
                         Some(chat_id.to_string()),
                     );
 
+                    // For analytics, use chat_id as user_id only for private chats
+                    // For groups, user_id should be None to avoid confusion
+                    let analytics_user_id = if is_private {
+                        Some(chat_id.to_string())
+                    } else {
+                        None
+                    };
+
                     let _ = self
                         .track_message_analytics(
                             format!("opp_{}", opportunity.id),
-                            Some(chat_id.to_string()),
+                            analytics_user_id,
+                            &chat_context,
+                            "opportunity_notification",
+                            None,
+                            "opportunity",
+                            "sent",
+                            None,
+                            json!({
+                                "opportunity_id": opportunity.id,
+                                "pair": opportunity.pair,
+                                "rate_difference": opportunity.rate_difference,
+                                "is_private": is_private
+                            }),
+                        )
+                        .await;
+                }
+                Ok(true)
+            }
+            Err(e) => {
+                console_log!(
+                    "❌ Failed to send opportunity notification to {}: {}",
+                    chat_id,
+                    e
+                );
+                Ok(false)
+            }
+        }
+    }
+
+    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
+        self.send_message_to_chat(chat_id, message).await
+    }
+}
+
+// WASM version without Send bounds
+#[cfg(target_arch = "wasm32")]
+#[async_trait::async_trait(?Send)]
+impl NotificationSender for TelegramService {
+    async fn send_opportunity_notification(
+        &self,
+        chat_id: &str,
+        opportunity: &ArbitrageOpportunity,
+        is_private: bool,
+    ) -> ArbitrageResult<bool> {
+        // Format the opportunity message
+        let message = format_opportunity_message(opportunity);
+
+        // Send the message
+        match self.send_message_to_chat(chat_id, &message).await {
+            Ok(_) => {
+                // Track analytics if enabled
+                if self.analytics_enabled {
+                    let chat_context = ChatContext::new(
+                        chat_id.to_string(),
+                        if is_private {
+                            ChatType::Private
+                        } else {
+                            ChatType::Group
+                        },
+                        Some(chat_id.to_string()),
+                    );
+
+                    // For analytics, use chat_id as user_id only for private chats
+                    // For groups, user_id should be None to avoid confusion
+                    let analytics_user_id = if is_private {
+                        Some(chat_id.to_string())
+                    } else {
+                        None
+                    };
+
+                    let _ = self
+                        .track_message_analytics(
+                            format!("opp_{}", opportunity.id),
+                            analytics_user_id,
                             &chat_context,
                             "opportunity_notification",
                             None,
@@ -3448,7 +3530,33 @@ impl NotificationSender for TelegramService {
 }
 
 // Implement NotificationSender for Arc<TelegramService> to enable shared ownership
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
+impl NotificationSender for Arc<TelegramService> {
+    async fn send_opportunity_notification(
+        &self,
+        chat_id: &str,
+        opportunity: &ArbitrageOpportunity,
+        is_private: bool,
+    ) -> ArbitrageResult<bool> {
+        // Use the trait implementation from TelegramService
+        <TelegramService as NotificationSender>::send_opportunity_notification(
+            self,
+            chat_id,
+            opportunity,
+            is_private,
+        )
+        .await
+    }
+
+    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
+        (**self).send_message_to_chat(chat_id, message).await
+    }
+}
+
+// WASM version for Arc<TelegramService> without Send bounds
+#[cfg(target_arch = "wasm32")]
+#[async_trait::async_trait(?Send)]
 impl NotificationSender for Arc<TelegramService> {
     async fn send_opportunity_notification(
         &self,

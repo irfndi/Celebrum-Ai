@@ -192,32 +192,143 @@ impl SessionManagementService {
     pub async fn is_eligible_for_push_notification(
         &self,
         user_id: &str,
-        _opportunity: &ArbitrageOpportunity,
-        _chat_context: &ChatContext,
+        opportunity: &ArbitrageOpportunity,
+        chat_context: &ChatContext,
     ) -> ArbitrageResult<bool> {
         // Layer 1: Session validation
         if !self.validate_session(user_id).await? {
             return Ok(false);
         }
 
-        // Layer 2: Subscription & permissions (placeholder - integrate with UserProfileService)
-        // This would check user's subscription tier and permissions
-        // For now, assume basic validation
+        // Layer 2: Rate limiting - prevent spam
+        if !self.check_notification_rate_limit(user_id).await? {
+            return Ok(false);
+        }
 
-        // Layer 3: User preferences (placeholder - integrate with preference service)
-        // This would check if user has push notifications enabled for this opportunity type
+        // Layer 3: Subscription & permissions (basic implementation)
+        // Check if user has basic access to notifications
+        if !self.check_basic_notification_permissions(user_id).await? {
+            return Ok(false);
+        }
 
-        // Layer 4: Rate limiting (placeholder - integrate with rate limiting service)
-        // This would check daily/hourly limits and cooldown periods
+        // Layer 4: User preferences (basic implementation)
+        // Check if user has notifications enabled for this opportunity type
+        if !self
+            .check_notification_preferences(user_id, opportunity)
+            .await?
+        {
+            return Ok(false);
+        }
 
-        // Layer 5: Technical compatibility (placeholder - integrate with user API validation)
-        // This would check if user has compatible exchange APIs
+        // Layer 5: Technical compatibility (basic implementation)
+        // Check if user has compatible setup for this opportunity
+        if !self
+            .check_technical_compatibility(user_id, opportunity)
+            .await?
+        {
+            return Ok(false);
+        }
 
         // Layer 6: Context & compliance
         // Basic context validation - all contexts are currently eligible
         // Groups get enhanced limits but same eligibility rules
+        if !self.check_context_compliance(chat_context).await? {
+            return Ok(false);
+        }
 
-        // For now, return true if session is valid (other layers to be implemented)
+        Ok(true)
+    }
+
+    /// Check notification rate limiting to prevent spam
+    async fn check_notification_rate_limit(&self, user_id: &str) -> ArbitrageResult<bool> {
+        let now = chrono::Utc::now();
+        let hour_key = format!(
+            "notification_rate:{}:{}",
+            user_id,
+            now.format("%Y-%m-%d-%H")
+        );
+        let day_key = format!("notification_rate:{}:{}", user_id, now.format("%Y-%m-%d"));
+
+        // Check hourly limit (max 5 notifications per hour)
+        let hourly_count = match self.kv_service.get(&hour_key).await? {
+            Some(count_str) => count_str.parse::<u32>().unwrap_or(0),
+            None => 0,
+        };
+
+        if hourly_count >= 5 {
+            return Ok(false);
+        }
+
+        // Check daily limit (max 20 notifications per day)
+        let daily_count = match self.kv_service.get(&day_key).await? {
+            Some(count_str) => count_str.parse::<u32>().unwrap_or(0),
+            None => 0,
+        };
+
+        if daily_count >= 20 {
+            return Ok(false);
+        }
+
+        // Update counters
+        self.kv_service
+            .put(&hour_key, &(hourly_count + 1).to_string(), Some(3600))
+            .await?;
+        self.kv_service
+            .put(&day_key, &(daily_count + 1).to_string(), Some(24 * 3600))
+            .await?;
+
+        Ok(true)
+    }
+
+    /// Check basic notification permissions (placeholder for subscription integration)
+    async fn check_basic_notification_permissions(&self, _user_id: &str) -> ArbitrageResult<bool> {
+        // TODO: Integrate with UserProfileService to check subscription tier
+        // For now, allow all users with valid sessions
+        Ok(true)
+    }
+
+    /// Check user notification preferences (placeholder for preference service integration)
+    async fn check_notification_preferences(
+        &self,
+        user_id: &str,
+        opportunity: &ArbitrageOpportunity,
+    ) -> ArbitrageResult<bool> {
+        // Check if user has disabled notifications for this opportunity type
+        let pref_key = format!("notification_pref:{}:{:?}", user_id, opportunity.r#type);
+
+        match self.kv_service.get(&pref_key).await? {
+            Some(pref_value) => {
+                // If preference exists, respect it (true = enabled, false = disabled)
+                Ok(pref_value.parse::<bool>().unwrap_or(true))
+            }
+            None => {
+                // Default to enabled if no preference set
+                Ok(true)
+            }
+        }
+    }
+
+    /// Check technical compatibility (placeholder for API validation integration)
+    async fn check_technical_compatibility(
+        &self,
+        _user_id: &str,
+        _opportunity: &ArbitrageOpportunity,
+    ) -> ArbitrageResult<bool> {
+        // TODO: Integrate with UserProfileService to check:
+        // - User has API keys for required exchanges
+        // - API keys have necessary permissions
+        // - User's trading setup is compatible
+        // For now, assume basic compatibility
+        Ok(true)
+    }
+
+    /// Check context compliance (groups, channels, private chats)
+    async fn check_context_compliance(&self, _chat_context: &ChatContext) -> ArbitrageResult<bool> {
+        // Basic context validation - all contexts currently eligible
+        // Future: Could implement context-specific rules
+        // - Private chats: full notifications
+        // - Groups: limited notifications
+        // - Channels: broadcast only
         Ok(true)
     }
 
@@ -720,7 +831,7 @@ mod tests {
                         row.insert(
                             "session_state".to_string(),
                             serde_json::Value::String(
-                                format!("{:?}", session.session_state).to_lowercase(),
+                                session.session_state.to_db_string().to_string(),
                             ),
                         );
                         row.insert(

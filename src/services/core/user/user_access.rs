@@ -4,13 +4,6 @@ use crate::types::*;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use worker::kv::KvStore;
 
-#[cfg(target_arch = "wasm32")]
-use serde_json::Value;
-#[cfg(target_arch = "wasm32")]
-use std::collections::HashMap;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsValue;
-
 /// Service for managing user access levels and opportunity distribution limits
 #[allow(dead_code)]
 pub struct UserAccessService {

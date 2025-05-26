@@ -7,12 +7,27 @@ use crate::types::{
     ArbitrageOpportunity, ChatContext, DistributionStrategy, FairnessConfig, GlobalOpportunity,
     OpportunitySource,
 };
-use crate::utils::ArbitrageResult;
+use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::json;
 use std::collections::HashMap;
 
 // Trait for sending notifications - breaks circular dependency
 #[async_trait::async_trait]
+#[cfg(not(target_arch = "wasm32"))]
+pub trait NotificationSender: Send + Sync {
+    async fn send_opportunity_notification(
+        &self,
+        chat_id: &str,
+        opportunity: &ArbitrageOpportunity,
+        is_private: bool,
+    ) -> ArbitrageResult<bool>;
+
+    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()>;
+}
+
+// WASM version without Send + Sync bounds
+#[async_trait::async_trait(?Send)]
+#[cfg(target_arch = "wasm32")]
 pub trait NotificationSender {
     async fn send_opportunity_notification(
         &self,
@@ -56,7 +71,10 @@ pub struct OpportunityDistributionService {
     d1_service: D1Service,
     kv_service: KVService,
     session_service: SessionManagementService,
+    #[cfg(not(target_arch = "wasm32"))]
     notification_sender: Option<Box<dyn NotificationSender + Send + Sync>>,
+    #[cfg(target_arch = "wasm32")]
+    notification_sender: Option<Box<dyn NotificationSender>>,
     pipelines_service: Option<CloudflarePipelinesService>,
     config: DistributionConfig,
 }
@@ -82,7 +100,13 @@ impl OpportunityDistributionService {
         self
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn set_notification_sender(&mut self, sender: Box<dyn NotificationSender + Send + Sync>) {
+        self.notification_sender = Some(sender);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn set_notification_sender(&mut self, sender: Box<dyn NotificationSender>) {
         self.notification_sender = Some(sender);
     }
 
@@ -463,7 +487,12 @@ impl OpportunityDistributionService {
                 serde_json::Number::from_f64(opportunity.priority_score).unwrap(),
             ),
             serde_json::Value::Number(serde_json::Number::from(distributed_count)),
-            serde_json::Value::String(format!("{:?}", opportunity.distribution_strategy)),
+            serde_json::Value::String(
+                opportunity
+                    .distribution_strategy
+                    .to_stable_string()
+                    .to_string(),
+            ),
             serde_json::Value::Number(serde_json::Number::from(opportunity.detection_timestamp)),
             serde_json::Value::Number(serde_json::Number::from(
                 chrono::Utc::now().timestamp_millis() as u64,
@@ -505,13 +534,17 @@ impl OpportunityDistributionService {
         let today_start = chrono::Utc::now()
             .date_naive()
             .and_hms_opt(0, 0, 0)
-            .unwrap()
+            .ok_or_else(|| {
+                ArbitrageError::validation_error("Failed to create start of day timestamp")
+            })?
             .and_utc()
             .timestamp_millis();
         let today_end = chrono::Utc::now()
             .date_naive()
             .and_hms_opt(23, 59, 59)
-            .unwrap()
+            .ok_or_else(|| {
+                ArbitrageError::validation_error("Failed to create end of day timestamp")
+            })?
             .and_utc()
             .timestamp_millis();
 

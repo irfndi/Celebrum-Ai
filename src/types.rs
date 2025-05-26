@@ -1717,6 +1717,29 @@ pub enum DistributionStrategy {
     Broadcast,           // Send to all eligible users
 }
 
+impl DistributionStrategy {
+    /// Convert to stable string representation for database storage
+    pub fn to_stable_string(&self) -> &'static str {
+        match self {
+            DistributionStrategy::FirstComeFirstServe => "first_come_first_serve",
+            DistributionStrategy::RoundRobin => "round_robin",
+            DistributionStrategy::PriorityBased => "priority_based",
+            DistributionStrategy::Broadcast => "broadcast",
+        }
+    }
+
+    /// Parse from stable string representation
+    pub fn from_stable_string(s: &str) -> Result<Self, String> {
+        match s {
+            "first_come_first_serve" => Ok(DistributionStrategy::FirstComeFirstServe),
+            "round_robin" => Ok(DistributionStrategy::RoundRobin),
+            "priority_based" => Ok(DistributionStrategy::PriorityBased),
+            "broadcast" => Ok(DistributionStrategy::Broadcast),
+            _ => Err(format!("Invalid distribution strategy: {}", s)),
+        }
+    }
+}
+
 /// Source of the opportunity
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OpportunitySource {
