@@ -792,7 +792,7 @@ impl D1Service {
     }
 
     /// Check if user has active beta access
-    /// 
+    ///
     /// **Performance Note**: This query uses complex conditions with typeof() checks.
     /// For production deployment, consider adding a composite index on (user_id, beta_expires_at)
     /// columns for better query performance.
