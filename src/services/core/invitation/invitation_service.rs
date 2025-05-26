@@ -1,10 +1,30 @@
 use crate::services::core::infrastructure::d1_database::D1Service;
 use crate::types::{UserProfile, SubscriptionTier, UserRole};
+use crate::utils::ArbitrageResult;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc, Duration};
 use uuid::Uuid;
 use anyhow::{Result, anyhow};
 use log;
+
+#[derive(Debug, Clone)]
+pub struct InvitationConfig {
+    pub invitation_expiry_days: i64,
+    pub beta_access_days: i64,
+    pub max_batch_size: u32,
+    pub rate_limit_attempts: u32,
+}
+
+impl Default for InvitationConfig {
+    fn default() -> Self {
+        Self {
+            invitation_expiry_days: 30,
+            beta_access_days: 90,
+            max_batch_size: 100,
+            rate_limit_attempts: 5,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvitationCode {
@@ -42,11 +62,19 @@ impl From<InvitationUsage> for crate::services::core::infrastructure::d1_databas
 
 pub struct InvitationService {
     d1_service: D1Service,
+    config: InvitationConfig,
 }
 
 impl InvitationService {
     pub fn new(d1_service: D1Service) -> Self {
-        Self { d1_service }
+        Self { 
+            d1_service,
+            config: InvitationConfig::default(),
+        }
+    }
+
+    pub fn new_with_config(d1_service: D1Service, config: InvitationConfig) -> Self {
+        Self { d1_service, config }
     }
 
     /// Generate a new invitation code (Super Admin only)
@@ -61,7 +89,7 @@ impl InvitationService {
             code: self.generate_unique_code().await?,
             created_by_admin_id: admin_user_id.to_string(),
             used_by_user_id: None,
-            expires_at: Utc::now() + Duration::days(30), // Invitation codes expire in 30 days
+            expires_at: Utc::now() + Duration::days(self.config.invitation_expiry_days),
             created_at: Utc::now(),
             used_at: None,
             is_active: true,
@@ -78,8 +106,8 @@ impl InvitationService {
             return Err(anyhow!("Unauthorized: Only super admins can generate invitation codes"));
         }
 
-        if count == 0 || count > 100 {
-            return Err(anyhow!("Invalid count: must be between 1 and 100"));
+        if count == 0 || count > self.config.max_batch_size {
+            return Err(anyhow!("Invalid count: must be between 1 and {}", self.config.max_batch_size));
         }
 
         // Pre-generate all codes and validate uniqueness before storage
@@ -91,7 +119,7 @@ impl InvitationService {
                 code,
                 created_by_admin_id: admin_user_id.to_string(),
                 used_by_user_id: None,
-                expires_at: Utc::now() + Duration::days(30),
+                expires_at: Utc::now() + Duration::days(self.config.invitation_expiry_days),
                 created_at: Utc::now(),
                 used_at: None,
                 is_active: true,
@@ -99,18 +127,41 @@ impl InvitationService {
             codes.push(invitation);
         }
 
-        // Implement fail-fast storage with transaction-like behavior
-        // TODO: Replace with proper database transaction when D1Service supports it
-        for (index, code) in codes.iter().enumerate() {
-            if let Err(e) = self.store_invitation_code(code).await {
-                return Err(anyhow!(
-                    "Failed to store invitation code {} at position {}: {}. Transaction aborted - {} codes may have been stored.", 
-                    code.code, index, e, index
-                ));
+        // Use proper database transaction for atomic batch insertion
+        let result = self.d1_service.execute_transaction(|db| {
+            Box::pin(async move {
+                // Store all codes within the transaction
+                for code in &codes {
+                    let query = r#"
+                        INSERT INTO invitation_codes 
+                        (id, code, created_by_admin_id, expires_at, created_at, is_active)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    "#;
+                    
+                    db.execute(query, &[
+                        code.id.clone().into(),
+                        code.code.clone().into(),
+                        code.created_by_admin_id.clone().into(),
+                        code.expires_at.to_rfc3339().into(),
+                        code.created_at.to_rfc3339().into(),
+                        code.is_active.into(),
+                    ]).await?;
+                }
+                
+                Ok(())
+            })
+        }).await;
+
+        match result {
+            Ok(()) => {
+                log::info!("Successfully stored {} invitation codes in atomic transaction", codes.len());
+                Ok(codes)
+            }
+            Err(e) => {
+                log::error!("Failed to store invitation codes in transaction: {}. All changes rolled back.", e);
+                Err(anyhow!("Failed to store invitation codes in atomic transaction: {}. No codes were stored.", e))
             }
         }
-
-        Ok(codes)
     }
 
     /// Validate and use an invitation code during user registration
@@ -122,7 +173,7 @@ impl InvitationService {
         self.validate_invitation_code(&invitation)?;
 
         // Mark code as used with provided user_id
-        let beta_expires_at = Utc::now() + Duration::days(90); // 90-day beta period
+        let beta_expires_at = Utc::now() + Duration::days(self.config.beta_access_days);
         
         let usage = InvitationUsage {
             invitation_id: invitation.id.clone(),
@@ -132,14 +183,47 @@ impl InvitationService {
             beta_expires_at,
         };
 
-        self.mark_invitation_used(&invitation.id, user_id).await?;
+        // Use database transaction to ensure atomicity of marking code as used and storing usage
+        let usage_clone = usage.clone();
+        let invitation_id = invitation.id.clone();
+        let user_id_clone = user_id.to_string();
         
-        // Convert to D1Service InvitationUsage struct using conversion trait
-        let d1_usage = usage.clone().into();
-        
-        self.d1_service.store_invitation_usage(&d1_usage).await
-            .map_err(|e| anyhow!("Failed to store invitation usage: {}", e))?;
+        self.d1_service.execute_transaction(|db| {
+            Box::pin(async move {
+                // Mark invitation code as used
+                let mark_used_query = r#"
+                    UPDATE invitation_codes 
+                    SET used_by_user_id = ?, used_at = ?, is_active = false
+                    WHERE id = ?
+                "#;
+                
+                db.execute(mark_used_query, &[
+                    user_id_clone.clone().into(),
+                    Utc::now().to_rfc3339().into(),
+                    invitation_id.clone().into(),
+                ]).await?;
 
+                // Store invitation usage record
+                let store_usage_query = r#"
+                    INSERT INTO invitation_usage 
+                    (invitation_id, user_id, telegram_id, used_at, beta_expires_at)
+                    VALUES (?, ?, ?, ?, ?)
+                "#;
+                
+                db.execute(store_usage_query, &[
+                    usage_clone.invitation_id.clone().into(),
+                    usage_clone.user_id.clone().into(),
+                    usage_clone.telegram_id.into(),
+                    usage_clone.used_at.to_rfc3339().into(),
+                    usage_clone.beta_expires_at.to_rfc3339().into(),
+                ]).await?;
+
+                Ok(())
+            })
+        }).await
+        .map_err(|e| anyhow!("Failed to use invitation code in atomic transaction: {}", e))?;
+
+        log::info!("Successfully used invitation code {} for user {} in atomic transaction", code, user_id);
         Ok(usage)
     }
 
@@ -283,6 +367,64 @@ impl InvitationService {
         Ok(())
     }
 
+    async fn delete_invitation_code(&self, invitation_id: &str) -> Result<()> {
+        let query = "DELETE FROM invitation_codes WHERE id = ?";
+        
+        self.d1_service.execute(query, &[invitation_id.into()]).await?;
+        
+        Ok(())
+    }
+
+    fn parse_invitation_from_row(&self, row: &std::collections::HashMap<String, String>) -> Result<InvitationCode> {
+        // Explicitly check required fields and return errors if missing
+        let id = row.get("id")
+            .ok_or_else(|| anyhow!("Missing required field: id"))?;
+        
+        let code = row.get("code")
+            .ok_or_else(|| anyhow!("Missing required field: code"))?;
+        
+        let created_by_admin_id = row.get("created_by_admin_id")
+            .ok_or_else(|| anyhow!("Missing required field: created_by_admin_id"))?;
+        
+        let expires_at_str = row.get("expires_at")
+            .ok_or_else(|| anyhow!("Missing required field: expires_at"))?;
+        
+        let created_at_str = row.get("created_at")
+            .ok_or_else(|| anyhow!("Missing required field: created_at"))?;
+        
+        let is_active_str = row.get("is_active")
+            .ok_or_else(|| anyhow!("Missing required field: is_active"))?;
+        
+        // Parse required fields with proper error handling
+        let expires_at = DateTime::parse_from_rfc3339(expires_at_str)
+            .map_err(|e| anyhow!("Invalid expires_at format '{}': {}", expires_at_str, e))?
+            .with_timezone(&Utc);
+        
+        let created_at = DateTime::parse_from_rfc3339(created_at_str)
+            .map_err(|e| anyhow!("Invalid created_at format '{}': {}", created_at_str, e))?
+            .with_timezone(&Utc);
+        
+        let is_active = is_active_str.parse::<bool>()
+            .map_err(|e| anyhow!("Invalid is_active format '{}': {}", is_active_str, e))?;
+        
+        // Optional fields can use safe defaults
+        let used_by_user_id = row.get("used_by_user_id").cloned();
+        let used_at = row.get("used_at")
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&Utc));
+        
+        Ok(InvitationCode {
+            id: id.clone(),
+            code: code.clone(),
+            created_by_admin_id: created_by_admin_id.clone(),
+            used_by_user_id,
+            expires_at,
+            created_at,
+            used_at,
+            is_active,
+        })
+    }
+
     async fn find_invitation_by_code(&self, code: &str) -> Result<InvitationCode> {
         let query = r#"
             SELECT id, code, created_by_admin_id, used_by_user_id, expires_at, created_at, used_at, is_active
@@ -293,53 +435,7 @@ impl InvitationService {
         let result = self.d1_service.query(query, &[code.into()]).await?;
         
         if let Some(row) = result.first() {
-            // Explicitly check required fields and return errors if missing
-            let id = row.get("id")
-                .ok_or_else(|| anyhow!("Missing required field: id"))?;
-            
-            let code = row.get("code")
-                .ok_or_else(|| anyhow!("Missing required field: code"))?;
-            
-            let created_by_admin_id = row.get("created_by_admin_id")
-                .ok_or_else(|| anyhow!("Missing required field: created_by_admin_id"))?;
-            
-            let expires_at_str = row.get("expires_at")
-                .ok_or_else(|| anyhow!("Missing required field: expires_at"))?;
-            
-            let created_at_str = row.get("created_at")
-                .ok_or_else(|| anyhow!("Missing required field: created_at"))?;
-            
-            let is_active_str = row.get("is_active")
-                .ok_or_else(|| anyhow!("Missing required field: is_active"))?;
-            
-            // Parse required fields with proper error handling
-            let expires_at = DateTime::parse_from_rfc3339(expires_at_str)
-                .map_err(|e| anyhow!("Invalid expires_at format '{}': {}", expires_at_str, e))?
-                .with_timezone(&Utc);
-            
-            let created_at = DateTime::parse_from_rfc3339(created_at_str)
-                .map_err(|e| anyhow!("Invalid created_at format '{}': {}", created_at_str, e))?
-                .with_timezone(&Utc);
-            
-            let is_active = is_active_str.parse::<bool>()
-                .map_err(|e| anyhow!("Invalid is_active format '{}': {}", is_active_str, e))?;
-            
-            // Optional fields can use safe defaults
-            let used_by_user_id = row.get("used_by_user_id");
-            let used_at = row.get("used_at")
-                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                .map(|dt| dt.with_timezone(&Utc));
-            
-            Ok(InvitationCode {
-                id,
-                code,
-                created_by_admin_id,
-                used_by_user_id,
-                expires_at,
-                created_at,
-                used_at,
-                is_active,
-            })
+            self.parse_invitation_from_row(row)
         } else {
             Err(anyhow!("Invitation code not found"))
         }
@@ -446,53 +542,8 @@ impl InvitationService {
         
         let mut invitations = Vec::new();
         for row in result {
-            // Explicitly check required fields and return errors if missing
-            let id = row.get("id")
-                .ok_or_else(|| anyhow!("Missing required field: id"))?;
-            
-            let code = row.get("code")
-                .ok_or_else(|| anyhow!("Missing required field: code"))?;
-            
-            let created_by_admin_id = row.get("created_by_admin_id")
-                .ok_or_else(|| anyhow!("Missing required field: created_by_admin_id"))?;
-            
-            let expires_at_str = row.get("expires_at")
-                .ok_or_else(|| anyhow!("Missing required field: expires_at"))?;
-            
-            let created_at_str = row.get("created_at")
-                .ok_or_else(|| anyhow!("Missing required field: created_at"))?;
-            
-            let is_active_str = row.get("is_active")
-                .ok_or_else(|| anyhow!("Missing required field: is_active"))?;
-            
-            // Parse required fields with proper error handling
-            let expires_at = DateTime::parse_from_rfc3339(expires_at_str)
-                .map_err(|e| anyhow!("Invalid expires_at format '{}': {}", expires_at_str, e))?
-                .with_timezone(&Utc);
-            
-            let created_at = DateTime::parse_from_rfc3339(created_at_str)
-                .map_err(|e| anyhow!("Invalid created_at format '{}': {}", created_at_str, e))?
-                .with_timezone(&Utc);
-            
-            let is_active = is_active_str.parse::<bool>()
-                .map_err(|e| anyhow!("Invalid is_active format '{}': {}", is_active_str, e))?;
-            
-            // Optional fields can use safe defaults
-            let used_by_user_id = row.get("used_by_user_id");
-            let used_at = row.get("used_at")
-                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                .map(|dt| dt.with_timezone(&Utc));
-            
-            invitations.push(InvitationCode {
-                id,
-                code,
-                created_by_admin_id,
-                used_by_user_id,
-                expires_at,
-                created_at,
-                used_at,
-                is_active,
-            });
+            let invitation = self.parse_invitation_from_row(&row)?;
+            invitations.push(invitation);
         }
         
         Ok(invitations)

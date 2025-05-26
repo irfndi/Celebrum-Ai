@@ -1526,7 +1526,11 @@ impl D1Service {
     /// - Never pass user input directly in the `sql` parameter
     ///
     /// Consider using specific typed methods instead of this generic query executor.
-    pub async fn query(&self, sql: &str, params: &[JsValue]) -> ArbitrageResult<QueryResult> {
+    pub async fn query_internal(
+        &self,
+        sql: &str,
+        params: &[JsValue],
+    ) -> ArbitrageResult<QueryResult> {
         let stmt = self.db.prepare(sql);
         let result = stmt
             .bind(params)
@@ -1572,6 +1576,152 @@ impl D1Service {
                 ArbitrageError::database_error(format!("Failed to execute query: {}", e))
             })?;
         Ok(result)
+    }
+
+    // ============= SIMPLIFIED QUERY HELPERS FOR INVITATION SERVICE =============
+
+    /// Execute a prepared statement with parameters (for INSERT, UPDATE, DELETE)
+    /// Accepts parameters that implement Into<JsValue> for convenience
+    pub async fn execute(&self, sql: &str, params: &[serde_json::Value]) -> ArbitrageResult<()> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let js_params: Vec<JsValue> = params
+                .iter()
+                .map(|v| match v {
+                    serde_json::Value::String(s) => JsValue::from_str(s),
+                    serde_json::Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            JsValue::from_f64(i as f64)
+                        } else if let Some(f) = n.as_f64() {
+                            JsValue::from_f64(f)
+                        } else {
+                            JsValue::from_str(&n.to_string())
+                        }
+                    }
+                    serde_json::Value::Bool(b) => JsValue::from_bool(*b),
+                    serde_json::Value::Null => JsValue::NULL,
+                    _ => JsValue::from_str(&v.to_string()),
+                })
+                .collect();
+
+            self.execute_query(sql, &js_params).await
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (sql, params); // Suppress unused variable warnings
+                                   // Non-WASM implementation - return error for now
+            Err(ArbitrageError::not_implemented(
+                "Database operations are not supported on non-WASM platforms. This service requires Cloudflare Workers environment.".to_string()
+            ))
+        }
+    }
+
+    /// Execute a query that returns results (for SELECT)
+    /// Accepts parameters that implement Into<JsValue> for convenience
+    pub async fn query(
+        &self,
+        sql: &str,
+        params: &[serde_json::Value],
+    ) -> ArbitrageResult<Vec<HashMap<String, String>>> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let js_params: Vec<JsValue> = params
+                .iter()
+                .map(|v| match v {
+                    serde_json::Value::String(s) => JsValue::from_str(s),
+                    serde_json::Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            JsValue::from_f64(i as f64)
+                        } else if let Some(f) = n.as_f64() {
+                            JsValue::from_f64(f)
+                        } else {
+                            JsValue::from_str(&n.to_string())
+                        }
+                    }
+                    serde_json::Value::Bool(b) => JsValue::from_bool(*b),
+                    serde_json::Value::Null => JsValue::NULL,
+                    _ => JsValue::from_str(&v.to_string()),
+                })
+                .collect();
+
+            let result = self.query_internal(&sql, &js_params).await?;
+
+            // Convert QueryResult to Vec<HashMap<String, String>>
+            let mut string_results = Vec::new();
+            for row in result.results {
+                let mut string_row = HashMap::new();
+                for (key, value) in row {
+                    let string_value = match value {
+                        Value::String(s) => s,
+                        Value::Number(n) => n.to_string(),
+                        Value::Bool(b) => b.to_string(),
+                        Value::Null => "".to_string(),
+                        _ => value.to_string(),
+                    };
+                    string_row.insert(key, string_value);
+                }
+                string_results.push(string_row);
+            }
+
+            Ok(string_results)
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (sql, params); // Suppress unused variable warnings
+                                   // Non-WASM implementation - return error for now
+            Err(ArbitrageError::not_implemented(
+                "Database operations are not supported on non-WASM platforms. This service requires Cloudflare Workers environment.".to_string()
+            ))
+        }
+    }
+
+    // ============= DATABASE TRANSACTION SUPPORT =============
+
+    /// Begin a database transaction
+    pub async fn begin_transaction(&self) -> ArbitrageResult<()> {
+        self.execute("BEGIN TRANSACTION", &[]).await
+    }
+
+    /// Commit a database transaction
+    pub async fn commit_transaction(&self) -> ArbitrageResult<()> {
+        self.execute("COMMIT", &[]).await
+    }
+
+    /// Rollback a database transaction
+    pub async fn rollback_transaction(&self) -> ArbitrageResult<()> {
+        self.execute("ROLLBACK", &[]).await
+    }
+
+    /// Execute multiple operations within a transaction
+    /// If any operation fails, the entire transaction is rolled back
+    pub async fn execute_transaction<F, T>(&self, operations: F) -> ArbitrageResult<T>
+    where
+        F: FnOnce(
+            &Self,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = ArbitrageResult<T>> + Send + '_>,
+        >,
+    {
+        // Begin transaction
+        self.begin_transaction().await?;
+
+        // Execute operations
+        match operations(self).await {
+            Ok(result) => {
+                // Commit on success
+                self.commit_transaction().await?;
+                Ok(result)
+            }
+            Err(e) => {
+                // Rollback on failure
+                if let Err(rollback_err) = self.rollback_transaction().await {
+                    log::error!("Failed to rollback transaction: {:?}", rollback_err);
+                }
+                Err(e)
+            }
+        }
     }
 
     // ============= FUND MONITORING OPERATIONS =============
