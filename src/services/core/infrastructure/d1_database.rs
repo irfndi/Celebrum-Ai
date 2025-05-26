@@ -792,6 +792,10 @@ impl D1Service {
     }
 
     /// Check if user has active beta access
+    /// 
+    /// **Performance Note**: This query uses complex conditions with typeof() checks.
+    /// For production deployment, consider adding a composite index on (user_id, beta_expires_at)
+    /// columns for better query performance.
     pub async fn has_active_beta_access(&self, user_id: &str) -> ArbitrageResult<bool> {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let stmt = self.db.prepare(
@@ -1580,7 +1584,14 @@ impl D1Service {
 
     // ============= SIMPLIFIED QUERY HELPERS FOR INVITATION SERVICE =============
 
-    /// Execute a prepared statement with parameters (for INSERT, UPDATE, DELETE)
+    /// ⚠️ **SECURITY WARNING**: Execute a prepared statement with parameters (for INSERT, UPDATE, DELETE)
+    ///
+    /// **SQL INJECTION RISK**: This method accepts raw SQL strings. Only use with:
+    /// - Hardcoded SQL statements
+    /// - Properly parameterized queries using the `params` array
+    /// - Never pass user input directly in the `sql` parameter
+    ///
+    /// Consider using specific typed methods instead of this generic query executor.
     /// Accepts parameters that implement Into<JsValue> for convenience
     pub async fn execute(&self, sql: &str, params: &[serde_json::Value]) -> ArbitrageResult<()> {
         #[cfg(target_arch = "wasm32")]
@@ -1617,7 +1628,14 @@ impl D1Service {
         }
     }
 
-    /// Execute a query that returns results (for SELECT)
+    /// ⚠️ **SECURITY WARNING**: Execute a query that returns results (for SELECT)
+    ///
+    /// **SQL INJECTION RISK**: This method accepts raw SQL strings. Only use with:
+    /// - Hardcoded SQL statements
+    /// - Properly parameterized queries using the `params` array
+    /// - Never pass user input directly in the `sql` parameter
+    ///
+    /// Consider using specific typed methods instead of this generic query executor.
     /// Accepts parameters that implement Into<JsValue> for convenience
     pub async fn query(
         &self,

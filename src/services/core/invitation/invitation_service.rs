@@ -441,21 +441,7 @@ impl InvitationService {
         }
     }
 
-    async fn mark_invitation_used(&self, invitation_id: &str, user_id: &str) -> Result<()> {
-        let query = r#"
-            UPDATE invitation_codes 
-            SET used_by_user_id = ?, used_at = ?, is_active = false
-            WHERE id = ?
-        "#;
-        
-        self.d1_service.execute(query, &[
-            user_id.into(),
-            Utc::now().to_rfc3339().into(),
-            invitation_id.into(),
-        ]).await?;
-        
-        Ok(())
-    }
+
 
     async fn count_total_invitations(&self) -> Result<u32> {
         let query = "SELECT COUNT(*) as count FROM invitation_codes";
