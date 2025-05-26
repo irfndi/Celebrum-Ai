@@ -81,6 +81,15 @@ else
     exit 1
 fi
 
+# Step 5.1: Run clippy specifically on tests to catch test-specific issues
+print_step "Running clippy on test targets"
+if cargo clippy --tests --all-features -- -D warnings; then
+    print_success "Test clippy checks passed"
+else
+    print_error "Test clippy warnings/errors found"
+    exit 1
+fi
+
 # Step 6: Run tests (mirrors CI)
 print_step "Running tests"
 if cargo test --verbose --all-targets --all-features; then

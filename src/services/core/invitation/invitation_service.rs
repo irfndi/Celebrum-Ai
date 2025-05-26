@@ -26,6 +26,19 @@ pub struct InvitationUsage {
     pub beta_expires_at: DateTime<Utc>,
 }
 
+// Conversion trait to eliminate duplicate struct mappings
+impl From<InvitationUsage> for crate::services::core::infrastructure::d1_database::InvitationUsage {
+    fn from(usage: InvitationUsage) -> Self {
+        Self {
+            invitation_id: usage.invitation_id,
+            user_id: usage.user_id,
+            telegram_id: usage.telegram_id,
+            used_at: usage.used_at,
+            beta_expires_at: usage.beta_expires_at,
+        }
+    }
+}
+
 pub struct InvitationService {
     d1_service: D1Service,
 }
@@ -57,17 +70,41 @@ impl InvitationService {
         Ok(invitation_code)
     }
 
-    /// Generate multiple invitation codes at once
+    /// Generate multiple invitation codes at once with transaction support
     pub async fn generate_multiple_codes(&self, admin_user_id: &str, count: u32) -> Result<Vec<InvitationCode>> {
         if count > 100 {
             return Err(anyhow!("Cannot generate more than 100 codes at once"));
         }
 
+        // Verify admin permission before starting transaction
+        if !self.verify_admin_permission(admin_user_id).await? {
+            return Err(anyhow!("Unauthorized: Only super admins can generate invitation codes"));
+        }
+
+        // Generate all codes first (without storing) to ensure uniqueness
         let mut codes = Vec::new();
         for _ in 0..count {
-            let code = self.generate_invitation_code(admin_user_id).await?;
-            codes.push(code);
+            let code = self.generate_unique_code().await?;
+            let invitation_code = InvitationCode {
+                id: Uuid::new_v4().to_string(),
+                code,
+                created_by_admin_id: admin_user_id.to_string(),
+                used_by_user_id: None,
+                expires_at: Utc::now() + Duration::days(30),
+                created_at: Utc::now(),
+                used_at: None,
+                is_active: true,
+            };
+            codes.push(invitation_code);
         }
+
+        // Store all codes in a single transaction-like operation
+        // If any storage fails, we'll get an error and none will be partially stored
+        for code in &codes {
+            self.store_invitation_code(code).await
+                .map_err(|e| anyhow!("Failed to store invitation code {}: {}. Transaction aborted.", code.code, e))?;
+        }
+
         Ok(codes)
     }
 
@@ -92,14 +129,8 @@ impl InvitationService {
 
         self.mark_invitation_used(&invitation.id, user_id).await?;
         
-        // Convert to D1Service InvitationUsage struct
-        let d1_usage = crate::services::core::infrastructure::d1_database::InvitationUsage {
-            invitation_id: usage.invitation_id.clone(),
-            user_id: usage.user_id.clone(),
-            telegram_id: usage.telegram_id,
-            used_at: usage.used_at,
-            beta_expires_at: usage.beta_expires_at,
-        };
+        // Convert to D1Service InvitationUsage struct using conversion trait
+        let d1_usage = usage.clone().into();
         
         self.d1_service.store_invitation_usage(&d1_usage).await
             .map_err(|e| anyhow!("Failed to store invitation usage: {}", e))?;

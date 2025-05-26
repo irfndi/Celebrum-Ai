@@ -210,9 +210,9 @@ pub fn create_test_market_data(exchange: &str, pair: &str, price: f64) -> serde_
 pub fn assert_user_permissions(user: &UserProfile, expected_permissions: &[CommandPermission]) {
     for permission in expected_permissions {
         // Check if user has beta access (premium permissions during beta period)
-        let has_beta_access = user.beta_expires_at.map_or(false, |expires_at| {
-            chrono::Utc::now().timestamp() < expires_at as i64
-        });
+        let has_beta_access = user
+            .beta_expires_at
+            .is_some_and(|expires_at| chrono::Utc::now().timestamp() < expires_at as i64);
 
         // This would normally check against the user's actual permissions
         // For now, we'll check based on subscription tier and beta access

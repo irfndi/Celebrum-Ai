@@ -558,6 +558,7 @@ impl AIAccessService {
     }
 
     /// Validate OpenAI API key by making a test API call
+    #[cfg(not(target_arch = "wasm32"))]
     async fn validate_openai_key_live(&self, api_key: &str) -> Result<bool, String> {
         use reqwest::Client;
         
@@ -586,7 +587,19 @@ impl AIAccessService {
         }
     }
 
+    /// Validate OpenAI API key (WASM version - format validation only)
+    #[cfg(target_arch = "wasm32")]
+    async fn validate_openai_key_live(&self, api_key: &str) -> Result<bool, String> {
+        // For WASM, only perform format validation since HTTP requests are not supported
+        if api_key.starts_with("sk-") && api_key.len() >= 20 {
+            Ok(true)
+        } else {
+            Err("Invalid OpenAI API key format".to_string())
+        }
+    }
+
     /// Validate Anthropic API key by making a test API call
+    #[cfg(not(target_arch = "wasm32"))]
     async fn validate_anthropic_key_live(&self, api_key: &str) -> Result<bool, String> {
         use reqwest::Client;
         
@@ -624,7 +637,19 @@ impl AIAccessService {
         }
     }
 
+    /// Validate Anthropic API key (WASM version - format validation only)
+    #[cfg(target_arch = "wasm32")]
+    async fn validate_anthropic_key_live(&self, api_key: &str) -> Result<bool, String> {
+        // For WASM, only perform format validation since HTTP requests are not supported
+        if api_key.starts_with("sk-ant-") && api_key.len() >= 20 {
+            Ok(true)
+        } else {
+            Err("Invalid Anthropic API key format".to_string())
+        }
+    }
+
     /// Validate custom API key by making a test API call
+    #[cfg(not(target_arch = "wasm32"))]
     async fn validate_custom_key_live(&self, api_key: &str, base_url: &str) -> Result<bool, String> {
         use reqwest::Client;
         
@@ -652,6 +677,17 @@ impl AIAccessService {
                 log::warn!("Custom API validation request failed: {}", e);
                 Err("Failed to validate custom API key - network error".to_string())
             }
+        }
+    }
+
+    /// Validate custom API key (WASM version - format validation only)
+    #[cfg(target_arch = "wasm32")]
+    async fn validate_custom_key_live(&self, api_key: &str, base_url: &str) -> Result<bool, String> {
+        // For WASM, only perform format validation since HTTP requests are not supported
+        if !api_key.is_empty() && api_key.len() >= 10 && !base_url.is_empty() {
+            Ok(true)
+        } else {
+            Err("Invalid custom API key or base URL format".to_string())
         }
     }
 }

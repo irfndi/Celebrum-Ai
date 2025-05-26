@@ -135,6 +135,12 @@ impl MockUserProfileService {
     }
 }
 
+impl Default for MockUserProfileService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Mock ExchangeService for testing
 pub struct MockExchangeService {
     pub market_data: HashMap<String, serde_json::Value>,
@@ -155,6 +161,12 @@ impl MockExchangeService {
     pub fn get_price(&self, exchange: &str, pair: &str) -> Option<f64> {
         let key = format!("{}:{}", exchange, pair);
         self.market_data.get(&key)?.get("price")?.as_f64()
+    }
+}
+
+impl Default for MockExchangeService {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -184,5 +196,11 @@ impl MockNotificationService {
 
     pub fn clear(&mut self) {
         self.sent_notifications.clear();
+    }
+}
+
+impl Default for MockNotificationService {
+    fn default() -> Self {
+        Self::new()
     }
 }

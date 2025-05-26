@@ -87,6 +87,15 @@ else
     exit 1
 fi
 
+# Step 5.1: Additional clippy check specifically for tests
+print_step "Running clippy on test code specifically"
+if cargo clippy --tests --all-features -- -D warnings -D clippy::all; then
+    print_success "Test-specific clippy checks passed"
+else
+    print_error "Test-specific clippy found issues"
+    exit 1
+fi
+
 # Step 6: Run tests with output
 print_step "Running all tests with detailed output"
 if cargo test --all-features --all-targets --verbose; then

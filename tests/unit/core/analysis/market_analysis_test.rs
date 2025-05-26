@@ -366,7 +366,7 @@ async fn test_mathematical_edge_cases() {
         13.0, // 16 prices for RSI 14
     ];
     let rsi = MathUtils::relative_strength_index(&minimal_prices, 14).unwrap();
-    assert_eq!(rsi.len(), 1); // Should produce exactly one RSI value
+    assert_eq!(rsi.len(), 2); // With 16 prices and period 14, should produce 2 RSI values
 
     // Test correlation with constant values
     let constant1 = vec![5.0, 5.0, 5.0, 5.0, 5.0];

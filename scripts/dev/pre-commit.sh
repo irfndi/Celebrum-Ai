@@ -50,18 +50,18 @@ fi
 
 # Step 2: Quick lint check
 print_step "Running quick lint check"
-if cargo clippy --quiet -- -D warnings; then
+if cargo clippy --all-targets --quiet -- -D warnings; then
     print_success "Lint checks passed"
 else
     print_error "Lint issues found"
-    echo "Run 'cargo clippy --fix --allow-dirty' to auto-fix some issues"
+    echo "Run 'cargo clippy --fix --allow-dirty --all-targets' to auto-fix some issues"
     exit 1
 fi
 
 # Step 3: Run tests (unless skipped)
 if [ "$SKIP_TESTS" != "true" ]; then
     print_step "Running tests"
-    if cargo test --quiet --all-targets; then
+    if cargo test --quiet --all-targets --all-features; then
         print_success "Tests passed"
     else
         print_error "Tests failed"
@@ -75,7 +75,7 @@ fi
 # Step 4: Quick build check (unless skipped)
 if [ "$SKIP_BUILD" != "true" ]; then
     print_step "Quick build check"
-    if cargo check --quiet --all-targets; then
+    if cargo check --quiet --all-targets --all-features; then
         print_success "Build check passed"
     else
         print_error "Build check failed"
