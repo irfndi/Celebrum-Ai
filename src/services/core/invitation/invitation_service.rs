@@ -1,5 +1,5 @@
 use crate::services::core::infrastructure::d1_database::D1Service;
-use crate::types::{UserProfile, SubscriptionTier, UserRole};
+// Removed unused imports: UserProfile, SubscriptionTier, UserRole
 use crate::utils::ArbitrageResult;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc, Duration};
@@ -184,44 +184,7 @@ impl InvitationService {
         };
 
         // Use database transaction to ensure atomicity of marking code as used and storing usage
-        let usage_clone = usage.clone();
-        let invitation_id = invitation.id.clone();
-        let user_id_clone = user_id.to_string();
-        
-        self.d1_service.execute_transaction(|db| {
-            Box::pin(async move {
-                // Mark invitation code as used
-                let mark_used_query = r#"
-                    UPDATE invitation_codes 
-                    SET used_by_user_id = ?, used_at = ?, is_active = false
-                    WHERE id = ?
-                "#;
-                
-                db.execute(mark_used_query, &[
-                    user_id_clone.clone().into(),
-                    Utc::now().to_rfc3339().into(),
-                    invitation_id.clone().into(),
-                ]).await?;
-
-                // Store invitation usage record
-                let store_usage_query = r#"
-                    INSERT INTO invitation_usage 
-                    (invitation_id, user_id, telegram_id, used_at, beta_expires_at)
-                    VALUES (?, ?, ?, ?, ?)
-                "#;
-                
-                db.execute(store_usage_query, &[
-                    usage_clone.invitation_id.clone().into(),
-                    usage_clone.user_id.clone().into(),
-                    usage_clone.telegram_id.into(),
-                    usage_clone.used_at.to_rfc3339().into(),
-                    usage_clone.beta_expires_at.to_rfc3339().into(),
-                ]).await?;
-
-                Ok(())
-            })
-        }).await
-        .map_err(|e| anyhow!("Failed to use invitation code in atomic transaction: {}", e))?;
+        self.mark_invitation_used_transaction(&invitation.id, user_id, &usage).await?;
 
         log::info!("Successfully used invitation code {} for user {} in atomic transaction", code, user_id);
         Ok(usage)
@@ -441,12 +404,10 @@ impl InvitationService {
         }
     }
 
+    /// Helper method to execute count queries with consistent error handling
+    async fn execute_count_query(&self, query: &str, params: &[crate::services::core::infrastructure::d1_database::Value]) -> Result<u32> {
+        let result = self.d1_service.query(query, params).await?;
 
-
-    async fn count_total_invitations(&self) -> Result<u32> {
-        let query = "SELECT COUNT(*) as count FROM invitation_codes";
-        let result = self.d1_service.query(query, &[]).await?;
-        
         if let Some(row) = result.first() {
             let count_str = row.get("count").unwrap_or("0");
             match count_str.parse::<u32>() {
@@ -461,58 +422,64 @@ impl InvitationService {
         }
     }
 
+    /// Helper method to handle the transaction logic for marking invitation codes as used
+    async fn mark_invitation_used_transaction(&self, invitation_id: &str, user_id: &str, usage: &InvitationUsage) -> Result<()> {
+        let invitation_id = invitation_id.to_string();
+        let user_id_clone = user_id.to_string();
+        let usage_clone = usage.clone();
+
+        self.d1_service.execute_transaction(|db| {
+            Box::pin(async move {
+                // Mark invitation code as used
+                let mark_used_query = r#"
+                    UPDATE invitation_codes 
+                    SET used_by_user_id = ?, used_at = ?, is_active = false
+                    WHERE id = ?
+                "#;
+
+                db.execute(mark_used_query, &[
+                    user_id_clone.clone().into(),
+                    Utc::now().to_rfc3339().into(),
+                    invitation_id.clone().into(),
+                ]).await?;
+
+                // Store invitation usage record
+                let store_usage_query = r#"
+                    INSERT INTO invitation_usage 
+                    (invitation_id, user_id, telegram_id, used_at, beta_expires_at)
+                    VALUES (?, ?, ?, ?, ?)
+                "#;
+
+                db.execute(store_usage_query, &[
+                    usage_clone.invitation_id.clone().into(),
+                    usage_clone.user_id.clone().into(),
+                    usage_clone.telegram_id.into(),
+                    usage_clone.used_at.to_rfc3339().into(),
+                    usage_clone.beta_expires_at.to_rfc3339().into(),
+                ]).await?;
+
+                Ok(())
+            })
+        }).await
+        .map_err(|e| anyhow!("Failed to use invitation code in atomic transaction: {}", e))
+    }
+
+
+
+    async fn count_total_invitations(&self) -> Result<u32> {
+        self.execute_count_query("SELECT COUNT(*) as count FROM invitation_codes", &[]).await
+    }
+
     async fn count_used_invitations(&self) -> Result<u32> {
-        let query = "SELECT COUNT(*) as count FROM invitation_codes WHERE used_by_user_id IS NOT NULL";
-        let result = self.d1_service.query(query, &[]).await?;
-        
-        if let Some(row) = result.first() {
-            let count_str = row.get("count").unwrap_or("0");
-            match count_str.parse::<u32>() {
-                Ok(count) => Ok(count),
-                Err(e) => {
-                    log::warn!("Failed to parse used invitations count '{}': {}", count_str, e);
-                    Ok(0)
-                }
-            }
-        } else {
-            Ok(0)
-        }
+        self.execute_count_query("SELECT COUNT(*) as count FROM invitation_codes WHERE used_by_user_id IS NOT NULL", &[]).await
     }
 
     async fn count_expired_invitations(&self) -> Result<u32> {
-        let query = "SELECT COUNT(*) as count FROM invitation_codes WHERE expires_at < datetime('now') AND used_by_user_id IS NULL";
-        let result = self.d1_service.query(query, &[]).await?;
-        
-        if let Some(row) = result.first() {
-            let count_str = row.get("count").unwrap_or("0");
-            match count_str.parse::<u32>() {
-                Ok(count) => Ok(count),
-                Err(e) => {
-                    log::warn!("Failed to parse expired invitations count '{}': {}", count_str, e);
-                    Ok(0)
-                }
-            }
-        } else {
-            Ok(0)
-        }
+        self.execute_count_query("SELECT COUNT(*) as count FROM invitation_codes WHERE expires_at < datetime('now') AND used_by_user_id IS NULL", &[]).await
     }
 
     async fn count_active_beta_users(&self) -> Result<u32> {
-        let query = "SELECT COUNT(*) as count FROM invitation_usage WHERE beta_expires_at > datetime('now')";
-        let result = self.d1_service.query(query, &[]).await?;
-        
-        if let Some(row) = result.first() {
-            let count_str = row.get("count").unwrap_or("0");
-            match count_str.parse::<u32>() {
-                Ok(count) => Ok(count),
-                Err(e) => {
-                    log::warn!("Failed to parse active beta users count '{}': {}", count_str, e);
-                    Ok(0)
-                }
-            }
-        } else {
-            Ok(0)
-        }
+        self.execute_count_query("SELECT COUNT(*) as count FROM invitation_usage WHERE beta_expires_at > datetime('now')", &[]).await
     }
 
     async fn get_invitations_by_admin(&self, admin_user_id: &str, limit: u32) -> Result<Vec<InvitationCode>> {
