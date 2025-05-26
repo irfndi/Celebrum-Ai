@@ -1,10 +1,12 @@
 // src/utils/formatter.rs
 
-use crate::services::ai_intelligence::{
+use crate::services::core::ai::ai_intelligence::{
     AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion,
 };
-use crate::services::market_analysis::RiskLevel;
-use crate::services::opportunity_categorization::{CategorizedOpportunity, OpportunityCategory};
+use crate::services::core::analysis::market_analysis::RiskLevel;
+use crate::services::core::opportunities::opportunity_categorization::{
+    CategorizedOpportunity, OpportunityCategory,
+};
 use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
 #[cfg(not(test))]
 use chrono::{DateTime, Utc};
@@ -106,7 +108,11 @@ pub fn format_timestamp(timestamp: u64) -> String {
 }
 
 /// Format exchange name for display
-pub fn format_exchange(exchange: &Option<ExchangeIdEnum>) -> String {
+pub fn format_exchange(exchange: &ExchangeIdEnum) -> String {
+    exchange.to_string()
+}
+
+pub fn format_optional_exchange(exchange: &Option<ExchangeIdEnum>) -> String {
     match exchange {
         Some(exchange) => exchange.to_string(),
         None => "N/A".to_string(),
@@ -439,9 +445,7 @@ pub fn format_opportunity_message(opportunity: &ArbitrageOpportunity) -> String 
 
     // Format based on opportunity type
     match opportunity.r#type {
-        ArbitrageType::FundingRate
-            if opportunity.long_exchange.is_some() && opportunity.short_exchange.is_some() =>
-        {
+        ArbitrageType::FundingRate => {
             message.push_str(&format!(
                 "\n↔️ *Action:* LONG `{}` / SHORT `{}`\n\n*Rates \\(Funding\\):*\n   \\- Long \\({}\\): `{}%`\n   \\- Short \\({}\\): `{}%`\n💰 *Gross Difference:* `{}%`",
                 long_exchange_escaped,
@@ -466,12 +470,8 @@ pub fn format_opportunity_message(opportunity: &ArbitrageOpportunity) -> String 
                 diff_escaped
             ));
 
-            if opportunity.long_exchange.is_some() {
-                message.push_str(&format!("\n➡️ *Exchange 1:* `{}`", long_exchange_escaped));
-            }
-            if opportunity.short_exchange.is_some() {
-                message.push_str(&format!("\n⬅️ *Exchange 2:* `{}`", short_exchange_escaped));
-            }
+            message.push_str(&format!("\n➡️ *Exchange 1:* `{}`", long_exchange_escaped));
+            message.push_str(&format!("\n⬅️ *Exchange 2:* `{}`", short_exchange_escaped));
         }
     }
 
@@ -555,13 +555,14 @@ mod tests {
     fn test_format_opportunity_message() {
         let mut opportunity = ArbitrageOpportunity::new(
             "BTC/USDT".to_string(),
-            Some(ExchangeIdEnum::Binance),
-            Some(ExchangeIdEnum::Bybit),
+            ExchangeIdEnum::Binance,
+            ExchangeIdEnum::Bybit,
             Some(0.0001),
             Some(-0.0005),
             0.0006,
             ArbitrageType::FundingRate,
-        );
+        )
+        .unwrap_or_else(|_| ArbitrageOpportunity::default());
 
         // Set a fixed timestamp to avoid WASM binding issues in tests
         opportunity.timestamp = 1640995200000; // 2022-01-01 00:00:00 UTC

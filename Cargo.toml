@@ -6,6 +6,10 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+disabled_tests = []
+
 [dependencies]
 worker = { version = "0.5.0", features = ["d1"] }
 console_error_panic_hook = "0.1.7"
@@ -25,6 +29,8 @@ regex = "1.11"
 async-trait = "0.1"
 log = "0.4"
 rand = "0.8"
+aes-gcm = "0.10"
+secrecy = "0.8"
 
 # WASM-specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -45,5 +51,69 @@ tokio = { version = "1.42", features = ["macros", "rt"] }
 sysinfo = "0.32"
 
 [dev-dependencies]
+# WASM-compatible dev dependencies
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+tokio = { version = "1.42", features = ["macros", "rt"] }
+tokio-test = "0.4"
+
+# Native dev dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1.42", features = ["macros", "rt-multi-thread"] }
-tokio-test = "0.4" 
+tokio-test = "0.4"
+
+[[test]]
+name = "telegram_bot_commands_test"
+path = "tests/telegram_bot_commands_test.rs"
+
+[[test]]
+name = "telegram_advanced_commands_test"
+path = "tests/telegram_advanced_commands_test.rs"
+
+[[test]]
+name = "market_data_pipeline_test"
+path = "tests/market_data_pipeline_test.rs"
+
+[[test]]
+name = "comprehensive_service_integration_test"
+path = "tests/comprehensive_service_integration_test.rs"
+
+[[test]]
+name = "rbac_comprehensive_user_journey_test"
+path = "tests/e2e/rbac_comprehensive_user_journey_test.rs"
+
+[[test]]
+name = "user_journey_e2e_test"
+path = "tests/e2e/user_journey_e2e_test.rs"
+
+[[test]]
+name = "service_integration_e2e_test"
+path = "tests/e2e/service_integration_e2e_test.rs"
+
+# Unit Tests
+[[test]]
+name = "d1_database_unit_test"
+path = "tests/unit/core/infrastructure/d1_database_test.rs"
+
+[[test]]
+name = "notifications_unit_test"
+path = "tests/unit/core/infrastructure/notifications_test.rs"
+
+[[test]]
+name = "global_opportunity_unit_test"
+path = "tests/unit/core/opportunities/global_opportunity_test.rs"
+
+[[test]]
+name = "user_profile_unit_test"
+path = "tests/unit/core/user/user_profile_test.rs"
+
+[[test]]
+name = "exchange_service_unit_test"
+path = "tests/unit/core/trading/exchange_test.rs"
+
+[[test]]
+name = "technical_trading_service_unit_test"
+path = "tests/unit/core/trading/technical_trading_test.rs"
+
+[[test]]
+name = "dynamic_config_service_unit_test"
+path = "tests/unit/core/features/dynamic_config_test.rs" 

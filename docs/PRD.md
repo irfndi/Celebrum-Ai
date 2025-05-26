@@ -1,109 +1,209 @@
 Product Requirements Document: Automated Cryptocurrency Arbitrage Bot
-Version: 2.3
-Date: May 23, 2025
-Status: Enhanced - Hybrid Trading Platform with User Choice Architecture
+Version: 2.4
+Date: January 28, 2025
+Status: Enhanced - Hybrid Trading Platform with Clarified Architecture
 
 1. Introduction
 1.1 Purpose
-This document outlines the product requirements for an advanced hybrid cryptocurrency trading platform that combines arbitrage detection with technical analysis trading opportunities. The system has evolved from a basic arbitrage detector to a sophisticated user-centric trading platform where users can choose their trading focus (arbitrage, technical analysis, or hybrid), automation level (manual, semi-auto, or fully automated), and AI integration preferences. The platform supports BYOK (Bring Your Own Key) AI integration for personalized strategy development with flexible subscription tiers.
+This document outlines the product requirements for an advanced hybrid cryptocurrency trading platform that combines arbitrage detection with technical analysis trading opportunities. The system provides a sophisticated market alert/opportunity system with two core components: **arbitrage opportunities** (requiring 2 positions: long + short) and **technical analysis opportunities** (requiring 1 position), delivered through a secure global opportunity system using read-only admin APIs with user access control based on RBAC and API compatibility.
 
 1.2 Product Vision
-To develop a comprehensive, user-choice driven trading platform that empowers traders to capitalize on both arbitrage opportunities and technical analysis signals across multiple cryptocurrency exchanges. The platform features:
-- **User Trading Focus Selection**: Users choose arbitrage, technical trading, or hybrid approach during onboarding
-- **Flexible Automation Levels**: Manual execution (default), semi-automated, or fully automated trading
-- **Global + Personalized Opportunities**: Base opportunities for all users + personalized BYOK AI opportunities
-- **BYOK AI Integration**: Users can bring their own AI API keys to create personalized opportunity detection rules
-- **Dynamic Fund-Based Trading**: Trade configuration dynamically adjusts based on user's available funds and AI interaction
-- **Tiered Subscription Model**: Free tier with limitations progressing to premium features
-- **Comprehensive Analytics**: Performance reporting optimized for each trading focus type
+To develop a comprehensive trading platform that delivers market opportunities through:
+- **Global Opportunity System**: Centralized opportunity detection using super admin read-only APIs
+- **User API Validation**: Ensure users have compatible exchange APIs before accessing trading features
+- **Dual Opportunity Types**: Arbitrage (2-position: long/short) and Technical Analysis (1-position)
+- **Tiered Access Model**: Free users (limited), Free+API users (enhanced), Subscription users (unlimited)
+- **AI Integration**: Global opportunity analysis + personal opportunity generation for different exchanges
+- **Group/Channel Support**: Enhanced limits for group/channel contexts with future subscription model
 
-All accessible through a secure Telegram interface running on Cloudflare's edge network.
+1.3 Market Alert/Opportunity Architecture
 
-1.3 Scope
-The enhanced release transforms the platform into a comprehensive hybrid trading system featuring:
-- **User Choice Architecture**: Trading focus selection (arbitrage/technical/hybrid) with appropriate defaults
-- **Automation Preference System**: Manual (default), semi-auto, and full automation options per trading type
-- **Hybrid Opportunity Model**: Global opportunities + personalized AI opportunities + technical analysis signals
-- **AI-Powered Personalization**: Users integrate their own AI services for custom trading rules
-- **Risk-Stratified Approach**: Low-risk arbitrage + higher-risk technical trading with appropriate safeguards
-- **Dynamic Trade Configuration**: Real-time position sizing based on available funds and AI recommendations
-- **Progressive Subscription Model**: Free → Premium arbitrage → Premium trading → Automation tiers
-- **Comprehensive Analytics**: Multi-timeframe reporting optimized per trading focus
+## **Core Components**
 
-The system maintains focus on funding rate arbitrage while adding technical analysis capabilities and intelligent user choice management.
+### **1. Global Opportunity System**
+- **Data Source**: Super admin provides read-only exchange API keys for market data
+- **Supported Exchanges**: Only exchanges where we have read-only API access (e.g., Binance, Bybit, OKX)
+- **Security**: Read-only APIs cannot execute trades, only fetch market data
+- **Opportunity Generation**: System generates opportunities using admin's read-only market access
 
-1.4 Target Audience
-- **Arbitrage-Focused Traders**: Users preferring low-risk, cross-exchange price differences (default user type)
-- **Technical Analysis Traders**: Users wanting technical indicator-based trading opportunities
-- **Hybrid Traders**: Experienced users utilizing both arbitrage and technical strategies
-- **AI/ML Enthusiasts**: Users wanting to integrate custom AI trading algorithms
-- **Automation Seekers**: Users progressing from manual to automated execution
-- **Small Quantitative Firms**: Teams requiring user-specific configuration and risk management
-- **Progressive Users**: Starting with free arbitrage access, upgrading to premium features
+### **2. Opportunity Types & Position Structure**
 
-1.5 Enhanced Glossary
-**Trading Focus**: User's primary interest - arbitrage (default), technical analysis, or hybrid approach
-**Automation Level**: Execution preference - manual (default), semi-automated, or fully automated
-**Arbitrage Focus**: Low-risk trading based on cross-exchange price differences (recommended default)
-**Technical Focus**: Higher-risk trading based on technical analysis indicators and market signals
-**Hybrid Focus**: Advanced approach combining both arbitrage and technical analysis strategies
-**User Choice Architecture**: System design allowing users to select and change their trading preferences
-**Risk Stratification**: Different risk levels and safeguards based on trading focus selection
-**BYOK (Bring Your Own Key)**: User-provided AI API keys for personalized opportunity detection
-**Dynamic Trade Configuration**: Real-time adjustment of position sizing based on available funds
-**Progressive Subscription**: Tiered access model from free arbitrage to premium automation features
+**Arbitrage Opportunities** (2 Positions Required):
+```rust
+pub struct ArbitrageOpportunity {
+    pub long_exchange: ExchangeId,    // Required: Exchange for long position
+    pub short_exchange: ExchangeId,   // Required: Exchange for short position
+    pub long_position: Position,      // Required: Long position details
+    pub short_position: Position,     // Required: Short position details
+    pub funding_rate_diff: f64,       // Rate difference between exchanges
+    pub min_exchanges_required: 2,    // Always 2 for arbitrage
+}
+```
 
-1.5 Glossary
-Arbitrage: Simultaneously buying and selling an asset on different markets to profit from a price difference.
+**Technical Analysis Opportunities** (1 Position Required):
+```rust
+pub struct TechnicalOpportunity {
+    pub exchange: ExchangeId,         // Required: Single exchange
+    pub position: Position,           // Required: Single position (buy/sell)
+    pub technical_signals: Vec<Signal>, // RSI, MACD, etc.
+    pub min_exchanges_required: 1,    // Always 1 for technical
+}
+```
 
-Funding Rate Arbitrage: Exploiting differences in funding rates between perpetual contracts on different exchanges by holding opposing positions (long/short).
+### **3. User Access Control & API Validation**
 
-Perpetual Contract: A type of futures contract with no expiration date.
+**User Access Levels**:
+```rust
+pub enum UserAccessLevel {
+    FreeWithoutAPI {
+        daily_limit: 3,
+        delay_minutes: 5,
+        can_trade: false,
+    },
+    FreeWithAPI {
+        arbitrage_daily: 10,
+        technical_daily: 10,
+        delay_minutes: 0,
+        can_trade: true,
+        requires_api_validation: true,
+    },
+    SubscriptionWithAPI {
+        unlimited_opportunities: true,
+        automation_enabled: bool,
+        can_trade: true,
+        requires_api_validation: true,
+    },
+}
+```
 
-Funding Rate: Periodic payments exchanged between long and short traders in perpetual contracts, designed to keep the contract price close to the underlying spot price.
+**API Validation Requirements**:
+- **Arbitrage**: User must have API keys for BOTH exchanges in the opportunity
+- **Technical**: User must have API key for the ONE exchange in the opportunity
+- **No API**: User cannot access trading features, only view delayed opportunities
+- **Different Platform**: If user's APIs don't match global opportunities, generate personal opportunities
 
-API: Application Programming Interface. Allows software applications to communicate.
+### **4. Personal Opportunity System**
+When user has exchange APIs that differ from global opportunity exchanges:
+```rust
+pub struct PersonalOpportunityService {
+    // Generate opportunities using user's personal exchange APIs
+    async fn generate_personal_arbitrage(&self, user_exchanges: Vec<ExchangeId>) -> Vec<ArbitrageOpportunity>;
+    async fn generate_personal_technical(&self, user_exchanges: Vec<ExchangeId>) -> Vec<TechnicalOpportunity>;
+    
+    // Hybrid: Combine global + personal opportunities
+    async fn generate_hybrid_opportunities(&self, user_id: &str) -> Vec<Opportunity>;
+}
+```
 
-Hedging: Taking an offsetting position in a related security to reduce risk.
+### **5. AI Integration Architecture**
 
-Margin: The collateral required to open and maintain a leveraged position.
+**AI Analysis Types**:
+```rust
+pub enum AIAnalysisType {
+    GlobalOpportunityAnalysis {
+        opportunity: GlobalOpportunity,
+        template: AITemplate,           // Default or user-customized
+        user_config: Option<UserAIConfig>,
+    },
+    PersonalOpportunityAnalysis {
+        user_exchanges: Vec<ExchangeId>,
+        template: AITemplate,
+        user_config: UserAIConfig,      // Required for personal analysis
+    },
+}
+```
 
-Leverage: Using borrowed funds to increase potential returns (and risks).
+**AI Configuration**:
+- **Default Templates**: System provides default AI analysis templates
+- **User Configuration**: Users can customize AI analysis parameters
+- **Global + AI Enhancement**: AI analyzes global opportunities using user's configuration
+- **Personal AI Generation**: AI generates opportunities using user's exchange APIs when different from global
 
-TP/SL: Take-Profit / Stop-Loss orders.
+### **6. Group/Channel Subscription Model**
 
-Risk per trade: The risk per trade is the risk of the trade, it is calculated by the risk per trade formula.
+**Current Implementation** (Free tier with multiplier):
+```rust
+pub enum ChatContext {
+    Private { user_access: UserAccessLevel },
+    Group { 
+        daily_multiplier: 2.0,          // Double the free user limits
+        arbitrage_daily: 6,             // 3 * 2
+        technical_daily: 6,             // 3 * 2
+        delay_minutes: 5,
+    },
+    Channel { 
+        daily_multiplier: 2.0,
+        arbitrage_daily: 6,
+        technical_daily: 6,
+        delay_minutes: 5,
+    },
+}
+```
 
-Risk reward ratio: The risk reward ratio is the ratio of the risk to the reward.
+**Future Group Subscription Tiers**:
+- **Free Group**: 6 opportunities daily (3 * 2), 5-minute delay
+- **Premium Group** ($99/month): 40 opportunities daily (20 * 2), real-time
+- **Enterprise Group** ($299/month): Unlimited opportunities, custom features
 
-MVP: Minimum Viable Product.
+## **Implementation Requirements**
 
-Cloudflare Workers: A serverless execution environment that allows running JavaScript, Rust, C, and C++ on Cloudflare's edge network.
+### **FR1: Global Opportunity Security**
+- Super admin provides read-only API keys for supported exchanges
+- System validates all APIs are read-only (cannot execute trades)
+- Global opportunities only generated for exchanges with admin read-only access
+- Complete isolation between global data APIs and user trading APIs
 
-Workers KV: Cloudflare's global, low-latency key-value data store.
+### **FR2: User API Validation & Access Control**
+- Validate user has required exchange APIs before showing trading opportunities
+- Arbitrage opportunities require user APIs for BOTH exchanges
+- Technical opportunities require user API for ONE exchange
+- Users without APIs see delayed opportunities but cannot trade
 
+### **FR3: Position Structure Enforcement**
+- Arbitrage opportunities MUST have exactly 2 positions (long + short)
+- Technical opportunities MUST have exactly 1 position
+- System validates position requirements before opportunity creation
+- Clear distinction in UI between 2-position and 1-position opportunities
+
+### **FR4: Personal Opportunity Generation**
+- Generate personal opportunities when user's exchanges differ from global
+- Support hybrid approach: global opportunities + personal opportunities
+- AI integration for both global analysis and personal opportunity generation
+- Fallback to personal opportunities when global exchanges incompatible
+
+### **FR5: Subscription & Daily Limits**
+- Free users without API: 3 opportunities daily, 5-minute delay, no trading
+- Free users with API: 10 arbitrage + 10 technical daily, real-time, trading enabled
+- Subscription users: Unlimited opportunities, automation features, trading enabled
+- Group/channel contexts: 2x multiplier on free user limits
+
+### **FR6: AI Integration Framework**
+- Default AI templates for global opportunity analysis
+- User-customizable AI configurations
+- Personal opportunity AI generation using user's exchange APIs
+- Hybrid AI analysis combining global and personal opportunities
 
 2. Enhanced Goals and Objectives
-**Hybrid Opportunity System**: Provide global opportunities while supporting personalized AI-driven detection
-**AI Integration Platform**: Enable users to bring their own AI keys for custom strategy development
-**Dynamic Resource Management**: Automatically adjust trading parameters based on real-time fund availability
-**Progressive Monetization**: Evolve from invitation → referral → subscription model
-**Comprehensive Analytics**: Provide detailed performance reporting across multiple timeframes
-**Scalable Free Tier**: Support free users with limited opportunities and delays
 
-Automate Arbitrage: Develop a system capable of automatically detecting and (optionally) executing funding rate arbitrage opportunities across configurable pairs.
+**Secure Global Opportunity System**: Provide centralized opportunity detection using read-only admin APIs with complete trading isolation
 
-Minimize Risk: Implement robust risk management features, including configurable margin limits, leverage controls, automated stop-losses, and hedged positions.
+**User API Validation & Access Control**: Ensure users have compatible exchange APIs before accessing trading features, with clear distinction between viewing and trading capabilities
 
-User Control: Provide users with control over bot operations, risk parameters, trading pairs, and trade execution via a secure Telegram interface.
+**Dual Opportunity Architecture**: Support both arbitrage (2-position) and technical analysis (1-position) opportunities with proper validation
 
-Transparency: Offer real-time monitoring, notifications, and performance reporting.
+**Tiered Access Model**: Progressive access from free users (limited) to subscription users (unlimited) with API-based trading enablement
 
-Scalability: Build a modular architecture suitable for the Cloudflare Workers environment, allowing for easy addition of new exchanges, trading pairs, and arbitrage strategies.
+**Personal Opportunity Generation**: Generate opportunities using user's personal APIs when different from global system exchanges
 
-Reliability: Ensure stable operation within the Workers environment, handling API errors, network issues, and state management effectively.
+**AI Integration Framework**: Support both global opportunity analysis and personal opportunity generation with customizable templates
 
-Edge Deployment: Leverage Cloudflare Workers for potentially lower latency execution and reduced infrastructure management overhead.
+**Group/Channel Support**: Enhanced limits for group contexts with future subscription model for premium group features
+
+**Progressive Monetization**: Evolve from invitation → referral → subscription model with clear value proposition at each tier
+
+**Comprehensive Analytics**: Provide detailed performance reporting across multiple timeframes and opportunity types
+
+**Scalable Free Tier**: Support free users with limited opportunities and delays while encouraging API integration and subscription upgrades
 
 3. Enhanced User Stories
 
@@ -220,6 +320,26 @@ Edge Deployment: Leverage Cloudflare Workers for potentially lower latency execu
 - ✅ **API Access Control**: Role-based access levels and rate limiting per role
 - ✅ **Institutional Access**: Team management capabilities with appropriate permission hierarchies
 
+**FR4.3**: The system must implement invitation-based access control
+- 🎫 **Invitation Code System**: Super admin generates one-time use invitation codes for public beta access
+- 🔐 **Mandatory Invitation**: User registration requires valid invitation code during /start command
+- 🚀 **Beta User Assignment**: All invited users automatically receive beta RBAC permissions
+- ⏰ **Expiration Management**: Beta access expires after 180 days with automatic downgrade to Basic/Free tier
+- 📊 **Usage Tracking**: Comprehensive tracking of invitation code generation, usage, and user conversion
+- 🔗 **Referral Integration**: Foundation for future referral and affiliation program implementation
+
+**FR4.4**: The system must implement referral system foundation
+- 🎯 **Personal Referral Codes**: Every user gets 1 unique referral code (randomized initially, user-updatable)
+- 📈 **Usage Tracking**: Monitor referral usage, conversion rates, and bonus eligibility
+- 🎁 **Bonus Structure**: Referral bonuses include limited feature access, revenue kickbacks, points system
+- 🏆 **Gamification**: Referral leaderboards and achievement systems
+
+**FR4.5**: The system must implement affiliation program foundation
+- ⭐ **Invitation + Verification**: Exclusive program for verified users with significant followings
+- 📱 **Influencer Tier**: Special access for content creators, trading educators, community leaders
+- 💰 **Enhanced Kickbacks**: Higher revenue sharing, exclusive features, white-label options
+- 🎯 **Performance Metrics**: Follower engagement, conversion quality, community building
+
 **RBAC Implementation Status (2025-01-27)**:
 - **TelegramService**: ✅ Full database-based RBAC with manual command protection
 - **Telegram Keyboard System**: ✅ Role-based inline keyboard filtering (NEW)
@@ -232,7 +352,7 @@ Edge Deployment: Leverage Cloudflare Workers for potentially lower latency execu
 - **OpportunityService**: 🚧 RBAC implementation in progress
 - **MonitoringService**: 🚧 RBAC implementation in progress
 
-**FR4.3**: The system must implement RBAC-based Telegram User Interface
+**FR4.4**: The system must implement RBAC-based Telegram User Interface
 - ✅ **Role-Based Keyboard System**: Inline keyboard buttons dynamically filtered by user permissions
 - ✅ **Permission-Button Mapping**: Each button mapped to specific CommandPermission types
 - ✅ **Smart UI Filtering**: Users see only buttons they have permission to use
@@ -297,69 +417,96 @@ Edge Deployment: Leverage Cloudflare Workers for potentially lower latency execu
 
 ## 6. Comprehensive Subscription Model
 
-### 💰 **Subscription Tier Architecture**
+### 🎫 **Invitation & Access Control System**
 
-**Free Tier** (Default Entry Point):
-- ✅ Arbitrage alerts with 5-minute delay
-- ✅ Manual execution only
-- ✅ 3 opportunities per day limit
-- ✅ Basic analytics (7-day history)
-- ✅ Community support
-- 🚫 No technical trading access
-- 🚫 No automation features
-- 🚫 No priority support
+**Public Beta Access** (Invitation Required):
+- 🎟️ **Invitation Codes**: Super admin generates one-time use invitation codes
+- 🚀 **Beta User Status**: All invited users receive beta RBAC permissions
+- ⏰ **90-Day Beta Period**: Beta access expires after 90 days → automatic downgrade to Basic/Free
+- 🔐 **Mandatory Registration**: /start command requires valid invitation code before proceeding
+- 📊 **Usage Tracking**: Track invitation code usage and user onboarding metrics
 
-**Premium Arbitrage** ($29/month):
-- ✅ Real-time arbitrage alerts (no delay)
-- ✅ Unlimited arbitrage opportunities
-- ✅ Semi-automated arbitrage execution
-- ✅ Advanced arbitrage analytics
-- ✅ Priority notifications
-- ✅ Basic AI integration (BYOK)
-- 🚫 No technical trading
-- 🚫 No full automation
+### 💰 **User Access Level Architecture**
 
-**Premium Technical** ($49/month):
-- ✅ All Premium Arbitrage features
-- ✅ Technical analysis opportunities
-- ✅ Custom technical indicators
-- ✅ Semi-automated technical trading
-- ✅ Advanced chart analysis
-- ✅ Risk assessment tools
-- 🚫 No full automation for either type
+**Free Tier (Without API)**:
+- ✅ **Opportunities**: 3 arbitrage + 3 technical daily
+- ✅ **Delay**: 5-minute delay on all alerts
+- ✅ **Trading**: ❌ Cannot trade (no API validation)
+- ✅ **Analytics**: Basic 7-day history
+- ✅ **Support**: Community support only
+- ✅ **AI**: View-only global opportunity analysis
 
-**Hybrid Premium** ($79/month):
-- ✅ All Premium Arbitrage + Technical features
-- ✅ Correlation analysis between arbitrage and technical signals
-- ✅ Portfolio optimization across both strategies
-- ✅ Advanced risk management
-- ✅ Custom strategy development tools
-- ✅ Performance benchmarking
+**Free Tier (With API)**:
+- ✅ **Opportunities**: 10 arbitrage + 10 technical daily
+- ✅ **Delay**: Real-time alerts (no delay)
+- ✅ **Trading**: ✅ Manual trading enabled (API validated)
+- ✅ **Analytics**: Basic 7-day history
+- ✅ **Support**: Community support
+- ✅ **AI**: Basic AI analysis of global opportunities
+- ✅ **Personal Opportunities**: Generated when user's exchanges differ from global
 
-**Auto Trade Arbitrage** ($99/month):
-- ✅ All Hybrid Premium features
-- ✅ **Fully automated arbitrage execution**
-- ✅ Advanced risk controls and kill switches
-- ✅ Real-time position management
-- ✅ Emergency stop functionality
-- ✅ Enhanced insurance/guarantees
+**Premium Subscription (With API Required)**:
+- ✅ **Opportunities**: Unlimited arbitrage + technical
+- ✅ **Delay**: Real-time alerts
+- ✅ **Trading**: ✅ Manual + Semi-automated trading
+- ✅ **Analytics**: Advanced analytics (30-day history)
+- ✅ **Support**: Priority support
+- ✅ **AI**: Custom AI templates and configurations
+- ✅ **Personal Opportunities**: Full personal opportunity generation
+- ✅ **Automation**: Semi-automated execution with approval
 
-**Auto Trade Technical** ($149/month):
-- ✅ All Auto Trade Arbitrage features  
-- ✅ **Fully automated technical trading**
-- ✅ AI-powered strategy optimization
-- ✅ Dynamic risk adjustment
-- ✅ Advanced portfolio management
-- ✅ Machine learning model access
+**Enterprise Subscription (With API Required)**:
+- ✅ **Opportunities**: Unlimited + priority access
+- ✅ **Trading**: ✅ Full automation capabilities
+- ✅ **Analytics**: Comprehensive analytics (unlimited history)
+- ✅ **Support**: Dedicated support and SLA
+- ✅ **AI**: Advanced AI marketplace access
+- ✅ **Personal Opportunities**: Advanced personal opportunity algorithms
+- ✅ **Automation**: Full automation with advanced risk controls
+- ✅ **Team Management**: Multi-user team features
 
-**Enterprise/Institutional** ($499+/month):
-- ✅ All features + white-label options
-- ✅ Multi-user team management
-- ✅ Custom integrations and APIs
-- ✅ Dedicated support and SLA
-- ✅ Custom risk limits and controls
-- ✅ Regulatory compliance tools
-- ✅ Advanced reporting and audit trails
+### 🏢 **Group/Channel Subscription Model**
+
+**Free Group/Channel** (Current Implementation):
+- ✅ **Opportunities**: 6 arbitrage + 6 technical daily (2x multiplier)
+- ✅ **Delay**: 5-minute delay
+- ✅ **Trading**: ❌ No trading features in groups
+- ✅ **Commands**: Limited to /help, /settings, /opportunities
+- ✅ **Analytics**: Basic group analytics
+
+**Premium Group** ($99/month) (Future):
+- ✅ **Opportunities**: 40 arbitrage + 40 technical daily (2x premium)
+- ✅ **Delay**: Real-time alerts
+- ✅ **Features**: Group-specific analytics and reporting
+- ✅ **Admin Controls**: Group subscription management
+- ✅ **Support**: Group admin support
+
+**Enterprise Group** ($299/month) (Future):
+- ✅ **Opportunities**: Unlimited opportunities
+- ✅ **Features**: Custom group features and white-labeling
+- ✅ **Analytics**: Advanced group performance analytics
+- ✅ **Integration**: Custom API integrations
+- ✅ **Support**: Dedicated group support and SLA
+
+### 🔑 **API Validation & Trading Requirements**
+
+**API Validation Rules**:
+- **Arbitrage Opportunities**: User must have API keys for BOTH exchanges
+- **Technical Opportunities**: User must have API key for the ONE exchange
+- **No Compatible API**: User sees opportunities but cannot trade
+- **Different Exchanges**: System generates personal opportunities using user's APIs
+
+**Trading Enablement**:
+- **Free (No API)**: View-only, no trading capabilities
+- **Free (With API)**: Manual trading enabled after API validation
+- **Subscription (With API)**: Manual + automation features enabled
+- **Enterprise (With API)**: Full automation and advanced features enabled
+
+**Personal Opportunity Generation**:
+- **Triggered When**: User's exchange APIs differ from global opportunity exchanges
+- **Arbitrage**: Generate using user's exchange combinations
+- **Technical**: Generate using user's individual exchanges
+- **AI Integration**: AI analyzes personal opportunities using user's custom configuration
 
 ### 🚀 **Additional Revenue Streams**
 
