@@ -448,7 +448,7 @@ impl GlobalOpportunityService {
                                     };
 
                                 // Create base arbitrage opportunity with required exchanges
-                                let mut opportunity = ArbitrageOpportunity::new(
+                                let mut opportunity = match ArbitrageOpportunity::new(
                                     pair.clone(),
                                     long_exchange,  // **REQUIRED**: No longer optional
                                     short_exchange, // **REQUIRED**: No longer optional
@@ -456,7 +456,21 @@ impl GlobalOpportunityService {
                                     Some(short_rate),
                                     rate_diff,
                                     ArbitrageType::FundingRate,
-                                );
+                                ) {
+                                    Ok(opp) => opp,
+                                    Err(e) => {
+                                        log_info!(
+                                            "Failed to create arbitrage opportunity",
+                                            serde_json::json!({
+                                                "pair": pair,
+                                                "error": e,
+                                                "long_exchange": long_exchange.as_str(),
+                                                "short_exchange": short_exchange.as_str()
+                                            })
+                                        );
+                                        continue;
+                                    }
+                                };
 
                                 // Set additional fields
                                 opportunity.id = uuid::Uuid::new_v4().to_string();

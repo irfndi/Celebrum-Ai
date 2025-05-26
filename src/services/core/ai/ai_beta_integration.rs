@@ -925,6 +925,7 @@ mod tests {
             2.5,
             ArbitrageType::FundingRate,
         )
+        .unwrap_or_else(|_| ArbitrageOpportunity::default())
     }
 
     fn create_test_profile() -> AiTradingProfile {

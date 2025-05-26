@@ -442,7 +442,7 @@ impl TechnicalAnalysisService {
 
         // For technical signals, we use the same exchange for both long and short
         // This is a temporary compatibility method - should use TechnicalOpportunity instead
-        ArbitrageOpportunity::new(
+        match ArbitrageOpportunity::new(
             signal.pair.clone(),
             signal.exchange, // Use same exchange for long
             signal.exchange, // Use same exchange for short (pseudo-arbitrage)
@@ -450,8 +450,31 @@ impl TechnicalAnalysisService {
             signal.target_price,
             profit_potential,
             crate::types::ArbitrageType::CrossExchange, // Closest type for TA signals
-        )
-        .with_details(format!("Technical Analysis: {}", signal.description))
+        ) {
+            Ok(opp) => opp.with_details(format!("Technical Analysis: {}", signal.description)),
+            Err(_) => {
+                // Fallback to a valid opportunity if creation fails
+                ArbitrageOpportunity::new(
+                    "BTCUSDT".to_string(), // Fallback pair
+                    signal.exchange,
+                    signal.exchange,
+                    Some(signal.current_price),
+                    signal.target_price,
+                    profit_potential,
+                    crate::types::ArbitrageType::CrossExchange,
+                )
+                .unwrap_or_else(|_| {
+                    // Last resort fallback
+                    ArbitrageOpportunity {
+                        pair: signal.pair.clone(),
+                        long_exchange: signal.exchange,
+                        short_exchange: signal.exchange,
+                        ..Default::default()
+                    }
+                })
+                .with_details(format!("Technical Analysis: {}", signal.description))
+            }
+        }
     }
 
     /// Get technical analysis statistics

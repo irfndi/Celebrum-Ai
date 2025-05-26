@@ -771,7 +771,7 @@ mod tests {
         );
 
         let global_opportunity = GlobalOpportunity {
-            opportunity: arbitrage_opp,
+            opportunity: arbitrage_opp.unwrap_or_else(|_| ArbitrageOpportunity::default()),
             detection_timestamp: chrono::Utc::now().timestamp() as u64,
             expiry_timestamp: chrono::Utc::now().timestamp() as u64 + 3600,
             priority_score: 8.5,
@@ -1159,7 +1159,7 @@ mod tests {
             );
 
             GlobalOpportunity {
-                opportunity: arbitrage_opp,
+                opportunity: arbitrage_opp.unwrap_or_else(|_| ArbitrageOpportunity::default()),
                 detection_timestamp: chrono::Utc::now().timestamp() as u64,
                 expiry_timestamp: chrono::Utc::now().timestamp() as u64 + 3600,
                 priority_score: 8.5,

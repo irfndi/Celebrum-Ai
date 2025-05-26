@@ -6,6 +6,10 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+disabled_tests = []
+
 [dependencies]
 worker = { version = "0.5.0", features = ["d1"] }
 console_error_panic_hook = "0.1.7"

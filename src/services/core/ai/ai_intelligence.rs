@@ -1207,7 +1207,7 @@ impl AiIntelligenceService {
         // Use dynamic exchange selection based on trading opportunity data
         let (long_exchange, short_exchange) = self.select_exchanges_for_opportunity(&trading_opp);
 
-        let arb_opp = ArbitrageOpportunity::new(
+        let arb_opp = match ArbitrageOpportunity::new(
             trading_opp.trading_pair.clone(),
             long_exchange,
             short_exchange,
@@ -1215,7 +1215,22 @@ impl AiIntelligenceService {
             trading_opp.target_price,
             trading_opp.expected_return,
             ArbitrageType::CrossExchange,
-        );
+        ) {
+            Ok(opp) => opp,
+            Err(_) => {
+                // Fallback to a valid opportunity if creation fails
+                ArbitrageOpportunity {
+                    pair: trading_opp.trading_pair.clone(),
+                    long_exchange,
+                    short_exchange,
+                    long_rate: Some(trading_opp.entry_price),
+                    short_rate: trading_opp.target_price,
+                    rate_difference: trading_opp.expected_return,
+                    r#type: ArbitrageType::CrossExchange,
+                    ..Default::default()
+                }
+            }
+        };
 
         GlobalOpportunity {
             opportunity: arb_opp,

@@ -509,7 +509,7 @@ impl TelegramService {
                 // Handle /start command with inline keyboard
                 // Note: In production, this would send the message with keyboard directly to Telegram
                 // For testing, we'll let it fall through to the regular command handler
-                if text.trim() == "/start" && self.config.bot_token != "test_token" {
+                if text.trim() == "/start" && !self.config.is_test_mode {
                     let welcome_message = if chat_context.is_private() {
                         self.get_welcome_message().await
                     } else {

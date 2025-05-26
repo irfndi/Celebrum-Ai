@@ -88,14 +88,14 @@ impl UserExchangeApiService {
         exchange_service: Arc<ExchangeService>,
         d1_service: Arc<D1Service>,
         kv_store: KvStore,
-        encryption_key: String,
+        encryption_key: SecretString,
     ) -> Self {
         Self {
             user_profile_service,
             exchange_service,
             d1_service,
             kv_store,
-            encryption_key: SecretString::new(encryption_key),
+            encryption_key,
         }
     }
 
@@ -140,6 +140,16 @@ impl UserExchangeApiService {
         } else {
             None
         };
+
+        // Validate default_leverage if provided
+        if let Some(default_leverage) = request.default_leverage {
+            if default_leverage < 1 || default_leverage > 100 {
+                return Err(ArbitrageError::validation_error(format!(
+                    "Default leverage must be between 1 and 100, got: {}", 
+                    default_leverage
+                )));
+            }
+        }
 
         // Create new API key
         let new_api_key = UserApiKey {
@@ -219,6 +229,13 @@ impl UserExchangeApiService {
         }
         
         if let Some(default_leverage) = request.default_leverage {
+            // Validate default_leverage is within reasonable range (1-100)
+            if default_leverage < 1 || default_leverage > 100 {
+                return Err(ArbitrageError::validation_error(format!(
+                    "Default leverage must be between 1 and 100, got: {}", 
+                    default_leverage
+                )));
+            }
             api_key.default_leverage = Some(default_leverage);
         }
         
@@ -306,13 +323,10 @@ impl UserExchangeApiService {
         for api_key in &user_profile.api_keys {
             if api_key.is_active {
                 if let Ok(exchange_id) = api_key.exchange_id.parse::<ExchangeIdEnum>() {
-                    // Decrypt credentials
-                    let decrypted_api_key = self.decrypt_string(&api_key.api_key)?;
-                    let decrypted_secret = self.decrypt_string(&api_key.secret)?;
-
+                    // Decrypt credentials and use immediately to minimize memory exposure
                     let credentials = ExchangeCredentials {
-                        api_key: decrypted_api_key,
-                        secret: decrypted_secret,
+                        api_key: self.decrypt_string(&api_key.api_key)?,
+                        secret: self.decrypt_string(&api_key.secret)?,
                         default_leverage: api_key.default_leverage.unwrap_or(1),
                         exchange_type: api_key.exchange_type.clone().unwrap_or_else(|| "spot".to_string()),
                     };
@@ -562,7 +576,10 @@ impl UserExchangeApiService {
             Ok(Some(cached)) => {
                 match serde_json::from_str(&cached) {
                     Ok(result) => Ok(Some(result)),
-                    Err(_) => Ok(None), // Invalid cache data
+                    Err(e) => {
+                        eprintln!("Warning: Failed to deserialize cached compatibility result for key '{}': {}", cache_key, e);
+                        Ok(None) // Invalid cache data
+                    }
                 }
             }
             _ => Ok(None),
@@ -587,13 +604,13 @@ mod tests {
 
     #[test]
     fn test_encryption_decryption() {
-        let service = UserExchangeApiService {
-            user_profile_service: Arc::new(UserProfileService::new(D1Service::new(&Env::default()).unwrap())),
-            exchange_service: Arc::new(ExchangeService::new(&Env::default()).unwrap()),
-            d1_service: Arc::new(D1Service::new(&Env::default()).unwrap()),
-            kv_store: KvStore::default(),
-            encryption_key: SecretString::new("fake_test_encryption_key_for_testing_only".to_string()),
-        };
+        let service = UserExchangeApiService::new(
+            Arc::new(UserProfileService::new(D1Service::new(&Env::default()).unwrap())),
+            Arc::new(ExchangeService::new(&Env::default()).unwrap()),
+            Arc::new(D1Service::new(&Env::default()).unwrap()),
+            KvStore::default(),
+            SecretString::new("fake_test_encryption_key_for_testing_only".to_string()),
+        );
 
         let original = "test_api_key_12345";
         let encrypted = service.encrypt_string(original).unwrap();

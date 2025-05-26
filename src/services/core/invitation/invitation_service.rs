@@ -404,21 +404,52 @@ impl InvitationService {
         
         let mut invitations = Vec::new();
         for row in result {
+            // Explicitly check required fields and return errors if missing
+            let id = row.get("id")
+                .ok_or_else(|| anyhow!("Missing required field: id"))?;
+            
+            let code = row.get("code")
+                .ok_or_else(|| anyhow!("Missing required field: code"))?;
+            
+            let created_by_admin_id = row.get("created_by_admin_id")
+                .ok_or_else(|| anyhow!("Missing required field: created_by_admin_id"))?;
+            
+            let expires_at_str = row.get("expires_at")
+                .ok_or_else(|| anyhow!("Missing required field: expires_at"))?;
+            
+            let created_at_str = row.get("created_at")
+                .ok_or_else(|| anyhow!("Missing required field: created_at"))?;
+            
+            let is_active_str = row.get("is_active")
+                .ok_or_else(|| anyhow!("Missing required field: is_active"))?;
+            
+            // Parse required fields with proper error handling
+            let expires_at = DateTime::parse_from_rfc3339(expires_at_str)
+                .map_err(|e| anyhow!("Invalid expires_at format '{}': {}", expires_at_str, e))?
+                .with_timezone(&Utc);
+            
+            let created_at = DateTime::parse_from_rfc3339(created_at_str)
+                .map_err(|e| anyhow!("Invalid created_at format '{}': {}", created_at_str, e))?
+                .with_timezone(&Utc);
+            
+            let is_active = is_active_str.parse::<bool>()
+                .map_err(|e| anyhow!("Invalid is_active format '{}': {}", is_active_str, e))?;
+            
+            // Optional fields can use safe defaults
+            let used_by_user_id = row.get("used_by_user_id");
+            let used_at = row.get("used_at")
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.with_timezone(&Utc));
+            
             invitations.push(InvitationCode {
-                id: row.get("id").unwrap_or_default(),
-                code: row.get("code").unwrap_or_default(),
-                created_by_admin_id: row.get("created_by_admin_id").unwrap_or_default(),
-                used_by_user_id: row.get("used_by_user_id"),
-                expires_at: DateTime::parse_from_rfc3339(row.get("expires_at").unwrap_or_default())
-                    .map_err(|e| anyhow!("Invalid expires_at format: {}", e))?
-                    .with_timezone(&Utc),
-                created_at: DateTime::parse_from_rfc3339(row.get("created_at").unwrap_or_default())
-                    .map_err(|e| anyhow!("Invalid created_at format: {}", e))?
-                    .with_timezone(&Utc),
-                used_at: row.get("used_at")
-                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                    .map(|dt| dt.with_timezone(&Utc)),
-                is_active: row.get("is_active").unwrap_or("false").parse().unwrap_or(false),
+                id,
+                code,
+                created_by_admin_id,
+                used_by_user_id,
+                expires_at,
+                created_at,
+                used_at,
+                is_active,
             });
         }
         

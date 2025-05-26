@@ -454,41 +454,203 @@ impl AIAccessService {
         Ok(())
     }
 
-    /// Validate AI key for a specific provider
+    /// Validate AI key for a specific provider with enhanced security
     pub async fn validate_ai_key(
         &self,
         provider: &ApiKeyProvider,
         api_key: &str,
         metadata: &serde_json::Value,
+        user_id: &str,
+        perform_live_validation: bool,
     ) -> Result<bool, String> {
-        match provider {
+        // First, perform format validation
+        let format_valid = match provider {
             ApiKeyProvider::OpenAI => {
                 // OpenAI keys are typically 51 characters starting with sk-
-                if api_key.starts_with("sk-") && api_key.len() == 51 && api_key.chars().all(|c| c.is_alphanumeric() || c == '-') {
-                    Ok(true)
-                } else {
-                    Err("Invalid OpenAI API key format. Expected format: sk-<48 alphanumeric characters>".to_string())
-                }
+                api_key.starts_with("sk-") && api_key.len() == 51 && api_key.chars().all(|c| c.is_alphanumeric() || c == '-')
             },
             ApiKeyProvider::Anthropic => {
                 // Anthropic keys have a specific format
-                if api_key.starts_with("sk-ant-") && api_key.len() > 20 && api_key.chars().all(|c| c.is_alphanumeric() || c == '-') {
-                    Ok(true)
-                } else {
-                    Err("Invalid Anthropic API key format. Expected format: sk-ant-<alphanumeric characters>".to_string())
-                }
+                api_key.starts_with("sk-ant-") && api_key.len() > 20 && api_key.chars().all(|c| c.is_alphanumeric() || c == '-')
             },
             ApiKeyProvider::Custom => {
                 // For custom providers, check if base_url is provided in metadata
-                if metadata.get("base_url").and_then(|v| v.as_str()).is_some() {
-                    Ok(true)
-                } else {
-                    Err("Custom AI provider requires base_url in metadata".to_string())
-                }
+                metadata.get("base_url").and_then(|v| v.as_str()).is_some()
             },
             ApiKeyProvider::Exchange(_) => {
-                Err("Exchange API keys are not valid for AI services".to_string())
+                return Err("Exchange API keys are not valid for AI services".to_string());
             },
+        };
+
+        if !format_valid {
+            return match provider {
+                ApiKeyProvider::OpenAI => Err("Invalid OpenAI API key format. Expected format: sk-<48 alphanumeric characters>".to_string()),
+                ApiKeyProvider::Anthropic => Err("Invalid Anthropic API key format. Expected format: sk-ant-<alphanumeric characters>".to_string()),
+                ApiKeyProvider::Custom => Err("Custom AI provider requires base_url in metadata".to_string()),
+                _ => Err("Invalid API key format".to_string()),
+            };
+        }
+
+        // If live validation is not requested, return format validation result
+        if !perform_live_validation {
+            return Ok(true);
+        }
+
+        // Check rate limiting for validation attempts
+        if !self.check_validation_rate_limit(user_id).await? {
+            return Err("Rate limit exceeded for API key validation. Please try again later.".to_string());
+        }
+
+        // Perform live API validation
+        let validation_result = match provider {
+            ApiKeyProvider::OpenAI => self.validate_openai_key_live(api_key).await,
+            ApiKeyProvider::Anthropic => self.validate_anthropic_key_live(api_key).await,
+            ApiKeyProvider::Custom => {
+                let base_url = metadata.get("base_url").and_then(|v| v.as_str()).unwrap();
+                self.validate_custom_key_live(api_key, base_url).await
+            },
+            _ => Ok(false),
+        };
+
+        // Record validation attempt for rate limiting
+        self.record_validation_attempt(user_id).await?;
+
+        validation_result
+    }
+
+    /// Check rate limiting for API key validation attempts
+    async fn check_validation_rate_limit(&self, user_id: &str) -> Result<bool, String> {
+        let cache_key = format!("ai_key_validation_rate_limit:{}", user_id);
+        
+        // Allow 5 validation attempts per hour
+        match self.kv_service.get(&cache_key).await {
+            Ok(Some(count_str)) => {
+                let count: u32 = count_str.parse().unwrap_or(0);
+                Ok(count < 5)
+            },
+            Ok(None) => Ok(true), // No previous attempts
+            Err(_) => Ok(true), // Allow on cache errors
+        }
+    }
+
+    /// Record a validation attempt for rate limiting
+    async fn record_validation_attempt(&self, user_id: &str) -> Result<(), String> {
+        let cache_key = format!("ai_key_validation_rate_limit:{}", user_id);
+        
+        match self.kv_service.get(&cache_key).await {
+            Ok(Some(count_str)) => {
+                let count: u32 = count_str.parse().unwrap_or(0);
+                let new_count = count + 1;
+                self.kv_service.set(&cache_key, &new_count.to_string(), Some(3600)).await
+                    .map_err(|e| format!("Failed to update validation rate limit: {}", e))?;
+            },
+            Ok(None) => {
+                self.kv_service.set(&cache_key, "1", Some(3600)).await
+                    .map_err(|e| format!("Failed to set validation rate limit: {}", e))?;
+            },
+            Err(e) => {
+                log::warn!("Failed to check validation rate limit: {}", e);
+                // Continue without rate limiting on cache errors
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate OpenAI API key by making a test API call
+    async fn validate_openai_key_live(&self, api_key: &str) -> Result<bool, String> {
+        use reqwest::Client;
+        
+        let client = Client::new();
+        let response = client
+            .get("https://api.openai.com/v1/models")
+            .header("Authorization", format!("Bearer {}", api_key))
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    Ok(true)
+                } else if resp.status() == 401 {
+                    Err("Invalid OpenAI API key - authentication failed".to_string())
+                } else {
+                    Err(format!("OpenAI API validation failed with status: {}", resp.status()))
+                }
+            },
+            Err(e) => {
+                log::warn!("OpenAI API validation request failed: {}", e);
+                Err("Failed to validate OpenAI API key - network error".to_string())
+            }
+        }
+    }
+
+    /// Validate Anthropic API key by making a test API call
+    async fn validate_anthropic_key_live(&self, api_key: &str) -> Result<bool, String> {
+        use reqwest::Client;
+        
+        let client = Client::new();
+        let test_payload = serde_json::json!({
+            "model": "claude-3-haiku-20240307",
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "test"}]
+        });
+
+        let response = client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&test_payload)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    Ok(true)
+                } else if resp.status() == 401 {
+                    Err("Invalid Anthropic API key - authentication failed".to_string())
+                } else {
+                    Err(format!("Anthropic API validation failed with status: {}", resp.status()))
+                }
+            },
+            Err(e) => {
+                log::warn!("Anthropic API validation request failed: {}", e);
+                Err("Failed to validate Anthropic API key - network error".to_string())
+            }
+        }
+    }
+
+    /// Validate custom API key by making a test API call
+    async fn validate_custom_key_live(&self, api_key: &str, base_url: &str) -> Result<bool, String> {
+        use reqwest::Client;
+        
+        let client = Client::new();
+        let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+        
+        let response = client
+            .get(&health_url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    Ok(true)
+                } else if resp.status() == 401 {
+                    Err("Invalid custom API key - authentication failed".to_string())
+                } else {
+                    Err(format!("Custom API validation failed with status: {}", resp.status()))
+                }
+            },
+            Err(e) => {
+                log::warn!("Custom API validation request failed: {}", e);
+                Err("Failed to validate custom API key - network error".to_string())
+            }
         }
     }
 }

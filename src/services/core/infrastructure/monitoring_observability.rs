@@ -624,7 +624,13 @@ impl MonitoringObservabilityService {
         // Update percentiles outside the lock to avoid holding mutex across await
         if should_update_percentiles {
             let percentiles = self.calculate_percentiles(operation).await;
-            let mut perf_metrics = self.performance_metrics.write().unwrap();
+            let mut perf_metrics = match self.performance_metrics.write() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    log::error!("Failed to acquire write lock on performance metrics");
+                    return Ok(());
+                }
+            };
             if let Some(metrics) = perf_metrics.get_mut(operation) {
                 metrics.p50_response_time_ms = percentiles.0;
                 metrics.p95_response_time_ms = percentiles.1;
@@ -742,17 +748,27 @@ impl MonitoringObservabilityService {
     }
 
     /// Get performance metrics for all operations
-    pub async fn get_performance_overview(&self) -> HashMap<String, PerformanceMetrics> {
+    pub async fn get_performance_overview(
+        &self,
+    ) -> ArbitrageResult<HashMap<String, PerformanceMetrics>> {
         // Get list of operations to update percentiles for
         let operations: Vec<String> = {
-            let perf_metrics = self.performance_metrics.read().unwrap();
+            let perf_metrics = self.performance_metrics.read().map_err(|_| {
+                ArbitrageError::storage_error(
+                    "Failed to acquire read lock on performance metrics".to_string(),
+                )
+            })?;
             perf_metrics.keys().cloned().collect()
         };
 
         // Update percentiles for all operations outside the lock
         for operation in operations {
             let percentiles = self.calculate_percentiles(&operation).await;
-            let mut perf_metrics = self.performance_metrics.write().unwrap();
+            let mut perf_metrics = self.performance_metrics.write().map_err(|_| {
+                ArbitrageError::storage_error(
+                    "Failed to acquire write lock on performance metrics".to_string(),
+                )
+            })?;
             if let Some(metrics) = perf_metrics.get_mut(&operation) {
                 metrics.p50_response_time_ms = percentiles.0;
                 metrics.p95_response_time_ms = percentiles.1;
@@ -760,8 +776,12 @@ impl MonitoringObservabilityService {
             }
         }
 
-        let perf_metrics = self.performance_metrics.read().unwrap();
-        perf_metrics.clone()
+        let perf_metrics = self.performance_metrics.read().map_err(|_| {
+            ArbitrageError::storage_error(
+                "Failed to acquire read lock on performance metrics".to_string(),
+            )
+        })?;
+        Ok(perf_metrics.clone())
     }
 
     /// Setup default alert rules
@@ -830,7 +850,11 @@ impl MonitoringObservabilityService {
         ];
 
         {
-            let mut rules = self.alert_rules.write().unwrap();
+            let mut rules = self.alert_rules.write().map_err(|_| {
+                ArbitrageError::storage_error(
+                    "Failed to acquire write lock on alert rules".to_string(),
+                )
+            })?;
             rules.extend(default_rules);
         }
 
@@ -930,7 +954,11 @@ impl MonitoringObservabilityService {
         };
 
         {
-            let mut dashboards = self.dashboards.write().unwrap();
+            let mut dashboards = self.dashboards.write().map_err(|_| {
+                ArbitrageError::storage_error(
+                    "Failed to acquire write lock on dashboards".to_string(),
+                )
+            })?;
             dashboards.push(system_dashboard);
             dashboards.push(business_dashboard);
         }
@@ -957,7 +985,13 @@ impl MonitoringObservabilityService {
     /// Check alert conditions for a new metric
     async fn check_alert_conditions(&self, metric: &MetricDataPoint) -> ArbitrageResult<()> {
         let rules = {
-            let rules_guard = self.alert_rules.read().unwrap();
+            let rules_guard = match self.alert_rules.read() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    log::error!("Failed to acquire read lock on alert rules");
+                    return Ok(());
+                }
+            };
             rules_guard.clone()
         };
 
@@ -1033,7 +1067,13 @@ impl MonitoringObservabilityService {
             if should_alert {
                 // Check if we're in cooldown period
                 let recent_alert = {
-                    let active_alerts = self.active_alerts.read().unwrap();
+                    let active_alerts = match self.active_alerts.read() {
+                        Ok(guard) => guard,
+                        Err(_) => {
+                            log::error!("Failed to acquire read lock on active alerts");
+                            return Ok(());
+                        }
+                    };
                     active_alerts.iter().any(|alert| {
                         alert.rule_id == rule.id
                             && (chrono::Utc::now().timestamp_millis() as u64 - alert.triggered_at)
@@ -1060,7 +1100,13 @@ impl MonitoringObservabilityService {
         let alert = Alert::new(rule, current_value, threshold_value);
 
         {
-            let mut alerts = self.active_alerts.write().unwrap();
+            let mut alerts = match self.active_alerts.write() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    log::error!("Failed to acquire write lock on active alerts");
+                    return Ok(());
+                }
+            };
             alerts.push(alert.clone());
         }
 
@@ -1109,7 +1155,13 @@ impl MonitoringObservabilityService {
     /// Get real CPU usage percentage using sysinfo
     #[cfg(not(target_arch = "wasm32"))]
     async fn get_real_cpu_usage(&self) -> f64 {
-        let mut system = self.system.write().unwrap();
+        let mut system = match self.system.write() {
+            Ok(guard) => guard,
+            Err(_) => {
+                log::error!("Failed to acquire write lock on system monitor for CPU");
+                return 0.0;
+            }
+        };
         system.refresh_cpu_all();
 
         // Note: In WASM, we can't sleep, so we'll refresh immediately
@@ -1128,7 +1180,13 @@ impl MonitoringObservabilityService {
     /// Get real memory usage percentage using sysinfo
     #[cfg(not(target_arch = "wasm32"))]
     async fn get_real_memory_usage(&self) -> f64 {
-        let mut system = self.system.write().unwrap();
+        let mut system = match self.system.write() {
+            Ok(guard) => guard,
+            Err(_) => {
+                log::error!("Failed to acquire write lock on system monitor for memory");
+                return 0.0;
+            }
+        };
         system.refresh_memory();
 
         let used_memory = system.used_memory();
@@ -1144,7 +1202,13 @@ impl MonitoringObservabilityService {
     /// Get real disk usage percentage using sysinfo
     #[cfg(not(target_arch = "wasm32"))]
     async fn get_real_disk_usage(&self) -> f64 {
-        let mut system = self.system.write().unwrap();
+        let mut system = match self.system.write() {
+            Ok(guard) => guard,
+            Err(_) => {
+                log::error!("Failed to acquire write lock on system monitor for disk");
+                return 50.0; // Return fallback value
+            }
+        };
         system.refresh_all();
 
         // let disks = system.disks(); // TODO: Fix sysinfo API compatibility
@@ -1217,8 +1281,14 @@ impl MonitoringObservabilityService {
         }
 
         // Calculate rate as the difference between latest and earliest values divided by time window
-        let latest = metrics.last().unwrap();
-        let earliest = metrics.first().unwrap();
+        let latest = match metrics.last() {
+            Some(metric) => metric,
+            None => return 0.0,
+        };
+        let earliest = match metrics.first() {
+            Some(metric) => metric,
+            None => return 0.0,
+        };
 
         let time_diff = (latest.timestamp - earliest.timestamp) as f64 / 1000.0; // Convert to seconds
         if time_diff > 0.0 {
@@ -1298,7 +1368,16 @@ impl MonitoringObservabilityService {
 
     /// Calculate percentiles from response time samples
     async fn calculate_percentiles(&self, operation: &str) -> (f64, f64, f64) {
-        let samples = self.response_time_samples.read().unwrap();
+        let samples = match self.response_time_samples.read() {
+            Ok(samples) => samples,
+            Err(_) => {
+                log::warn!(
+                    "Failed to acquire read lock on response time samples for operation: {}",
+                    operation
+                );
+                return (0.0, 0.0, 0.0);
+            }
+        };
 
         if let Some(operation_samples) = samples.get(operation) {
             if operation_samples.is_empty() {
@@ -1359,7 +1438,7 @@ impl MonitoringObservabilityService {
         }
 
         // Call the original get_performance_overview method
-        Ok(self.get_performance_overview().await)
+        self.get_performance_overview().await
     }
 
     /// RBAC-protected active alerts access with permission checking
@@ -1507,7 +1586,7 @@ mod tests {
             .await
             .unwrap();
 
-        let perf_overview = service.get_performance_overview().await;
+        let perf_overview = service.get_performance_overview().await.unwrap();
         let test_metrics = perf_overview.get("test_operation").unwrap();
 
         assert_eq!(test_metrics.request_count, 2);

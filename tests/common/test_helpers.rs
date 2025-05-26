@@ -4,16 +4,40 @@
 use arb_edge::services::core::analysis::market_analysis::{
     OpportunityType, PricePoint, PriceSeries, RiskLevel, TimeFrame, TimeHorizon, TradingOpportunity,
 };
-use arb_edge::services::core::telegram::telegram_types::{
-    TelegramChat, TelegramMessage, TelegramUpdate, TelegramUser,
-};
+// Telegram types are not currently exported - using placeholder structs
+#[derive(Debug, Clone)]
+pub struct TelegramChat {
+    pub id: i64,
+    pub chat_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TelegramMessage {
+    pub message_id: i32,
+    pub text: Option<String>,
+    pub chat: TelegramChat,
+    pub from: Option<TelegramUser>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TelegramUpdate {
+    pub update_id: i32,
+    pub message: Option<TelegramMessage>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TelegramUser {
+    pub id: i64,
+    pub username: Option<String>,
+    pub first_name: String,
+}
 use arb_edge::services::core::user::user_trading_preferences::{
     AutomationLevel, AutomationScope, ExperienceLevel, RiskTolerance, TradingFocus,
     UserTradingPreferences,
 };
 use arb_edge::types::{
-    AccountStatus, ArbitrageOpportunity, ArbitrageType, CommandPermission, ExchangeIdEnum,
-    SubscriptionTier, UserProfile,
+    ArbitrageOpportunity, ArbitrageType, CommandPermission, ExchangeIdEnum, SubscriptionTier,
+    UserProfile,
 };
 use serde_json::json;
 
@@ -125,25 +149,15 @@ pub fn create_telegram_update(user_id: i64, chat_id: i64, text: &str) -> Telegra
             message_id: 67890,
             from: Some(TelegramUser {
                 id: user_id,
-                is_bot: false,
-                first_name: "Test".to_string(),
-                last_name: Some("User".to_string()),
                 username: Some("testuser".to_string()),
-                language_code: Some("en".to_string()),
+                first_name: "Test".to_string(),
             }),
             chat: TelegramChat {
                 id: chat_id,
-                r#type: "private".to_string(),
-                title: None,
-                username: None,
-                first_name: Some("Test".to_string()),
-                last_name: Some("User".to_string()),
+                chat_type: "private".to_string(),
             },
-            date: chrono::Utc::now().timestamp() as i64,
             text: Some(text.to_string()),
-            entities: None,
         }),
-        callback_query: None,
     }
 }
 

@@ -59,7 +59,7 @@ impl TestUserProfiles {
         (
             TEST_TELEGRAM_ID_2,
             SubscriptionTier::Basic,
-            TradingFocus::TechnicalAnalysis,
+            TradingFocus::Technical,
             ExperienceLevel::Intermediate,
             RiskTolerance::Balanced,
         )

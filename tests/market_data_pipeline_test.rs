@@ -75,7 +75,8 @@ fn create_test_arbitrage_opportunity_with_config(
         Some(config.base_price + (config.base_price * rate_diff)), // short_rate
         rate_diff,               // rate_difference
         ArbitrageType::CrossExchange,
-    );
+    )
+    .unwrap_or_else(|_| ArbitrageOpportunity::default());
 
     opportunity.id = id.to_string();
     opportunity

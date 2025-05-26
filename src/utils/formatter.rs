@@ -561,7 +561,8 @@ mod tests {
             Some(-0.0005),
             0.0006,
             ArbitrageType::FundingRate,
-        );
+        )
+        .unwrap_or_else(|_| ArbitrageOpportunity::default());
 
         // Set a fixed timestamp to avoid WASM binding issues in tests
         opportunity.timestamp = 1640995200000; // 2022-01-01 00:00:00 UTC

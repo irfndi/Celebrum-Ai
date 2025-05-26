@@ -128,12 +128,13 @@ doc: ## Generate documentation
 
 # Script-based commands (new)
 pre-commit: ## Run quick pre-commit checks
-	@./scripts/pre-commit.sh
+	@./scripts/dev/pre-commit.sh
 
-local-ci: ci-pipeline ## Run full CI pipeline locally
+local-ci: ## Run quick local CI validation
+	@./scripts/dev/local-ci.sh
 
 full-check: ## Run comprehensive code quality checks
-	@./scripts/full-check.sh
+	@./scripts/ci/full-check.sh
 
 # Utility commands
 clean: ## Clean build artifacts

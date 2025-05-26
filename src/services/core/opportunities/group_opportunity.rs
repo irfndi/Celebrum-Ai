@@ -499,7 +499,7 @@ impl GroupOpportunityService {
             symbol: symbol.to_string(),
             exchange: exchange_id.clone(),
             signal_type: self.determine_technical_signal(&ticker, &funding_rate),
-            entry_price: ticker.last_price,
+            entry_price: ticker.last.unwrap_or(0.0),
             target_price: self.calculate_target_price(&ticker),
             stop_loss: self.calculate_stop_loss(&ticker),
             confidence_score: self.calculate_confidence_score(&ticker, &funding_rate),
@@ -624,17 +624,27 @@ impl GroupOpportunityService {
     fn determine_technical_signal(&self, ticker: &Ticker, funding_rate: &Option<FundingRateInfo>) -> String {
         // Simple technical signal determination
         if let Some(fr) = funding_rate {
-            if fr.funding_rate > FUNDING_RATE_THRESHOLD {
+            if fr.funding_rate > 0.01 {
                 return "SHORT".to_string();
-            } else if fr.funding_rate < -FUNDING_RATE_THRESHOLD {
+            } else if fr.funding_rate < -0.01 {
                 return "LONG".to_string();
             }
         }
 
+        // Calculate price change from ticker data
+        let last_price = ticker.last.unwrap_or(0.0);
+        let high_24h = ticker.high.unwrap_or(last_price);
+        let low_24h = ticker.low.unwrap_or(last_price);
+        let price_change_percent = if low_24h > 0.0 {
+            ((last_price - low_24h) / low_24h) * 100.0
+        } else {
+            0.0
+        };
+
         // Use price momentum as fallback
-        if ticker.price_change_percent > PRICE_MOMENTUM_THRESHOLD {
+        if price_change_percent > 2.0 {
             "LONG".to_string()
-        } else if ticker.price_change_percent < -PRICE_MOMENTUM_THRESHOLD {
+        } else if price_change_percent < -2.0 {
             "SHORT".to_string()
         } else {
             "NEUTRAL".to_string()
@@ -642,17 +652,20 @@ impl GroupOpportunityService {
     }
 
     fn calculate_target_price(&self, ticker: &Ticker) -> f64 {
-        ticker.last_price * 1.02
+        let last_price = ticker.last.unwrap_or(0.0);
+        last_price * 1.02
     }
 
     fn calculate_stop_loss(&self, ticker: &Ticker) -> f64 {
-        ticker.last_price * 0.99
+        let last_price = ticker.last.unwrap_or(0.0);
+        last_price * 0.99
     }
 
     fn calculate_confidence_score(&self, ticker: &Ticker, funding_rate: &Option<FundingRateInfo>) -> f64 {
         let mut score = 0.5;
 
-        if ticker.volume_24h > 1000000.0 {
+        let volume_24h = ticker.volume.unwrap_or(0.0);
+        if volume_24h > 1000000.0 {
             score += 0.2;
         }
 
@@ -662,7 +675,17 @@ impl GroupOpportunityService {
             }
         }
 
-        if ticker.price_change_percent.abs() > 1.0 {
+        // Calculate price change from ticker data
+        let last_price = ticker.last.unwrap_or(0.0);
+        let high_24h = ticker.high.unwrap_or(last_price);
+        let low_24h = ticker.low.unwrap_or(last_price);
+        let price_change_percent = if low_24h > 0.0 {
+            ((last_price - low_24h) / low_24h) * 100.0
+        } else {
+            0.0
+        };
+
+        if price_change_percent.abs() > 1.0 {
             score += 0.1;
         }
 
@@ -670,13 +693,30 @@ impl GroupOpportunityService {
     }
 
     fn calculate_expected_return(&self, ticker: &Ticker) -> f64 {
-        ticker.price_change_percent.abs() * 0.5
+        let last_price = ticker.last.unwrap_or(0.0);
+        let high_24h = ticker.high.unwrap_or(last_price);
+        let low_24h = ticker.low.unwrap_or(last_price);
+        let price_change_percent = if low_24h > 0.0 {
+            ((last_price - low_24h) / low_24h) * 100.0
+        } else {
+            0.0
+        };
+        price_change_percent.abs() * 0.5
     }
 
     fn assess_risk_level(&self, ticker: &Ticker) -> String {
-        if ticker.price_change_percent.abs() > 5.0 {
+        let last_price = ticker.last.unwrap_or(0.0);
+        let high_24h = ticker.high.unwrap_or(last_price);
+        let low_24h = ticker.low.unwrap_or(last_price);
+        let price_change_percent = if low_24h > 0.0 {
+            ((last_price - low_24h) / low_24h) * 100.0
+        } else {
+            0.0
+        };
+
+        if price_change_percent.abs() > 5.0 {
             "HIGH".to_string()
-        } else if ticker.price_change_percent.abs() > 2.0 {
+        } else if price_change_percent.abs() > 2.0 {
             "MEDIUM".to_string()
         } else {
             "LOW".to_string()
@@ -686,21 +726,32 @@ impl GroupOpportunityService {
     fn analyze_market_conditions(&self, ticker: &Ticker, funding_rate: &Option<FundingRateInfo>) -> String {
         let mut conditions = Vec::new();
 
-        if ticker.price_change_percent > PRICE_MOMENTUM_THRESHOLD {
+        // Calculate price change from ticker data
+        let last_price = ticker.last.unwrap_or(0.0);
+        let high_24h = ticker.high.unwrap_or(last_price);
+        let low_24h = ticker.low.unwrap_or(last_price);
+        let price_change_percent = if low_24h > 0.0 {
+            ((last_price - low_24h) / low_24h) * 100.0
+        } else {
+            0.0
+        };
+
+        if price_change_percent > 2.0 {
             conditions.push("Bullish momentum");
-        } else if ticker.price_change_percent < -PRICE_MOMENTUM_THRESHOLD {
+        } else if price_change_percent < -2.0 {
             conditions.push("Bearish momentum");
         }
 
         if let Some(fr) = funding_rate {
-            if fr.funding_rate > FUNDING_RATE_THRESHOLD {
+            if fr.funding_rate > 0.01 {
                 conditions.push("High funding rate");
-            } else if fr.funding_rate < -FUNDING_RATE_THRESHOLD {
+            } else if fr.funding_rate < -0.01 {
                 conditions.push("Negative funding rate");
             }
         }
 
-        if ticker.volume_24h > 1000000.0 {
+        let volume_24h = ticker.volume.unwrap_or(0.0);
+        if volume_24h > 1000000.0 {
             conditions.push("High volume");
         }
 
@@ -718,11 +769,24 @@ impl GroupOpportunityService {
     fn identify_risk_factors(&self, ticker_a: &Ticker, ticker_b: &Ticker) -> Vec<String> {
         let mut risks = Vec::new();
 
-        if ticker_a.volume_24h < 100000.0 || ticker_b.volume_24h < 100000.0 {
+        let volume_a = ticker_a.volume.unwrap_or(0.0);
+        let volume_b = ticker_b.volume.unwrap_or(0.0);
+        if volume_a < 100000.0 || volume_b < 100000.0 {
             risks.push("Low liquidity".to_string());
         }
 
-        if (ticker_a.price_change_percent - ticker_b.price_change_percent).abs() > 5.0 {
+        // Calculate price change percentage from ticker data
+        let last_a = ticker_a.last.unwrap_or(0.0);
+        let high_a = ticker_a.high.unwrap_or(last_a);
+        let low_a = ticker_a.low.unwrap_or(last_a);
+        let change_a = if low_a > 0.0 { ((last_a - low_a) / low_a) * 100.0 } else { 0.0 };
+
+        let last_b = ticker_b.last.unwrap_or(0.0);
+        let high_b = ticker_b.high.unwrap_or(last_b);
+        let low_b = ticker_b.low.unwrap_or(last_b);
+        let change_b = if low_b > 0.0 { ((last_b - low_b) / low_b) * 100.0 } else { 0.0 };
+
+        if (change_a - change_b).abs() > 5.0 {
             risks.push("High volatility divergence".to_string());
         }
 
@@ -730,7 +794,9 @@ impl GroupOpportunityService {
     }
 
     fn calculate_liquidity_score(&self, ticker_a: &Ticker, ticker_b: &Ticker) -> f64 {
-        let avg_volume = (ticker_a.volume_24h + ticker_b.volume_24h) / 2.0;
+        let volume_a = ticker_a.volume.unwrap_or(0.0);
+        let volume_b = ticker_b.volume.unwrap_or(0.0);
+        let avg_volume = (volume_a + volume_b) / 2.0;
         (avg_volume / 1000000.0).min(1.0)
     }
 
@@ -760,8 +826,9 @@ impl GroupOpportunityService {
                     let mut opportunity = enhanced.base_opportunity;
                     
                     // Update opportunity with AI insights
-                    opportunity.confidence_score = enhanced.ai_score;
-                    opportunity.potential_profit_percent = enhanced.risk_adjusted_score * opportunity.potential_profit_percent;
+                    if let Some(current_profit) = opportunity.potential_profit_value {
+                        opportunity.potential_profit_value = Some(enhanced.risk_adjusted_score * current_profit);
+                    }
                     
                     // Apply group context boost to AI-enhanced opportunities
                     // Groups get slightly higher confidence due to collective decision making
@@ -816,26 +883,25 @@ impl GroupOpportunityService {
                 ArbitrageOpportunity {
                     id: tech_opp.id.clone(),
                     pair: tech_opp.pair.clone(),
-                    long_exchange: tech_opp.exchange.clone(),
-                    short_exchange: tech_opp.exchange.clone(), // Same exchange for technical
-                    long_price: tech_opp.entry_price,
-                    short_price: tech_opp.target_price,
-                    rate_difference: (tech_opp.target_price - tech_opp.entry_price) / tech_opp.entry_price,
-                    potential_profit_percent: tech_opp.expected_return,
-                    potential_profit_value: tech_opp.expected_return * 1000.0, // Assume $1000 position
-                    confidence_score: tech_opp.confidence_score,
-                    risk_factors: tech_opp.risk_factors.clone(),
-                    liquidity_score: 0.8, // Default liquidity score
-                    created_at: tech_opp.created_at,
-                    expires_at: tech_opp.expires_at,
-                    positions: vec![
-                        crate::types::Position {
-                            exchange: tech_opp.exchange.clone(),
-                            action: crate::types::PositionAction::Long,
-                            price: tech_opp.entry_price,
-                            size: 1.0, // Default size
-                        }
-                    ],
+                    long_exchange: tech_opp.exchange,
+                    short_exchange: tech_opp.exchange, // Same exchange for technical
+                    long_rate: Some(tech_opp.entry_price),
+                    short_rate: tech_opp.target_price,
+                    rate_difference: if tech_opp.target_price.is_some() && tech_opp.entry_price > 0.0 {
+                        (tech_opp.target_price.unwrap() - tech_opp.entry_price) / tech_opp.entry_price
+                    } else {
+                        0.0
+                    },
+                    net_rate_difference: if tech_opp.target_price.is_some() && tech_opp.entry_price > 0.0 {
+                        Some((tech_opp.target_price.unwrap() - tech_opp.entry_price) / tech_opp.entry_price)
+                    } else {
+                        Some(0.0)
+                    },
+                    potential_profit_value: Some(tech_opp.expected_return_percentage * 10.0), // Assume $1000 position
+                    timestamp: tech_opp.timestamp,
+                    r#type: ArbitrageType::SpotFutures,
+                    details: tech_opp.details.clone(),
+                    min_exchanges_required: 1,
                 }
             })
             .collect();
@@ -851,14 +917,16 @@ impl GroupOpportunityService {
                         
                         // Update with AI insights
                         tech_opp.confidence_score = enhanced.ai_score;
-                        tech_opp.expected_return = enhanced.risk_adjusted_score * tech_opp.expected_return;
+                        tech_opp.expected_return_percentage = enhanced.risk_adjusted_score * tech_opp.expected_return_percentage;
                         
                         // Apply group context boost
                         tech_opp.confidence_score = (tech_opp.confidence_score * 1.1).min(1.0);
                         
                         // Update target price based on AI analysis with group context
                         if enhanced.success_probability > 0.7 {
-                            tech_opp.target_price = tech_opp.target_price * (1.0 + enhanced.success_probability * 0.12); // Slightly higher for groups
+                            if let Some(target) = tech_opp.target_price {
+                                tech_opp.target_price = Some(target * (1.0 + enhanced.success_probability * 0.12)); // Slightly higher for groups
+                            }
                         }
                         
                         enhanced_technical.push(tech_opp);
@@ -885,7 +953,11 @@ impl GroupOpportunityService {
         merged.extend(existing);
         
         // Remove duplicates and sort by potential profit
-        merged.sort_by(|a, b| b.potential_profit_percent.partial_cmp(&a.potential_profit_percent).unwrap());
+        merged.sort_by(|a, b| {
+            let a_profit = a.potential_profit_value.unwrap_or(0.0);
+            let b_profit = b.potential_profit_value.unwrap_or(0.0);
+            b_profit.partial_cmp(&a_profit).unwrap()
+        });
         merged.truncate(15); // Limit to top 15 opportunities for groups
         
         merged
@@ -913,7 +985,8 @@ impl GroupOpportunityService {
         delay_seconds: u64,
     ) -> ArbitrageResult<()> {
         for opportunity in opportunities {
-            opportunity.created_at += delay_seconds * 1000; // Convert to milliseconds
+            // ArbitrageOpportunity doesn't have created_at field, use timestamp instead
+            opportunity.timestamp += delay_seconds * 1000; // Convert to milliseconds
         }
         Ok(())
     }
@@ -924,7 +997,8 @@ impl GroupOpportunityService {
         delay_seconds: u64,
     ) -> ArbitrageResult<()> {
         for opportunity in opportunities {
-            opportunity.created_at += delay_seconds * 1000; // Convert to milliseconds
+            // TechnicalOpportunity doesn't have created_at field, use timestamp instead
+            opportunity.timestamp += delay_seconds * 1000; // Convert to milliseconds
         }
         Ok(())
     }

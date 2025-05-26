@@ -2,8 +2,8 @@
 // Simplified service mocks for testing without external dependencies
 
 use arb_edge::services::core::analysis::market_analysis::TradingOpportunity;
-use arb_edge::types::{ArbitrageOpportunity, UserProfile, UserTradingPreferences};
-use serde_json::json;
+use arb_edge::services::core::user::user_trading_preferences::UserTradingPreferences;
+use arb_edge::types::{ArbitrageOpportunity, UserProfile};
 use std::collections::HashMap;
 
 /// Mock environment for testing service interactions
@@ -74,7 +74,7 @@ impl MockTestEnvironment {
         self.preferences.get(user_id)
     }
 
-    pub fn get_opportunities_for_user(&self, user_id: &str) -> Vec<&TradingOpportunity> {
+    pub fn get_opportunities_for_user(&self, _user_id: &str) -> Vec<&TradingOpportunity> {
         // Simple filtering logic for testing
         self.opportunities.iter().collect()
     }

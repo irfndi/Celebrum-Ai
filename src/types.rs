@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
+// UUID is used throughout the file as uuid::Uuid::new_v4()
+// Keeping the full path for clarity
 
 // use thiserror::Error; // TODO: Re-enable when implementing custom error types
 
@@ -114,6 +116,29 @@ pub struct ArbitrageOpportunity {
     pub min_exchanges_required: u8, // **ALWAYS 2** for arbitrage
 }
 
+impl Default for ArbitrageOpportunity {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            pair: "BTCUSDT".to_string(), // Default fallback pair
+            long_exchange: ExchangeIdEnum::Binance,
+            short_exchange: ExchangeIdEnum::Bybit,
+            long_rate: None,
+            short_rate: None,
+            rate_difference: 0.0,
+            net_rate_difference: None,
+            potential_profit_value: None,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+            r#type: ArbitrageType::CrossExchange,
+            details: None,
+            min_exchanges_required: 2,
+        }
+    }
+}
+
 impl ArbitrageOpportunity {
     pub fn new(
         pair: String,
@@ -123,8 +148,13 @@ impl ArbitrageOpportunity {
         short_rate: Option<f64>,
         rate_difference: f64,
         r#type: ArbitrageType,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, String> {
+        // Validate trading pair is not empty
+        if pair.trim().is_empty() {
+            return Err("Trading pair cannot be empty".to_string());
+        }
+
+        Ok(Self {
             id: String::new(),
             pair,
             long_exchange,
@@ -141,7 +171,7 @@ impl ArbitrageOpportunity {
             r#type,
             details: None,
             min_exchanges_required: 2, // **ALWAYS 2** for arbitrage
-        }
+        })
     }
 
     pub fn with_net_difference(mut self, net_rate_difference: f64) -> Self {

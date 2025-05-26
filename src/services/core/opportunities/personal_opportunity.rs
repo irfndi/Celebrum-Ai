@@ -471,6 +471,17 @@ impl PersonalOpportunityService {
             .exchange_service
             .get_ticker(&exchange_id.to_string(), symbol)
             .await?;
+            
+        // Convert ticker to expected format with safe field access
+        let last_price = ticker.last.unwrap_or(0.0);
+        let volume_24h = ticker.volume.unwrap_or(0.0);
+        let high_24h = ticker.high.unwrap_or(last_price);
+        let low_24h = ticker.low.unwrap_or(last_price);
+        let price_change_percent = if high_24h > 0.0 && low_24h > 0.0 {
+            ((last_price - low_24h) / low_24h) * 100.0
+        } else {
+            0.0
+        };
 
         // Get funding rate if available (for futures)
         let funding_rate = self
@@ -483,28 +494,49 @@ impl PersonalOpportunityService {
                 Some(FundingRateInfo {
                     symbol: symbol.to_string(),
                     funding_rate: rate.get("fundingRate")?.as_f64()?,
-                    next_funding_time: rate.get("fundingTime")?.as_u64()?,
-                    mark_price: rate.get("markPrice")?.as_f64()?,
+                    timestamp: None,
+                    datetime: None,
+                    next_funding_time: rate.get("fundingTime")?.as_u64().map(|ts| {
+                        DateTime::from_timestamp(ts as i64, 0).unwrap_or_else(|| Utc::now())
+                    }),
+                    estimated_rate: rate.get("markPrice")?.as_f64(),
                 })
             });
+
+        // Determine signal type and strength
+        let signal_str = self.determine_technical_signal_from_data(price_change_percent, &funding_rate);
+        let signal_type = match signal_str.as_str() {
+            "LONG" => TechnicalSignalType::Buy,
+            "SHORT" => TechnicalSignalType::Sell,
+            _ => TechnicalSignalType::Hold,
+        };
+        
+        let risk_str = self.assess_risk_level_from_data(price_change_percent);
+        let risk_level = match risk_str.as_str() {
+            "HIGH" => TechnicalRiskLevel::High,
+            "MEDIUM" => TechnicalRiskLevel::Medium,
+            _ => TechnicalRiskLevel::Low,
+        };
 
         // Create technical opportunity
         let opportunity = TechnicalOpportunity {
             id: format!("tech_{}_{}_{}_{}", user_id, exchange_id.to_string(), symbol, Utc::now().timestamp()),
-            symbol: symbol.to_string(),
+            pair: symbol.to_string(),
             exchange: exchange_id.clone(),
-            signal_type: self.determine_technical_signal(&ticker, &funding_rate),
-            entry_price: ticker.last_price,
-            target_price: self.calculate_target_price(&ticker),
-            stop_loss: self.calculate_stop_loss(&ticker),
-            confidence_score: self.calculate_confidence_score(&ticker, &funding_rate),
-            expected_return: self.calculate_expected_return(&ticker),
-            risk_level: self.assess_risk_level(&ticker),
-            time_horizon: "1-4 hours".to_string(),
-            market_conditions: self.analyze_market_conditions(&ticker, &funding_rate),
-            created_at: Utc::now().timestamp() as u64,
-            expires_at: (Utc::now().timestamp() + 3600) as u64, // 1 hour expiry
-            funding_rate,
+            signal_type,
+            signal_strength: TechnicalSignalStrength::Moderate, // Default to moderate
+            entry_price: last_price,
+            target_price: Some(self.calculate_target_price_from_data(last_price)),
+            stop_loss_price: Some(self.calculate_stop_loss_from_data(last_price)),
+            confidence_score: self.calculate_confidence_score_from_data(volume_24h, price_change_percent, &funding_rate),
+            technical_indicators: vec!["RSI".to_string(), "MACD".to_string()], // Default indicators
+            timeframe: "1h".to_string(),
+            expected_return_percentage: self.calculate_expected_return_from_data(price_change_percent),
+            risk_level,
+            timestamp: Utc::now().timestamp_millis() as u64,
+            expires_at: (Utc::now().timestamp_millis() + 3600000) as u64, // 1 hour expiry
+            details: Some(self.analyze_market_conditions_from_data(price_change_percent, volume_24h, &funding_rate)),
+            min_exchanges_required: 1,
         };
 
         Ok(opportunity)
@@ -520,9 +552,15 @@ impl PersonalOpportunityService {
         ticker_b: &Ticker,
         user_id: &str,
     ) -> ArbitrageResult<ArbitrageOpportunity> {
-        // Calculate price difference
-        let price_diff = (ticker_b.last_price - ticker_a.last_price).abs();
-        let price_diff_percent = (price_diff / ticker_a.last_price) * 100.0;
+        // Calculate price difference using actual ticker fields
+        let last_price_a = ticker_a.last.unwrap_or(0.0);
+        let last_price_b = ticker_b.last.unwrap_or(0.0);
+        let price_diff = (last_price_b - last_price_a).abs();
+        let price_diff_percent = if last_price_a > 0.0 {
+            (price_diff / last_price_a) * 100.0
+        } else {
+            0.0
+        };
 
         // Only create opportunity if price difference is significant (>0.1%)
         if price_diff_percent < 0.1 {
@@ -532,32 +570,27 @@ impl PersonalOpportunityService {
         }
 
         // Determine buy/sell exchanges
-        let (buy_exchange, sell_exchange, buy_price, sell_price) = if ticker_a.last_price < ticker_b.last_price {
-            (exchange_a.clone(), exchange_b.clone(), ticker_a.last_price, ticker_b.last_price)
+        let (buy_exchange, sell_exchange, buy_price, sell_price) = if last_price_a < last_price_b {
+            (exchange_a.clone(), exchange_b.clone(), last_price_a, last_price_b)
         } else {
-            (exchange_b.clone(), exchange_a.clone(), ticker_b.last_price, ticker_a.last_price)
+            (exchange_b.clone(), exchange_a.clone(), last_price_b, last_price_a)
         };
 
         let opportunity = ArbitrageOpportunity {
             id: format!("arb_{}_{}_{}_{}", user_id, symbol, Utc::now().timestamp(), rand::random::<u32>()),
-            symbol: symbol.to_string(),
-            buy_exchange,
-            sell_exchange,
-            buy_price,
-            sell_price,
-            price_difference: price_diff,
-            price_difference_percent,
-            potential_profit_value: price_diff * 100.0, // Assuming 100 units
-            potential_profit_percent: price_diff_percent,
-            arbitrage_type: ArbitrageType::Spot,
-            confidence_score: self.calculate_arbitrage_confidence(price_diff_percent),
-            estimated_execution_time: 30, // 30 seconds
-            risk_factors: self.identify_risk_factors(ticker_a, ticker_b),
-            created_at: Utc::now().timestamp() as u64,
-            expires_at: (Utc::now().timestamp() + 300) as u64, // 5 minutes expiry
-            funding_rates: None,
-            volume_24h: (ticker_a.volume_24h + ticker_b.volume_24h) / 2.0,
-            liquidity_score: self.calculate_liquidity_score(ticker_a, ticker_b),
+            pair: symbol.to_string(),
+            long_exchange: buy_exchange,
+            short_exchange: sell_exchange,
+            long_rate: Some(buy_price),
+            short_rate: Some(sell_price),
+            rate_difference: price_diff_percent / 100.0, // Convert percentage to decimal
+            net_rate_difference: Some(price_diff_percent / 100.0),
+            potential_profit_value: Some(price_diff * 100.0), // Assuming 100 units
+            timestamp: Utc::now().timestamp_millis() as u64,
+            r#type: ArbitrageType::SpotFutures,
+            details: Some(format!("Arbitrage opportunity between {} and {} for {}", 
+                buy_exchange.as_str(), sell_exchange.as_str(), symbol)),
+            min_exchanges_required: 2,
         };
 
         Ok(opportunity)
@@ -575,6 +608,20 @@ impl PersonalOpportunityService {
     }
 
     fn determine_technical_signal(&self, ticker: &Ticker, funding_rate: &Option<FundingRateInfo>) -> String {
+        // Extract price change from ticker data
+        let last_price = ticker.last.unwrap_or(0.0);
+        let high_24h = ticker.high.unwrap_or(last_price);
+        let low_24h = ticker.low.unwrap_or(last_price);
+        let price_change_percent = if high_24h > 0.0 && low_24h > 0.0 {
+            ((last_price - low_24h) / low_24h) * 100.0
+        } else {
+            0.0
+        };
+        
+        self.determine_technical_signal_from_data(price_change_percent, funding_rate)
+    }
+
+    fn determine_technical_signal_from_data(&self, price_change_percent: f64, funding_rate: &Option<FundingRateInfo>) -> String {
         // Simple technical signal determination
         if let Some(fr) = funding_rate {
             if fr.funding_rate > 0.01 {
@@ -585,9 +632,9 @@ impl PersonalOpportunityService {
         }
 
         // Use price momentum as fallback
-        if ticker.price_change_percent > 2.0 {
+        if price_change_percent > 2.0 {
             "LONG".to_string()
-        } else if ticker.price_change_percent < -2.0 {
+        } else if price_change_percent < -2.0 {
             "SHORT".to_string()
         } else {
             "NEUTRAL".to_string()
@@ -595,20 +642,44 @@ impl PersonalOpportunityService {
     }
 
     fn calculate_target_price(&self, ticker: &Ticker) -> f64 {
+        let last_price = ticker.last.unwrap_or(0.0);
+        self.calculate_target_price_from_data(last_price)
+    }
+
+    fn calculate_target_price_from_data(&self, last_price: f64) -> f64 {
         // Simple target price calculation (2% above current price for long)
-        ticker.last_price * 1.02
+        last_price * 1.02
     }
 
     fn calculate_stop_loss(&self, ticker: &Ticker) -> f64 {
+        let last_price = ticker.last.unwrap_or(0.0);
+        self.calculate_stop_loss_from_data(last_price)
+    }
+
+    fn calculate_stop_loss_from_data(&self, last_price: f64) -> f64 {
         // Simple stop loss calculation (1% below current price)
-        ticker.last_price * 0.99
+        last_price * 0.99
     }
 
     fn calculate_confidence_score(&self, ticker: &Ticker, funding_rate: &Option<FundingRateInfo>) -> f64 {
+        let volume_24h = ticker.volume.unwrap_or(0.0);
+        let last_price = ticker.last.unwrap_or(0.0);
+        let high_24h = ticker.high.unwrap_or(last_price);
+        let low_24h = ticker.low.unwrap_or(last_price);
+        let price_change_percent = if high_24h > 0.0 && low_24h > 0.0 {
+            ((last_price - low_24h) / low_24h) * 100.0
+        } else {
+            0.0
+        };
+        
+        self.calculate_confidence_score_from_data(volume_24h, price_change_percent, funding_rate)
+    }
+
+    fn calculate_confidence_score_from_data(&self, volume_24h: f64, price_change_percent: f64, funding_rate: &Option<FundingRateInfo>) -> f64 {
         let mut score = 0.5; // Base score
 
         // Adjust based on volume
-        if ticker.volume_24h > 1000000.0 {
+        if volume_24h > 1000000.0 {
             score += 0.2;
         }
 
@@ -620,7 +691,7 @@ impl PersonalOpportunityService {
         }
 
         // Adjust based on price change
-        if ticker.price_change_percent.abs() > 1.0 {
+        if price_change_percent.abs() > 1.0 {
             score += 0.1;
         }
 
@@ -628,14 +699,40 @@ impl PersonalOpportunityService {
     }
 
     fn calculate_expected_return(&self, ticker: &Ticker) -> f64 {
+        let last_price = ticker.last.unwrap_or(0.0);
+        let high_24h = ticker.high.unwrap_or(last_price);
+        let low_24h = ticker.low.unwrap_or(last_price);
+        let price_change_percent = if high_24h > 0.0 && low_24h > 0.0 {
+            ((last_price - low_24h) / low_24h) * 100.0
+        } else {
+            0.0
+        };
+        
+        self.calculate_expected_return_from_data(price_change_percent)
+    }
+
+    fn calculate_expected_return_from_data(&self, price_change_percent: f64) -> f64 {
         // Simple expected return calculation
-        ticker.price_change_percent.abs() * 0.5
+        price_change_percent.abs() * 0.5
     }
 
     fn assess_risk_level(&self, ticker: &Ticker) -> String {
-        if ticker.price_change_percent.abs() > 5.0 {
+        let last_price = ticker.last.unwrap_or(0.0);
+        let high_24h = ticker.high.unwrap_or(last_price);
+        let low_24h = ticker.low.unwrap_or(last_price);
+        let price_change_percent = if high_24h > 0.0 && low_24h > 0.0 {
+            ((last_price - low_24h) / low_24h) * 100.0
+        } else {
+            0.0
+        };
+        
+        self.assess_risk_level_from_data(price_change_percent)
+    }
+
+    fn assess_risk_level_from_data(&self, price_change_percent: f64) -> String {
+        if price_change_percent.abs() > 5.0 {
             "HIGH".to_string()
-        } else if ticker.price_change_percent.abs() > 2.0 {
+        } else if price_change_percent.abs() > 2.0 {
             "MEDIUM".to_string()
         } else {
             "LOW".to_string()
@@ -643,11 +740,25 @@ impl PersonalOpportunityService {
     }
 
     fn analyze_market_conditions(&self, ticker: &Ticker, funding_rate: &Option<FundingRateInfo>) -> String {
+        let volume_24h = ticker.volume.unwrap_or(0.0);
+        let last_price = ticker.last.unwrap_or(0.0);
+        let high_24h = ticker.high.unwrap_or(last_price);
+        let low_24h = ticker.low.unwrap_or(last_price);
+        let price_change_percent = if high_24h > 0.0 && low_24h > 0.0 {
+            ((last_price - low_24h) / low_24h) * 100.0
+        } else {
+            0.0
+        };
+        
+        self.analyze_market_conditions_from_data(price_change_percent, volume_24h, funding_rate)
+    }
+
+    fn analyze_market_conditions_from_data(&self, price_change_percent: f64, volume_24h: f64, funding_rate: &Option<FundingRateInfo>) -> String {
         let mut conditions = Vec::new();
 
-        if ticker.price_change_percent > 2.0 {
+        if price_change_percent > 2.0 {
             conditions.push("Bullish momentum");
-        } else if ticker.price_change_percent < -2.0 {
+        } else if price_change_percent < -2.0 {
             conditions.push("Bearish momentum");
         }
 
@@ -659,7 +770,7 @@ impl PersonalOpportunityService {
             }
         }
 
-        if ticker.volume_24h > 1000000.0 {
+        if volume_24h > 1000000.0 {
             conditions.push("High volume");
         }
 
@@ -720,8 +831,9 @@ impl PersonalOpportunityService {
                     let mut opportunity = enhanced.base_opportunity;
                     
                     // Update opportunity with AI insights
-                    opportunity.confidence_score = enhanced.ai_score;
-                    opportunity.potential_profit_percent = enhanced.risk_adjusted_score * opportunity.potential_profit_percent;
+                    if let Some(current_profit) = opportunity.potential_profit_value {
+                        opportunity.potential_profit_value = Some(enhanced.risk_adjusted_score * current_profit);
+                    }
                     
                     // Add AI metadata to opportunity
                     let ai_metadata = serde_json::json!({
@@ -798,7 +910,7 @@ impl PersonalOpportunityService {
                         
                         // Update with AI insights
                         tech_opp.confidence_score = enhanced.ai_score;
-                        tech_opp.expected_return = enhanced.risk_adjusted_score * tech_opp.expected_return;
+                        tech_opp.expected_return_percentage = enhanced.risk_adjusted_score * tech_opp.expected_return_percentage;
                         
                         // Update target price based on AI analysis
                         if enhanced.success_probability > 0.7 {
@@ -829,7 +941,11 @@ impl PersonalOpportunityService {
         merged.extend(global);
         
         // Remove duplicates and sort by potential profit
-        merged.sort_by(|a, b| b.potential_profit_percent.partial_cmp(&a.potential_profit_percent).unwrap());
+        merged.sort_by(|a, b| {
+            let a_profit = a.potential_profit_value.unwrap_or(0.0);
+            let b_profit = b.potential_profit_value.unwrap_or(0.0);
+            b_profit.partial_cmp(&a_profit).unwrap()
+        });
         merged.truncate(10); // Limit to top 10 opportunities
         
         merged
@@ -920,27 +1036,28 @@ mod tests {
     fn create_test_user_profile() -> UserProfile {
         UserProfile {
             user_id: "test_user".to_string(),
-            telegram_id: 12345,
-            username: Some("testuser".to_string()),
-            subscription: SubscriptionTier::Basic,
-            account_status: AccountStatus::Active,
+            telegram_user_id: Some(12345),
+            telegram_username: Some("testuser".to_string()),
+            subscription: SubscriptionInfo::default(),
+            configuration: UserConfiguration::default(),
             api_keys: vec![
-                UserApiKey {
-                    exchange_id: "binance".to_string(),
-                    api_key: "test_key".to_string(),
-                    secret: "test_secret".to_string(),
-                    is_active: true,
-                    permissions: vec!["spot".to_string()],
-                    default_leverage: Some(1),
-                    exchange_type: Some("spot".to_string()),
-                    created_at: Utc::now().timestamp() as u64,
-                    last_used: None,
-                },
+                UserApiKey::new_exchange_key(
+                    "test_user".to_string(),
+                    ExchangeIdEnum::Binance,
+                    "encrypted_test_key".to_string(),
+                    "encrypted_test_secret".to_string(),
+                    vec!["spot".to_string(), "trade".to_string()],
+                ),
             ],
-            // ... other fields with defaults
-            created_at: Utc::now().timestamp() as u64,
-            updated_at: Utc::now().timestamp() as u64,
-            profile_metadata: serde_json::json!({}),
+            invitation_code: None,
+            beta_expires_at: None,
+            created_at: Utc::now().timestamp_millis() as u64,
+            updated_at: Utc::now().timestamp_millis() as u64,
+            last_active: Utc::now().timestamp_millis() as u64,
+            is_active: true,
+            total_trades: 0,
+            total_pnl_usdt: 0.0,
+            profile_metadata: Some(serde_json::json!({})),
         }
     }
 
@@ -988,14 +1105,14 @@ mod tests {
 
         let ticker = Ticker {
             symbol: "BTCUSDT".to_string(),
-            last_price: 50000.0,
-            price_change_percent: 3.0,
-            volume_24h: 1000000.0,
-            high_24h: 51000.0,
-            low_24h: 49000.0,
-            bid_price: 49990.0,
-            ask_price: 50010.0,
-            timestamp: Utc::now().timestamp() as u64,
+            bid: Some(49990.0),
+            ask: Some(50010.0),
+            last: Some(50000.0),
+            high: Some(51000.0),
+            low: Some(49000.0),
+            volume: Some(1000000.0),
+            timestamp: Some(Utc::now()),
+            datetime: Some(Utc::now().to_rfc3339()),
         };
 
         let signal = service.determine_technical_signal(&ticker, &None);

@@ -295,7 +295,11 @@ impl AffiliationService {
         let result = self.d1_service.query(query, &[user_id.into()]).await?;
         
         if let Some(row) = result.first() {
-            Ok(row.get("count").unwrap_or("0").parse::<i32>().unwrap_or(0) > 0)
+            let count_str = row.get("count")
+                .ok_or_else(|| ArbitrageError::parse_error("Missing count field in database result"))?;
+            let count = count_str.parse::<i32>()
+                .map_err(|e| ArbitrageError::parse_error(format!("Invalid count format '{}': {}", count_str, e)))?;
+            Ok(count > 0)
         } else {
             Ok(false)
         }
@@ -474,54 +478,95 @@ impl AffiliationService {
 
     fn parse_application_from_row(&self, row: &std::collections::HashMap<String, String>) -> ArbitrageResult<AffiliationApplication> {
         Ok(AffiliationApplication {
-            id: row.get("id").unwrap_or_default(),
-            user_id: row.get("user_id").unwrap_or_default(),
-            program_type: self.parse_program_type(row.get("program_type").unwrap_or_default())?,
-            platform: row.get("platform").unwrap_or_default(),
+            id: row.get("id")
+                .ok_or_else(|| ArbitrageError::parse_error("Missing required field: id"))?
+                .clone(),
+            user_id: row.get("user_id")
+                .ok_or_else(|| ArbitrageError::parse_error("Missing required field: user_id"))?
+                .clone(),
+            program_type: self.parse_program_type(
+                row.get("program_type")
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing required field: program_type"))?
+            )?,
+            platform: row.get("platform")
+                .ok_or_else(|| ArbitrageError::parse_error("Missing required field: platform"))?
+                .clone(),
             follower_count: row.get("follower_count")
                 .ok_or_else(|| ArbitrageError::parse_error("Missing follower_count field"))?
                 .parse()
                 .map_err(|e| ArbitrageError::parse_error(format!("Invalid follower_count format: {}", e)))?,
-            content_examples: serde_json::from_str(row.get("content_examples").unwrap_or("[]"))
+            content_examples: serde_json::from_str(
+                row.get("content_examples")
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing required field: content_examples"))?
+            )
                 .map_err(|e| ArbitrageError::parse_error(format!("Invalid content_examples JSON: {}", e)))?,
-            trading_experience: row.get("trading_experience").unwrap_or_default(),
-            motivation: row.get("motivation").unwrap_or_default(),
-            status: self.parse_verification_status(row.get("status").unwrap_or_default())?,
-            created_at: DateTime::parse_from_rfc3339(row.get("created_at").unwrap_or_default())
+            trading_experience: row.get("trading_experience")
+                .ok_or_else(|| ArbitrageError::parse_error("Missing required field: trading_experience"))?
+                .clone(),
+            motivation: row.get("motivation")
+                .ok_or_else(|| ArbitrageError::parse_error("Missing required field: motivation"))?
+                .clone(),
+            status: self.parse_verification_status(
+                row.get("status")
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing required field: status"))?
+            )?,
+            created_at: DateTime::parse_from_rfc3339(
+                row.get("created_at")
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing required field: created_at"))?
+            )
                 .map_err(|e| ArbitrageError::parse_error(format!("Invalid created_at format: {}", e)))?
                 .with_timezone(&Utc),
             reviewed_at: row.get("reviewed_at")
                 .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.with_timezone(&Utc)),
-            reviewed_by: row.get("reviewed_by"),
-            review_notes: row.get("review_notes"),
+            reviewed_by: row.get("reviewed_by").cloned(),
+            review_notes: row.get("review_notes").cloned(),
         })
     }
 
     fn parse_affiliation_program_from_row(&self, row: &std::collections::HashMap<String, String>) -> ArbitrageResult<AffiliationProgram> {
         Ok(AffiliationProgram {
-            id: row.get("id").unwrap_or_default(),
-            user_id: row.get("user_id").unwrap_or_default(),
-            program_type: self.parse_program_type(row.get("program_type").unwrap_or_default())?,
-            verification_status: self.parse_verification_status(row.get("verification_status").unwrap_or_default())?,
+            id: row.get("id")
+                .ok_or_else(|| ArbitrageError::parse_error("Missing required field: id"))?
+                .clone(),
+            user_id: row.get("user_id")
+                .ok_or_else(|| ArbitrageError::parse_error("Missing required field: user_id"))?
+                .clone(),
+            program_type: self.parse_program_type(
+                row.get("program_type")
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing required field: program_type"))?
+            )?,
+            verification_status: self.parse_verification_status(
+                row.get("verification_status")
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing required field: verification_status"))?
+            )?,
             follower_count: row.get("follower_count").and_then(|s| s.parse().ok()),
-            platform: row.get("platform"),
+            platform: row.get("platform").cloned(),
             kickback_rate: row.get("kickback_rate")
                 .ok_or_else(|| ArbitrageError::parse_error("Missing kickback_rate field"))?
                 .parse()
                 .map_err(|e| ArbitrageError::parse_error(format!("Invalid kickback_rate format: {}", e)))?,
-            special_features: serde_json::from_str(row.get("special_features").unwrap_or("[]"))
+            special_features: serde_json::from_str(
+                row.get("special_features")
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing required field: special_features"))?
+            )
                 .map_err(|e| ArbitrageError::parse_error(format!("Invalid special_features JSON: {}", e)))?,
-            created_at: DateTime::parse_from_rfc3339(row.get("created_at").unwrap_or_default())
+            created_at: DateTime::parse_from_rfc3339(
+                row.get("created_at")
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing required field: created_at"))?
+            )
                 .map_err(|e| ArbitrageError::parse_error(format!("Invalid created_at format: {}", e)))?
                 .with_timezone(&Utc),
-            updated_at: DateTime::parse_from_rfc3339(row.get("updated_at").unwrap_or_default())
+            updated_at: DateTime::parse_from_rfc3339(
+                row.get("updated_at")
+                    .ok_or_else(|| ArbitrageError::parse_error("Missing required field: updated_at"))?
+            )
                 .map_err(|e| ArbitrageError::parse_error(format!("Invalid updated_at format: {}", e)))?
                 .with_timezone(&Utc),
             verified_at: row.get("verified_at")
                 .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.with_timezone(&Utc)),
-            verified_by: row.get("verified_by"),
+            verified_by: row.get("verified_by").cloned(),
         })
     }
 
