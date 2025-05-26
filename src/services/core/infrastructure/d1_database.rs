@@ -51,7 +51,7 @@ pub struct D1Service {
 impl D1Service {
     /// Create a new D1Service instance
     pub fn new(env: &Env) -> Result<Self> {
-        let db = env.d1("ArbEdgeDB")?;
+        let db = env.d1("ArbEdgeD1")?;
         Ok(D1Service { db })
     }
 
