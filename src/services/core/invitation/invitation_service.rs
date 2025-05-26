@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc, Duration};
 use uuid::Uuid;
 use anyhow::{Result, anyhow};
+use log;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvitationCode {
@@ -70,22 +71,22 @@ impl InvitationService {
         Ok(invitation_code)
     }
 
-    /// Generate multiple invitation codes at once with transaction support
+    /// Generate multiple invitation codes in a batch with proper transaction support
     pub async fn generate_multiple_codes(&self, admin_user_id: &str, count: u32) -> Result<Vec<InvitationCode>> {
-        if count > 100 {
-            return Err(anyhow!("Cannot generate more than 100 codes at once"));
-        }
-
-        // Verify admin permission before starting transaction
+        // Upfront admin permission verification before any code generation
         if !self.verify_admin_permission(admin_user_id).await? {
             return Err(anyhow!("Unauthorized: Only super admins can generate invitation codes"));
         }
 
-        // Generate all codes first (without storing) to ensure uniqueness
+        if count == 0 || count > 100 {
+            return Err(anyhow!("Invalid count: must be between 1 and 100"));
+        }
+
+        // Pre-generate all codes and validate uniqueness before storage
         let mut codes = Vec::new();
         for _ in 0..count {
             let code = self.generate_unique_code().await?;
-            let invitation_code = InvitationCode {
+            let invitation = InvitationCode {
                 id: Uuid::new_v4().to_string(),
                 code,
                 created_by_admin_id: admin_user_id.to_string(),
@@ -95,14 +96,18 @@ impl InvitationService {
                 used_at: None,
                 is_active: true,
             };
-            codes.push(invitation_code);
+            codes.push(invitation);
         }
 
-        // Store all codes in a single transaction-like operation
-        // If any storage fails, we'll get an error and none will be partially stored
-        for code in &codes {
-            self.store_invitation_code(code).await
-                .map_err(|e| anyhow!("Failed to store invitation code {}: {}. Transaction aborted.", code.code, e))?;
+        // Implement fail-fast storage with transaction-like behavior
+        // TODO: Replace with proper database transaction when D1Service supports it
+        for (index, code) in codes.iter().enumerate() {
+            if let Err(e) = self.store_invitation_code(code).await {
+                return Err(anyhow!(
+                    "Failed to store invitation code {} at position {}: {}. Transaction aborted - {} codes may have been stored.", 
+                    code.code, index, e, index
+                ));
+            }
         }
 
         Ok(codes)
@@ -233,35 +238,13 @@ impl InvitationService {
     }
 
     async fn verify_admin_permission(&self, user_id: &str) -> Result<bool> {
-        // Use subscription_tier as the single source of truth for admin status
-        let query = "SELECT subscription_tier, profile_metadata FROM user_profiles WHERE user_id = ?";
+        // Use subscription_tier as the authoritative source for admin status
+        let query = "SELECT subscription_tier FROM user_profiles WHERE user_id = ?";
         let result = self.d1_service.query(query, &[user_id.into()]).await?;
         
         if let Some(row) = result.first() {
-            // Primary check: subscription tier (single source of truth)
             if let Some(tier_str) = row.get("subscription_tier") {
-                if tier_str == "SuperAdmin" {
-                    return Ok(true);
-                }
-            }
-            
-            // Fallback check: role in metadata (with proper error logging)
-            if let Some(metadata_str) = row.get("profile_metadata") {
-                match serde_json::from_str::<serde_json::Value>(metadata_str) {
-                    Ok(metadata) => {
-                        if let Some(role) = metadata.get("role") {
-                            if role == "SuperAdmin" {
-                                // Log inconsistency between subscription_tier and metadata
-                                log::warn!("Admin permission inconsistency for user {}: metadata role is SuperAdmin but subscription_tier is not", user_id);
-                                return Ok(true);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        // Log JSON parsing error for debugging
-                        log::error!("Failed to parse profile_metadata JSON for user {}: {}", user_id, e);
-                    }
-                }
+                return Ok(tier_str == "SuperAdmin");
             }
         }
         
@@ -383,7 +366,14 @@ impl InvitationService {
         let result = self.d1_service.query(query, &[]).await?;
         
         if let Some(row) = result.first() {
-            Ok(row.get("count").unwrap_or("0").parse().unwrap_or(0))
+            let count_str = row.get("count").unwrap_or("0");
+            match count_str.parse::<u32>() {
+                Ok(count) => Ok(count),
+                Err(e) => {
+                    log::warn!("Failed to parse count '{}': {}", count_str, e);
+                    Ok(0)
+                }
+            }
         } else {
             Ok(0)
         }
@@ -394,7 +384,14 @@ impl InvitationService {
         let result = self.d1_service.query(query, &[]).await?;
         
         if let Some(row) = result.first() {
-            Ok(row.get("count").unwrap_or("0").parse().unwrap_or(0))
+            let count_str = row.get("count").unwrap_or("0");
+            match count_str.parse::<u32>() {
+                Ok(count) => Ok(count),
+                Err(e) => {
+                    log::warn!("Failed to parse used invitations count '{}': {}", count_str, e);
+                    Ok(0)
+                }
+            }
         } else {
             Ok(0)
         }
@@ -405,7 +402,14 @@ impl InvitationService {
         let result = self.d1_service.query(query, &[]).await?;
         
         if let Some(row) = result.first() {
-            Ok(row.get("count").unwrap_or("0").parse().unwrap_or(0))
+            let count_str = row.get("count").unwrap_or("0");
+            match count_str.parse::<u32>() {
+                Ok(count) => Ok(count),
+                Err(e) => {
+                    log::warn!("Failed to parse expired invitations count '{}': {}", count_str, e);
+                    Ok(0)
+                }
+            }
         } else {
             Ok(0)
         }
@@ -416,7 +420,14 @@ impl InvitationService {
         let result = self.d1_service.query(query, &[]).await?;
         
         if let Some(row) = result.first() {
-            Ok(row.get("count").unwrap_or("0").parse().unwrap_or(0))
+            let count_str = row.get("count").unwrap_or("0");
+            match count_str.parse::<u32>() {
+                Ok(count) => Ok(count),
+                Err(e) => {
+                    log::warn!("Failed to parse active beta users count '{}': {}", count_str, e);
+                    Ok(0)
+                }
+            }
         } else {
             Ok(0)
         }

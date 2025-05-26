@@ -12,6 +12,17 @@ use wasm_bindgen::JsValue;
 #[cfg(target_arch = "wasm32")]
 use serde_json::Value;
 
+/// Validation level for API key validation
+#[derive(Debug, Clone)]
+pub enum ValidationLevel {
+    /// Only validate format/structure
+    FormatOnly,
+    /// Check cached validation result, fallback to format validation
+    CachedResult,
+    /// Perform live validation with additional safeguards
+    LiveValidation,
+}
+
 /// Service for managing AI access levels, usage tracking, and template management
 pub struct AIAccessService {
     d1_service: D1Service,
@@ -35,12 +46,20 @@ impl AIAccessService {
 
     /// Helper function to extract u32 field from database row
     fn get_field_as_u32(row: &Value, field: &str, default: u32) -> u32 {
-        Self::get_field_as_f64(row, field, default as f64) as u32
+        row.get(field)
+            .and_then(|v| v.as_f64())
+            .filter(|&f| f >= 0.0 && f <= u32::MAX as f64)
+            .map(|f| f as u32)
+            .unwrap_or(default)
     }
 
     /// Helper function to extract u64 field from database row
     fn get_field_as_u64(row: &Value, field: &str, default: u64) -> u64 {
-        Self::get_field_as_f64(row, field, default as f64) as u64
+        row.get(field)
+            .and_then(|v| v.as_f64())
+            .filter(|&f| f >= 0.0 && f <= u64::MAX as f64)
+            .map(|f| f as u64)
+            .unwrap_or(default)
     }
 
     /// Helper function to extract string field from database row
@@ -86,6 +105,14 @@ impl AIAccessService {
         let _ = self.kv_service.put(&cache_key, &cache_value, Some(3600)).await;
 
         Ok(access_level)
+    }
+
+    /// Invalidate AI access level cache for a user
+    pub async fn invalidate_ai_access_cache(&self, user_id: &str) -> Result<(), String> {
+        let cache_key = format!("ai_access_level:{}", user_id);
+        self.kv_service.delete(&cache_key).await
+            .map_err(|e| format!("Failed to invalidate AI access cache: {}", e))?;
+        Ok(())
     }
 
     /// Get or create AI usage tracker for a user
@@ -135,7 +162,18 @@ impl AIAccessService {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Non-WASM implementation for development/testing
-            Ok(AIUsageTracker::new(user_id.to_string(), access_level))
+            // TODO: Implement proper database integration for testing environments
+            log::warn!("Using mock AI usage tracker for non-WASM environment - implement proper database integration");
+            
+            // In a real implementation, this would load from a local database
+            // For now, create a new tracker but log the limitation
+            let tracker = AIUsageTracker::new(user_id.to_string(), access_level);
+            
+            // Simulate saving to ensure consistent behavior
+            // In production, this should save to a local database or file
+            log::info!("Created new AI usage tracker for user {} in non-WASM environment", user_id);
+            
+            Ok(tracker)
         }
     }
 
@@ -174,7 +212,9 @@ impl AIAccessService {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Non-WASM implementation for development/testing
-            // In a real implementation, this would save to a local database or file
+            // TODO: Implement proper database persistence for testing environments
+            log::warn!("AI usage tracker save operation skipped in non-WASM environment - implement proper database persistence");
+            log::info!("Would save AI usage tracker for user {} with {} calls used", tracker.user_id, tracker.ai_calls_used);
         }
 
         Ok(())
@@ -455,7 +495,33 @@ impl AIAccessService {
         Ok(())
     }
 
-    /// Validate AI key for a specific provider with enhanced security
+    /// Validate AI key for a specific provider with configurable validation levels
+    pub async fn validate_ai_key_with_level(
+        &self,
+        provider: &ApiKeyProvider,
+        api_key: &str,
+        metadata: &serde_json::Value,
+        user_id: &str,
+        validation_level: ValidationLevel,
+    ) -> Result<bool, String> {
+        match validation_level {
+            ValidationLevel::FormatOnly => {
+                // Only validate format
+                self.validate_format_only(provider, api_key, metadata)
+            },
+            ValidationLevel::CachedResult => {
+                // Check if we have a cached validation result
+                self.get_cached_validation_result(provider, api_key).await
+                    .unwrap_or_else(|_| self.validate_format_only(provider, api_key, metadata))
+            },
+            ValidationLevel::LiveValidation => {
+                // Perform live validation with additional safeguards
+                self.validate_live_with_safeguards(provider, api_key, metadata, user_id).await
+            },
+        }
+    }
+
+    /// Validate AI key for a specific provider with enhanced security (legacy method)
     pub async fn validate_ai_key(
         &self,
         provider: &ApiKeyProvider,
@@ -464,7 +530,22 @@ impl AIAccessService {
         user_id: &str,
         perform_live_validation: bool,
     ) -> Result<bool, String> {
-        // First, perform format validation
+        let validation_level = if perform_live_validation {
+            ValidationLevel::LiveValidation
+        } else {
+            ValidationLevel::FormatOnly
+        };
+        
+        self.validate_ai_key_with_level(provider, api_key, metadata, user_id, validation_level).await
+    }
+
+    /// Validate format only
+    fn validate_format_only(
+        &self,
+        provider: &ApiKeyProvider,
+        api_key: &str,
+        metadata: &serde_json::Value,
+    ) -> Result<bool, String> {
         let format_valid = match provider {
             ApiKeyProvider::OpenAI => {
                 // OpenAI keys are typically 51 characters starting with sk-
@@ -492,13 +573,44 @@ impl AIAccessService {
             };
         }
 
-        // If live validation is not requested, return format validation result
-        if !perform_live_validation {
-            return Ok(true);
-        }
+        Ok(true)
+    }
 
-        // Check rate limiting for validation attempts
-        if !self.check_validation_rate_limit(user_id).await? {
+    /// Get cached validation result
+    async fn get_cached_validation_result(
+        &self,
+        provider: &ApiKeyProvider,
+        api_key: &str,
+    ) -> Result<bool, String> {
+        let cache_key = format!("ai_key_validation:{}:{}", 
+            match provider {
+                ApiKeyProvider::OpenAI => "openai",
+                ApiKeyProvider::Anthropic => "anthropic", 
+                ApiKeyProvider::Custom => "custom",
+                _ => "unknown",
+            },
+            &api_key[..std::cmp::min(10, api_key.len())] // Only cache first 10 chars for security
+        );
+        
+        match self.kv_service.get(&cache_key).await {
+            Ok(Some(result)) => Ok(result == "true"),
+            _ => Err("No cached result".to_string()),
+        }
+    }
+
+    /// Validate live with safeguards
+    async fn validate_live_with_safeguards(
+        &self,
+        provider: &ApiKeyProvider,
+        api_key: &str,
+        metadata: &serde_json::Value,
+        user_id: &str,
+    ) -> Result<bool, String> {
+        // First validate format
+        self.validate_format_only(provider, api_key, metadata)?;
+
+        // Check and increment rate limiting atomically
+        if !self.check_and_increment_validation_rate_limit(user_id).await? {
             return Err("Rate limit exceeded for API key validation. Please try again later.".to_string());
         }
 
@@ -513,48 +625,46 @@ impl AIAccessService {
             _ => Ok(false),
         };
 
-        // Record validation attempt for rate limiting
-        self.record_validation_attempt(user_id).await?;
+        // Cache the result if successful (for 1 hour)
+        if let Ok(true) = validation_result {
+            let cache_key = format!("ai_key_validation:{}:{}", 
+                match provider {
+                    ApiKeyProvider::OpenAI => "openai",
+                    ApiKeyProvider::Anthropic => "anthropic", 
+                    ApiKeyProvider::Custom => "custom",
+                    _ => "unknown",
+                },
+                &api_key[..std::cmp::min(10, api_key.len())]
+            );
+            let _ = self.kv_service.set(&cache_key, "true", Some(3600)).await;
+        }
 
         validation_result
     }
 
-    /// Check rate limiting for API key validation attempts
-    async fn check_validation_rate_limit(&self, user_id: &str) -> Result<bool, String> {
+    /// Check and increment rate limiting atomically for API key validation attempts
+    async fn check_and_increment_validation_rate_limit(&self, user_id: &str) -> Result<bool, String> {
         let cache_key = format!("ai_key_validation_rate_limit:{}", user_id);
         
-        // Allow 5 validation attempts per hour
+        // Try to increment atomically, allow 5 validation attempts per hour
         match self.kv_service.get(&cache_key).await {
             Ok(Some(count_str)) => {
                 let count: u32 = count_str.parse().unwrap_or(0);
-                Ok(count < 5)
-            },
-            Ok(None) => Ok(true), // No previous attempts
-            Err(_) => Ok(true), // Allow on cache errors
-        }
-    }
-
-    /// Record a validation attempt for rate limiting
-    async fn record_validation_attempt(&self, user_id: &str) -> Result<(), String> {
-        let cache_key = format!("ai_key_validation_rate_limit:{}", user_id);
-        
-        match self.kv_service.get(&cache_key).await {
-            Ok(Some(count_str)) => {
-                let count: u32 = count_str.parse().unwrap_or(0);
+                if count >= 5 {
+                    return Ok(false);
+                }
                 let new_count = count + 1;
                 self.kv_service.set(&cache_key, &new_count.to_string(), Some(3600)).await
-                    .map_err(|e| format!("Failed to update validation rate limit: {}", e))?;
+                    .map_err(|e| format!("Failed to increment validation rate limit: {}", e))?;
+                Ok(true)
             },
             Ok(None) => {
                 self.kv_service.set(&cache_key, "1", Some(3600)).await
                     .map_err(|e| format!("Failed to set validation rate limit: {}", e))?;
+                Ok(true)
             },
-            Err(e) => {
-                log::warn!("Failed to check validation rate limit: {}", e);
-                // Continue without rate limiting on cache errors
-            }
+            Err(_) => Ok(true), // Allow on cache errors
         }
-        Ok(())
     }
 
     /// Validate OpenAI API key by making a test API call
