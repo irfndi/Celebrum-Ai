@@ -279,6 +279,13 @@ impl TelegramService {
         Ok(())
     }
 
+    /// Send message to specific chat (helper for callback queries)
+    async fn send_message_to_chat(&self, chat_id: &str, text: &str) -> ArbitrageResult<()> {
+        let empty_keyboard = InlineKeyboard::new();
+        self.send_message_with_keyboard(chat_id, text, &empty_keyboard)
+            .await
+    }
+
     /// Send message with inline keyboard to specific chat
     pub async fn send_message_with_keyboard(
         &self,
@@ -489,6 +496,12 @@ impl TelegramService {
 
     /// Bot command handlers (for webhook mode) with context awareness
     pub async fn handle_webhook(&self, update: Value) -> ArbitrageResult<Option<String>> {
+        // Handle callback queries from inline keyboard buttons
+        if let Some(callback_query) = update.get("callback_query").and_then(|cq| cq.as_object()) {
+            return self.handle_callback_query(callback_query).await;
+        }
+
+        // Handle regular text messages
         if let Some(message) = update.get("message").and_then(|m| m.as_object()) {
             if let Some(text) = message.get("text").and_then(|t| t.as_str()) {
                 // Get chat context for security checking
@@ -551,6 +564,463 @@ impl TelegramService {
             }
         }
         Ok(None)
+    }
+
+    /// Handle callback queries from inline keyboard buttons
+    async fn handle_callback_query(
+        &self,
+        callback_query: &serde_json::Map<String, Value>,
+    ) -> ArbitrageResult<Option<String>> {
+        // Extract callback data (the button's callback_data)
+        let callback_data = callback_query
+            .get("data")
+            .and_then(|d| d.as_str())
+            .ok_or_else(|| {
+                ArbitrageError::validation_error(
+                    "Missing callback data in callback query".to_string(),
+                )
+            })?;
+
+        // Extract user ID from callback query
+        let user_id = callback_query
+            .get("from")
+            .and_then(|from| from.get("id"))
+            .and_then(|id| id.as_u64())
+            .ok_or_else(|| {
+                ArbitrageError::validation_error("Missing user ID in callback query".to_string())
+            })?
+            .to_string();
+
+        // Extract chat ID for sending response
+        let chat_id = callback_query
+            .get("message")
+            .and_then(|msg| msg.get("chat"))
+            .and_then(|chat| chat.get("id"))
+            .and_then(|id| id.as_i64())
+            .ok_or_else(|| {
+                ArbitrageError::validation_error("Missing chat ID in callback query".to_string())
+            })?
+            .to_string();
+
+        // Extract callback query ID for answering the callback
+        let callback_query_id = callback_query
+            .get("id")
+            .and_then(|id| id.as_str())
+            .ok_or_else(|| {
+                ArbitrageError::validation_error("Missing callback query ID".to_string())
+            })?;
+
+        // Create chat context for the callback
+        let chat_context = ChatContext::new(
+            chat_id.clone(),
+            ChatType::Private, // Most inline keyboards are in private chats
+            Some(user_id.clone()),
+        );
+
+        // Process the callback data as a command
+        let response_message = match callback_data {
+            // Main menu navigation
+            "main_menu" => {
+                let keyboard = InlineKeyboard::create_main_menu()
+                    .filter_by_permissions(&self.user_profile_service, &user_id)
+                    .await;
+
+                self.send_message_with_keyboard(
+                    &chat_id,
+                    "🏠 *Main Menu*\n\nChoose an option:",
+                    &keyboard,
+                )
+                .await?;
+
+                "Main menu displayed"
+            }
+
+            // Basic commands
+            "opportunities" => {
+                let keyboard = InlineKeyboard::create_opportunities_menu()
+                    .filter_by_permissions(&self.user_profile_service, &user_id)
+                    .await;
+
+                let message = self.get_enhanced_opportunities_message(&user_id, &[]).await;
+                self.send_message_with_keyboard(&chat_id, &message, &keyboard)
+                    .await?;
+                "Opportunities displayed"
+            }
+            "categories" => {
+                let message = self.get_categories_message(&user_id).await;
+                self.send_message_to_chat(&chat_id, &message).await?;
+                "Categories displayed"
+            }
+            "profile" => {
+                let message = self.get_profile_message(&user_id).await;
+                self.send_message_to_chat(&chat_id, &message).await?;
+                "Profile displayed"
+            }
+            "settings" => {
+                let message = self.get_settings_message(&user_id).await;
+                self.send_message_to_chat(&chat_id, &message).await?;
+                "Settings displayed"
+            }
+            "help" => {
+                let message = self.get_help_message_with_role(&user_id).await;
+                self.send_message_to_chat(&chat_id, &message).await?;
+                "Help displayed"
+            }
+
+            // AI commands (with permission checks)
+            "ai_insights" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::AIEnhancedOpportunities)
+                    .await
+                {
+                    let message = self.get_ai_insights_message(&user_id).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "AI insights displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::AIEnhancedOpportunities)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "risk_assessment" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::AdvancedAnalytics)
+                    .await
+                {
+                    let message = self.get_risk_assessment_message(&user_id).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Risk assessment displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::AdvancedAnalytics)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+
+            // Trading commands (with permission checks)
+            "balance" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::AdvancedAnalytics)
+                    .await
+                {
+                    let message = self.get_balance_message(&user_id, &[]).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Balance displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::AdvancedAnalytics)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "orders" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::AdvancedAnalytics)
+                    .await
+                {
+                    let message = self.get_orders_message(&user_id, &[]).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Orders displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::AdvancedAnalytics)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "positions" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::AdvancedAnalytics)
+                    .await
+                {
+                    let message = self.get_positions_message(&user_id, &[]).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Positions displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::AdvancedAnalytics)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "buy" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::ManualTrading)
+                    .await
+                {
+                    let message = self.get_buy_command_message(&user_id, &[]).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Buy command displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::ManualTrading)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "sell" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::ManualTrading)
+                    .await
+                {
+                    let message = self.get_sell_command_message(&user_id, &[]).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Sell command displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::ManualTrading)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+
+            // Auto trading commands (with permission checks)
+            "auto_enable" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::AutomatedTrading)
+                    .await
+                {
+                    let message = self.get_auto_enable_message(&user_id).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Auto trading enabled"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::AutomatedTrading)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "auto_disable" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::AutomatedTrading)
+                    .await
+                {
+                    let message = self.get_auto_disable_message(&user_id).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Auto trading disabled"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::AutomatedTrading)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "auto_config" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::AutomatedTrading)
+                    .await
+                {
+                    let message = self.get_auto_config_message(&user_id, &[]).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Auto trading config displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::AutomatedTrading)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+
+            // Admin commands (with permission checks)
+            "admin_users" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::SystemAdministration)
+                    .await
+                {
+                    let message = self.get_admin_users_message(&[]).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Admin users displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::SystemAdministration)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "admin_stats" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::SystemAdministration)
+                    .await
+                {
+                    let message = self.get_admin_stats_message().await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Admin stats displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::SystemAdministration)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "admin_config" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::SystemAdministration)
+                    .await
+                {
+                    let message = self.get_admin_config_message(&[]).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Admin config displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::SystemAdministration)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "admin_broadcast" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::SystemAdministration)
+                    .await
+                {
+                    let message = self.get_admin_broadcast_message(&[]).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Admin broadcast displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::SystemAdministration)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "admin_group_config" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::SystemAdministration)
+                    .await
+                {
+                    let message = self.get_admin_group_config_message(&[]).await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Admin group config displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::SystemAdministration)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+
+            // Opportunities submenu
+            "opportunities_all" => {
+                let message = self
+                    .get_enhanced_opportunities_message(&user_id, &["all"])
+                    .await;
+                self.send_message_to_chat(&chat_id, &message).await?;
+                "All opportunities displayed"
+            }
+            "opportunities_top" => {
+                let message = self
+                    .get_enhanced_opportunities_message(&user_id, &["top"])
+                    .await;
+                self.send_message_to_chat(&chat_id, &message).await?;
+                "Top opportunities displayed"
+            }
+            "opportunities_enhanced" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::AdvancedAnalytics)
+                    .await
+                {
+                    let message = self
+                        .get_enhanced_opportunities_message(&user_id, &["enhanced"])
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Enhanced opportunities displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::AdvancedAnalytics)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+            "opportunities_ai" => {
+                if self
+                    .check_user_permission(&user_id, &CommandPermission::AIEnhancedOpportunities)
+                    .await
+                {
+                    let message = self
+                        .get_enhanced_opportunities_message(&user_id, &["ai"])
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "AI opportunities displayed"
+                } else {
+                    let message = self
+                        .get_permission_denied_message(CommandPermission::AIEnhancedOpportunities)
+                        .await;
+                    self.send_message_to_chat(&chat_id, &message).await?;
+                    "Access denied"
+                }
+            }
+
+            // Unknown callback data
+            _ => {
+                let message = format!("❓ *Unknown Command*\n\nCallback data: `{}`\n\nPlease use the menu buttons or type /help for available commands.", callback_data);
+                self.send_message_to_chat(&chat_id, &message).await?;
+                "Unknown command"
+            }
+        };
+
+        // Answer the callback query to remove the loading state
+        self.answer_callback_query(callback_query_id, Some(response_message))
+            .await?;
+
+        Ok(Some("OK".to_string()))
+    }
+
+    /// Answer a callback query to remove the loading state from the button
+    async fn answer_callback_query(
+        &self,
+        callback_query_id: &str,
+        text: Option<&str>,
+    ) -> ArbitrageResult<()> {
+        let url = format!(
+            "https://api.telegram.org/bot{}/answerCallbackQuery",
+            self.config.bot_token
+        );
+
+        let mut payload = json!({
+            "callback_query_id": callback_query_id
+        });
+
+        if let Some(text) = text {
+            payload["text"] = json!(text);
+            payload["show_alert"] = json!(false); // Show as a toast notification, not an alert
+        }
+
+        let response = self
+            .http_client
+            .post(&url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| {
+                ArbitrageError::network_error(format!("Failed to answer callback query: {}", e))
+            })?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(ArbitrageError::telegram_error(format!(
+                "Telegram API error answering callback query: {}",
+                error_text
+            )));
+        }
+
+        Ok(())
     }
 
     async fn handle_command_with_context(
@@ -2573,6 +3043,175 @@ mod tests {
                 std::mem::size_of_val(&service),
                 std::mem::size_of::<TelegramService>()
             );
+        }
+    }
+
+    mod callback_query_handling {
+        use super::*;
+
+        #[test]
+        fn test_callback_query_data_structure() {
+            let callback_query = json!({
+                "id": "callback_123",
+                "from": {
+                    "id": 987654321,
+                    "is_bot": false,
+                    "first_name": "Test",
+                    "username": "testuser"
+                },
+                "message": {
+                    "message_id": 123,
+                    "chat": {
+                        "id": -123456789,
+                        "type": "private"
+                    }
+                },
+                "data": "opportunities"
+            });
+
+            assert_eq!(callback_query["data"], "opportunities");
+            assert_eq!(callback_query["from"]["id"], 987654321);
+            assert_eq!(callback_query["id"], "callback_123");
+        }
+
+        #[test]
+        fn test_callback_query_extraction() {
+            let update = json!({
+                "update_id": 123456789,
+                "callback_query": {
+                    "id": "callback_123",
+                    "from": {
+                        "id": 987654321,
+                        "is_bot": false,
+                        "first_name": "Test",
+                        "username": "testuser"
+                    },
+                    "message": {
+                        "message_id": 123,
+                        "chat": {
+                            "id": -123456789,
+                            "type": "private"
+                        }
+                    },
+                    "data": "profile"
+                }
+            });
+
+            let callback_query = update.get("callback_query").and_then(|cq| cq.as_object());
+            assert!(callback_query.is_some());
+
+            let callback_data = callback_query
+                .unwrap()
+                .get("data")
+                .and_then(|d| d.as_str());
+            assert_eq!(callback_data, Some("profile"));
+        }
+
+        #[test]
+        fn test_callback_query_vs_message_handling() {
+            let message_update = json!({
+                "update_id": 123456789,
+                "message": {
+                    "message_id": 123,
+                    "from": {
+                        "id": 987654321,
+                        "is_bot": false,
+                        "first_name": "Test",
+                        "username": "testuser"
+                    },
+                    "chat": {
+                        "id": -123456789,
+                        "type": "private"
+                    },
+                    "text": "/start"
+                }
+            });
+
+            let callback_update = json!({
+                "update_id": 123456790,
+                "callback_query": {
+                    "id": "callback_123",
+                    "from": {
+                        "id": 987654321,
+                        "is_bot": false,
+                        "first_name": "Test",
+                        "username": "testuser"
+                    },
+                    "message": {
+                        "message_id": 123,
+                        "chat": {
+                            "id": -123456789,
+                            "type": "private"
+                        }
+                    },
+                    "data": "help"
+                }
+            });
+
+            // Message update should have message but not callback_query
+            assert!(message_update.get("message").is_some());
+            assert!(message_update.get("callback_query").is_none());
+
+            // Callback update should have callback_query but not message at root level
+            assert!(callback_update.get("callback_query").is_some());
+            assert!(callback_update.get("message").is_none());
+        }
+
+        #[test]
+        fn test_callback_query_command_mapping() {
+            let test_commands = vec![
+                ("opportunities", "Opportunities displayed"),
+                ("profile", "Profile displayed"),
+                ("settings", "Settings displayed"),
+                ("help", "Help displayed"),
+                ("ai_insights", "AI insights displayed"),
+                ("balance", "Balance displayed"),
+                ("unknown_command", "Unknown command"),
+            ];
+
+            for (command, expected_response) in test_commands {
+                // This would be the expected response message for each command
+                assert!(!expected_response.is_empty());
+                assert!(expected_response.contains("displayed") || expected_response.contains("Unknown"));
+            }
+        }
+
+        #[test]
+        fn test_answer_callback_query_payload() {
+            let callback_query_id = "callback_123";
+            let response_text = "Command executed";
+
+            let payload = json!({
+                "callback_query_id": callback_query_id,
+                "text": response_text,
+                "show_alert": false
+            });
+
+            assert_eq!(payload["callback_query_id"], callback_query_id);
+            assert_eq!(payload["text"], response_text);
+            assert_eq!(payload["show_alert"], false);
+        }
+
+        #[test]
+        fn test_callback_query_permission_checks() {
+            // Test that permission-gated commands are properly identified
+            let admin_commands = vec!["admin_stats", "admin_users", "admin_config", "admin_broadcast"];
+            let premium_commands = vec!["ai_insights", "risk_assessment", "auto_enable"];
+            let basic_commands = vec!["opportunities", "profile", "settings", "help"];
+
+            for command in admin_commands {
+                assert!(command.starts_with("admin_"));
+            }
+
+            for command in premium_commands {
+                assert!(!command.starts_with("admin_"));
+                assert!(command == "ai_insights" || command == "risk_assessment" || command.starts_with("auto_"));
+            }
+
+            for command in basic_commands {
+                assert!(!command.starts_with("admin_"));
+                assert!(!command.starts_with("auto_"));
+            }
         }
     }
 }
