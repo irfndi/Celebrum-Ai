@@ -61,7 +61,7 @@ fi
 # Step 3: Run tests (unless skipped)
 if [ "$SKIP_TESTS" != "true" ]; then
     print_step "Running tests"
-    if cargo test --quiet; then
+    if cargo test --quiet --all-targets; then
         print_success "Tests passed"
     else
         print_error "Tests failed"
@@ -75,7 +75,7 @@ fi
 # Step 4: Quick build check (unless skipped)
 if [ "$SKIP_BUILD" != "true" ]; then
     print_step "Quick build check"
-    if cargo check --quiet; then
+    if cargo check --quiet --all-targets; then
         print_success "Build check passed"
     else
         print_error "Build check failed"

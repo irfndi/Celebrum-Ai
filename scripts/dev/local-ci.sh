@@ -63,7 +63,16 @@ else
     exit 1
 fi
 
-# Step 4: Run linter (mirrors CI)
+# Step 4: Check compilation (mirrors CI)
+print_step "Checking compilation for all targets"
+if cargo check --all-targets --all-features; then
+    print_success "Compilation check passed"
+else
+    print_error "Compilation errors found"
+    exit 1
+fi
+
+# Step 5: Run linter (mirrors CI)
 print_step "Running clippy linter"
 if cargo clippy --all-targets --all-features -- -D warnings; then
     print_success "Clippy checks passed"
@@ -72,16 +81,16 @@ else
     exit 1
 fi
 
-# Step 5: Run tests (mirrors CI)
+# Step 6: Run tests (mirrors CI)
 print_step "Running tests"
-if cargo test --verbose; then
+if cargo test --verbose --all-targets --all-features; then
     print_success "All tests passed"
 else
     print_error "Tests failed"
     exit 1
 fi
 
-# Step 6: Build for WASM (mirrors CI)
+# Step 7: Build for WASM (mirrors CI)
 print_step "Building for WASM target"
 if cargo build --target wasm32-unknown-unknown --release; then
     print_success "WASM build successful"
@@ -90,7 +99,7 @@ else
     exit 1
 fi
 
-# Step 7: Test wrangler build (mirrors CI dry-run)
+# Step 8: Test wrangler build (mirrors CI dry-run)
 print_step "Testing wrangler build (dry-run)"
 if command -v wrangler >/dev/null 2>&1; then
     if wrangler deploy --dry-run; then

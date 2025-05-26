@@ -653,7 +653,7 @@ impl MonitoringObservabilityService {
     }
 
     /// Get metrics for a specific type
-    pub async fn get_metrics(&self, metric_type: &MetricType, hours: u64) -> Vec<MetricDataPoint> {
+    pub fn get_metrics(&self, metric_type: &MetricType, hours: u64) -> Vec<MetricDataPoint> {
         let store = match self.metrics_store.read() {
             Ok(store) => store,
             Err(_) => {
@@ -703,9 +703,9 @@ impl MonitoringObservabilityService {
             .count();
 
         // Get recent system metrics
-        let cpu_metrics = self.get_metrics(&MetricType::CpuUsagePercent, 1).await;
-        let memory_metrics = self.get_metrics(&MetricType::MemoryUsagePercent, 1).await;
-        let error_rate_metrics = self.get_metrics(&MetricType::ErrorRate, 1).await;
+        let cpu_metrics = self.get_metrics(&MetricType::CpuUsagePercent, 1);
+        let memory_metrics = self.get_metrics(&MetricType::MemoryUsagePercent, 1);
+        let error_rate_metrics = self.get_metrics(&MetricType::ErrorRate, 1);
 
         let latest_cpu = cpu_metrics.last().map(|m| m.value.as_f64()).unwrap_or(0.0);
         let latest_memory = memory_metrics
@@ -1028,9 +1028,7 @@ impl MonitoringObservabilityService {
                 } => {
                     if *rate_metric == metric.metric_type {
                         // Calculate rate over the specified time window
-                        let rate = self
-                            .calculate_metric_rate(&metric.metric_type, *window_seconds)
-                            .await;
+                        let rate = self.calculate_metric_rate(&metric.metric_type, *window_seconds);
                         match operator.as_str() {
                             ">" => rate > *value,
                             "<" => rate < *value,
@@ -1053,7 +1051,6 @@ impl MonitoringObservabilityService {
                             metric.value.as_f64(),
                             *sensitivity,
                         )
-                        .await
                     } else {
                         false
                     }
@@ -1273,8 +1270,8 @@ impl MonitoringObservabilityService {
     }
 
     /// Calculate metric rate over time window
-    async fn calculate_metric_rate(&self, metric_type: &MetricType, window_seconds: u64) -> f64 {
-        let metrics = self.get_metrics(metric_type, window_seconds / 3600).await;
+    fn calculate_metric_rate(&self, metric_type: &MetricType, window_seconds: u64) -> f64 {
+        let metrics = self.get_metrics(metric_type, window_seconds / 3600);
 
         if metrics.len() < 2 {
             return 0.0;
@@ -1299,13 +1296,13 @@ impl MonitoringObservabilityService {
     }
 
     /// Detect anomalies using statistical analysis
-    async fn detect_anomaly(
+    fn detect_anomaly(
         &self,
         metric_type: &MetricType,
         current_value: f64,
         sensitivity: f64,
     ) -> bool {
-        let historical_metrics = self.get_metrics(metric_type, 24).await;
+        let historical_metrics = self.get_metrics(metric_type, 24);
 
         if historical_metrics.len() < 10 {
             return false; // Need enough data for statistical analysis
@@ -1332,7 +1329,7 @@ impl MonitoringObservabilityService {
         match service_name {
             "database" => {
                 // Check if database queries are failing
-                let error_rate_metrics = self.get_metrics(&MetricType::ErrorRate, 1).await;
+                let error_rate_metrics = self.get_metrics(&MetricType::ErrorRate, 1);
                 if let Some(latest) = error_rate_metrics.last() {
                     latest.value.as_f64() > 0.1 // Alert if error rate > 10%
                 } else {
@@ -1341,9 +1338,7 @@ impl MonitoringObservabilityService {
             }
             "telegram_service" => {
                 // Check if telegram messages are being sent
-                let telegram_metrics = self
-                    .get_metrics(&MetricType::TelegramMessagesPerHour, 1)
-                    .await;
+                let telegram_metrics = self.get_metrics(&MetricType::TelegramMessagesPerHour, 1);
                 if let Some(latest) = telegram_metrics.last() {
                     latest.value.as_f64() == 0.0 // Alert if no messages in last hour
                 } else {
@@ -1352,7 +1347,7 @@ impl MonitoringObservabilityService {
             }
             "exchange_api" => {
                 // Check if exchange API calls are responding
-                let api_metrics = self.get_metrics(&MetricType::ExchangeApiCalls, 1).await;
+                let api_metrics = self.get_metrics(&MetricType::ExchangeApiCalls, 1);
                 if let Some(latest) = api_metrics.last() {
                     latest.value.as_f64() == 0.0 // Alert if no API calls in last hour
                 } else {
@@ -1493,7 +1488,7 @@ impl MonitoringObservabilityService {
         }
 
         // Call the original get_metrics method
-        Ok(self.get_metrics(metric_type, hours).await)
+        Ok(self.get_metrics(metric_type, hours))
     }
 }
 
@@ -1568,7 +1563,7 @@ mod tests {
 
         service.record_metric(metric).await.unwrap();
 
-        let recorded_metrics = service.get_metrics(&MetricType::CpuUsagePercent, 1).await;
+        let recorded_metrics = service.get_metrics(&MetricType::CpuUsagePercent, 1);
         assert_eq!(recorded_metrics.len(), 1);
         assert_eq!(recorded_metrics[0].value.as_f64(), 75.5);
     }

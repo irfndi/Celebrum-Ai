@@ -5,6 +5,7 @@ use crate::types::{
 use crate::services::core::infrastructure::d1::D1Service;
 use crate::services::core::infrastructure::kv::KVService;
 use std::collections::HashMap;
+use log;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;

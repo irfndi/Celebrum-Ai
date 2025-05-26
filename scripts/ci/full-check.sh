@@ -89,7 +89,7 @@ fi
 
 # Step 6: Run tests with output
 print_step "Running all tests with detailed output"
-if cargo test --all-features --verbose; then
+if cargo test --all-features --all-targets --verbose; then
     print_success "All tests passed"
 else
     print_error "Tests failed"

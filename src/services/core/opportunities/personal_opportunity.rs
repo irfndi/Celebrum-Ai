@@ -1,14 +1,14 @@
 use crate::types::{
     ArbitrageOpportunity, TechnicalOpportunity, ExchangeIdEnum, UserProfile, ChatContext,
     UserAccessLevel, OpportunityAccessResult, ExchangeCredentials, Ticker, FundingRateInfo,
-    ArbitrageType, SubscriptionTier,
+    ArbitrageType, SubscriptionTier, TechnicalSignalType, TechnicalRiskLevel, TechnicalSignalStrength,
 };
 use crate::services::core::trading::exchange::{ExchangeService, ExchangeInterface, ApiKeySource};
 use crate::services::core::user::{UserProfileService, UserAccessService};
 use crate::services::core::ai::ai_beta_integration::AIBetaIntegrationService;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use crate::log_info;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use rand::random;
 use serde_json;
@@ -914,7 +914,9 @@ impl PersonalOpportunityService {
                         
                         // Update target price based on AI analysis
                         if enhanced.success_probability > 0.7 {
-                            tech_opp.target_price = tech_opp.target_price * (1.0 + enhanced.success_probability * 0.1);
+                            if let Some(target) = tech_opp.target_price {
+                                tech_opp.target_price = Some(target * (1.0 + enhanced.success_probability * 0.1));
+                            }
                         }
                         
                         enhanced_technical.push(tech_opp);
@@ -973,7 +975,7 @@ impl PersonalOpportunityService {
         delay_seconds: u64,
     ) -> ArbitrageResult<()> {
         for opportunity in opportunities {
-            opportunity.created_at += delay_seconds * 1000; // Convert to milliseconds
+            opportunity.timestamp += delay_seconds * 1000; // Convert to milliseconds
         }
         Ok(())
     }
@@ -984,7 +986,7 @@ impl PersonalOpportunityService {
         delay_seconds: u64,
     ) -> ArbitrageResult<()> {
         for opportunity in opportunities {
-            opportunity.created_at += delay_seconds * 1000; // Convert to milliseconds
+            opportunity.timestamp += delay_seconds * 1000; // Convert to milliseconds
         }
         Ok(())
     }

@@ -333,7 +333,7 @@ mod disabled_tests {
         PriceSeries {
             exchange_id: "test_exchange".to_string(),
             trading_pair: "BTC/USDT".to_string(),
-            timeframe: TimeFrame::OneMinute,
+            timeframe: arb_edge::services::core::analysis::market_analysis::TimeFrame::OneMinute,
             data_points,
             last_updated: base_timestamp + (prices.len() as u64 * 60000),
         }
@@ -362,8 +362,8 @@ mod disabled_tests {
     fn create_test_user_preferences(
         experience_level: ExperienceLevel,
         risk_tolerance: RiskTolerance,
-    ) -> arb_edge::services::user_trading_preferences::UserTradingPreferences {
-        arb_edge::services::user_trading_preferences::UserTradingPreferences {
+    ) -> arb_edge::services::core::user::user_trading_preferences::UserTradingPreferences {
+        arb_edge::services::core::user::user_trading_preferences::UserTradingPreferences {
             user_id: "test_user".to_string(),
             trading_focus: TradingFocus::Arbitrage,
             automation_level: AutomationLevel::Manual,

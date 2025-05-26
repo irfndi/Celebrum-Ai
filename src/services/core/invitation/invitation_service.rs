@@ -221,14 +221,14 @@ impl InvitationService {
                         if let Some(role) = metadata.get("role") {
                             if role == "SuperAdmin" {
                                 // Log inconsistency between subscription_tier and metadata
-                                eprintln!("⚠️ Admin permission inconsistency for user {}: metadata role is SuperAdmin but subscription_tier is not", user_id);
+                                log::warn!("Admin permission inconsistency for user {}: metadata role is SuperAdmin but subscription_tier is not", user_id);
                                 return Ok(true);
                             }
                         }
                     }
                     Err(e) => {
                         // Log JSON parsing error for debugging
-                        eprintln!("❌ Failed to parse profile_metadata JSON for user {}: {}", user_id, e);
+                        log::error!("Failed to parse profile_metadata JSON for user {}: {}", user_id, e);
                     }
                 }
             }
