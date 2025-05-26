@@ -7,6 +7,7 @@ pub mod group_opportunity;
 pub mod opportunity_enhanced;
 pub mod technical_trading;
 pub mod opportunity_categorization;
+pub mod opportunity_distribution;
 
 pub use opportunity::OpportunityService;
 pub use global_opportunity::GlobalOpportunityService;
@@ -14,4 +15,5 @@ pub use personal_opportunity::PersonalOpportunityService;
 pub use group_opportunity::GroupOpportunityService;
 pub use opportunity_enhanced::EnhancedOpportunityService;
 pub use technical_trading::TechnicalTradingService;
-pub use opportunity_categorization::OpportunityCategorizationService; 
+pub use opportunity_categorization::OpportunityCategorizationService;
+pub use opportunity_distribution::{OpportunityDistributionService, DistributionConfig, DistributionStats}; 

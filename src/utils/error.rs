@@ -183,6 +183,15 @@ impl ArbitrageError {
     pub fn storage_error(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::Storage, message)
     }
+
+    pub fn session_not_found(identifier: impl Into<String>) -> Self {
+        Self::new(
+            ErrorKind::NotFound,
+            format!("Session not found: {}", identifier.into()),
+        )
+        .with_status(404)
+        .with_code("SESSION_NOT_FOUND")
+    }
 }
 
 // Implement From conversions for common error types

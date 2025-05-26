@@ -379,39 +379,54 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
         return Response::error("Telegram bot token not found", 500);
     };
 
-    // Initialize UserProfileService for RBAC
-    let _custom_env = types::Env::new(env.clone());
+    // Initialize services using the service container pattern
     match env.kv("ArbEdgeKV") {
         Ok(kv_store) => {
-            console_log!("✅ KV store initialized successfully for RBAC");
+            console_log!("✅ KV store initialized successfully");
+
+            // Initialize session management service directly
             match D1Service::new(&env) {
                 Ok(d1_service) => {
-                    console_log!("✅ D1Service initialized successfully for RBAC");
-                    match env.var("ENCRYPTION_KEY") {
-                        Ok(encryption_key) => {
-                            console_log!(
-                                "✅ ENCRYPTION_KEY found, initializing UserProfileService for RBAC"
-                            );
-                            let user_profile_service = UserProfileService::new(
-                                kv_store,
-                                d1_service,
-                                encryption_key.to_string(),
-                            );
-                            telegram_service.set_user_profile_service(user_profile_service);
-                            console_log!("✅ RBAC UserProfileService initialized successfully");
+                    console_log!("✅ D1Service initialized successfully for session management");
+                    let kv_service =
+                        services::core::infrastructure::KVService::new(kv_store.clone());
+                    let session_management_service =
+                        services::core::user::session_management::SessionManagementService::new(
+                            d1_service, kv_service,
+                        );
+                    telegram_service.set_session_management_service(session_management_service);
+                    console_log!("✅ SessionManagementService initialized successfully");
+
+                    // Initialize UserProfileService for RBAC if encryption key is available
+                    if let Ok(encryption_key) = env.var("ENCRYPTION_KEY") {
+                        console_log!(
+                            "✅ ENCRYPTION_KEY found, initializing UserProfileService for RBAC"
+                        );
+                        match D1Service::new(&env) {
+                            Ok(user_d1_service) => {
+                                let user_profile_service = UserProfileService::new(
+                                    kv_store,
+                                    user_d1_service,
+                                    encryption_key.to_string(),
+                                );
+                                telegram_service.set_user_profile_service(user_profile_service);
+                                console_log!("✅ RBAC UserProfileService initialized successfully");
+                            }
+                            Err(e) => {
+                                console_log!("❌ RBAC WARNING: Failed to create D1Service for user profiles: {:?}", e);
+                            }
                         }
-                        Err(e) => {
-                            console_log!("❌ RBAC SECURITY WARNING: ENCRYPTION_KEY not found - UserProfileService not initialized: {:?}", e);
-                        }
+                    } else {
+                        console_log!("❌ RBAC SECURITY WARNING: ENCRYPTION_KEY not found - UserProfileService not initialized");
                     }
                 }
                 Err(e) => {
-                    console_log!("❌ RBAC SECURITY WARNING: D1Service initialization failed - UserProfileService not initialized: {:?}", e);
+                    console_log!("❌ SESSION WARNING: Failed to initialize D1Service for session management: {:?}", e);
                 }
             }
         }
         Err(e) => {
-            console_log!("❌ RBAC SECURITY WARNING: KV store initialization failed - UserProfileService not initialized: {:?}", e);
+            console_log!("❌ CRITICAL WARNING: KV store initialization failed - services not initialized: {:?}", e);
         }
     }
 
@@ -452,7 +467,7 @@ async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> 
         Err(e) => return Response::error(format!("Failed to fetch user profile: {}", e), 500),
     };
     let account_info = AccountInfo {
-        total_balance_usd: user_profile.total_pnl_usdt, // TODO: Replace with real balance field when available
+        total_balance_usd: user_profile.account_balance_usdt, // Using proper balance field
     };
 
     match positions_service
@@ -521,7 +536,7 @@ async fn handle_close_position(_req: Request, env: Env, id: &str) -> Result<Resp
 }
 
 async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
-    let custom_env = types::Env::new(env);
+    let custom_env = types::Env::new(env.clone());
 
     // Create opportunity service using helper
     let opportunity_service = create_opportunity_service(&custom_env).await?;
@@ -534,6 +549,121 @@ async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
         opportunity_service
             .process_opportunities(&opportunities)
             .await?;
+    }
+
+    // Session cleanup and opportunity distribution (every 5 minutes)
+    // Check if this is a 5-minute interval (cron runs every minute)
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    if now % 300 == 0 {
+        // Every 5 minutes
+        // Initialize session management for cleanup
+        if let Ok(kv_store) = env.kv("ArbEdgeKV") {
+            if let Ok(_d1_service) = D1Service::new(&env) {
+                let _kv_service = services::core::infrastructure::KVService::new(kv_store.clone());
+                let d1_service_for_session = match D1Service::new(&env) {
+                    Ok(service) => service,
+                    Err(e) => {
+                        console_log!("❌ Failed to create D1 service for session: {}", e);
+                        return Ok(());
+                    }
+                };
+                let kv_service_for_session =
+                    services::core::infrastructure::KVService::new(kv_store.clone());
+                let session_service =
+                    services::core::user::session_management::SessionManagementService::new(
+                        d1_service_for_session,
+                        kv_service_for_session,
+                    );
+
+                // Cleanup expired sessions
+                match session_service.cleanup_expired_sessions().await {
+                    Ok(cleanup_count) => {
+                        if cleanup_count > 0 {
+                            console_log!("✅ Cleaned up {} expired sessions", cleanup_count);
+                        }
+                    }
+                    Err(e) => {
+                        console_log!("❌ Session cleanup failed: {}", e);
+                    }
+                }
+
+                // Initialize opportunity distribution service
+                let d1_service_for_distribution = match D1Service::new(&env) {
+                    Ok(service) => service,
+                    Err(e) => {
+                        console_log!("❌ Failed to create D1 service for distribution: {}", e);
+                        return Ok(());
+                    }
+                };
+                let kv_service_for_distribution =
+                    services::core::infrastructure::KVService::new(kv_store.clone());
+                let mut distribution_service =
+                    services::core::opportunities::opportunity_distribution::OpportunityDistributionService::new(
+                        d1_service_for_distribution,
+                        kv_service_for_distribution,
+                        session_service.clone(),
+                    );
+
+                // Initialize TelegramService for push notifications
+                if let (Ok(bot_token), Ok(chat_id)) =
+                    (env.var("TELEGRAM_BOT_TOKEN"), env.var("TELEGRAM_CHAT_ID"))
+                {
+                    let telegram_config =
+                        services::interfaces::telegram::telegram::TelegramConfig {
+                            bot_token: bot_token.to_string(),
+                            chat_id: chat_id.to_string(),
+                            is_test_mode: false,
+                        };
+                    let telegram_service =
+                        services::interfaces::telegram::telegram::TelegramService::new(
+                            telegram_config,
+                        );
+                    distribution_service.set_notification_sender(Box::new(telegram_service));
+                    console_log!(
+                        "✅ TelegramService integrated with OpportunityDistributionService"
+                    );
+                }
+
+                // Check for opportunities to distribute
+                match opportunity_service.monitor_opportunities().await {
+                    Ok(opportunities) => {
+                        if !opportunities.is_empty() {
+                            console_log!(
+                                "🔄 Distributing {} opportunities to eligible users",
+                                opportunities.len()
+                            );
+
+                            // Distribute each opportunity to eligible users
+                            for opportunity in opportunities {
+                                match distribution_service
+                                    .distribute_opportunity(opportunity)
+                                    .await
+                                {
+                                    Ok(distributed_count) => {
+                                        if distributed_count > 0 {
+                                            console_log!(
+                                                "✅ Distributed opportunity to {} users",
+                                                distributed_count
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        console_log!("❌ Failed to distribute opportunity: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        console_log!("❌ Failed to monitor opportunities for distribution: {}", e);
+                    }
+                }
+            }
+        }
     }
 
     Ok(())

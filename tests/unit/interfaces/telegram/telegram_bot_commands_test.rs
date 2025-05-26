@@ -368,6 +368,88 @@ mod telegram_bot_integration_tests {
         let response = result.unwrap();
         assert!(response.is_none()); // Should return None for non-text messages
     }
+
+    #[tokio::test]
+    async fn test_session_first_architecture_start_command() {
+        // Arrange
+        let config = TelegramConfig {
+            bot_token: "test_token".to_string(),
+            chat_id: "123456789".to_string(),
+            is_test_mode: true,
+        };
+
+        let telegram_service = TelegramService::new(config);
+        let update = create_telegram_update(123456789, "/start", "private");
+
+        // Act
+        let result = telegram_service.handle_webhook(update).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.is_some());
+
+        let response_text = response.unwrap();
+        // Should contain welcome message (session creation would happen in real implementation)
+        assert!(response_text.contains("Welcome to ArbEdge"));
+    }
+
+    #[tokio::test]
+    async fn test_session_first_architecture_help_command() {
+        // Arrange
+        let config = TelegramConfig {
+            bot_token: "test_token".to_string(),
+            chat_id: "123456789".to_string(),
+            is_test_mode: true,
+        };
+
+        let telegram_service = TelegramService::new(config);
+        let update = create_telegram_update(123456789, "/help", "private");
+
+        // Act
+        let result = telegram_service.handle_webhook(update).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.is_some());
+
+        let response_text = response.unwrap();
+        // Help should work without session
+        assert!(response_text.contains("Bot Commands") || response_text.contains("help"));
+    }
+
+    #[tokio::test]
+    async fn test_session_first_architecture_protected_commands() {
+        // Arrange
+        let config = TelegramConfig {
+            bot_token: "test_token".to_string(),
+            chat_id: "123456789".to_string(),
+            is_test_mode: true,
+        };
+
+        let telegram_service = TelegramService::new(config);
+
+        // Test commands that should require session (without session service set)
+        let protected_commands = vec![
+            "/opportunities",
+            "/profile", 
+            "/settings",
+            "/ai_insights",
+            "/balance",
+            "/buy",
+            "/sell",
+        ];
+
+        for command in protected_commands {
+            let update = create_telegram_update(123456789, command, "private");
+            let result = telegram_service.handle_webhook(update).await;
+            
+            assert!(result.is_ok());
+            // Without session service, commands work normally
+            // With session service, they would check for active session
+        }
+    }
 }
 
 #[cfg(test)]

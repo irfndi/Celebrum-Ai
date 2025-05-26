@@ -183,6 +183,60 @@ pub enum ChatContext {
 - Personal opportunity AI generation using user's exchange APIs
 - Hybrid AI analysis combining global and personal opportunities
 
+### **FR6.11**: The system must implement comprehensive session management and push notification system
+- **Session-First Architecture**: All commands require active session (except `/start` and `/help`)
+- **Active Session Definition**: User has started with `/start`, session not expired (7-day activity-based), not terminated
+- **Activity-Based Extension**: Any bot interaction extends session expiration by 7 days
+- **Push Notification Eligibility**: Multi-layer filtering (session, subscription, preferences, rate limits, technical compatibility, compliance)
+- **Automated Opportunity Distribution**: Background service distributes opportunities to eligible users with active sessions
+- **User Preference Management**: Granular control over push notification types and timing
+- **Rate Limiting Integration**: Daily and hourly limits shared between on-demand and push notifications
+- **Group Context Support**: Enhanced limits for group/channel contexts with 2x multiplier
+
+**Session Management Requirements**:
+```rust
+pub struct SessionManagementService {
+    // Session lifecycle management
+    pub async fn start_session(&self, telegram_id: i64) -> ArbitrageResult<EnhancedUserSession>;
+    pub async fn validate_session(&self, user_id: &str) -> ArbitrageResult<bool>;
+    pub async fn update_activity(&self, user_id: &str) -> ArbitrageResult<()>;
+    pub async fn cleanup_expired_sessions(&self) -> ArbitrageResult<u32>;
+    
+    // Push notification eligibility
+    pub async fn is_eligible_for_push(&self, user_id: &str, opportunity: &ArbitrageOpportunity) -> ArbitrageResult<bool>;
+}
+```
+
+**Push Notification Distribution Requirements**:
+```rust
+pub struct OpportunityDistributionService {
+    // Automated distribution
+    pub async fn distribute_opportunity(&self, opportunity: &ArbitrageOpportunity) -> ArbitrageResult<u32>;
+    pub async fn get_eligible_users(&self, opportunity: &ArbitrageOpportunity) -> ArbitrageResult<Vec<String>>;
+    pub async fn process_notification_queue(&self) -> ArbitrageResult<u32>;
+    
+    // User preference management
+    pub async fn update_user_preferences(&self, user_id: &str, preferences: &NotificationPreferences) -> ArbitrageResult<()>;
+}
+```
+
+**Storage Architecture Requirements**:
+- **D1 Database**: `user_sessions`, `opportunity_distribution_queue`, `user_notification_preferences`, `distribution_analytics`
+- **KV Store**: `session_cache:{telegram_id}`, `rate_limit:{user_id}:{date}`, `temp_session_data:{session_id}`
+- **Durable Objects**: Real-time coordination for session management, opportunity distribution, rate limiting
+- **Pipelines + R2**: High-volume market data ingestion (100MB/sec), analytics storage, audit logs
+- **Performance Targets**: Session lookup <50ms, push distribution 1000+/minute, cleanup operations <5 minutes
+
+**Testing Requirements**:
+- **Unit Tests**: >90% coverage for session management and distribution services
+- **Integration Tests**: Database, KV cache, Telegram bot integration
+- **End-to-End Tests**: Complete user journey from session creation to push notification delivery
+- **E2E Webhook Tests**: Real Telegram webhook integration testing for production parity validation
+- **Performance Tests**: Session lookup performance, distribution scalability, cleanup efficiency
+- **Security Tests**: Session hijacking prevention, unauthorized push prevention, data privacy
+- **Load Tests**: Concurrent session creation, high-volume push notifications
+- **Production Parity Tests**: Webhook testing ensures local/testing matches Cloudflare Workers production exactly
+
 2. Enhanced Goals and Objectives
 
 **Secure Global Opportunity System**: Provide centralized opportunity detection using read-only admin APIs with complete trading isolation
@@ -797,6 +851,13 @@ VIP or Users Tier:
 - **User Trading Separation**: Individual user API keys remain completely separate from global data APIs
 - **Admin Trading API**: Super admin uses separate API keys with trading capabilities for personal automated trading
 - **Risk Isolation**: No risk of users accessing super admin trading capabilities through global opportunity system
+
+**FR6.1.1**: The system must implement hybrid Cloudflare infrastructure architecture
+- **Durable Objects**: Real-time coordination for session management, opportunity distribution, and rate limiting
+- **Pipelines + R2**: High-volume data ingestion (100MB/sec) for market data, analytics, and audit logs
+- **KV Store**: Fast caching layer for session validation and rate limiting
+- **D1 Database**: Structured data storage for core application data
+- **Hybrid Data Flow**: Real-time operations via Durable Objects, batch processing via Pipelines + R2
 
 **FR6.2**: The system must implement comprehensive service layer architecture
 - **ExchangeService**: Real-time market data fetching with API rate limiting and connection pooling

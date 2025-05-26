@@ -195,6 +195,15 @@ impl UserProfileService {
         Ok((api_key, secret))
     }
 
+    /// Execute a query on the D1 database for analytics and logging
+    pub async fn execute_query(
+        &self,
+        query: &str,
+        params: &[serde_json::Value],
+    ) -> ArbitrageResult<()> {
+        self.d1_service.execute(query, params).await
+    }
+
     // Session Management (KV only for fast access)
     pub async fn store_user_session(&self, session: &UserSession) -> ArbitrageResult<()> {
         let key = format!("user_session:{}", session.telegram_chat_id);

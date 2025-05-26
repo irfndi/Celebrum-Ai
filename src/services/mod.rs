@@ -4,11 +4,13 @@
 pub mod core {
     pub mod user {
         pub mod dynamic_config;
+        pub mod session_management;
         pub mod user_access;
         pub mod user_profile;
         pub mod user_trading_preferences;
 
         pub use dynamic_config::DynamicConfigService;
+        pub use session_management::SessionManagementService;
         pub use user_profile::UserProfileService;
         pub use user_trading_preferences::UserTradingPreferencesService;
     }
@@ -29,12 +31,16 @@ pub mod core {
         pub mod global_opportunity;
         pub mod opportunity;
         pub mod opportunity_categorization;
+        pub mod opportunity_distribution;
         pub mod opportunity_enhanced;
         pub mod technical_trading;
 
         pub use global_opportunity::GlobalOpportunityService;
         pub use opportunity::OpportunityService;
         pub use opportunity_categorization::OpportunityCategorizationService;
+        pub use opportunity_distribution::{
+            DistributionConfig, DistributionStats, OpportunityDistributionService,
+        };
         pub use opportunity_enhanced::EnhancedOpportunityService;
         pub use technical_trading::TechnicalTradingService;
     }
@@ -75,13 +81,17 @@ pub mod core {
     // }
 
     pub mod infrastructure {
+        pub mod cloudflare_pipelines;
         pub mod d1_database;
         pub mod fund_monitoring;
+        pub mod kv_service;
         pub mod monitoring_observability;
         pub mod notifications;
 
+        pub use cloudflare_pipelines::CloudflarePipelinesService;
         pub use d1_database::D1Service;
         pub use fund_monitoring::FundMonitoringService;
+        pub use kv_service::KVService;
         pub use monitoring_observability::MonitoringObservabilityService;
         pub use notifications::NotificationService;
     }
@@ -119,16 +129,20 @@ pub use core::analysis::{
     CorrelationAnalysisService, MarketAnalysisService, TechnicalAnalysisService,
 };
 pub use core::infrastructure::{
-    D1Service, FundMonitoringService, MonitoringObservabilityService, NotificationService,
+    CloudflarePipelinesService, D1Service, FundMonitoringService, KVService,
+    MonitoringObservabilityService, NotificationService,
 };
 // TODO: Re-enable when invitation services compilation errors are fixed
 // pub use core::invitation::{AffiliationService, InvitationService, ReferralService};
 pub use core::opportunities::{
     EnhancedOpportunityService, GlobalOpportunityService, OpportunityCategorizationService,
-    OpportunityService, TechnicalTradingService,
+    OpportunityDistributionService, OpportunityService, TechnicalTradingService,
 };
 pub use core::trading::{
     AiExchangeRouterService, ExchangeAvailabilityService, ExchangeService, PositionsService,
 };
-pub use core::user::{DynamicConfigService, UserProfileService, UserTradingPreferencesService};
+pub use core::user::{
+    DynamicConfigService, SessionManagementService, UserProfileService,
+    UserTradingPreferencesService,
+};
 pub use interfaces::telegram::{InlineKeyboard, InlineKeyboardButton, TelegramService};

@@ -1298,6 +1298,7 @@ mod tests {
             is_active: true,
             total_trades: 0,
             total_pnl_usdt: 0.0,
+            account_balance_usdt: 10000.0, // Default test balance
             profile_metadata: None,
             beta_expires_at: None,
         }

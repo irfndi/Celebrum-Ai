@@ -54,6 +54,11 @@ impl D1Service {
         Ok(D1Service { db })
     }
 
+    /// Get a reference to the underlying D1 database
+    pub fn database(&self) -> &D1Database {
+        &self.db
+    }
+
     // ============= USER PROFILE OPERATIONS =============
 
     /// Create a new user profile in D1 database
@@ -88,8 +93,8 @@ impl D1Service {
                 user_id, telegram_id, username, api_keys, 
                 subscription_tier, trading_preferences, 
                 created_at, updated_at, last_login_at, account_status, 
-                beta_expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                beta_expires_at, account_balance_usdt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ",
         );
 
@@ -115,6 +120,7 @@ impl D1Service {
                 .map(|t| t as i64)
                 .unwrap_or(0)
                 .into(),
+            profile.account_balance_usdt.into(),
         ])
         .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
         .run()
@@ -1065,6 +1071,11 @@ impl D1Service {
 
         let total_pnl_usdt = 0.0f64; // Default value since column doesn't exist yet
 
+        let account_balance_usdt = row
+            .get("account_balance_usdt")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+
         // Parse profile_metadata field
         let profile_metadata = row
             .get("profile_metadata")
@@ -1092,6 +1103,7 @@ impl D1Service {
             is_active,
             total_trades,
             total_pnl_usdt,
+            account_balance_usdt,
             profile_metadata,
             beta_expires_at,
         })

@@ -30,15 +30,15 @@ lib-tests: ## Run library tests only
 
 unit-tests: ## Run unit tests
 	@echo "🧪 Running unit tests..."
-	@cargo test --test d1_database_unit_test --test notifications_unit_test --test global_opportunity_unit_test --test user_profile_unit_test --test exchange_service_unit_test --test technical_trading_service_unit_test
+	@cargo test --test mod
 
 integration-tests: ## Run integration tests
 	@echo "🧪 Running integration tests..."
-	@cargo test --test comprehensive_service_integration_test --test market_data_pipeline_test --test telegram_bot_commands_test --test telegram_advanced_commands_test
+	@cargo test --test session_opportunity_integration_test
 
 e2e-tests: ## Run E2E tests
 	@echo "🧪 Running E2E tests..."
-	@cargo test --test service_integration_e2e_test --test user_journey_e2e_test --test rbac_comprehensive_user_journey_test
+	@cargo test --test webhook_session_management_test
 
 # Build commands
 build: ## Build for native target
