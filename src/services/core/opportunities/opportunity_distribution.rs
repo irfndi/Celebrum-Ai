@@ -650,6 +650,11 @@ mod tests {
         };
 
         // Test message formatting
+        let long_exchange_name = format!("{:?}", opportunity.long_exchange);
+        let short_exchange_name = format!("{:?}", opportunity.short_exchange);
+        let expiry_minutes =
+            (global_opp.expiry_timestamp - global_opp.detection_timestamp) / (60 * 1000);
+
         let message = format!(
             "🚀 *New Arbitrage Opportunity*\n\n\
             📈 **Pair:** `{}`\n\
@@ -660,12 +665,12 @@ mod tests {
             ⏰ **Expires:** {} minutes\n\n\
             🎯 Use `/opportunities` for more details\\!",
             opportunity.pair,
-            format!("{:?}", opportunity.long_exchange),
-            format!("{:?}", opportunity.short_exchange),
+            long_exchange_name,
+            short_exchange_name,
             opportunity.rate_difference * 100.0,
             opportunity.potential_profit_value.unwrap_or(0.0),
             global_opp.priority_score,
-            (global_opp.expiry_timestamp - global_opp.detection_timestamp) / (60 * 1000)
+            expiry_minutes
         );
 
         assert!(message.contains("BTCUSDT"));
@@ -676,7 +681,7 @@ mod tests {
     #[tokio::test]
     async fn test_fairness_algorithm() {
         // Test different distribution strategies
-        let eligible_users = vec![
+        let eligible_users = [
             "user_001".to_string(),
             "user_002".to_string(),
             "user_003".to_string(),

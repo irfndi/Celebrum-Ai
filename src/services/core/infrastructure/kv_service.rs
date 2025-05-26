@@ -1,15 +1,19 @@
 use crate::utils::error::ArbitrageError;
 use crate::utils::ArbitrageResult;
+use std::sync::Arc;
 use worker::kv::KvStore;
 
 /// Simple KV service wrapper for consistent KV operations
+#[derive(Clone)]
 pub struct KVService {
-    kv_store: KvStore,
+    kv_store: Arc<KvStore>,
 }
 
 impl KVService {
     pub fn new(kv_store: KvStore) -> Self {
-        Self { kv_store }
+        Self {
+            kv_store: Arc::new(kv_store),
+        }
     }
 
     /// Get a value from KV store

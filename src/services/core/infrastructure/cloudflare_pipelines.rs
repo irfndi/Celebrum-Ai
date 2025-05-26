@@ -1,5 +1,6 @@
 use crate::utils::ArbitrageResult;
 use serde_json::json;
+use uuid::Uuid;
 
 /// Configuration for Cloudflare Pipelines integration
 #[derive(Debug, Clone)]
@@ -118,10 +119,10 @@ impl CloudflarePipelinesService {
         distribution_latency_ms: u64,
     ) -> ArbitrageResult<()> {
         let event = AnalyticsEvent {
-            event_id: format!("dist_{}", "random_id"),
+            event_id: format!("dist_{}", Uuid::new_v4()),
             event_type: "opportunity_distributed".to_string(),
             user_id: "system".to_string(),
-            timestamp: 0, // Would use current timestamp
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
             opportunity_id: Some(opportunity_id.to_string()),
             pair: Some(pair.to_string()),
             rate_difference: Some(rate_difference),
@@ -137,15 +138,15 @@ impl CloudflarePipelinesService {
     pub async fn record_session_analytics(
         &self,
         user_id: &str,
-        _session_id: &str,
+        session_id: &str,
         _activity_type: &str,
         session_duration: u64,
     ) -> ArbitrageResult<()> {
         let event = AnalyticsEvent {
-            event_id: format!("session_{}", "random_id"),
+            event_id: format!("session_{}_{}", session_id, Uuid::new_v4()),
             event_type: "session_activity".to_string(),
             user_id: user_id.to_string(),
-            timestamp: 0, // Would use current timestamp
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
             opportunity_id: None,
             pair: None,
             rate_difference: None,
@@ -168,10 +169,10 @@ impl CloudflarePipelinesService {
         error_details: Option<&str>,
     ) -> ArbitrageResult<()> {
         let event = AuditEvent {
-            audit_id: format!("audit_{}", "random_id"),
+            audit_id: format!("audit_{}", Uuid::new_v4()),
             user_id: user_id.to_string(),
             action_type: action_type.to_string(),
-            timestamp: 0, // Would use current timestamp
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
             session_id: session_id.map(|s| s.to_string()),
             command_executed: command.map(|c| c.to_string()),
             success,

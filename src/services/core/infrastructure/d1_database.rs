@@ -4,6 +4,7 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid;
 use worker::{D1Database, Env, Result};
 
@@ -43,19 +44,22 @@ type AiOpportunityAnalysis =
 
 /// D1Service provides database operations using Cloudflare D1 SQL database
 /// This service handles persistent storage for user profiles, invitations, analytics, orders, opporunities, etc.
+#[derive(Clone)]
 pub struct D1Service {
-    db: D1Database,
+    db: Arc<D1Database>,
 }
 
 impl D1Service {
     /// Create a new D1Service instance
     pub fn new(env: &Env) -> Result<Self> {
         let db = env.d1("ArbEdgeD1")?;
-        Ok(D1Service { db })
+        Ok(D1Service { db: Arc::new(db) })
     }
 
     /// Get a reference to the underlying D1 database
-    pub fn database(&self) -> &D1Database {
+    /// WARNING: This method exposes raw database access and should only be used internally
+    /// Consider using high-level methods instead of direct database access
+    pub(crate) fn database(&self) -> &D1Database {
         &self.db
     }
 

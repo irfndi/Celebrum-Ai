@@ -30,8 +30,6 @@ ON opportunity_distribution_analytics (distribution_timestamp, pair, distributed
 CREATE INDEX IF NOT EXISTS idx_opportunity_distribution_analytics_performance 
 ON opportunity_distribution_analytics (detection_timestamp, distribution_timestamp);
 
--- Add comments for documentation
-PRAGMA table_info(opportunity_distribution_analytics);
-
--- Verify table creation
-SELECT name FROM sqlite_master WHERE type='table' AND name='opportunity_distribution_analytics'; 
+-- Record migration completion
+INSERT INTO migration_tracking (migration_id, migration_name, applied_at) 
+VALUES ('014', 'add_opportunity_distribution_analytics', CURRENT_TIMESTAMP); 

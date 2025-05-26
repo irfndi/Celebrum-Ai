@@ -1439,7 +1439,7 @@ impl UserSession {
     pub fn new(user_id: String, telegram_chat_id: i64) -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_millis() as u64;
 
         Self {
@@ -1456,7 +1456,7 @@ impl UserSession {
     pub fn is_expired(&self) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_millis() as u64;
         now > self.expires_at
     }
@@ -1464,7 +1464,7 @@ impl UserSession {
     pub fn extend_session(&mut self) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_millis() as u64;
         self.expires_at = now + (24 * 60 * 60 * 1000); // Extend by 24 hours
     }
@@ -1498,14 +1498,25 @@ pub enum EnhancedSessionState {
     Terminated,
 }
 
+impl EnhancedSessionState {
+    pub fn to_db_string(&self) -> &'static str {
+        match self {
+            EnhancedSessionState::Active => "active",
+            EnhancedSessionState::Expired => "expired",
+            EnhancedSessionState::Terminated => "terminated",
+        }
+    }
+}
+
 impl EnhancedUserSession {
     pub fn new(user_id: String, telegram_id: i64) -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_millis() as u64;
 
-        let session_id = format!("sess_{}_{}", telegram_id, now);
+        // Use UUID for session ID to prevent collisions
+        let session_id = format!("sess_{}_{}", telegram_id, uuid::Uuid::new_v4());
 
         Self {
             session_id,
@@ -1526,7 +1537,7 @@ impl EnhancedUserSession {
     pub fn is_expired(&self) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_millis() as u64;
         now > self.expires_at || self.session_state == EnhancedSessionState::Expired
     }
@@ -1538,7 +1549,7 @@ impl EnhancedUserSession {
     pub fn update_activity(&mut self) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_millis() as u64;
 
         self.last_activity_at = now;
@@ -1554,7 +1565,7 @@ impl EnhancedUserSession {
         self.onboarding_completed = true;
         self.updated_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_millis() as u64;
     }
 
@@ -1562,7 +1573,7 @@ impl EnhancedUserSession {
         self.preferences_set = true;
         self.updated_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_millis() as u64;
     }
 
@@ -1570,7 +1581,7 @@ impl EnhancedUserSession {
         self.session_state = EnhancedSessionState::Terminated;
         self.updated_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_millis() as u64;
     }
 
@@ -1578,7 +1589,7 @@ impl EnhancedUserSession {
         self.session_state = EnhancedSessionState::Expired;
         self.updated_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_millis() as u64;
     }
 
@@ -1586,7 +1597,7 @@ impl EnhancedUserSession {
         self.metadata = Some(metadata);
         self.updated_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_millis() as u64;
     }
 

@@ -38,11 +38,6 @@ impl SessionManagementService {
         telegram_id: i64,
         user_id: String,
     ) -> ArbitrageResult<EnhancedUserSession> {
-        let _now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-
         // Check if user already has an active session
         if let Ok(existing_session) = self.get_session_by_telegram_id(telegram_id).await {
             if existing_session.is_active() {
@@ -216,14 +211,8 @@ impl SessionManagementService {
         // This would check if user has compatible exchange APIs
 
         // Layer 6: Context & compliance
-        // Basic context validation
-        match _chat_context {
-            ChatContext::Private => true,
-            ChatContext::Group(_) | ChatContext::Channel(_) => {
-                // Groups get enhanced limits but same eligibility rules
-                true
-            }
-        };
+        // Basic context validation - all contexts are currently eligible
+        // Groups get enhanced limits but same eligibility rules
 
         // For now, return true if session is valid (other layers to be implemented)
         Ok(true)
@@ -368,7 +357,7 @@ impl SessionManagementService {
             session.session_id.clone().into(),
             session.user_id.clone().into(),
             JsValue::from_f64(session.telegram_id as f64),
-            format!("{:?}", session.session_state).to_lowercase().into(),
+            session.session_state.to_db_string().into(),
             JsValue::from_f64(session.started_at as f64),
             JsValue::from_f64(session.last_activity_at as f64),
             JsValue::from_f64(session.expires_at as f64),
@@ -403,7 +392,7 @@ impl SessionManagementService {
         };
 
         stmt.bind(&[
-            format!("{:?}", session.session_state).to_lowercase().into(),
+            session.session_state.to_db_string().into(),
             JsValue::from_f64(session.last_activity_at as f64),
             JsValue::from_f64(session.expires_at as f64),
             session.onboarding_completed.into(),

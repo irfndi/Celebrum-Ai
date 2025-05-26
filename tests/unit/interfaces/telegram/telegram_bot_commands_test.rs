@@ -446,8 +446,39 @@ mod telegram_bot_integration_tests {
             let result = telegram_service.handle_webhook(update).await;
             
             assert!(result.is_ok());
-            // Without session service, commands work normally
-            // With session service, they would check for active session
+            
+            // Verify the response indicates session is required
+            if let Ok(Some(response)) = result {
+                // The response should contain session-related messaging
+                assert!(
+                    response.contains("session") || 
+                    response.contains("start") || 
+                    response.contains("welcome") ||
+                    response.contains("Please") ||
+                    response.contains("first"),
+                    "Protected command '{}' should indicate session requirement, got: '{}'", 
+                    command, response
+                );
+            }
+        }
+
+        // Test that session-exempt commands work without session requirements
+        let exempt_commands = vec!["/start", "/help"];
+        
+        for command in exempt_commands {
+            let update = create_telegram_update(123456789, command, "private");
+            let result = telegram_service.handle_webhook(update).await;
+            
+            assert!(result.is_ok());
+            
+            // These commands should work without session requirements
+            if let Ok(Some(response)) = result {
+                assert!(
+                    !response.is_empty(),
+                    "Exempt command '{}' should provide a response", 
+                    command
+                );
+            }
         }
     }
 }

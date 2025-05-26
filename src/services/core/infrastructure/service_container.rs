@@ -8,13 +8,13 @@ use std::sync::Arc;
 
 /// Service container for managing session and opportunity distribution services
 /// Provides centralized dependency injection and service lifecycle management
-pub struct SessionDistributionServiceContainer {
+pub struct ServiceContainer {
     pub session_service: SessionManagementService,
     pub distribution_service: OpportunityDistributionService,
     pub telegram_service: Option<Arc<TelegramService>>,
 }
 
-impl SessionDistributionServiceContainer {
+impl ServiceContainer {
     /// Create a new service container with all dependencies
     pub fn new(env: &Env, kv_store: KvStore) -> ArbitrageResult<Self> {
         // Create infrastructure services
@@ -49,9 +49,10 @@ impl SessionDistributionServiceContainer {
     pub fn set_telegram_service(&mut self, telegram_service: TelegramService) {
         let arc_telegram_service = Arc::new(telegram_service);
         
-        // Set telegram service in distribution service (when it supports Arc)
-        // Note: This requires updating OpportunityDistributionService to accept Arc<TelegramService>
-        // For now, we'll store it in the container
+        // Set telegram service in distribution service
+        self.distribution_service.set_notification_sender(Box::new(arc_telegram_service.clone()));
+        
+        // Store the Arc for container access
         self.telegram_service = Some(arc_telegram_service);
     }
 

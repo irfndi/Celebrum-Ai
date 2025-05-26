@@ -8,13 +8,13 @@ pub mod integration_test_basic;
 pub mod webhook_session_management_test;
 
 // User Journey Tests - Complete user workflows from start to finish
-// pub mod user_journey_e2e_test;
+pub mod user_journey_e2e_test;
 
 // Service Integration Tests - Cross-service data flow and interaction testing
-// pub mod service_integration_e2e_test;
+pub mod service_integration_e2e_test;
 
 // RBAC Comprehensive Tests - Role-based access control validation
-// pub mod rbac_comprehensive_user_journey_test;
+pub mod rbac_comprehensive_user_journey_test;
 
 // Invitation System Tests - Complete invitation flow testing
 // Disabled test moved to tests/disabled/

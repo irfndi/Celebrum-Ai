@@ -76,7 +76,7 @@ async fn test_e2e_session_validation_for_protected_commands() {
     let user_id = 123456789i64;
 
     // Test protected commands that should require session
-    let protected_commands = vec![
+    let protected_commands = [
         "/opportunities",
         "/profile",
         "/settings",
@@ -138,7 +138,7 @@ async fn test_e2e_session_exempt_commands() {
     let user_id = 123456789i64;
 
     // Test exempt commands
-    let exempt_commands = vec!["/start", "/help"];
+    let exempt_commands = ["/start", "/help"];
 
     for command in exempt_commands {
         let webhook = json!({
@@ -192,7 +192,7 @@ async fn test_e2e_callback_query_session_validation() {
     let user_id = 123456789i64;
 
     // Test callback queries that should require session
-    let callback_data_options = vec![
+    let callback_data_options = [
         "opportunities",
         "buy_btc",
         "sell_eth",
@@ -261,7 +261,7 @@ async fn test_e2e_session_activity_extension() {
     let user_id = 123456789i64;
 
     // Simulate user activity over time
-    let activities = vec![
+    let activities = [
         "/start",
         "/opportunities",
         "/profile",
@@ -320,7 +320,7 @@ async fn test_e2e_group_chat_session_restrictions() {
     let group_id = -987654321i64;
 
     // Test trading commands in group chat (should be restricted)
-    let restricted_commands = vec![
+    let restricted_commands = [
         "/balance",
         "/buy BTC",
         "/sell ETH",

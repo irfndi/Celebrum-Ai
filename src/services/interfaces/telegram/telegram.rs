@@ -32,6 +32,7 @@ use crate::utils::formatter::{
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::sync::Arc;
 use worker::console_log;
 
 // ============= CHAT CONTEXT DETECTION TYPES =============
@@ -400,7 +401,9 @@ impl TelegramService {
             ];
 
             // Execute the query (ignore errors to not break message flow)
-            let _ = user_profile_service.execute_query(query, &params).await;
+            let _ = user_profile_service
+                .execute_write_operation(query, &params)
+                .await;
         }
 
         Ok(())
@@ -474,18 +477,22 @@ impl TelegramService {
                     .map(|c| serde_json::Value::Number(c.into()))
                     .unwrap_or(serde_json::Value::Null),
                 serde_json::Value::String(
-                    serde_json::to_string(&registration.admin_user_ids).unwrap_or_default(),
+                    serde_json::to_string(&registration.admin_user_ids)
+                        .unwrap_or_else(|_| "[]".to_string()),
                 ),
                 serde_json::Value::String(
-                    serde_json::to_string(&registration.bot_permissions).unwrap_or_default(),
+                    serde_json::to_string(&registration.bot_permissions)
+                        .unwrap_or_else(|_| "{}".to_string()),
                 ),
                 serde_json::Value::String(
-                    serde_json::to_string(&registration.enabled_features).unwrap_or_default(),
+                    serde_json::to_string(&registration.enabled_features)
+                        .unwrap_or_else(|_| "[]".to_string()),
                 ),
                 serde_json::Value::Bool(registration.global_opportunities_enabled),
                 serde_json::Value::Bool(registration.technical_analysis_enabled),
                 serde_json::Value::String(
-                    serde_json::to_string(&registration.rate_limit_config).unwrap_or_default(),
+                    serde_json::to_string(&registration.rate_limit_config)
+                        .unwrap_or_else(|_| "{}".to_string()),
                 ),
                 serde_json::Value::Number(registration.registered_at.into()),
                 serde_json::Value::Number(registration.last_activity.into()),
@@ -496,7 +503,10 @@ impl TelegramService {
                     .unwrap_or(serde_json::Value::Null),
             ];
 
-            if let Err(e) = user_profile_service.execute_query(query, &params).await {
+            if let Err(e) = user_profile_service
+                .execute_write_operation(query, &params)
+                .await
+            {
                 console_log!("❌ Failed to store group registration in database: {}", e);
                 // Don't fail the registration if database storage fails
             } else {
@@ -703,7 +713,10 @@ impl TelegramService {
                 serde_json::Value::String(chat_id.to_string()),
             ];
 
-            if let Err(e) = user_profile_service.execute_query(query, &params).await {
+            if let Err(e) = user_profile_service
+                .execute_write_operation(query, &params)
+                .await
+            {
                 console_log!("❌ Failed to update group member count in database: {}", e);
                 // Don't fail the update if database storage fails
             } else {
@@ -1535,7 +1548,15 @@ impl TelegramService {
         // Session-first architecture: Validate session for all commands except /start and /help
         if !self.is_session_exempt_command(command) {
             if let Some(session_service) = &self.session_management_service {
-                let telegram_id = user_id.parse::<i64>().unwrap_or(0);
+                let telegram_id = match user_id.parse::<i64>() {
+                    Ok(id) => id,
+                    Err(_) => {
+                        return Ok(Some(
+                            "❌ *Error*\n\nInvalid user ID format\\. Please contact support\\."
+                                .to_string(),
+                        ));
+                    }
+                };
 
                 // Check if user has active session
                 if !session_service
@@ -1590,7 +1611,12 @@ impl TelegramService {
                 "/start" => {
                     // Handle session creation for /start command
                     if let Some(session_service) = &self.session_management_service {
-                        let telegram_id = user_id.parse::<i64>().unwrap_or(0);
+                        let telegram_id = match user_id.parse::<i64>() {
+                            Ok(id) => id,
+                            Err(_) => {
+                                return Ok(Some("❌ *Error*\n\nInvalid user ID format\\. Please contact support\\.".to_string()));
+                            }
+                        };
                         match session_service
                             .start_session(telegram_id, user_id.to_string())
                             .await
@@ -3420,6 +3446,30 @@ impl NotificationSender for TelegramService {
 
     async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
         self.send_message_to_chat(chat_id, message).await
+    }
+}
+
+// Implement NotificationSender for Arc<TelegramService> to enable shared ownership
+#[async_trait::async_trait]
+impl NotificationSender for Arc<TelegramService> {
+    async fn send_opportunity_notification(
+        &self,
+        chat_id: &str,
+        opportunity: &ArbitrageOpportunity,
+        is_private: bool,
+    ) -> ArbitrageResult<bool> {
+        // Use the trait implementation from TelegramService
+        <TelegramService as NotificationSender>::send_opportunity_notification(
+            self,
+            chat_id,
+            opportunity,
+            is_private,
+        )
+        .await
+    }
+
+    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
+        (**self).send_message_to_chat(chat_id, message).await
     }
 }
 

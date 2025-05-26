@@ -20,7 +20,7 @@ The current Telegram bot implementation allows users to access commands without 
 4. **User Preference Management**: Granular control over automated notifications
 5. **Comprehensive Analytics**: Session tracking and engagement metrics
 
-**Key Design Principle: Session-First**
+### Key Design Principle: Session-First
 - **No Session**: Only `/start` and `/help` commands work
 - **Active Session**: Access to all commands based on user privileges
 - **Both opportunity types** (on-demand and push) require active session
@@ -38,7 +38,7 @@ The current Telegram bot implementation allows users to access commands without 
 3. **User Preference Management**: Allow users to customize what automated notifications they receive
 4. **Background Distribution Service**: Intelligent opportunity distribution with rate limiting
 
-**Key Design Principle: Hybrid Approach**
+### Key Design Principle: Hybrid Approach
 - **Quick Users**: Continue using `/opportunities` on-demand without any session requirement
 - **Engaged Users**: Start session with `/start` to receive automated push notifications + on-demand access
 - **Both systems share**: Same opportunity detection, permissions, and daily rate limits
@@ -209,21 +209,21 @@ The current Telegram bot implementation allows users to access commands without 
 
 **4-Level Validation Pipeline**:
 
-**Level 1: Market Validation**
+#### Level 1: Market Validation
 - Price spread > minimum threshold (configurable per opportunity type)
 - Sufficient liquidity on both exchanges (arbitrage) or single exchange (technical)
 - Exchange API availability and response time validation
 - Network latency acceptable (<2 seconds for API calls)
 - Market volatility within acceptable range
 
-**Level 2: Technical Validation**
+#### Level 2: Technical Validation
 - Historical success rate for similar patterns (>60% success rate required)
 - Market volatility within acceptable range (not during major news events)
 - No major news events affecting target assets (news API integration)
 - Correlation analysis with existing user positions (prevent overexposure)
 - Technical indicator confirmation (RSI, MACD, volume analysis)
 
-**Level 3: User-Specific Validation**
+#### Level 3: User-Specific Validation
 - **Active session required** (session-first architecture enforcement)
 - User has required exchange API keys for opportunity execution
 - Opportunity matches user's risk tolerance and trading preferences
@@ -231,7 +231,7 @@ The current Telegram bot implementation allows users to access commands without 
 - Trading hours compliance (user timezone and active hours)
 - Subscription tier allows opportunity type access
 
-**Level 4: AI Enhancement & Final Scoring**
+#### Level 4: AI Enhancement & Final Scoring
 - AI confidence scoring (>70% confidence required for distribution)
 - Risk assessment and position sizing recommendations
 - Timing optimization based on market conditions
