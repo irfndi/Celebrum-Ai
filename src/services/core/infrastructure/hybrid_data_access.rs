@@ -121,6 +121,33 @@ pub struct HybridDataAccessService {
 }
 
 impl HybridDataAccessService {
+    /// Constructor for compatibility with services expecting new(env)
+    pub fn new_from_env(env: &worker::Env) -> ArbitrageResult<Self> {
+        let kv_store = env.kv("MARKET_DATA_KV").map_err(|e| {
+            ArbitrageError::configuration_error(format!("Failed to get KV store: {}", e))
+        })?;
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+
+        Ok(Self {
+            pipelines_service: None,
+            super_admin_configs: HashMap::new(),
+            kv_store,
+            logger,
+            metrics: DataAccessMetrics {
+                total_requests: 0,
+                pipeline_hits: 0,
+                cache_hits: 0,
+                api_calls: 0,
+                fallback_calls: 0,
+                average_latency_ms: 0.0,
+                success_rate: 0.0,
+                last_updated: 0,
+            },
+            cache_ttl_seconds: 300,
+        })
+    }
+
+    /// Keep existing constructor for flexibility
     pub fn new(
         pipelines_service: Option<CloudflarePipelinesService>,
         kv_store: KvStore,
@@ -323,7 +350,7 @@ impl HybridDataAccessService {
                 self.metrics.api_calls += 1;
 
                 // Cache for future use
-                let _ = self.cache_funding_rate(&funding_rate).await;
+                let _ = self.cache_funding_rate(&funding_rate, exchange).await;
 
                 // Store to pipeline if available
                 if let Some(ref pipelines) = self.pipelines_service {
@@ -399,8 +426,8 @@ impl HybridDataAccessService {
         let cache_key = format!("hybrid_market_data:{}:{}", exchange, symbol);
 
         match self.kv_store.get(&cache_key).text().await {
-            Ok(cached_data) => {
-                match serde_json::from_str::<MarketDataSnapshot>(&cached_data.unwrap_or_default()) {
+            Ok(Some(cached_data)) => {
+                match serde_json::from_str::<MarketDataSnapshot>(&cached_data) {
                     Ok(data) => Ok(data),
                     Err(e) => Err(ArbitrageError::parse_error(format!(
                         "Failed to parse cached market data: {}",
@@ -408,6 +435,7 @@ impl HybridDataAccessService {
                     ))),
                 }
             }
+            Ok(None) => Err(ArbitrageError::not_found("Cache miss for market data")),
             Err(e) => Err(ArbitrageError::cache_error(format!(
                 "Failed to retrieve cached market data: {}",
                 e
@@ -683,15 +711,14 @@ impl HybridDataAccessService {
         let cache_key = format!("hybrid_funding_rate:{}:{}", exchange, symbol);
 
         match self.kv_store.get(&cache_key).text().await {
-            Ok(cached_data) => {
-                match serde_json::from_str::<FundingRateInfo>(&cached_data.unwrap_or_default()) {
-                    Ok(data) => Ok(data),
-                    Err(e) => Err(ArbitrageError::parse_error(format!(
-                        "Failed to parse cached funding rate: {}",
-                        e
-                    ))),
-                }
-            }
+            Ok(Some(cached_data)) => match serde_json::from_str::<FundingRateInfo>(&cached_data) {
+                Ok(data) => Ok(data),
+                Err(e) => Err(ArbitrageError::parse_error(format!(
+                    "Failed to parse cached funding rate: {}",
+                    e
+                ))),
+            },
+            Ok(None) => Err(ArbitrageError::not_found("Cache miss for funding rate")),
             Err(e) => Err(ArbitrageError::cache_error(format!(
                 "Failed to retrieve cached funding rate: {}",
                 e
@@ -806,8 +833,12 @@ impl HybridDataAccessService {
     }
 
     /// Cache funding rate
-    async fn cache_funding_rate(&self, funding_rate: &FundingRateInfo) -> ArbitrageResult<()> {
-        let cache_key = format!("hybrid_funding_rate:{}:{}", "exchange", funding_rate.symbol);
+    async fn cache_funding_rate(
+        &self,
+        funding_rate: &FundingRateInfo,
+        exchange: &ExchangeIdEnum,
+    ) -> ArbitrageResult<()> {
+        let cache_key = format!("hybrid_funding_rate:{}:{}", exchange, funding_rate.symbol);
         let cache_value = serde_json::to_string(funding_rate)?;
 
         self.kv_store

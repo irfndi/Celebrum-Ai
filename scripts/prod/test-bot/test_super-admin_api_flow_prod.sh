@@ -4,7 +4,7 @@
 # Tests super-admin functionality with real D1 database data
 # Validates core system functionality for production deployment
 
-set -e
+set -euo pipefail
 
 # Configuration
 BASE_URL="${BASE_URL:-https://arb-edge.irfandimarsya.workers.dev}"
@@ -24,6 +24,18 @@ NC='\033[0m' # No Color
 TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
+
+# Pre-flight checks for required external commands
+echo "🔍 Checking required external commands..."
+REQUIRED_COMMANDS=("wrangler" "jq" "curl")
+for cmd in "${REQUIRED_COMMANDS[@]}"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "❌ Error: Required command '$cmd' is not installed or not in PATH"
+        echo "💡 Please install $cmd and ensure it's available in your PATH"
+        exit 1
+    fi
+    echo "✅ Found: $cmd"
+done
 
 # Create test output directory
 mkdir -p "$TEST_OUTPUT_DIR"

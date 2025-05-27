@@ -586,7 +586,8 @@ async fn run_five_minute_maintenance(
         };
         let telegram_service =
             services::interfaces::telegram::telegram::TelegramService::new(telegram_config);
-        distribution_service.set_notification_sender(Box::new(telegram_service));
+        distribution_service
+            .set_notification_sender(Box::new(std::sync::Arc::new(telegram_service)));
         console_log!("✅ TelegramService integrated with OpportunityDistributionService");
     }
 

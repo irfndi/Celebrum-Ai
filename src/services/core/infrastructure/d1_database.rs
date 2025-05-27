@@ -1725,6 +1725,7 @@ impl D1Service {
 
     /// Execute multiple operations within a transaction
     /// If any operation fails, the entire transaction is rolled back
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn execute_transaction<F, T>(&self, operations: F) -> ArbitrageResult<T>
     where
         F: FnOnce(
@@ -1732,6 +1733,36 @@ impl D1Service {
         ) -> std::pin::Pin<
             Box<dyn std::future::Future<Output = ArbitrageResult<T>> + Send + '_>,
         >,
+    {
+        // Begin transaction
+        self.begin_transaction().await?;
+
+        // Execute operations
+        match operations(self).await {
+            Ok(result) => {
+                // Commit on success
+                self.commit_transaction().await?;
+                Ok(result)
+            }
+            Err(e) => {
+                // Rollback on failure
+                if let Err(rollback_err) = self.rollback_transaction().await {
+                    log::error!("Failed to rollback transaction: {:?}", rollback_err);
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Execute multiple operations within a transaction (WASM version without Send bounds)
+    /// If any operation fails, the entire transaction is rolled back
+    #[cfg(target_arch = "wasm32")]
+    pub async fn execute_transaction<F, T>(&self, operations: F) -> ArbitrageResult<T>
+    where
+        F: FnOnce(
+            &Self,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = ArbitrageResult<T>> + '_>>,
     {
         // Begin transaction
         self.begin_transaction().await?;

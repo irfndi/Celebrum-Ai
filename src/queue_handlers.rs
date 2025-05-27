@@ -50,8 +50,17 @@ pub async fn notification_queue_handler(
 ) -> Result<()> {
     console_log!("Processing notification batch: {} messages", message_batch.messages().len());
 
+    // Initialize telegram service once for the entire batch
+    let telegram_service = match initialize_telegram_service(&env).await {
+        Ok(service) => Some(service),
+        Err(e) => {
+            console_error!("Failed to initialize telegram service: {}", e);
+            None
+        }
+    };
+
     for message in message_batch.messages() {
-        match process_notification_message(message.body(), &env).await {
+        match process_notification_message(message.body(), &env, telegram_service.as_ref()).await {
             Ok(_) => {
                 console_log!("Successfully processed notification message: {}", message.body().message_id);
                 message.ack();
@@ -75,8 +84,17 @@ pub async fn analytics_queue_handler(
 ) -> Result<()> {
     console_log!("Processing analytics batch: {} messages", message_batch.messages().len());
 
+    // Initialize analytics service once for the entire batch
+    let analytics_service = match initialize_analytics_service(&env).await {
+        Ok(service) => Some(service),
+        Err(e) => {
+            console_error!("Failed to initialize analytics service: {}", e);
+            None
+        }
+    };
+
     for message in message_batch.messages() {
-        match process_analytics_message(message.body(), &env).await {
+        match process_analytics_message(message.body(), &env, analytics_service.as_ref()).await {
             Ok(_) => {
                 console_log!("Successfully processed analytics message: {}", message.body().event_id);
                 message.ack();
@@ -122,9 +140,17 @@ async fn process_opportunity_message(
                 
                 telegram_service.send_private_message(&notification_text, user_id).await?;
             }
-            _ => {
-                // Handle other distribution strategies
-                console_log!("Processing distribution strategy: {:?}", message.distribution_strategy);
+            crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::RoundRobin => {
+                // TODO: Implement round-robin distribution logic
+                console_log!("Round-robin distribution not yet implemented for user: {}", user_id);
+            }
+            crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::PriorityBased => {
+                // TODO: Implement priority-based distribution logic
+                console_log!("Priority-based distribution not yet implemented for user: {}", user_id);
+            }
+            crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::GeographicBased => {
+                // TODO: Implement geographic-based distribution logic
+                console_log!("Geographic-based distribution not yet implemented for user: {}", user_id);
             }
         }
     }
@@ -135,11 +161,14 @@ async fn process_opportunity_message(
 /// Process user notification message
 async fn process_notification_message(
     message: &UserNotificationMessage,
-    env: &Env,
+    _env: &Env,
+    telegram_service: Option<&crate::services::interfaces::telegram::telegram::TelegramService>,
 ) -> ArbitrageResult<()> {
     match message.delivery_method {
         crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::Telegram => {
-            let telegram_service = initialize_telegram_service(env).await?;
+            let telegram_service = telegram_service.ok_or_else(|| {
+                crate::utils::ArbitrageError::configuration_error("Telegram service not available")
+            })?;
             telegram_service.send_private_message(&message.content, &message.user_id).await?;
         }
         crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::Email => {
@@ -150,13 +179,13 @@ async fn process_notification_message(
                 "Email delivery not yet implemented - tracked in issue #123"
             ));
         }
-        crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::Push => {
-            console_log!("Push notification delivery not yet implemented for message: {}", message.message_id);
+        crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::WebPush => {
+            console_log!("WebPush notification delivery not yet implemented for message: {}", message.message_id);
             return Err(crate::utils::ArbitrageError::configuration_error(
-                "Push notification delivery not yet implemented"
+                "WebPush notification delivery not yet implemented"
             ));
         }
-        crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::Sms => {
+        crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::SMS => {
             console_log!("SMS delivery not yet implemented for message: {}", message.message_id);
             return Err(crate::utils::ArbitrageError::configuration_error(
                 "SMS delivery not yet implemented"
@@ -170,10 +199,13 @@ async fn process_notification_message(
 /// Process analytics event message
 async fn process_analytics_message(
     message: &AnalyticsEventMessage,
-    env: &Env,
+    _env: &Env,
+    analytics_service: Option<&crate::services::core::infrastructure::analytics_engine::AnalyticsEngineClient>,
 ) -> ArbitrageResult<()> {
-    // Initialize Analytics Engine service
-    let analytics_service = initialize_analytics_service(env).await?;
+    // Use the pre-initialized analytics service
+    let analytics_service = analytics_service.ok_or_else(|| {
+        crate::utils::ArbitrageError::configuration_error("Analytics service not available")
+    })?;
     
     // Send event to Analytics Engine
     let event_data = vec![serde_json::json!({

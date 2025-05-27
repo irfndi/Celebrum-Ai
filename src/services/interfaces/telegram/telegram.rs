@@ -31,10 +31,42 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
 use worker::console_log;
+
+// WASM-compatible sleep function
+#[cfg(target_arch = "wasm32")]
+async fn wasm_sleep(millis: u64) {
+    use wasm_bindgen::prelude::*;
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures;
+
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        let resolve_clone = resolve.clone();
+        let closure = Closure::wrap(Box::new(move || {
+            resolve_clone.call0(&JsValue::NULL).unwrap();
+        }) as Box<dyn FnMut()>);
+
+        web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                closure.as_ref().unchecked_ref(),
+                millis as i32,
+            )
+            .unwrap();
+
+        closure.forget();
+    });
+
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
+// Non-WASM sleep function using tokio
+#[cfg(not(target_arch = "wasm32"))]
+async fn wasm_sleep(millis: u64) {
+    tokio::time::sleep(Duration::from_millis(millis)).await;
+}
 
 // ============= USER PREFERENCES AND PERSONALIZATION TYPES =============
 
@@ -420,12 +452,12 @@ pub struct TelegramService {
     #[allow(dead_code)]
     positions_service: Option<PositionsService<worker::kv::KvStore>>,
     // Performance and Reliability
-    cache: Arc<RwLock<std::collections::HashMap<String, CacheEntry<String>>>>,
-    rate_limits: Arc<RwLock<std::collections::HashMap<String, RateLimitEntry>>>,
-    performance_metrics: Arc<RwLock<PerformanceMetrics>>,
+    cache: Arc<Mutex<std::collections::HashMap<String, CacheEntry<String>>>>,
+    rate_limits: Arc<Mutex<std::collections::HashMap<String, RateLimitEntry>>>,
+    performance_metrics: Arc<Mutex<PerformanceMetrics>>,
     retry_config: RetryConfig,
     // User Preferences and Personalization
-    user_preferences: Arc<RwLock<std::collections::HashMap<String, UserPreferences>>>,
+    user_preferences: Arc<Mutex<std::collections::HashMap<String, UserPreferences>>>,
 }
 
 #[allow(dead_code)]
@@ -454,11 +486,11 @@ impl TelegramService {
             exchange_service: None,
             positions_service: None,
             // Performance and Reliability
-            cache: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            rate_limits: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            performance_metrics: Arc::new(RwLock::new(PerformanceMetrics::default())),
+            cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            rate_limits: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            performance_metrics: Arc::new(Mutex::new(PerformanceMetrics::default())),
             retry_config: RetryConfig::default(),
-            user_preferences: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            user_preferences: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -6503,7 +6535,7 @@ impl TelegramService {
         max_requests: u32,
         window_duration: Duration,
     ) -> bool {
-        let mut rate_limits = self.rate_limits.write().await;
+        let mut rate_limits = self.rate_limits.lock().unwrap();
 
         match rate_limits.get_mut(user_id) {
             Some(entry) => {
@@ -6512,7 +6544,7 @@ impl TelegramService {
                     true
                 } else {
                     // Update metrics
-                    if let Ok(mut metrics) = self.performance_metrics.try_write() {
+                    if let Ok(mut metrics) = self.performance_metrics.lock() {
                         metrics.rate_limit_hits += 1;
                     }
                     false
@@ -6527,12 +6559,12 @@ impl TelegramService {
 
     /// Get cached data if available and not expired
     async fn get_cached_data(&self, cache_key: &str) -> Option<String> {
-        let cache = self.cache.read().await;
+        let cache = self.cache.lock().unwrap();
 
         if let Some(entry) = cache.get(cache_key) {
             if !entry.is_expired() {
                 // Update metrics
-                if let Ok(mut metrics) = self.performance_metrics.try_write() {
+                if let Ok(mut metrics) = self.performance_metrics.lock() {
                     metrics.cache_hits += 1;
                 }
                 return Some(entry.data.clone());
@@ -6540,7 +6572,7 @@ impl TelegramService {
         }
 
         // Update metrics
-        if let Ok(mut metrics) = self.performance_metrics.try_write() {
+        if let Ok(mut metrics) = self.performance_metrics.lock() {
             metrics.cache_misses += 1;
         }
         None
@@ -6548,7 +6580,7 @@ impl TelegramService {
 
     /// Store data in cache with TTL
     async fn set_cached_data(&self, cache_key: String, data: String, ttl: Duration) {
-        let mut cache = self.cache.write().await;
+        let mut cache = self.cache.lock().unwrap();
         cache.insert(cache_key, CacheEntry::new(data, ttl));
     }
 
@@ -6568,7 +6600,7 @@ impl TelegramService {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     // Update metrics
-                    if let Ok(mut metrics) = self.performance_metrics.try_write() {
+                    if let Ok(mut metrics) = self.performance_metrics.lock() {
                         metrics.retry_attempts += 1;
                     }
 
@@ -6582,7 +6614,7 @@ impl TelegramService {
                     }
 
                     // Wait before retry with exponential backoff
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                    wasm_sleep(delay).await;
                     delay = std::cmp::min(
                         (delay as f64 * self.retry_config.backoff_multiplier) as u64,
                         self.retry_config.max_delay_ms,
@@ -6621,7 +6653,7 @@ impl TelegramService {
             Ok(result) => Ok(result),
             Err(_) => {
                 // Update metrics
-                if let Ok(mut metrics) = self.performance_metrics.try_write() {
+                if let Ok(mut metrics) = self.performance_metrics.lock() {
                     metrics.fallback_activations += 1;
                 }
                 fallback_operation().await
@@ -6631,7 +6663,7 @@ impl TelegramService {
 
     /// Record command performance metrics
     async fn record_command_metrics(&self, response_time_ms: u64, is_error: bool) {
-        if let Ok(mut metrics) = self.performance_metrics.try_write() {
+        if let Ok(mut metrics) = self.performance_metrics.lock() {
             metrics.command_count += 1;
             metrics.total_response_time_ms += response_time_ms;
             if is_error {
@@ -6642,7 +6674,7 @@ impl TelegramService {
 
     /// Get performance statistics
     async fn get_performance_stats(&self) -> String {
-        let metrics = self.performance_metrics.read().await;
+        let metrics = self.performance_metrics.lock().unwrap();
 
         let avg_response_time = if metrics.command_count > 0 {
             metrics.total_response_time_ms / metrics.command_count
@@ -6683,13 +6715,13 @@ impl TelegramService {
 
     /// Clean expired cache entries
     async fn cleanup_cache(&self) {
-        let mut cache = self.cache.write().await;
+        let mut cache = self.cache.lock().unwrap();
         cache.retain(|_, entry| !entry.is_expired());
     }
 
     /// Clean expired rate limit entries
     async fn cleanup_rate_limits(&self) {
-        let mut rate_limits = self.rate_limits.write().await;
+        let mut rate_limits = self.rate_limits.lock().unwrap();
         rate_limits.retain(|_, entry| entry.window_start.elapsed() <= entry.window_duration);
     }
 
@@ -6760,7 +6792,7 @@ impl TelegramService {
 
     /// Get user preferences, creating default if not exists
     async fn get_user_preferences(&self, user_id: &str) -> UserPreferences {
-        let preferences = self.user_preferences.read().await;
+        let preferences = self.user_preferences.lock().unwrap();
 
         match preferences.get(user_id) {
             Some(prefs) => prefs.clone(),
@@ -6771,7 +6803,7 @@ impl TelegramService {
                     ..Default::default()
                 };
 
-                let mut preferences_write = self.user_preferences.write().await;
+                let mut preferences_write = self.user_preferences.lock().unwrap();
                 preferences_write.insert(user_id.to_string(), default_prefs.clone());
                 default_prefs
             }
@@ -6786,7 +6818,7 @@ impl TelegramService {
             ..preferences
         };
 
-        let mut prefs = self.user_preferences.write().await;
+        let mut prefs = self.user_preferences.lock().unwrap();
         prefs.insert(user_id.to_string(), updated_prefs);
     }
 
@@ -7094,7 +7126,7 @@ impl TelegramService {
     }
 }
 
-// Implementation of NotificationSender trait for TelegramService
+// Implementation of NotificationSender trait for TelegramService (non-WASM)
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
 impl crate::services::core::opportunities::opportunity_distribution::NotificationSender
@@ -7134,7 +7166,89 @@ impl crate::services::core::opportunities::opportunity_distribution::Notificatio
     }
 }
 
+// Implementation of NotificationSender trait for TelegramService (WASM)
+#[cfg(target_arch = "wasm32")]
+#[async_trait::async_trait(?Send)]
+impl crate::services::core::opportunities::opportunity_distribution::NotificationSender
+    for TelegramService
+{
+    async fn send_opportunity_notification(
+        &self,
+        chat_id: &str,
+        opportunity: &ArbitrageOpportunity,
+        _is_private: bool,
+    ) -> ArbitrageResult<bool> {
+        // Format the opportunity message
+        let message = format!(
+            "🚀 *New Arbitrage Opportunity* 💰\n\n\
+            **Trading Pair:** `{}`\n\
+            **Profit Potential:** {:.2}%\n\
+            **Buy Exchange:** {}\n\
+            **Sell Exchange:** {}\n\
+            **Volume:** ${:.2}\n\n\
+            💡 *Act fast!* This opportunity may not last long\\.",
+            escape_markdown_v2(&opportunity.pair),
+            opportunity.rate_difference,
+            escape_markdown_v2(&opportunity.long_exchange.to_string()),
+            escape_markdown_v2(&opportunity.short_exchange.to_string()),
+            opportunity.potential_profit_value.unwrap_or(0.0)
+        );
+
+        // Send the message to the specified chat
+        match self.send_message_to_chat(chat_id, &message).await {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false), // Return false instead of propagating error for notification failures
+        }
+    }
+
+    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
+        self.send_message_to_chat(chat_id, message).await
+    }
+}
+
 // Implementation for Arc<TelegramService> to support shared ownership
+#[cfg(target_arch = "wasm32")]
+#[async_trait::async_trait(?Send)]
+impl crate::services::core::opportunities::opportunity_distribution::NotificationSender
+    for Arc<TelegramService>
+{
+    async fn send_opportunity_notification(
+        &self,
+        chat_id: &str,
+        opportunity: &ArbitrageOpportunity,
+        _is_private: bool,
+    ) -> ArbitrageResult<bool> {
+        // Format the opportunity message
+        let message = format!(
+            "🚀 *New Arbitrage Opportunity* 💰\n\n\
+            **Trading Pair:** `{}`\n\
+            **Profit Potential:** {:.2}%\n\
+            **Buy Exchange:** {}\n\
+            **Sell Exchange:** {}\n\
+            **Volume:** ${:.2}\n\n\
+            💡 *Act fast!* This opportunity may not last long\\.",
+            escape_markdown_v2(&opportunity.pair),
+            opportunity.rate_difference,
+            escape_markdown_v2(&opportunity.long_exchange.to_string()),
+            escape_markdown_v2(&opportunity.short_exchange.to_string()),
+            opportunity.potential_profit_value.unwrap_or(0.0)
+        );
+
+        // Send the message to the specified chat
+        match self.as_ref().send_message_to_chat(chat_id, &message).await {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false), // Return false instead of propagating error for notification failures
+        }
+    }
+
+    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
+        // Delegate to the inner TelegramService
+        self.as_ref().send_message_to_chat(chat_id, message).await
+    }
+}
+
+// Implementation for Arc<TelegramService> to support shared ownership (non-WASM)
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
 impl crate::services::core::opportunities::opportunity_distribution::NotificationSender
     for Arc<TelegramService>
@@ -7562,7 +7676,7 @@ mod tests {
             .await;
 
         // Wait for expiration
-        tokio::time::sleep(Duration::from_millis(2)).await;
+        wasm_sleep(2).await;
 
         // Cleanup should remove expired entries
         service.cleanup_cache().await;
@@ -7583,7 +7697,7 @@ mod tests {
             .await;
 
         // Wait for window to expire
-        tokio::time::sleep(Duration::from_millis(2)).await;
+        wasm_sleep(2).await;
 
         // Cleanup should remove expired entries
         service.cleanup_rate_limits().await;
