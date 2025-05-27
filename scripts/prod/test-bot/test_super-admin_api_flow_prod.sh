@@ -61,6 +61,7 @@ run_test() {
     local status_code
     
     status_code=$(curl "${curl_args[@]}" \
+        --max-time 30 \
         -w "%{http_code}" \
         -s \
         -o "$response_file" \
@@ -307,39 +308,28 @@ run_test "AI Risk Assessment - Super Admin" "200" \
     -H "Content-Type: application/json" \
     -d '{"portfolio": {"BTC": 1.0, "ETH": 5.0}}'
 
+# Helper function to generate Telegram payload
+generate_telegram_payload() {
+    local command="$1"
+    jq -n \
+        --arg telegram_id "$SUPER_ADMIN_TELEGRAM_ID" \
+        --arg command "$command" \
+        '{
+            "message": {
+                "chat": {"id": ($telegram_id | tonumber)},
+                "from": {"id": ($telegram_id | tonumber), "username": "superadmin"},
+                "text": $command
+            }
+        }'
+}
+
 # 9. Telegram Bot Integration Tests
 log "${YELLOW}🤖 TELEGRAM BOT INTEGRATION TESTS${NC}"
 
-# Test Telegram webhook with super admin - using jq to safely construct JSON
-TELEGRAM_START_PAYLOAD=$(jq -n \
-    --arg telegram_id "$SUPER_ADMIN_TELEGRAM_ID" \
-    '{
-        "message": {
-            "chat": {"id": ($telegram_id | tonumber)},
-            "from": {"id": ($telegram_id | tonumber), "username": "superadmin"},
-            "text": "/start"
-        }
-    }')
-
-TELEGRAM_OPPORTUNITIES_PAYLOAD=$(jq -n \
-    --arg telegram_id "$SUPER_ADMIN_TELEGRAM_ID" \
-    '{
-        "message": {
-            "chat": {"id": ($telegram_id | tonumber)},
-            "from": {"id": ($telegram_id | tonumber), "username": "superadmin"},
-            "text": "/opportunities"
-        }
-    }')
-
-TELEGRAM_ADMIN_STATS_PAYLOAD=$(jq -n \
-    --arg telegram_id "$SUPER_ADMIN_TELEGRAM_ID" \
-    '{
-        "message": {
-            "chat": {"id": ($telegram_id | tonumber)},
-            "from": {"id": ($telegram_id | tonumber), "username": "superadmin"},
-            "text": "/admin_stats"
-        }
-    }')
+# Test Telegram webhook with super admin - using helper function for payload generation
+TELEGRAM_START_PAYLOAD=$(generate_telegram_payload "/start")
+TELEGRAM_OPPORTUNITIES_PAYLOAD=$(generate_telegram_payload "/opportunities")
+TELEGRAM_ADMIN_STATS_PAYLOAD=$(generate_telegram_payload "/admin_stats")
 
 run_test "Telegram Start Command - Super Admin" "200" \
     "" \
@@ -366,7 +356,7 @@ log "${YELLOW}⚡ PERFORMANCE TESTS${NC}"
 log "${BLUE}Testing concurrent requests with super admin${NC}"
 start_time=$(date +%s)
 
-for i in {1..20}; do
+for _ in {1..20}; do
     curl -X GET "$BASE_URL/api/v1/opportunities" \
         -H "X-User-ID: $SUPER_ADMIN_USER_ID" \
         -s -o /dev/null &

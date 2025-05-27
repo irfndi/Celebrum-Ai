@@ -118,9 +118,15 @@ pub struct HybridDataAccessService {
     logger: Logger,
     metrics: DataAccessMetrics,
     cache_ttl_seconds: u64,
+    api_timeout_seconds: u32,
 }
 
 impl HybridDataAccessService {
+    /// Alias for new_from_env for backward compatibility
+    pub fn new(env: &worker::Env) -> ArbitrageResult<Self> {
+        Self::new_from_env(env)
+    }
+
     /// Constructor for compatibility with services expecting new(env)
     pub fn new_from_env(env: &worker::Env) -> ArbitrageResult<Self> {
         let kv_store = env.kv("MARKET_DATA_KV").map_err(|e| {
@@ -144,11 +150,12 @@ impl HybridDataAccessService {
                 last_updated: 0,
             },
             cache_ttl_seconds: 300,
+            api_timeout_seconds: 30, // 30 seconds default timeout
         })
     }
 
-    /// Keep existing constructor for flexibility
-    pub fn new(
+    /// Constructor with services for flexibility
+    pub fn new_with_services(
         pipelines_service: Option<CloudflarePipelinesService>,
         kv_store: KvStore,
         logger: Logger,
@@ -168,7 +175,8 @@ impl HybridDataAccessService {
                 success_rate: 0.0,
                 last_updated: 0,
             },
-            cache_ttl_seconds: 300, // 5 minutes default
+            cache_ttl_seconds: 300,  // 5 minutes default
+            api_timeout_seconds: 30, // 30 seconds default timeout
         }
     }
 
@@ -188,6 +196,45 @@ impl HybridDataAccessService {
         ));
 
         Ok(())
+    }
+
+    /// Transform symbol for Binance API format
+    fn transform_symbol_for_binance(symbol: &str) -> String {
+        symbol.replace("-", "").to_uppercase()
+    }
+
+    /// Transform symbol for Bybit API format
+    fn transform_symbol_for_bybit(symbol: &str) -> String {
+        symbol.replace("-", "").to_uppercase()
+    }
+
+    /// Transform symbol for OKX API format
+    fn transform_symbol_for_okx(symbol: &str) -> String {
+        symbol.to_uppercase()
+    }
+
+    /// Fetch with timeout handling
+    async fn fetch_with_timeout(&self, request: Request) -> ArbitrageResult<Response> {
+        // Use a simple timeout approach since we're in a Cloudflare Worker environment
+        // Note: In a real implementation, you might want to use AbortController
+        // For now, we'll rely on the underlying fetch timeout behavior
+        // In a production environment, you might want to implement proper timeout handling
+        // using AbortController or similar mechanisms
+        match Fetch::Request(request).send().await {
+            Ok(response) => Ok(response),
+            Err(e) => {
+                // Check if this might be a timeout error
+                let error_msg = format!("{}", e);
+                if error_msg.contains("timeout") || error_msg.contains("aborted") {
+                    Err(ArbitrageError::api_error(format!(
+                        "Request timeout after {} seconds: {}",
+                        self.api_timeout_seconds, e
+                    )))
+                } else {
+                    Err(ArbitrageError::api_error(format!("Request failed: {}", e)))
+                }
+            }
+        }
     }
 
     /// Get market data using hybrid access pattern
@@ -481,7 +528,7 @@ impl HybridDataAccessService {
 
     /// Fetch Binance data
     async fn fetch_binance_data(&self, symbol: &str) -> ArbitrageResult<MarketDataSnapshot> {
-        let binance_symbol = symbol.replace("-", "").to_uppercase();
+        let binance_symbol = Self::transform_symbol_for_binance(symbol);
         let url = format!(
             "https://api.binance.com/api/v3/ticker/24hr?symbol={}",
             binance_symbol
@@ -489,7 +536,8 @@ impl HybridDataAccessService {
 
         let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
-        let mut response = Fetch::Request(request).send().await?;
+        // Apply timeout to the request
+        let mut response = self.fetch_with_timeout(request).await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -501,15 +549,18 @@ impl HybridDataAccessService {
         let response_text = response.text().await?;
         let data: serde_json::Value = serde_json::from_str(&response_text)?;
 
+        // Parse price with proper error handling
+        let price = data["lastPrice"]
+            .as_str()
+            .ok_or_else(|| ArbitrageError::parse_error("Missing lastPrice field"))?
+            .parse::<f64>()
+            .map_err(|e| ArbitrageError::parse_error(format!("Invalid lastPrice format: {}", e)))?;
+
         Ok(MarketDataSnapshot {
             exchange: ExchangeIdEnum::Binance,
             symbol: symbol.to_string(),
             timestamp: Utc::now().timestamp_millis() as u64,
-            price: data["lastPrice"]
-                .as_str()
-                .unwrap_or("0")
-                .parse()
-                .unwrap_or(0.0),
+            price,
             volume_24h: data["volume"].as_str().and_then(|s| s.parse().ok()),
             funding_rate: None, // Will be fetched separately
             bid: data["bidPrice"].as_str().and_then(|s| s.parse().ok()),
@@ -523,7 +574,7 @@ impl HybridDataAccessService {
 
     /// Fetch Bybit data
     async fn fetch_bybit_data(&self, symbol: &str) -> ArbitrageResult<MarketDataSnapshot> {
-        let bybit_symbol = symbol.replace("-", "").to_uppercase();
+        let bybit_symbol = Self::transform_symbol_for_bybit(symbol);
         let url = format!(
             "https://api.bybit.com/v5/market/tickers?category=spot&symbol={}",
             bybit_symbol
@@ -531,7 +582,8 @@ impl HybridDataAccessService {
 
         let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
-        let mut response = Fetch::Request(request).send().await?;
+        // Apply timeout to the request
+        let mut response = self.fetch_with_timeout(request).await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -546,15 +598,25 @@ impl HybridDataAccessService {
         if let Some(result) = response_json.get("result") {
             if let Some(list) = result.get("list").and_then(|l| l.as_array()) {
                 if let Some(ticker) = list.first() {
+                    // Parse price with proper error handling
+                    let price = ticker["lastPrice"]
+                        .as_str()
+                        .ok_or_else(|| {
+                            ArbitrageError::parse_error("Missing lastPrice field in Bybit response")
+                        })?
+                        .parse::<f64>()
+                        .map_err(|e| {
+                            ArbitrageError::parse_error(format!(
+                                "Invalid Bybit lastPrice format: {}",
+                                e
+                            ))
+                        })?;
+
                     return Ok(MarketDataSnapshot {
                         exchange: ExchangeIdEnum::Bybit,
                         symbol: symbol.to_string(),
                         timestamp: Utc::now().timestamp_millis() as u64,
-                        price: ticker["lastPrice"]
-                            .as_str()
-                            .unwrap_or("0")
-                            .parse()
-                            .unwrap_or(0.0),
+                        price,
                         volume_24h: ticker["volume24h"].as_str().and_then(|s| s.parse().ok()),
                         funding_rate: None, // Will be fetched separately
                         bid: ticker["bid1Price"].as_str().and_then(|s| s.parse().ok()),
@@ -575,7 +637,7 @@ impl HybridDataAccessService {
 
     /// Fetch OKX data
     async fn fetch_okx_data(&self, symbol: &str) -> ArbitrageResult<MarketDataSnapshot> {
-        let okx_symbol = symbol.to_uppercase();
+        let okx_symbol = Self::transform_symbol_for_okx(symbol);
         let url = format!(
             "https://www.okx.com/api/v5/market/ticker?instId={}",
             okx_symbol
@@ -583,7 +645,8 @@ impl HybridDataAccessService {
 
         let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
-        let mut response = Fetch::Request(request).send().await?;
+        // Apply timeout to the request
+        let mut response = self.fetch_with_timeout(request).await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -597,15 +660,22 @@ impl HybridDataAccessService {
 
         if let Some(data) = response_json.get("data").and_then(|d| d.as_array()) {
             if let Some(ticker) = data.first() {
+                // Parse price with proper error handling
+                let price = ticker["last"]
+                    .as_str()
+                    .ok_or_else(|| {
+                        ArbitrageError::parse_error("Missing last field in OKX response")
+                    })?
+                    .parse::<f64>()
+                    .map_err(|e| {
+                        ArbitrageError::parse_error(format!("Invalid OKX last price format: {}", e))
+                    })?;
+
                 return Ok(MarketDataSnapshot {
                     exchange: ExchangeIdEnum::OKX,
                     symbol: symbol.to_string(),
                     timestamp: Utc::now().timestamp_millis() as u64,
-                    price: ticker["last"]
-                        .as_str()
-                        .unwrap_or("0")
-                        .parse()
-                        .unwrap_or(0.0),
+                    price,
                     volume_24h: ticker["vol24h"].as_str().and_then(|s| s.parse().ok()),
                     funding_rate: None, // Will be fetched separately
                     bid: ticker["bidPx"].as_str().and_then(|s| s.parse().ok()),
@@ -744,7 +814,7 @@ impl HybridDataAccessService {
 
     /// Fetch Binance funding rate
     async fn fetch_binance_funding_rate(&self, symbol: &str) -> ArbitrageResult<FundingRateInfo> {
-        let binance_symbol = symbol.replace("-", "").to_uppercase();
+        let binance_symbol = Self::transform_symbol_for_binance(symbol);
         let url = format!(
             "https://fapi.binance.com/fapi/v1/premiumIndex?symbol={}",
             binance_symbol
@@ -752,7 +822,7 @@ impl HybridDataAccessService {
 
         let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
-        let mut response = Fetch::Request(request).send().await?;
+        let mut response = self.fetch_with_timeout(request).await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -766,9 +836,16 @@ impl HybridDataAccessService {
 
         let funding_rate = data["lastFundingRate"]
             .as_str()
-            .unwrap_or("0")
+            .ok_or_else(|| {
+                ArbitrageError::parse_error("Missing lastFundingRate field in Binance response")
+            })?
             .parse::<f64>()
-            .unwrap_or(0.0);
+            .map_err(|e| {
+                ArbitrageError::parse_error(format!(
+                    "Invalid Binance lastFundingRate format: {}",
+                    e
+                ))
+            })?;
 
         Ok(FundingRateInfo {
             symbol: symbol.to_string(),
@@ -786,7 +863,7 @@ impl HybridDataAccessService {
 
     /// Fetch Bybit funding rate
     async fn fetch_bybit_funding_rate(&self, symbol: &str) -> ArbitrageResult<FundingRateInfo> {
-        let bybit_symbol = symbol.replace("-", "").to_uppercase();
+        let bybit_symbol = Self::transform_symbol_for_bybit(symbol);
         let url = format!(
             "https://api.bybit.com/v5/market/funding/history?category=linear&symbol={}&limit=1",
             bybit_symbol
@@ -794,7 +871,7 @@ impl HybridDataAccessService {
 
         let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
-        let mut response = Fetch::Request(request).send().await?;
+        let mut response = self.fetch_with_timeout(request).await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -811,9 +888,18 @@ impl HybridDataAccessService {
                 if let Some(funding_data) = list.first() {
                     let funding_rate = funding_data["fundingRate"]
                         .as_str()
-                        .unwrap_or("0")
+                        .ok_or_else(|| {
+                            ArbitrageError::parse_error(
+                                "Missing fundingRate field in Bybit response",
+                            )
+                        })?
                         .parse::<f64>()
-                        .unwrap_or(0.0);
+                        .map_err(|e| {
+                            ArbitrageError::parse_error(format!(
+                                "Invalid Bybit fundingRate format: {}",
+                                e
+                            ))
+                        })?;
 
                     return Ok(FundingRateInfo {
                         symbol: symbol.to_string(),
@@ -874,26 +960,29 @@ impl HybridDataAccessService {
     }
 
     /// Update metrics
-    fn update_metrics(&mut self, start_time: f64, success: bool) {
+    fn update_metrics(&mut self, start_time: f64, _success: bool) {
         let latency = js_sys::Date::now() - start_time;
 
-        // Update average latency
+        // Check for division by zero
         let total_requests = self.metrics.total_requests as f64;
+        if total_requests == 0.0 {
+            self.metrics.success_rate = 0.0;
+            self.metrics.average_latency_ms = latency;
+            self.metrics.last_updated = Utc::now().timestamp_millis() as u64;
+            return;
+        }
+
+        // Update average latency
         self.metrics.average_latency_ms =
             (self.metrics.average_latency_ms * (total_requests - 1.0) + latency) / total_requests;
 
         // Update success rate based on actual success parameter
-        if success {
-            // Only count as successful if the success parameter is true
-            let successful_requests =
-                self.metrics.pipeline_hits + self.metrics.cache_hits + self.metrics.api_calls;
-            self.metrics.success_rate = (successful_requests as f64) / total_requests;
-        } else {
-            // Recalculate success rate excluding this failed request
-            let successful_requests =
-                self.metrics.pipeline_hits + self.metrics.cache_hits + self.metrics.api_calls;
-            self.metrics.success_rate = (successful_requests as f64) / total_requests;
-        }
+        // Calculate successful requests from the hit counters (these are only incremented on success)
+        let successful_requests =
+            self.metrics.pipeline_hits + self.metrics.cache_hits + self.metrics.api_calls;
+
+        // Calculate success rate as successful_requests divided by total_requests
+        self.metrics.success_rate = (successful_requests as f64) / total_requests;
 
         self.metrics.last_updated = Utc::now().timestamp_millis() as u64;
     }

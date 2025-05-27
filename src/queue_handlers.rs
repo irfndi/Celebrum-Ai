@@ -141,16 +141,19 @@ async fn process_opportunity_message(
                 telegram_service.send_private_message(&notification_text, user_id).await?;
             }
             crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::RoundRobin => {
-                // TODO: Implement round-robin distribution logic
-                console_log!("Round-robin distribution not yet implemented for user: {}", user_id);
+                // TODO: Implement round-robin distribution logic - tracked in issue #124
+                // This should implement fair rotation among users based on last distribution index
+                todo!("Round-robin distribution not yet implemented - tracked in issue #124");
             }
             crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::PriorityBased => {
-                // TODO: Implement priority-based distribution logic
-                console_log!("Priority-based distribution not yet implemented for user: {}", user_id);
+                // TODO: Implement priority-based distribution logic - tracked in issue #125
+                // This should prioritize users based on subscription tier or activity level
+                todo!("Priority-based distribution not yet implemented - tracked in issue #125");
             }
             crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::GeographicBased => {
-                // TODO: Implement geographic-based distribution logic
-                console_log!("Geographic-based distribution not yet implemented for user: {}", user_id);
+                // TODO: Implement geographic-based distribution logic - tracked in issue #126
+                // This should filter users by location or timezone before sending messages
+                todo!("Geographic-based distribution not yet implemented - tracked in issue #126");
             }
         }
     }
@@ -208,15 +211,15 @@ async fn process_analytics_message(
     })?;
     
     // Send event to Analytics Engine
-    let event_data = vec![serde_json::json!({
+    let event_data = serde_json::json!({
         "event_id": message.event_id,
         "event_type": message.event_type,
         "user_id": message.user_id,
         "timestamp": message.timestamp,
         "data": message.data
-    })];
+    });
 
-    analytics_service.write_data_point(&event_data).await
+    analytics_service.write_data_point(&[event_data]).await
         .map_err(|e| crate::utils::ArbitrageError::storage_error(format!("Analytics write failed: {}", e)))?;
 
     Ok(())
@@ -235,7 +238,9 @@ async fn initialize_telegram_service(env: &Env) -> ArbitrageResult<crate::servic
     let config = crate::services::interfaces::telegram::telegram::TelegramConfig {
         bot_token,
         chat_id,
-        is_test_mode: false,
+        is_test_mode: env.var("TELEGRAM_TEST_MODE")
+            .map(|v| v.parse().unwrap_or(false))
+            .unwrap_or(false),
     };
 
     Ok(crate::services::interfaces::telegram::telegram::TelegramService::new(config))

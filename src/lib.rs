@@ -384,15 +384,18 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
         Ok(kv_store) => {
             console_log!("✅ KV store initialized successfully");
 
-            // Initialize session management service directly
+            // Create D1Service once and reuse it
             match D1Service::new(&env) {
                 Ok(d1_service) => {
-                    console_log!("✅ D1Service initialized successfully for session management");
+                    console_log!("✅ D1Service initialized successfully");
                     let kv_service =
                         services::core::infrastructure::KVService::new(kv_store.clone());
+
+                    // Initialize session management service
                     let session_management_service =
                         services::core::user::session_management::SessionManagementService::new(
-                            d1_service, kv_service,
+                            d1_service.clone(),
+                            kv_service,
                         );
                     telegram_service.set_session_management_service(session_management_service);
                     console_log!("✅ SessionManagementService initialized successfully");
@@ -402,26 +405,19 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
                         console_log!(
                             "✅ ENCRYPTION_KEY found, initializing UserProfileService for RBAC"
                         );
-                        match D1Service::new(&env) {
-                            Ok(user_d1_service) => {
-                                let user_profile_service = UserProfileService::new(
-                                    kv_store,
-                                    user_d1_service,
-                                    encryption_key.to_string(),
-                                );
-                                telegram_service.set_user_profile_service(user_profile_service);
-                                console_log!("✅ RBAC UserProfileService initialized successfully");
-                            }
-                            Err(e) => {
-                                console_log!("❌ RBAC WARNING: Failed to create D1Service for user profiles: {:?}", e);
-                            }
-                        }
+                        let user_profile_service = UserProfileService::new(
+                            kv_store,
+                            d1_service, // Reuse the same D1Service instance
+                            encryption_key.to_string(),
+                        );
+                        telegram_service.set_user_profile_service(user_profile_service);
+                        console_log!("✅ RBAC UserProfileService initialized successfully");
                     } else {
                         console_log!("❌ RBAC SECURITY WARNING: ENCRYPTION_KEY not found - UserProfileService not initialized");
                     }
                 }
                 Err(e) => {
-                    console_log!("❌ SESSION WARNING: Failed to initialize D1Service for session management: {:?}", e);
+                    console_log!("❌ Failed to initialize D1Service: {:?}", e);
                 }
             }
         }

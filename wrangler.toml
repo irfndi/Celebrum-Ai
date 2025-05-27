@@ -2,7 +2,7 @@
 # Production-ready configuration with all service bindings
 
 name = "arb-edge"
-main = "src/lib.rs"
+main = "build/worker/shim.mjs"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 
@@ -16,6 +16,7 @@ ENVIRONMENT = "production"
 LOG_LEVEL = "info"
 RATE_LIMIT_REQUESTS_PER_MINUTE = "60"
 CACHE_TTL_SECONDS = "300"
+SUPER_ADMIN_USER_ID = "1082762347"
 
 # KV Namespaces
 [[kv_namespaces]]
@@ -72,9 +73,9 @@ max_retries = 2
 dead_letter_queue = "dead-letter-queue"
 
 # Durable Objects (if needed)
-[[durable_objects.bindings]]
-name = "PROD_TRADING_SESSION"
-class_name = "TradingSession"
+# [[durable_objects.bindings]]
+# name = "PROD_TRADING_SESSION"
+# class_name = "TradingSession"
 
 # Pipelines (direct bindings available)
 [[pipelines]]
@@ -106,10 +107,7 @@ name = "analytics-aggregation"
 cron = "0 0 * * *"    # Daily at midnight
 name = "cleanup-expired-data"
 
-# Environment variables
-[vars]
-ENVIRONMENT = "production"
-SUPER_ADMIN_USER_ID = "1082762347"
+
 
 # Limits and performance
 [limits]
