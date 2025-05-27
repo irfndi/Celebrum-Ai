@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = []
 disabled_tests = []
+enable-logging = []
 
 [dependencies]
 worker = { version = "0.5.0", features = ["d1"] }

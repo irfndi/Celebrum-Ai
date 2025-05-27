@@ -353,11 +353,11 @@ impl AffiliationService {
                         } else {
                             "***".to_string()
                         };
-                        log::warn!(
+                        // Use our sanitized logger instead of standard log macro
+                        crate::utils::logger::logger().warn(&format!(
                             "Failed to calculate metrics for user {}: {}",
-                            sanitized_user_id,
-                            e
-                        );
+                            sanitized_user_id, e
+                        ));
                     }
                 }
             }

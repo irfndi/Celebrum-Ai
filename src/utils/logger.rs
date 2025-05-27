@@ -259,7 +259,14 @@ impl Logger {
             // Additional sanitization layer to prevent cleartext logging of sensitive information
             let sanitizer = get_sanitizer();
             let final_sanitized = sanitizer.sanitize(&formatted);
+            // Security: Only log in development or when explicitly enabled
+            #[cfg(any(debug_assertions, feature = "enable-logging"))]
             console_log!("{}", final_sanitized);
+            #[cfg(not(any(debug_assertions, feature = "enable-logging")))]
+            {
+                // In production, store to secure audit log instead of console
+                self.store_to_audit_log(&final_sanitized);
+            }
         }
     }
 
@@ -273,7 +280,14 @@ impl Logger {
             // Additional sanitization layer to prevent cleartext logging of sensitive information
             let sanitizer = get_sanitizer();
             let final_sanitized = sanitizer.sanitize(&formatted);
+            // Security: Only log in development or when explicitly enabled
+            #[cfg(any(debug_assertions, feature = "enable-logging"))]
             console_log!("{}", final_sanitized);
+            #[cfg(not(any(debug_assertions, feature = "enable-logging")))]
+            {
+                // In production, store to secure audit log instead of console
+                self.store_to_audit_log(&final_sanitized);
+            }
         }
     }
 
@@ -287,7 +301,14 @@ impl Logger {
             // Additional sanitization layer to prevent cleartext logging of sensitive information
             let sanitizer = get_sanitizer();
             let final_sanitized = sanitizer.sanitize(&formatted);
+            // Security: Only log in development or when explicitly enabled
+            #[cfg(any(debug_assertions, feature = "enable-logging"))]
             console_log!("{}", final_sanitized);
+            #[cfg(not(any(debug_assertions, feature = "enable-logging")))]
+            {
+                // In production, store to secure audit log instead of console
+                self.store_to_audit_log(&final_sanitized);
+            }
         }
     }
 
@@ -301,7 +322,14 @@ impl Logger {
             // Additional sanitization layer to prevent cleartext logging of sensitive information
             let sanitizer = get_sanitizer();
             let final_sanitized = sanitizer.sanitize(&formatted);
+            // Security: Only log in development or when explicitly enabled
+            #[cfg(any(debug_assertions, feature = "enable-logging"))]
             console_log!("{}", final_sanitized);
+            #[cfg(not(any(debug_assertions, feature = "enable-logging")))]
+            {
+                // In production, store to secure audit log instead of console
+                self.store_to_audit_log(&final_sanitized);
+            }
         }
     }
 
@@ -328,6 +356,15 @@ impl Logger {
         };
 
         self.error_with_meta("An error occurred", Some(&combined_meta));
+    }
+
+    /// Store log to secure audit log (production-only)
+    /// This method should be implemented to store logs securely without exposing sensitive data
+    #[cfg(not(any(debug_assertions, feature = "enable-logging")))]
+    fn store_to_audit_log(&self, _sanitized_message: &str) {
+        // In production, we would store to a secure audit log system
+        // For now, we simply don't log to console to prevent sensitive data exposure
+        // TODO: Implement secure audit logging (e.g., to encrypted storage, secure syslog, etc.)
     }
 }
 

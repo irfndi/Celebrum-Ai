@@ -3,7 +3,6 @@ use crate::services::core::infrastructure::d1_database::D1Service;
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Utc};
-use log;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -176,17 +175,19 @@ impl InvitationService {
 
         match result {
             Ok(()) => {
-                log::info!(
+                // Use our sanitized logger instead of standard log macro
+                crate::utils::logger::logger().info(&format!(
                     "Successfully stored {} invitation codes in atomic transaction",
                     codes_count
-                );
+                ));
                 Ok(codes)
             }
             Err(e) => {
-                log::error!(
+                // Use our sanitized logger instead of standard log macro
+                crate::utils::logger::logger().error(&format!(
                     "Failed to store invitation codes in transaction: {}. All changes rolled back.",
                     e
-                );
+                ));
                 Err(anyhow!("Failed to store invitation codes in atomic transaction: {}. No codes were stored.", e))
             }
         }
@@ -220,7 +221,9 @@ impl InvitationService {
         self.mark_invitation_used_transaction(&invitation.id, user_id, &usage)
             .await?;
 
-        log::info!("Successfully used invitation code in atomic transaction");
+        // Use our sanitized logger instead of standard log macro
+        crate::utils::logger::logger()
+            .info("Successfully used invitation code in atomic transaction");
         Ok(usage)
     }
 
@@ -487,7 +490,9 @@ impl InvitationService {
             match count_str.parse::<u32>() {
                 Ok(count) => Ok(count),
                 Err(e) => {
-                    log::warn!("Failed to parse count '{}': {}", count_str, e);
+                    // Use our sanitized logger instead of standard log macro
+                    crate::utils::logger::logger()
+                        .warn(&format!("Failed to parse count '{}': {}", count_str, e));
                     Ok(0)
                 }
             }
