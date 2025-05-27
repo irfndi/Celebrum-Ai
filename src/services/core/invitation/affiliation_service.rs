@@ -349,11 +349,15 @@ impl AffiliationService {
                     if let Some(user_id) = user_ids.get(i) {
                         // Sanitize user ID for logging to avoid exposing sensitive information
                         let sanitized_user_id = if user_id.len() > 8 {
-                            format!("{}***{}", &user_id[..4], &user_id[user_id.len()-4..])
+                            format!("{}***{}", &user_id[..4], &user_id[user_id.len() - 4..])
                         } else {
                             "***".to_string()
                         };
-                        log::warn!("Failed to calculate metrics for user {}: {}", sanitized_user_id, e);
+                        log::warn!(
+                            "Failed to calculate metrics for user {}: {}",
+                            sanitized_user_id,
+                            e
+                        );
                     }
                 }
             }
