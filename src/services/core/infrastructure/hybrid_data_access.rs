@@ -367,16 +367,17 @@ impl HybridDataAccessService {
 
     /// Fetch with timeout handling using WASM-compatible approach
     async fn fetch_with_timeout(&self, request: Request) -> ArbitrageResult<Response> {
-        // For WASM targets, use gloo-timers for timeout handling
+                // For WASM targets, use gloo-timers for timeout handling
         #[cfg(target_arch = "wasm32")]
         {
             use futures::future::{select, Either};
             use gloo_timers::future::TimeoutFuture;
-
+            
             let timeout_ms = (self.api_timeout_seconds as u64) * 1000;
             let timeout_future = TimeoutFuture::new(timeout_ms as u32);
-            let request_future = Fetch::Request(request).send();
-
+            let fetch_request = Fetch::Request(request);
+            let request_future = fetch_request.send();
+            
             match select(Box::pin(request_future), Box::pin(timeout_future)).await {
                 Either::Left((result, _)) => match result {
                     Ok(response) => Ok(response),
@@ -1345,5 +1346,121 @@ mod tests {
         assert!(matches!(sources[1], DataAccessSource::Cache));
         assert!(matches!(sources[2], DataAccessSource::RealAPI));
         assert!(matches!(sources[3], DataAccessSource::Fallback));
+    }
+
+    #[test]
+    fn test_hybrid_data_access_config_validation() {
+        // Test invalid cache TTL (0)
+        let result = HybridDataAccessConfig::new_validated(
+            0, // Invalid cache TTL
+            10, 30, 3, true, 600, true, 300, true, 60
+        );
+        assert!(result.is_err());
+
+        // Test invalid pipeline timeout (0)
+        let result = HybridDataAccessConfig::new_validated(
+            300, 
+            0, // Invalid pipeline timeout
+            30, 3, true, 600, true, 300, true, 60
+        );
+        assert!(result.is_err());
+
+        // Test invalid API timeout (too high)
+        let result = HybridDataAccessConfig::new_validated(
+            300, 10, 
+            700, // Invalid API timeout (> 600)
+            3, true, 600, true, 300, true, 60
+        );
+        assert!(result.is_err());
+
+        // Test invalid max retries (too high)
+        let result = HybridDataAccessConfig::new_validated(
+            300, 10, 30, 
+            15, // Invalid max retries (> 10)
+            true, 600, true, 300, true, 60
+        );
+        assert!(result.is_err());
+
+        // Test valid configuration
+        let result = HybridDataAccessConfig::new_validated(
+            300, 10, 30, 3, true, 600, true, 300, true, 60
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_symbol_transformation() {
+        // Test Binance symbol transformation
+        assert_eq!(
+            HybridDataAccessService::transform_symbol_for_binance("BTC-USDT").unwrap(),
+            "BTCUSDT"
+        );
+        assert_eq!(
+            HybridDataAccessService::transform_symbol_for_binance("ETH_USD").unwrap(),
+            "ETHUSD"
+        );
+
+        // Test Bybit symbol transformation
+        assert_eq!(
+            HybridDataAccessService::transform_symbol_for_bybit("BTC-USDT").unwrap(),
+            "BTCUSDT"
+        );
+
+        // Test OKX symbol transformation (preserves hyphens)
+        assert_eq!(
+            HybridDataAccessService::transform_symbol_for_okx("BTC-USDT").unwrap(),
+            "BTC-USDT"
+        );
+
+        // Test invalid symbols
+        assert!(HybridDataAccessService::transform_symbol_for_binance("").is_err());
+        assert!(HybridDataAccessService::transform_symbol_for_bybit("").is_err());
+        assert!(HybridDataAccessService::transform_symbol_for_okx("").is_err());
+
+        // Test symbols with invalid characters
+        assert!(HybridDataAccessService::transform_symbol_for_binance("BTC@USDT").is_err());
+        assert!(HybridDataAccessService::transform_symbol_for_bybit("BTC@USDT").is_err());
+        assert!(HybridDataAccessService::transform_symbol_for_okx("BTC@USDT").is_err());
+
+        // Test symbols with invalid length
+        assert!(HybridDataAccessService::transform_symbol_for_binance("BTC").is_err());
+        assert!(HybridDataAccessService::transform_symbol_for_bybit("BTC").is_err());
+        assert!(HybridDataAccessService::transform_symbol_for_okx("BTC").is_err());
+    }
+
+    #[test]
+    fn test_config_default_values() {
+        let config = HybridDataAccessConfig::default();
+        
+        assert_eq!(config.cache_ttl_seconds, 300);
+        assert_eq!(config.pipeline_timeout_seconds, 10);
+        assert_eq!(config.api_timeout_seconds, 30);
+        assert_eq!(config.max_retries, 3);
+        assert!(config.enable_data_freshness_validation);
+        assert_eq!(config.freshness_threshold_seconds, 600);
+        assert!(config.enable_automatic_refresh);
+        assert_eq!(config.refresh_interval_seconds, 300);
+        assert!(config.enable_health_monitoring);
+        assert_eq!(config.health_check_interval_seconds, 60);
+    }
+
+    #[test]
+    fn test_data_source_health_creation() {
+        let health = DataSourceHealth {
+            source: DataAccessSource::Pipeline,
+            is_healthy: true,
+            last_success_timestamp: 1640995200000,
+            last_error: None,
+            success_rate: 0.95,
+            average_latency_ms: 150.0,
+            total_requests: 100,
+            failed_requests: 5,
+        };
+
+        assert!(matches!(health.source, DataAccessSource::Pipeline));
+        assert!(health.is_healthy);
+        assert_eq!(health.success_rate, 0.95);
+        assert_eq!(health.total_requests, 100);
+        assert_eq!(health.failed_requests, 5);
     }
 }
