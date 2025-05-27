@@ -167,6 +167,7 @@ pub struct DataSourceHealth {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataAccessMetrics {
     pub total_requests: u64,
+    pub successful_requests: u64,
     pub pipeline_hits: u64,
     pub cache_hits: u64,
     pub api_calls: u64,
@@ -227,6 +228,7 @@ impl HybridDataAccessService {
             logger,
             metrics: DataAccessMetrics {
                 total_requests: 0,
+                successful_requests: 0,
                 pipeline_hits: 0,
                 cache_hits: 0,
                 api_calls: 0,
@@ -253,6 +255,7 @@ impl HybridDataAccessService {
             logger,
             metrics: DataAccessMetrics {
                 total_requests: 0,
+                successful_requests: 0,
                 pipeline_hits: 0,
                 cache_hits: 0,
                 api_calls: 0,
@@ -292,10 +295,17 @@ impl HybridDataAccessService {
 
         let transformed = symbol.replace("-", "").replace("_", "").to_uppercase();
 
-        // Basic validation for Binance symbol format
+        // Enhanced validation for Binance symbol format
         if transformed.len() < 6 || transformed.len() > 12 {
             return Err(ArbitrageError::validation_error(
                 "Invalid symbol length for Binance",
+            ));
+        }
+
+        // Basic pattern validation (letters and numbers only)
+        if !transformed.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(ArbitrageError::validation_error(
+                "Symbol contains invalid characters for Binance",
             ));
         }
 
@@ -310,10 +320,17 @@ impl HybridDataAccessService {
 
         let transformed = symbol.replace("-", "").replace("_", "").to_uppercase();
 
-        // Basic validation for Bybit symbol format
+        // Enhanced validation for Bybit symbol format
         if transformed.len() < 6 || transformed.len() > 12 {
             return Err(ArbitrageError::validation_error(
                 "Invalid symbol length for Bybit",
+            ));
+        }
+
+        // Basic pattern validation (letters and numbers only)
+        if !transformed.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(ArbitrageError::validation_error(
+                "Symbol contains invalid characters for Bybit",
             ));
         }
 
@@ -328,32 +345,62 @@ impl HybridDataAccessService {
 
         let transformed = symbol.to_uppercase();
 
-        // Basic validation for OKX symbol format
+        // Enhanced validation for OKX symbol format
         if transformed.len() < 6 || transformed.len() > 15 {
             return Err(ArbitrageError::validation_error(
                 "Invalid symbol length for OKX",
             ));
         }
 
+        // Basic pattern validation (letters, numbers, and hyphens only)
+        if !transformed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+        {
+            return Err(ArbitrageError::validation_error(
+                "Symbol contains invalid characters for OKX",
+            ));
+        }
+
         Ok(transformed)
     }
 
-    /// Fetch with timeout handling using a simpler approach
+    /// Fetch with timeout handling using WASM-compatible approach
     async fn fetch_with_timeout(&self, request: Request) -> ArbitrageResult<Response> {
-        // For Cloudflare Workers, we'll use a simpler timeout approach
-        // since AbortController support may be limited in the worker environment
+        // For WASM targets, use gloo-timers for timeout handling
+        #[cfg(target_arch = "wasm32")]
+        {
+            use futures::future::{select, Either};
+            use gloo_timers::future::TimeoutFuture;
 
-        // Create a timeout future
-        let timeout_duration = std::time::Duration::from_secs(self.api_timeout_seconds as u64);
+            let timeout_ms = (self.api_timeout_seconds as u64) * 1000;
+            let timeout_future = TimeoutFuture::new(timeout_ms as u32);
+            let request_future = Fetch::Request(request).send();
 
-        // Use tokio::time::timeout for timeout handling
-        match tokio::time::timeout(timeout_duration, Fetch::Request(request).send()).await {
-            Ok(Ok(response)) => Ok(response),
-            Ok(Err(e)) => Err(ArbitrageError::api_error(format!("Request failed: {}", e))),
-            Err(_) => Err(ArbitrageError::api_error(format!(
-                "Request timeout after {} seconds",
-                self.api_timeout_seconds
-            ))),
+            match select(Box::pin(request_future), Box::pin(timeout_future)).await {
+                Either::Left((result, _)) => match result {
+                    Ok(response) => Ok(response),
+                    Err(e) => Err(ArbitrageError::api_error(format!("Request failed: {}", e))),
+                },
+                Either::Right((_, _)) => Err(ArbitrageError::api_error(format!(
+                    "Request timeout after {} seconds",
+                    self.api_timeout_seconds
+                ))),
+            }
+        }
+
+        // For non-WASM targets, use tokio timeout
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let timeout_duration = std::time::Duration::from_secs(self.api_timeout_seconds as u64);
+            match tokio::time::timeout(timeout_duration, Fetch::Request(request).send()).await {
+                Ok(Ok(response)) => Ok(response),
+                Ok(Err(e)) => Err(ArbitrageError::api_error(format!("Request failed: {}", e))),
+                Err(_) => Err(ArbitrageError::api_error(format!(
+                    "Request timeout after {} seconds",
+                    self.api_timeout_seconds
+                ))),
+            }
         }
     }
 
@@ -1083,29 +1130,27 @@ impl HybridDataAccessService {
     fn update_metrics(&mut self, start_time: f64, success: bool) {
         let latency = js_sys::Date::now() - start_time;
 
-        // Check for division by zero
+        // Update average latency
         let total_requests = self.metrics.total_requests as f64;
-        if total_requests == 0.0 {
-            self.metrics.success_rate = 0.0;
+        if total_requests > 0.0 {
+            self.metrics.average_latency_ms =
+                (self.metrics.average_latency_ms * (total_requests - 1.0) + latency)
+                    / total_requests;
+        } else {
             self.metrics.average_latency_ms = latency;
-            self.metrics.last_updated = Utc::now().timestamp_millis() as u64;
-            return;
         }
 
-        // Update average latency
-        self.metrics.average_latency_ms =
-            (self.metrics.average_latency_ms * (total_requests - 1.0) + latency) / total_requests;
-
-        // Track success/failure and update success rate
+        // Track success/failure using separate counter to avoid precision errors
         if success {
-            // Success rate calculation should track cumulative success count
-            let current_success_count = (self.metrics.success_rate * (total_requests - 1.0)) as u64;
-            let new_success_count = current_success_count + 1;
-            self.metrics.success_rate = (new_success_count as f64) / total_requests;
+            self.metrics.successful_requests += 1;
+        }
+
+        // Calculate success rate using integer counters
+        if self.metrics.total_requests > 0 {
+            self.metrics.success_rate =
+                (self.metrics.successful_requests as f64) / (self.metrics.total_requests as f64);
         } else {
-            // Failure case - don't increment success count
-            let current_success_count = (self.metrics.success_rate * (total_requests - 1.0)) as u64;
-            self.metrics.success_rate = (current_success_count as f64) / total_requests;
+            self.metrics.success_rate = 0.0;
         }
 
         self.metrics.last_updated = Utc::now().timestamp_millis() as u64;
@@ -1120,6 +1165,7 @@ impl HybridDataAccessService {
     pub fn reset_metrics(&mut self) {
         self.metrics = DataAccessMetrics {
             total_requests: 0,
+            successful_requests: 0,
             pipeline_hits: 0,
             cache_hits: 0,
             api_calls: 0,
@@ -1144,25 +1190,74 @@ impl HybridDataAccessService {
 
         // Test pipeline connectivity if available
         if let Some(ref pipelines) = self.pipelines_service {
-            match pipelines.get_latest_data(&test_key).await {
-                Ok(_) => {
-                    health_status["pipelines_status"] = serde_json::json!("connected");
+            #[cfg(target_arch = "wasm32")]
+            {
+                use futures::future::{select, Either};
+                use gloo_timers::future::TimeoutFuture;
+
+                let timeout_future = TimeoutFuture::new(5000); // 5 seconds
+                let pipeline_future = pipelines.get_latest_data(&test_key);
+
+                match select(Box::pin(pipeline_future), Box::pin(timeout_future)).await {
+                    Either::Left((Ok(_), _)) => {
+                        health_status["pipelines_status"] = serde_json::json!("connected");
+                    }
+                    Either::Left((Err(_), _)) | Either::Right((_, _)) => {
+                        health_status["pipelines_status"] = serde_json::json!("disconnected");
+                        health_status["status"] = serde_json::json!("degraded");
+                    }
                 }
-                Err(_) => {
-                    health_status["pipelines_status"] = serde_json::json!("disconnected");
-                    health_status["status"] = serde_json::json!("degraded");
+            }
+
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let timeout_duration = std::time::Duration::from_secs(5);
+                match tokio::time::timeout(timeout_duration, pipelines.get_latest_data(&test_key))
+                    .await
+                {
+                    Ok(Ok(_)) => {
+                        health_status["pipelines_status"] = serde_json::json!("connected");
+                    }
+                    Ok(Err(_)) | Err(_) => {
+                        health_status["pipelines_status"] = serde_json::json!("disconnected");
+                        health_status["status"] = serde_json::json!("degraded");
+                    }
                 }
             }
         }
 
         // Test KV store connectivity
-        match self.kv_store.get(&test_key).text().await {
-            Ok(_) => {
-                health_status["kv_status"] = serde_json::json!("connected");
+        #[cfg(target_arch = "wasm32")]
+        {
+            use futures::future::{select, Either};
+            use gloo_timers::future::TimeoutFuture;
+
+            let timeout_future = TimeoutFuture::new(5000); // 5 seconds
+            let kv_future = self.kv_store.get(&test_key).text();
+
+            match select(Box::pin(kv_future), Box::pin(timeout_future)).await {
+                Either::Left((Ok(_), _)) => {
+                    health_status["kv_status"] = serde_json::json!("connected");
+                }
+                Either::Left((Err(_), _)) | Either::Right((_, _)) => {
+                    health_status["kv_status"] = serde_json::json!("disconnected");
+                    health_status["status"] = serde_json::json!("degraded");
+                }
             }
-            Err(_) => {
-                health_status["kv_status"] = serde_json::json!("disconnected");
-                health_status["status"] = serde_json::json!("degraded");
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let timeout_duration = std::time::Duration::from_secs(5);
+            match tokio::time::timeout(timeout_duration, self.kv_store.get(&test_key).text()).await
+            {
+                Ok(Ok(_)) => {
+                    health_status["kv_status"] = serde_json::json!("connected");
+                }
+                Ok(Err(_)) | Err(_) => {
+                    health_status["kv_status"] = serde_json::json!("disconnected");
+                    health_status["status"] = serde_json::json!("degraded");
+                }
             }
         }
 
@@ -1204,6 +1299,7 @@ mod tests {
     fn test_data_access_metrics_creation() {
         let metrics = DataAccessMetrics {
             total_requests: 100,
+            successful_requests: 100,
             pipeline_hits: 60,
             cache_hits: 30,
             api_calls: 10,
@@ -1214,6 +1310,7 @@ mod tests {
         };
 
         assert_eq!(metrics.total_requests, 100);
+        assert_eq!(metrics.successful_requests, 100);
         assert_eq!(metrics.pipeline_hits, 60);
         assert_eq!(metrics.cache_hits, 30);
         assert_eq!(metrics.api_calls, 10);

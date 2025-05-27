@@ -1,8 +1,13 @@
 use crate::services::core::infrastructure::d1_database::D1Service;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::{DateTime, Utc};
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+// Constants for affiliation calculations
+const DEFAULT_AVERAGE_SUBSCRIPTION_COST: f64 = 29.0; // $29 average subscription
+const DEFAULT_COMMISSION_RATE: f64 = 0.1; // 10% commission rate
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AffiliationProgram {
@@ -317,21 +322,32 @@ impl AffiliationService {
             .query(query, &[limit.to_string().into()])
             .await?;
 
-        let mut top_performers = Vec::new();
+        // Collect user IDs for concurrent processing
+        let user_ids: Vec<String> = result
+            .iter()
+            .filter_map(|row| row.get("user_id").map(|id| id.to_string()))
+            .collect();
 
-        for row in result {
-            if let Some(user_id) = row.get("user_id") {
-                // Calculate metrics for each affiliate
-                match self.calculate_metrics(user_id, 30).await {
-                    Ok(metrics) => {
-                        // Only include performers with some activity
-                        if metrics.referrals_generated > 0 || metrics.revenue_generated > 0.0 {
-                            top_performers.push(metrics);
-                        }
+        // Calculate metrics concurrently for all users
+        let metrics_futures = user_ids
+            .iter()
+            .map(|user_id| self.calculate_metrics(user_id, 30));
+
+        let metrics_results = join_all(metrics_futures).await;
+
+        // Filter successful results and active performers
+        let mut top_performers = Vec::new();
+        for (i, result) in metrics_results.into_iter().enumerate() {
+            match result {
+                Ok(metrics) => {
+                    // Only include performers with some activity
+                    if metrics.referrals_generated > 0 || metrics.revenue_generated > 0.0 {
+                        top_performers.push(metrics);
                     }
-                    Err(e) => {
-                        log::warn!("Failed to calculate metrics for user: {}", e);
-                        continue;
+                }
+                Err(e) => {
+                    if let Some(user_id) = user_ids.get(i) {
+                        log::warn!("Failed to calculate metrics for user {}: {}", user_id, e);
                     }
                 }
             }
@@ -866,9 +882,9 @@ impl AffiliationService {
         let conversion_count = self
             .count_conversions_in_period(user_id, start, end)
             .await?;
-        let estimated_subscription_revenue = conversion_count as f64 * 10.0; // Assume $10 avg subscription
-        let commission_rate = 0.1; // 10% commission on subscription revenue
-        let subscription_commission = estimated_subscription_revenue * commission_rate;
+        let estimated_subscription_revenue =
+            conversion_count as f64 * DEFAULT_AVERAGE_SUBSCRIPTION_COST;
+        let subscription_commission = estimated_subscription_revenue * DEFAULT_COMMISSION_RATE;
 
         Ok(total_bonuses + subscription_commission)
     }

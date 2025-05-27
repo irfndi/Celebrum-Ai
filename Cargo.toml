@@ -9,8 +9,6 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = []
 disabled_tests = []
-cloudflare_analytics = []
-cloudflare_queues = []
 
 [dependencies]
 worker = { version = "0.5.0", features = ["d1"] }
@@ -40,7 +38,7 @@ wasm-bindgen = "0.2.93"
 wasm-bindgen-futures = "0.4.43"
 js-sys = "0.3.70"
 web-sys = "0.3.70"
-tokio = { version = "1.42", features = ["time"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
 # Fix for getrandom WASM compatibility
 getrandom = { version = "0.2", features = ["js"] }
 # HTTP client for WASM - reqwest with WASM features

@@ -117,7 +117,9 @@ async fn process_opportunity_message(
 ) -> ArbitrageResult<()> {
     // Use the pre-initialized telegram service
     let telegram_service = telegram_service.ok_or_else(|| {
-        crate::utils::ArbitrageError::configuration_error("Telegram service not available")
+        crate::utils::ArbitrageError::configuration_error(
+            format!("Telegram service not available for message: {}", message.message_id)
+        )
     })?;
     
     // Distribute opportunity to target users
@@ -176,7 +178,9 @@ async fn process_notification_message(
     match message.delivery_method {
         crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::Telegram => {
             let telegram_service = telegram_service.ok_or_else(|| {
-                crate::utils::ArbitrageError::configuration_error("Telegram service not available")
+                crate::utils::ArbitrageError::configuration_error(
+                    format!("Telegram service not available for message: {}", message.message_id)
+                )
             })?;
             telegram_service.send_private_message(&message.content, &message.user_id).await?;
         }
@@ -213,7 +217,9 @@ async fn process_analytics_message(
 ) -> ArbitrageResult<()> {
     // Use the pre-initialized analytics service
     let analytics_service = analytics_service.ok_or_else(|| {
-        crate::utils::ArbitrageError::configuration_error("Analytics service not available")
+        crate::utils::ArbitrageError::configuration_error(
+            format!("Analytics service not available for message: {}", message.event_id)
+        )
     })?;
     
     // Send event to Analytics Engine
@@ -249,7 +255,10 @@ async fn initialize_telegram_service(env: &Env) -> ArbitrageResult<crate::servic
         bot_token,
         chat_id,
         is_test_mode: env.var("TELEGRAM_TEST_MODE")
-            .map(|v| v.parse().unwrap_or(false))
+            .map(|v| match v.to_lowercase().as_str() {
+                "true" | "1" | "yes" | "on" => true,
+                _ => false,
+            })
             .unwrap_or(false),
     };
 
@@ -259,11 +268,15 @@ async fn initialize_telegram_service(env: &Env) -> ArbitrageResult<crate::servic
 /// Initialize Analytics Engine service from environment
 async fn initialize_analytics_service(env: &Env) -> ArbitrageResult<crate::services::core::infrastructure::analytics_engine::AnalyticsEngineClient> {
     let account_id = env.var("CLOUDFLARE_ACCOUNT_ID")
-        .map_err(|_| crate::utils::ArbitrageError::configuration_error("CLOUDFLARE_ACCOUNT_ID not found"))?
+        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
+            format!("CLOUDFLARE_ACCOUNT_ID not found: {}", e)
+        ))?
         .to_string();
     
     let api_token = env.secret("CLOUDFLARE_API_TOKEN")
-        .map_err(|_| crate::utils::ArbitrageError::configuration_error("CLOUDFLARE_API_TOKEN not found"))?
+        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
+            format!("CLOUDFLARE_API_TOKEN not found: {}", e)
+        ))?
         .to_string();
 
     let dataset_name = env.var("ANALYTICS_DATASET_NAME")

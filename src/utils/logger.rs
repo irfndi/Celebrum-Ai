@@ -97,6 +97,24 @@ impl DataSanitizer {
 
             // URLs with potential sensitive query parameters
             (Regex::new(r"\bhttps?://[^\s]*[?&](api_key|token|secret|password)=[^&\s]*").unwrap(), "[URL_WITH_SENSITIVE_PARAMS_REDACTED]"),
+
+            // Additional patterns for comprehensive security
+            // Private keys and certificates
+            (Regex::new(r"-----BEGIN [A-Z ]+-----[\s\S]*?-----END [A-Z ]+-----").unwrap(), "[PRIVATE_KEY_REDACTED]"),
+
+            // JWT tokens
+            (Regex::new(r"\beyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*\b").unwrap(), "[JWT_TOKEN_REDACTED]"),
+
+            // Generic long alphanumeric strings that might be sensitive
+            (Regex::new(r"\b[a-zA-Z0-9_-]{32,}\b").unwrap(), "[SENSITIVE_STRING_REDACTED]"),
+
+            // Passwords in various formats
+            (Regex::new(r#""password"\s*:\s*"([^"]+)""#).unwrap(), r#""password":"[PASSWORD_REDACTED]""#),
+            (Regex::new(r"\bpassword[:\s=]+['\x22]?([^'\x22\s,}]+)['\x22]?").unwrap(), "password: [PASSWORD_REDACTED]"),
+
+            // Authorization headers
+            (Regex::new(r"Authorization:\s*Bearer\s+[a-zA-Z0-9_.-]+").unwrap(), "Authorization: Bearer [TOKEN_REDACTED]"),
+            (Regex::new(r"Authorization:\s*Basic\s+[a-zA-Z0-9+/=]+").unwrap(), "Authorization: Basic [CREDENTIALS_REDACTED]"),
         ];
 
         Self { patterns }
@@ -238,7 +256,10 @@ impl Logger {
     pub fn error_with_meta(&self, message: &str, meta: Option<&Value>) {
         if self.should_log(&LogLevel::Error) {
             let formatted = self.format_message(&LogLevel::Error, message, meta);
-            console_log!("{}", formatted);
+            // Additional sanitization layer to prevent cleartext logging of sensitive information
+            let sanitizer = get_sanitizer();
+            let final_sanitized = sanitizer.sanitize(&formatted);
+            console_log!("{}", final_sanitized);
         }
     }
 
@@ -249,7 +270,10 @@ impl Logger {
     pub fn warn_with_meta(&self, message: &str, meta: Option<&Value>) {
         if self.should_log(&LogLevel::Warn) {
             let formatted = self.format_message(&LogLevel::Warn, message, meta);
-            console_log!("{}", formatted);
+            // Additional sanitization layer to prevent cleartext logging of sensitive information
+            let sanitizer = get_sanitizer();
+            let final_sanitized = sanitizer.sanitize(&formatted);
+            console_log!("{}", final_sanitized);
         }
     }
 
@@ -260,7 +284,10 @@ impl Logger {
     pub fn info_with_meta(&self, message: &str, meta: Option<&Value>) {
         if self.should_log(&LogLevel::Info) {
             let formatted = self.format_message(&LogLevel::Info, message, meta);
-            console_log!("{}", formatted);
+            // Additional sanitization layer to prevent cleartext logging of sensitive information
+            let sanitizer = get_sanitizer();
+            let final_sanitized = sanitizer.sanitize(&formatted);
+            console_log!("{}", final_sanitized);
         }
     }
 
@@ -271,7 +298,10 @@ impl Logger {
     pub fn debug_with_meta(&self, message: &str, meta: Option<&Value>) {
         if self.should_log(&LogLevel::Debug) {
             let formatted = self.format_message(&LogLevel::Debug, message, meta);
-            console_log!("{}", formatted);
+            // Additional sanitization layer to prevent cleartext logging of sensitive information
+            let sanitizer = get_sanitizer();
+            let final_sanitized = sanitizer.sanitize(&formatted);
+            console_log!("{}", final_sanitized);
         }
     }
 
@@ -461,5 +491,36 @@ mod tests {
         assert!(formatted.contains("[EMAIL_REDACTED]"));
         assert!(!formatted.contains("12345678-1234-1234-1234-123456789012"));
         assert!(!formatted.contains("user@example.com"));
+    }
+
+    #[test]
+    fn test_comprehensive_sensitive_data_sanitization() {
+        let sanitizer = DataSanitizer::new();
+
+        // Test JWT token sanitization
+        let jwt_message = "Token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+        let sanitized = sanitizer.sanitize(jwt_message);
+        assert!(sanitized.contains("[JWT_TOKEN_REDACTED]"));
+        assert!(!sanitized.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"));
+
+        // Test password sanitization
+        let password_message = r#"{"password": "mySecretPassword123"}"#;
+        let sanitized = sanitizer.sanitize(password_message);
+        assert!(sanitized.contains("[PASSWORD_REDACTED]"));
+        assert!(!sanitized.contains("mySecretPassword123"));
+
+        // Test authorization header sanitization
+        let auth_message = "Authorization: Bearer abc123def456ghi789";
+        let sanitized = sanitizer.sanitize(auth_message);
+        assert!(sanitized.contains("[TOKEN_REDACTED]"));
+        assert!(!sanitized.contains("abc123def456ghi789"));
+
+        // Test private key sanitization
+        let key_message = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKB\n-----END PRIVATE KEY-----";
+        let sanitized = sanitizer.sanitize(key_message);
+        assert!(sanitized.contains("[PRIVATE_KEY_REDACTED]"));
+        assert!(
+            !sanitized.contains("MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKB")
+        );
     }
 }
