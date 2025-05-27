@@ -242,7 +242,10 @@ impl HybridDataAccessService {
     }
 
     /// Constructor with configuration
-    pub fn new_with_config(env: &worker::Env, config: HybridDataAccessConfig) -> ArbitrageResult<Self> {
+    pub fn new_with_config(
+        env: &worker::Env,
+        config: HybridDataAccessConfig,
+    ) -> ArbitrageResult<Self> {
         config.validate()?;
         let kv_store = env.kv("MARKET_DATA_KV").map_err(|e| {
             ArbitrageError::configuration_error(format!("Failed to get KV store: {}", e))
@@ -404,7 +407,7 @@ impl HybridDataAccessService {
                     last_error = Some(e);
                     if attempt < self.config.max_retries {
                         // Exponential backoff: 1s, 2s, 4s, etc.
-                        let delay_ms = (2_u64.pow(attempt as u32) * 1000).min(10000);
+                        let delay_ms = (2_u64.pow(attempt) * 1000).min(10000);
                         #[cfg(target_arch = "wasm32")]
                         {
                             use gloo_timers::future::TimeoutFuture;
@@ -452,7 +455,8 @@ impl HybridDataAccessService {
         // For non-WASM targets, use tokio timeout
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let timeout_duration = std::time::Duration::from_secs(self.config.api_timeout_seconds as u64);
+            let timeout_duration =
+                std::time::Duration::from_secs(self.config.api_timeout_seconds as u64);
             match tokio::time::timeout(timeout_duration, Fetch::Request(request).send()).await {
                 Ok(Ok(response)) => Ok(response),
                 Ok(Err(e)) => Err(ArbitrageError::api_error(format!("Request failed: {}", e))),
@@ -1288,10 +1292,7 @@ impl HybridDataAccessService {
         // Test KV store connectivity (both write and read capability)
         let test_value = "health_check_test";
         match self
-            .execute_with_timeout(
-                self.kv_store.put(&test_key, test_value)?.execute(),
-                5
-            )
+            .execute_with_timeout(self.kv_store.put(&test_key, test_value)?.execute(), 5)
             .await
         {
             Ok(Ok(_)) => {
