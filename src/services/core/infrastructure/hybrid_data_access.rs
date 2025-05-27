@@ -204,8 +204,7 @@ pub struct HybridDataAccessService {
     kv_store: KvStore,
     logger: Logger,
     metrics: DataAccessMetrics,
-    cache_ttl_seconds: u64,
-    api_timeout_seconds: u32,
+    config: HybridDataAccessConfig,
 }
 
 impl HybridDataAccessService {
@@ -216,6 +215,35 @@ impl HybridDataAccessService {
 
     /// Constructor for compatibility with services expecting new(env)
     pub fn new_from_env(env: &worker::Env) -> ArbitrageResult<Self> {
+        let kv_store = env.kv("MARKET_DATA_KV").map_err(|e| {
+            ArbitrageError::configuration_error(format!("Failed to get KV store: {}", e))
+        })?;
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let config = HybridDataAccessConfig::default();
+
+        Ok(Self {
+            pipelines_service: None,
+            super_admin_configs: HashMap::new(),
+            kv_store,
+            logger,
+            metrics: DataAccessMetrics {
+                total_requests: 0,
+                successful_requests: 0,
+                pipeline_hits: 0,
+                cache_hits: 0,
+                api_calls: 0,
+                fallback_calls: 0,
+                average_latency_ms: 0.0,
+                success_rate: 0.0,
+                last_updated: 0,
+            },
+            config,
+        })
+    }
+
+    /// Constructor with configuration
+    pub fn new_with_config(env: &worker::Env, config: HybridDataAccessConfig) -> ArbitrageResult<Self> {
+        config.validate()?;
         let kv_store = env.kv("MARKET_DATA_KV").map_err(|e| {
             ArbitrageError::configuration_error(format!("Failed to get KV store: {}", e))
         })?;
@@ -237,8 +265,7 @@ impl HybridDataAccessService {
                 success_rate: 0.0,
                 last_updated: 0,
             },
-            cache_ttl_seconds: 300,
-            api_timeout_seconds: 30, // 30 seconds default timeout
+            config,
         })
     }
 
@@ -264,8 +291,7 @@ impl HybridDataAccessService {
                 success_rate: 0.0,
                 last_updated: 0,
             },
-            cache_ttl_seconds: 300,  // 5 minutes default
-            api_timeout_seconds: 30, // 30 seconds default timeout
+            config: HybridDataAccessConfig::default(),
         }
     }
 
@@ -365,6 +391,37 @@ impl HybridDataAccessService {
         Ok(transformed)
     }
 
+    /// Fetch with retry logic and timeout
+    async fn fetch_with_retry(&self, url: &str) -> ArbitrageResult<Response> {
+        let mut last_error = None;
+
+        for attempt in 0..=self.config.max_retries {
+            let request = Request::new_with_init(url, RequestInit::new().with_method(Method::Get))?;
+
+            match self.fetch_with_timeout(request).await {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < self.config.max_retries {
+                        // Exponential backoff: 1s, 2s, 4s, etc.
+                        let delay_ms = (2_u64.pow(attempt as u32) * 1000).min(10000);
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            use gloo_timers::future::TimeoutFuture;
+                            TimeoutFuture::new(delay_ms as u32).await;
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| ArbitrageError::api_error("All retry attempts failed")))
+    }
+
     /// Fetch with timeout handling using WASM-compatible approach
     async fn fetch_with_timeout(&self, request: Request) -> ArbitrageResult<Response> {
         // For WASM targets, use gloo-timers for timeout handling
@@ -373,11 +430,12 @@ impl HybridDataAccessService {
             use futures::future::{select, Either};
             use gloo_timers::future::TimeoutFuture;
 
-            let timeout_ms = (self.api_timeout_seconds as u64) * 1000;
+            let timeout_ms = (self.config.api_timeout_seconds as u64) * 1000;
             let timeout_future = TimeoutFuture::new(timeout_ms as u32);
 
-            // Create the fetch request and get the future in one expression to avoid lifetime issues
-            let request_future = Fetch::Request(request).send();
+            // Create a longer-lived binding for the fetch request to avoid lifetime issues
+            let fetch_request = Fetch::Request(request);
+            let request_future = fetch_request.send();
 
             match select(Box::pin(request_future), Box::pin(timeout_future)).await {
                 Either::Left((result, _)) => match result {
@@ -386,7 +444,7 @@ impl HybridDataAccessService {
                 },
                 Either::Right((_, _)) => Err(ArbitrageError::api_error(format!(
                     "Request timeout after {} seconds",
-                    self.api_timeout_seconds
+                    self.config.api_timeout_seconds
                 ))),
             }
         }
@@ -394,13 +452,13 @@ impl HybridDataAccessService {
         // For non-WASM targets, use tokio timeout
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let timeout_duration = std::time::Duration::from_secs(self.api_timeout_seconds as u64);
+            let timeout_duration = std::time::Duration::from_secs(self.config.api_timeout_seconds as u64);
             match tokio::time::timeout(timeout_duration, Fetch::Request(request).send()).await {
                 Ok(Ok(response)) => Ok(response),
                 Ok(Err(e)) => Err(ArbitrageError::api_error(format!("Request failed: {}", e))),
                 Err(_) => Err(ArbitrageError::api_error(format!(
                     "Request timeout after {} seconds",
-                    self.api_timeout_seconds
+                    self.config.api_timeout_seconds
                 ))),
             }
         }
@@ -703,10 +761,8 @@ impl HybridDataAccessService {
             binance_symbol
         );
 
-        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
-
-        // Apply timeout to the request
-        let mut response = self.fetch_with_timeout(request).await?;
+        // Apply retry logic with timeout
+        let mut response = self.fetch_with_retry(&url).await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -749,10 +805,8 @@ impl HybridDataAccessService {
             bybit_symbol
         );
 
-        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
-
-        // Apply timeout to the request
-        let mut response = self.fetch_with_timeout(request).await?;
+        // Apply retry logic with timeout
+        let mut response = self.fetch_with_retry(&url).await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -812,10 +866,8 @@ impl HybridDataAccessService {
             okx_symbol
         );
 
-        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
-
-        // Apply timeout to the request
-        let mut response = self.fetch_with_timeout(request).await?;
+        // Apply retry logic with timeout
+        let mut response = self.fetch_with_retry(&url).await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -869,7 +921,7 @@ impl HybridDataAccessService {
 
         self.kv_store
             .put(&cache_key, cache_value)?
-            .expiration_ttl(self.cache_ttl_seconds)
+            .expiration_ttl(self.config.cache_ttl_seconds)
             .execute()
             .await?;
 
@@ -989,9 +1041,7 @@ impl HybridDataAccessService {
             binance_symbol
         );
 
-        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
-
-        let mut response = self.fetch_with_timeout(request).await?;
+        let mut response = self.fetch_with_retry(&url).await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -1038,9 +1088,7 @@ impl HybridDataAccessService {
             bybit_symbol
         );
 
-        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
-
-        let mut response = self.fetch_with_timeout(request).await?;
+        let mut response = self.fetch_with_retry(&url).await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -1098,7 +1146,7 @@ impl HybridDataAccessService {
 
         self.kv_store
             .put(&cache_key, cache_value)?
-            .expiration_ttl(self.cache_ttl_seconds)
+            .expiration_ttl(self.config.cache_ttl_seconds)
             .execute()
             .await?;
 
@@ -1237,16 +1285,32 @@ impl HybridDataAccessService {
             }
         }
 
-        // Test KV store connectivity
+        // Test KV store connectivity (both write and read capability)
+        let test_value = "health_check_test";
         match self
-            .execute_with_timeout(self.kv_store.get(&test_key).text(), 5)
+            .execute_with_timeout(
+                self.kv_store.put(&test_key, test_value)?.execute(),
+                5
+            )
             .await
         {
             Ok(Ok(_)) => {
-                health_status["kv_status"] = serde_json::json!("connected");
+                // Now test read capability
+                match self
+                    .execute_with_timeout(self.kv_store.get(&test_key).text(), 5)
+                    .await
+                {
+                    Ok(Ok(_)) => {
+                        health_status["kv_status"] = serde_json::json!("connected");
+                    }
+                    Ok(Err(_)) | Err(_) => {
+                        health_status["kv_status"] = serde_json::json!("read_failed");
+                        health_status["status"] = serde_json::json!("degraded");
+                    }
+                }
             }
             Ok(Err(_)) | Err(_) => {
-                health_status["kv_status"] = serde_json::json!("disconnected");
+                health_status["kv_status"] = serde_json::json!("write_failed");
                 health_status["status"] = serde_json::json!("degraded");
             }
         }
