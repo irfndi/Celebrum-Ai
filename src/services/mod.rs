@@ -81,19 +81,49 @@ pub mod core {
     // }
 
     pub mod infrastructure {
+        pub mod ai_gateway;
+        pub mod analytics_engine;
         pub mod cloudflare_pipelines;
+        pub mod cloudflare_queues;
         pub mod d1_database;
+        pub mod durable_objects;
         pub mod fund_monitoring;
+        pub mod hybrid_data_access;
         pub mod kv_service;
         pub mod monitoring_observability;
         pub mod notifications;
+        pub mod service_container;
+        pub mod vectorize_service;
 
+        pub use ai_gateway::{
+            AIGatewayConfig, AIGatewayService, AIModelConfig, AIRequest, AIResponse,
+            ModelRequirements, RoutingDecision,
+        };
+        pub use analytics_engine::{
+            AnalyticsEngineConfig, AnalyticsEngineService, RealTimeMetrics, UserAnalytics,
+        };
         pub use cloudflare_pipelines::CloudflarePipelinesService;
+        pub use cloudflare_queues::{
+            CloudflareQueuesConfig, CloudflareQueuesService, DistributionStrategy, MessagePriority,
+        };
         pub use d1_database::D1Service;
+        pub use durable_objects::{
+            GlobalRateLimiterDO, MarketDataCoordinatorDO, OpportunityCoordinatorDO,
+            UserOpportunityQueueDO,
+        };
         pub use fund_monitoring::FundMonitoringService;
+        pub use hybrid_data_access::{
+            HybridDataAccessConfig, HybridDataAccessService, MarketDataSnapshot,
+            SuperAdminApiConfig,
+        };
         pub use kv_service::KVService;
         pub use monitoring_observability::MonitoringObservabilityService;
         pub use notifications::NotificationService;
+        pub use service_container::{ServiceContainer, ServiceHealthStatus};
+        pub use vectorize_service::{
+            OpportunityEmbedding, RankedOpportunity, SimilarityResult, UserPreferenceVector,
+            VectorizeConfig, VectorizeService,
+        };
     }
 }
 
@@ -129,8 +159,11 @@ pub use core::analysis::{
     CorrelationAnalysisService, MarketAnalysisService, TechnicalAnalysisService,
 };
 pub use core::infrastructure::{
-    CloudflarePipelinesService, D1Service, FundMonitoringService, KVService,
-    MonitoringObservabilityService, NotificationService,
+    AIGatewayService, AnalyticsEngineService, CloudflarePipelinesService, CloudflareQueuesService,
+    D1Service, DistributionStrategy, FundMonitoringService, GlobalRateLimiterDO,
+    HybridDataAccessService, KVService, MarketDataCoordinatorDO, MessagePriority,
+    MonitoringObservabilityService, NotificationService, OpportunityCoordinatorDO,
+    ServiceContainer, UserOpportunityQueueDO, VectorizeService,
 };
 // TODO: Re-enable when invitation services compilation errors are fixed
 // pub use core::invitation::{AffiliationService, InvitationService, ReferralService};

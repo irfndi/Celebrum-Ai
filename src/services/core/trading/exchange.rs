@@ -192,6 +192,7 @@ pub struct ExchangeService {
     kv: worker::kv::KvStore,
     super_admin_configs: std::collections::HashMap<String, SuperAdminApiConfig>,
     user_profile_service: Option<UserProfileService>, // Optional for initialization, required for RBAC
+                                                      // hybrid_data_access: Option<crate::services::core::infrastructure::HybridDataAccessService>, // Pipeline integration
 }
 
 impl ExchangeService {
@@ -210,6 +211,7 @@ impl ExchangeService {
             kv,
             super_admin_configs: std::collections::HashMap::new(),
             user_profile_service: None, // Will be injected via set_user_profile_service
+                                        // hybrid_data_access: None, // Will be injected via set_hybrid_data_access_service
         })
     }
 
@@ -218,6 +220,10 @@ impl ExchangeService {
         self.user_profile_service = Some(user_profile_service);
     }
 
+    /// Set the HybridDataAccess service for pipeline integration
+    // pub fn set_hybrid_data_access_service(&mut self, hybrid_data_access: crate::services::core::infrastructure::HybridDataAccessService) {
+    //     self.hybrid_data_access = Some(hybrid_data_access);
+    // }
     /// Check if user has required permission using database-based RBAC
     #[allow(dead_code)]
     async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
@@ -299,6 +305,106 @@ impl ExchangeService {
         operation: &str,
     ) -> ArbitrageResult<()> {
         api_source.validate_for_operation(operation)
+    }
+
+    // Temporarily removed hybrid data access methods to fix compilation
+    // Will be re-implemented after fixing module dependencies
+    /// Get Binance funding rate using real API
+    pub async fn get_binance_funding_rate(
+        &self,
+        symbol: &str,
+    ) -> ArbitrageResult<crate::types::FundingRateInfo> {
+        // Binance Premium Index API for funding rates
+        let endpoint = "/fapi/v1/premiumIndex";
+        let params = json!({
+            "symbol": symbol
+        });
+
+        let response = self
+            .binance_request(endpoint, Method::GET, Some(params), None)
+            .await?;
+
+        let funding_rate = response["lastFundingRate"]
+            .as_str()
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+
+        let next_funding_time = response["nextFundingTime"]
+            .as_u64()
+            .and_then(|ts| chrono::DateTime::from_timestamp((ts / 1000) as i64, 0));
+
+        Ok(crate::types::FundingRateInfo {
+            symbol: symbol.to_string(),
+            funding_rate,
+            timestamp: Some(chrono::Utc::now()),
+            datetime: Some(chrono::Utc::now().to_rfc3339()),
+            next_funding_time,
+            estimated_rate: response["markPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok()),
+        })
+    }
+
+    /// Get Bybit funding rate using real API
+    pub async fn get_bybit_funding_rate(
+        &self,
+        symbol: &str,
+    ) -> ArbitrageResult<crate::types::FundingRateInfo> {
+        // Bybit V5 funding rate history API
+        let endpoint = "/v5/market/funding/history";
+        let params = json!({
+            "category": "linear",
+            "symbol": symbol,
+            "limit": 1
+        });
+
+        let response = self
+            .bybit_request(endpoint, Method::GET, Some(params), None)
+            .await?;
+
+        if let Some(list) = response["result"]["list"].as_array() {
+            if let Some(rate_data) = list.first() {
+                let funding_rate = rate_data["fundingRate"]
+                    .as_str()
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .unwrap_or(0.0);
+
+                let funding_time = rate_data["fundingRateTimestamp"]
+                    .as_str()
+                    .and_then(|s| s.parse::<i64>().ok())
+                    .and_then(|ts| chrono::DateTime::from_timestamp(ts / 1000, 0));
+
+                return Ok(crate::types::FundingRateInfo {
+                    symbol: symbol.to_string(),
+                    funding_rate,
+                    timestamp: Some(chrono::Utc::now()),
+                    datetime: Some(chrono::Utc::now().to_rfc3339()),
+                    next_funding_time: funding_time,
+                    estimated_rate: Some(funding_rate),
+                });
+            }
+        }
+
+        Err(ArbitrageError::not_found(format!(
+            "No funding rate data found for Bybit:{}",
+            symbol
+        )))
+    }
+
+    /// Get funding rate directly from exchange APIs using real implementations
+    pub async fn get_funding_rate_direct(
+        &self,
+        exchange_id: &str,
+        symbol: &str,
+    ) -> ArbitrageResult<crate::types::FundingRateInfo> {
+        match exchange_id {
+            "binance" => self.get_binance_funding_rate(symbol).await,
+            "bybit" => self.get_bybit_funding_rate(symbol).await,
+            _ => Err(ArbitrageError::not_implemented(format!(
+                "Funding rate not implemented for exchange: {}",
+                exchange_id
+            ))),
+        }
     }
 
     #[allow(clippy::result_large_err)]
@@ -479,6 +585,129 @@ impl ExchangeService {
             .await
             .map_err(|e| ArbitrageError::parse_error(format!("Failed to parse JSON: {}", e)))?;
         Ok(json)
+    }
+
+    async fn okx_request(
+        &self,
+        endpoint: &str,
+        method: Method,
+        params: Option<Value>,
+        auth: Option<&ExchangeCredentials>,
+    ) -> ArbitrageResult<Value> {
+        let base_url = "https://www.okx.com";
+        let url = format!("{}{}", base_url, endpoint);
+
+        let mut request_builder = match method {
+            Method::GET => self.client.get(&url),
+            Method::POST => self.client.post(&url),
+            Method::PUT => self.client.put(&url),
+            Method::DELETE => self.client.delete(&url),
+            _ => return Err(ArbitrageError::validation_error("Unsupported HTTP method")),
+        };
+
+        // Add headers
+        request_builder = request_builder
+            .header("Content-Type", "application/json")
+            .header("User-Agent", "ArbEdge/1.0");
+
+        // Handle authentication if provided
+        if let Some(credentials) = auth {
+            let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+            let mut body_str = String::new();
+
+            // Handle request body for POST/PUT
+            if matches!(method, Method::POST | Method::PUT) {
+                if let Some(params) = &params {
+                    body_str = serde_json::to_string(params).map_err(|e| {
+                        ArbitrageError::parse_error(format!("JSON serialization error: {}", e))
+                    })?;
+                    request_builder = request_builder.body(body_str.clone());
+                }
+            } else if let Some(params) = &params {
+                // For GET requests, add params as query parameters
+                if let Some(obj) = params.as_object() {
+                    let mut query_params = Vec::new();
+                    for (key, value) in obj {
+                        if let Some(str_val) = value.as_str() {
+                            query_params.push(format!("{}={}", key, str_val));
+                        }
+                    }
+                    if !query_params.is_empty() {
+                        let query_string = query_params.join("&");
+                        request_builder = request_builder.query(&query_string);
+                    }
+                }
+            }
+
+            // Create signature for OKX
+            let method_str = method.as_str();
+            let sign_string = format!("{}{}{}{}", timestamp, method_str, endpoint, body_str);
+
+            let signature = self.create_hmac_signature(&sign_string, &credentials.secret)?;
+
+            // Add OKX authentication headers
+            request_builder = request_builder
+                .header("OK-ACCESS-KEY", &credentials.api_key)
+                .header("OK-ACCESS-SIGN", signature)
+                .header("OK-ACCESS-TIMESTAMP", timestamp)
+                .header("OK-ACCESS-PASSPHRASE", ""); // OKX requires passphrase, but we'll use empty for now
+        } else if let Some(params) = &params {
+            // For unauthenticated requests, handle query parameters
+            if matches!(method, Method::GET) {
+                if let Some(obj) = params.as_object() {
+                    let mut query_params = Vec::new();
+                    for (key, value) in obj {
+                        if let Some(str_val) = value.as_str() {
+                            query_params.push(format!("{}={}", key, str_val));
+                        }
+                    }
+                    if !query_params.is_empty() {
+                        let query_string = query_params.join("&");
+                        request_builder = request_builder.query(&query_string);
+                    }
+                }
+            }
+        }
+
+        // Execute request
+        let response = request_builder
+            .send()
+            .await
+            .map_err(|e| ArbitrageError::network_error(format!("OKX API request failed: {}", e)))?;
+
+        // Check response status
+        if !response.status().is_success() {
+            return Err(ArbitrageError::api_error(format!(
+                "OKX API error: {}",
+                response.status()
+            )));
+        }
+
+        // Parse JSON response
+        let response: Value = response.json().await.map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to parse OKX response: {}", e))
+        })?;
+
+        Ok(response)
+    }
+
+    fn create_hmac_signature(&self, message: &str, secret: &str) -> ArbitrageResult<String> {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+
+        type HmacSha256 = Hmac<Sha256>;
+
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+            .map_err(|e| ArbitrageError::validation_error(format!("Invalid secret key: {}", e)))?;
+
+        mac.update(message.as_bytes());
+        let result = mac.finalize();
+        let signature = {
+            use base64::{prelude::BASE64_STANDARD, Engine};
+            BASE64_STANDARD.encode(result.into_bytes())
+        };
+
+        Ok(signature)
     }
 }
 
@@ -723,77 +952,884 @@ impl ExchangeInterface for ExchangeService {
     async fn get_balance(
         &self,
         exchange_id: &str,
-        _credentials: &ExchangeCredentials,
+        credentials: &ExchangeCredentials,
     ) -> ArbitrageResult<Value> {
-        Err(ArbitrageError::not_implemented(format!(
-            "get_balance not implemented for exchange: {}",
-            exchange_id
-        )))
+        match exchange_id {
+            "binance" => {
+                // Get account information from Binance
+                let response = self
+                    .binance_request("/api/v3/account", Method::GET, None, Some(credentials))
+                    .await?;
+
+                // Extract balances and format for consistent response
+                if let Some(balances) = response["balances"].as_array() {
+                    let mut formatted_balances = Vec::new();
+
+                    for balance in balances {
+                        if let (Some(asset), Some(free), Some(locked)) = (
+                            balance["asset"].as_str(),
+                            balance["free"].as_str(),
+                            balance["locked"].as_str(),
+                        ) {
+                            let free_amount: f64 = free.parse().unwrap_or(0.0);
+                            let locked_amount: f64 = locked.parse().unwrap_or(0.0);
+                            let total = free_amount + locked_amount;
+
+                            // Only include assets with non-zero balance
+                            if total > 0.0 {
+                                formatted_balances.push(json!({
+                                    "asset": asset,
+                                    "free": free_amount,
+                                    "locked": locked_amount,
+                                    "total": total
+                                }));
+                            }
+                        }
+                    }
+
+                    Ok(json!({
+                        "exchange": "binance",
+                        "balances": formatted_balances,
+                        "timestamp": chrono::Utc::now().timestamp_millis()
+                    }))
+                } else {
+                    Err(ArbitrageError::parse_error(
+                        "Invalid balance response from Binance".to_string(),
+                    ))
+                }
+            }
+            "bybit" => {
+                // Get account balance from Bybit V5 API
+                let response = self
+                    .bybit_request(
+                        "/v5/account/wallet-balance",
+                        Method::GET,
+                        Some(json!({"accountType": "UNIFIED"})),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                // Parse Bybit response format
+                if let Some(result) = response["result"].as_object() {
+                    if let Some(list) = result["list"].as_array() {
+                        if let Some(account) = list.first() {
+                            if let Some(coins) = account["coin"].as_array() {
+                                let mut formatted_balances = Vec::new();
+
+                                for coin in coins {
+                                    if let (
+                                        Some(asset),
+                                        Some(wallet_balance),
+                                        Some(available_balance),
+                                    ) = (
+                                        coin["coin"].as_str(),
+                                        coin["walletBalance"].as_str(),
+                                        coin["availableToWithdraw"].as_str(),
+                                    ) {
+                                        let total: f64 = wallet_balance.parse().unwrap_or(0.0);
+                                        let free: f64 = available_balance.parse().unwrap_or(0.0);
+                                        let locked = total - free;
+
+                                        // Only include assets with non-zero balance
+                                        if total > 0.0 {
+                                            formatted_balances.push(json!({
+                                                "asset": asset,
+                                                "free": free,
+                                                "locked": locked,
+                                                "total": total
+                                            }));
+                                        }
+                                    }
+                                }
+
+                                return Ok(json!({
+                                    "exchange": "bybit",
+                                    "balances": formatted_balances,
+                                    "timestamp": chrono::Utc::now().timestamp_millis()
+                                }));
+                            }
+                        }
+                    }
+                }
+
+                Err(ArbitrageError::parse_error(
+                    "Invalid balance response from Bybit".to_string(),
+                ))
+            }
+            "okx" => {
+                // Get account balance from OKX
+                let response = self
+                    .okx_request(
+                        "/api/v5/account/balance",
+                        Method::GET,
+                        None,
+                        Some(credentials),
+                    )
+                    .await?;
+
+                // Parse OKX response format
+                if let Some(data) = response["data"].as_array() {
+                    if let Some(account) = data.first() {
+                        if let Some(details) = account["details"].as_array() {
+                            let mut formatted_balances = Vec::new();
+
+                            for detail in details {
+                                if let (Some(asset), Some(available), Some(frozen)) = (
+                                    detail["ccy"].as_str(),
+                                    detail["availBal"].as_str(),
+                                    detail["frozenBal"].as_str(),
+                                ) {
+                                    let free: f64 = available.parse().unwrap_or(0.0);
+                                    let locked: f64 = frozen.parse().unwrap_or(0.0);
+                                    let total = free + locked;
+
+                                    // Only include assets with non-zero balance
+                                    if total > 0.0 {
+                                        formatted_balances.push(json!({
+                                            "asset": asset,
+                                            "free": free,
+                                            "locked": locked,
+                                            "total": total
+                                        }));
+                                    }
+                                }
+                            }
+
+                            return Ok(json!({
+                                "exchange": "okx",
+                                "balances": formatted_balances,
+                                "timestamp": chrono::Utc::now().timestamp_millis()
+                            }));
+                        }
+                    }
+                }
+
+                Err(ArbitrageError::parse_error(
+                    "Invalid balance response from OKX".to_string(),
+                ))
+            }
+            _ => Err(ArbitrageError::not_implemented(format!(
+                "get_balance not implemented for exchange: {}",
+                exchange_id
+            ))),
+        }
     }
 
     async fn create_order(
         &self,
         exchange_id: &str,
-        _credentials: &ExchangeCredentials,
-        _symbol: &str,
-        _side: &str,
-        _amount: f64,
-        _price: Option<f64>,
+        credentials: &ExchangeCredentials,
+        symbol: &str,
+        side: &str,
+        amount: f64,
+        price: Option<f64>,
     ) -> ArbitrageResult<Value> {
-        Err(ArbitrageError::not_implemented(format!(
-            "create_order not implemented for exchange: {}",
-            exchange_id
-        )))
+        match exchange_id {
+            "binance" => {
+                let mut params = json!({
+                    "symbol": symbol,
+                    "side": side.to_uppercase(),
+                    "quantity": amount.to_string(),
+                    "timestamp": chrono::Utc::now().timestamp_millis()
+                });
+
+                // Determine order type based on price parameter
+                if let Some(order_price) = price {
+                    params["type"] = json!("LIMIT");
+                    params["price"] = json!(order_price.to_string());
+                    params["timeInForce"] = json!("GTC"); // Good Till Cancelled
+                } else {
+                    params["type"] = json!("MARKET");
+                }
+
+                let response = self
+                    .binance_request(
+                        "/api/v3/order",
+                        Method::POST,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                // Format response consistently
+                Ok(json!({
+                    "exchange": "binance",
+                    "order_id": response["orderId"],
+                    "client_order_id": response["clientOrderId"],
+                    "symbol": response["symbol"],
+                    "side": response["side"],
+                    "type": response["type"],
+                    "amount": response["origQty"],
+                    "price": response.get("price").unwrap_or(&json!(null)),
+                    "status": response["status"],
+                    "timestamp": response["transactTime"]
+                }))
+            }
+            "bybit" => {
+                let mut params = json!({
+                    "category": "spot",
+                    "symbol": symbol,
+                    "side": side.to_uppercase(),
+                    "qty": amount.to_string()
+                });
+
+                // Determine order type based on price parameter
+                if let Some(order_price) = price {
+                    params["orderType"] = json!("Limit");
+                    params["price"] = json!(order_price.to_string());
+                    params["timeInForce"] = json!("GTC");
+                } else {
+                    params["orderType"] = json!("Market");
+                }
+
+                let response = self
+                    .bybit_request(
+                        "/v5/order/create",
+                        Method::POST,
+                        Some(params.clone()),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                // Parse Bybit response
+                if let Some(result) = response["result"].as_object() {
+                    Ok(json!({
+                        "exchange": "bybit",
+                        "order_id": result["orderId"],
+                        "client_order_id": result.get("orderLinkId").unwrap_or(&json!(null)),
+                        "symbol": symbol,
+                        "side": side,
+                        "type": params["orderType"],
+                        "amount": amount,
+                        "price": price.unwrap_or(0.0),
+                        "status": "NEW",
+                        "timestamp": chrono::Utc::now().timestamp_millis()
+                    }))
+                } else {
+                    Err(ArbitrageError::parse_error(
+                        "Invalid order response from Bybit".to_string(),
+                    ))
+                }
+            }
+            "okx" => {
+                let mut params = json!({
+                    "instId": symbol,
+                    "tdMode": "cash", // Cash trading mode for spot
+                    "side": side.to_lowercase(),
+                    "sz": amount.to_string()
+                });
+
+                // Determine order type based on price parameter
+                if let Some(order_price) = price {
+                    params["ordType"] = json!("limit");
+                    params["px"] = json!(order_price.to_string());
+                } else {
+                    params["ordType"] = json!("market");
+                }
+
+                let response = self
+                    .okx_request(
+                        "/api/v5/trade/order",
+                        Method::POST,
+                        Some(params.clone()),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                // Parse OKX response
+                if let Some(data) = response["data"].as_array() {
+                    if let Some(order) = data.first() {
+                        Ok(json!({
+                            "exchange": "okx",
+                            "order_id": order["ordId"],
+                            "client_order_id": order.get("clOrdId").unwrap_or(&json!(null)),
+                            "symbol": symbol,
+                            "side": side,
+                            "type": params["ordType"],
+                            "amount": amount,
+                            "price": price.unwrap_or(0.0),
+                            "status": "NEW",
+                            "timestamp": chrono::Utc::now().timestamp_millis()
+                        }))
+                    } else {
+                        Err(ArbitrageError::parse_error(
+                            "Empty order response from OKX".to_string(),
+                        ))
+                    }
+                } else {
+                    Err(ArbitrageError::parse_error(
+                        "Invalid order response from OKX".to_string(),
+                    ))
+                }
+            }
+            _ => Err(ArbitrageError::not_implemented(format!(
+                "create_order not implemented for exchange: {}",
+                exchange_id
+            ))),
+        }
     }
 
     async fn cancel_order(
         &self,
         exchange_id: &str,
-        _credentials: &ExchangeCredentials,
-        _order_id: &str,
-        _symbol: &str,
+        credentials: &ExchangeCredentials,
+        order_id: &str,
+        symbol: &str,
     ) -> ArbitrageResult<Value> {
-        Err(ArbitrageError::not_implemented(format!(
-            "cancel_order not implemented for exchange: {}",
-            exchange_id
-        )))
+        match exchange_id {
+            "binance" => {
+                let params = json!({
+                    "symbol": symbol,
+                    "orderId": order_id,
+                    "timestamp": chrono::Utc::now().timestamp_millis()
+                });
+
+                let response = self
+                    .binance_request(
+                        "/api/v3/order",
+                        Method::DELETE,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                Ok(json!({
+                    "exchange": "binance",
+                    "order_id": response["orderId"],
+                    "client_order_id": response["clientOrderId"],
+                    "symbol": response["symbol"],
+                    "status": "CANCELED",
+                    "timestamp": chrono::Utc::now().timestamp_millis()
+                }))
+            }
+            "bybit" => {
+                let params = json!({
+                    "category": "spot",
+                    "symbol": symbol,
+                    "orderId": order_id
+                });
+
+                let response = self
+                    .bybit_request(
+                        "/v5/order/cancel",
+                        Method::POST,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                if let Some(result) = response["result"].as_object() {
+                    Ok(json!({
+                        "exchange": "bybit",
+                        "order_id": result["orderId"],
+                        "client_order_id": result.get("orderLinkId").unwrap_or(&json!(null)),
+                        "symbol": symbol,
+                        "status": "CANCELED",
+                        "timestamp": chrono::Utc::now().timestamp_millis()
+                    }))
+                } else {
+                    Err(ArbitrageError::parse_error(
+                        "Invalid cancel response from Bybit".to_string(),
+                    ))
+                }
+            }
+            "okx" => {
+                let params = json!({
+                    "instId": symbol,
+                    "ordId": order_id
+                });
+
+                let response = self
+                    .okx_request(
+                        "/api/v5/trade/cancel-order",
+                        Method::POST,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                if let Some(data) = response["data"].as_array() {
+                    if let Some(order) = data.first() {
+                        Ok(json!({
+                            "exchange": "okx",
+                            "order_id": order["ordId"],
+                            "client_order_id": order.get("clOrdId").unwrap_or(&json!(null)),
+                            "symbol": symbol,
+                            "status": "CANCELED",
+                            "timestamp": chrono::Utc::now().timestamp_millis()
+                        }))
+                    } else {
+                        Err(ArbitrageError::parse_error(
+                            "Empty cancel response from OKX".to_string(),
+                        ))
+                    }
+                } else {
+                    Err(ArbitrageError::parse_error(
+                        "Invalid cancel response from OKX".to_string(),
+                    ))
+                }
+            }
+            _ => Err(ArbitrageError::not_implemented(format!(
+                "cancel_order not implemented for exchange: {}",
+                exchange_id
+            ))),
+        }
     }
 
     async fn get_open_orders(
         &self,
         exchange_id: &str,
-        _credentials: &ExchangeCredentials,
-        _symbol: Option<&str>,
+        credentials: &ExchangeCredentials,
+        symbol: Option<&str>,
     ) -> ArbitrageResult<Vec<Value>> {
-        Err(ArbitrageError::not_implemented(format!(
-            "get_open_orders not implemented for exchange: {}",
-            exchange_id
-        )))
+        match exchange_id {
+            "binance" => {
+                let mut params = json!({
+                    "timestamp": chrono::Utc::now().timestamp_millis()
+                });
+
+                if let Some(sym) = symbol {
+                    params["symbol"] = json!(sym);
+                }
+
+                let response = self
+                    .binance_request(
+                        "/api/v3/openOrders",
+                        Method::GET,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                if let Some(orders) = response.as_array() {
+                    let formatted_orders: Vec<Value> = orders
+                        .iter()
+                        .map(|order| {
+                            json!({
+                                "exchange": "binance",
+                                "order_id": order["orderId"],
+                                "client_order_id": order["clientOrderId"],
+                                "symbol": order["symbol"],
+                                "side": order["side"],
+                                "type": order["type"],
+                                "amount": order["origQty"],
+                                "filled": order["executedQty"],
+                                "remaining": order["origQty"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0) - 
+                                           order["executedQty"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                "price": order.get("price").unwrap_or(&json!(null)),
+                                "status": order["status"],
+                                "timestamp": order["time"]
+                            })
+                        })
+                        .collect();
+
+                    Ok(formatted_orders)
+                } else {
+                    Err(ArbitrageError::parse_error(
+                        "Invalid open orders response from Binance".to_string(),
+                    ))
+                }
+            }
+            "bybit" => {
+                let mut params = json!({
+                    "category": "spot",
+                    "openOnly": 0 // Get all orders, not just open ones
+                });
+
+                if let Some(sym) = symbol {
+                    params["symbol"] = json!(sym);
+                }
+
+                let response = self
+                    .bybit_request(
+                        "/v5/order/realtime",
+                        Method::GET,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                if let Some(result) = response["result"].as_object() {
+                    if let Some(list) = result["list"].as_array() {
+                        let formatted_orders: Vec<Value> = list
+                            .iter()
+                            .filter(|order| {
+                                // Filter for open orders only
+                                matches!(
+                                    order["orderStatus"].as_str(),
+                                    Some("New") | Some("PartiallyFilled") | Some("Untriggered")
+                                )
+                            })
+                            .map(|order| {
+                                let orig_qty: f64 = order["qty"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
+                                let filled_qty: f64 = order["cumExecQty"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
+
+                                json!({
+                                    "exchange": "bybit",
+                                    "order_id": order["orderId"],
+                                    "client_order_id": order.get("orderLinkId").unwrap_or(&json!(null)),
+                                    "symbol": order["symbol"],
+                                    "side": order["side"],
+                                    "type": order["orderType"],
+                                    "amount": orig_qty,
+                                    "filled": filled_qty,
+                                    "remaining": orig_qty - filled_qty,
+                                    "price": order.get("price").unwrap_or(&json!(null)),
+                                    "status": order["orderStatus"],
+                                    "timestamp": order["createdTime"]
+                                })
+                            })
+                            .collect();
+
+                        Ok(formatted_orders)
+                    } else {
+                        Ok(vec![])
+                    }
+                } else {
+                    Err(ArbitrageError::parse_error(
+                        "Invalid open orders response from Bybit".to_string(),
+                    ))
+                }
+            }
+            "okx" => {
+                let mut params = json!({
+                    "ordType": "limit,market" // Get both limit and market orders
+                });
+
+                if let Some(sym) = symbol {
+                    params["instId"] = json!(sym);
+                }
+
+                let response = self
+                    .okx_request(
+                        "/api/v5/trade/orders-pending",
+                        Method::GET,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                if let Some(data) = response["data"].as_array() {
+                    let formatted_orders: Vec<Value> = data
+                        .iter()
+                        .map(|order| {
+                            let orig_sz: f64 =
+                                order["sz"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
+                            let filled_sz: f64 = order["fillSz"]
+                                .as_str()
+                                .unwrap_or("0")
+                                .parse()
+                                .unwrap_or(0.0);
+
+                            json!({
+                                "exchange": "okx",
+                                "order_id": order["ordId"],
+                                "client_order_id": order.get("clOrdId").unwrap_or(&json!(null)),
+                                "symbol": order["instId"],
+                                "side": order["side"],
+                                "type": order["ordType"],
+                                "amount": orig_sz,
+                                "filled": filled_sz,
+                                "remaining": orig_sz - filled_sz,
+                                "price": order.get("px").unwrap_or(&json!(null)),
+                                "status": order["state"],
+                                "timestamp": order["cTime"]
+                            })
+                        })
+                        .collect();
+
+                    Ok(formatted_orders)
+                } else {
+                    Ok(vec![])
+                }
+            }
+            _ => Err(ArbitrageError::not_implemented(format!(
+                "get_open_orders not implemented for exchange: {}",
+                exchange_id
+            ))),
+        }
     }
 
     async fn get_open_positions(
         &self,
         exchange_id: &str,
-        _credentials: &ExchangeCredentials,
-        _symbol: Option<&str>,
+        credentials: &ExchangeCredentials,
+        symbol: Option<&str>,
     ) -> ArbitrageResult<Vec<Value>> {
-        Err(ArbitrageError::not_implemented(format!(
-            "get_open_positions not implemented for exchange: {}",
-            exchange_id
-        )))
+        match exchange_id {
+            "binance" => {
+                // Binance futures positions endpoint
+                let mut params = json!({});
+                if let Some(s) = symbol {
+                    params["symbol"] = json!(s);
+                }
+
+                let response = self
+                    .binance_request(
+                        "/fapi/v2/positionRisk",
+                        Method::GET,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                // Parse Binance positions response
+                if let Some(positions) = response.as_array() {
+                    let mut result = Vec::new();
+                    for position in positions {
+                        let position_amt = position["positionAmt"]
+                            .as_str()
+                            .unwrap_or("0")
+                            .parse::<f64>()
+                            .unwrap_or(0.0);
+
+                        // Only include positions with non-zero amount
+                        if position_amt.abs() > 0.0 {
+                            result.push(json!({
+                                "exchange": "binance",
+                                "symbol": position["symbol"],
+                                "side": if position_amt > 0.0 { "long" } else { "short" },
+                                "size": position_amt.abs(),
+                                "entry_price": position["entryPrice"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                "mark_price": position["markPrice"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                "unrealized_pnl": position["unRealizedProfit"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                "percentage": position["percentage"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                "leverage": position["leverage"].as_str().unwrap_or("1").parse::<u32>().unwrap_or(1),
+                                "margin_type": position["marginType"],
+                                "isolated_margin": position["isolatedMargin"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                "position_side": position["positionSide"]
+                            }));
+                        }
+                    }
+                    Ok(result)
+                } else {
+                    Ok(vec![])
+                }
+            }
+            "bybit" => {
+                // Bybit positions endpoint
+                let mut params = json!({
+                    "category": "linear"
+                });
+                if let Some(s) = symbol {
+                    params["symbol"] = json!(s);
+                }
+
+                let response = self
+                    .bybit_request(
+                        "/v5/position/list",
+                        Method::GET,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                // Parse Bybit positions response
+                if let Some(result) = response["result"].as_object() {
+                    if let Some(positions) = result["list"].as_array() {
+                        let mut result_positions = Vec::new();
+                        for position in positions {
+                            let size = position["size"]
+                                .as_str()
+                                .unwrap_or("0")
+                                .parse::<f64>()
+                                .unwrap_or(0.0);
+
+                            // Only include positions with non-zero size
+                            if size > 0.0 {
+                                result_positions.push(json!({
+                                    "exchange": "bybit",
+                                    "symbol": position["symbol"],
+                                    "side": position["side"].as_str().unwrap_or("").to_lowercase(),
+                                    "size": size,
+                                    "entry_price": position["avgPrice"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                    "mark_price": position["markPrice"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                    "unrealized_pnl": position["unrealisedPnl"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                    "percentage": position["unrealisedPnl"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                    "leverage": position["leverage"].as_str().unwrap_or("1").parse::<u32>().unwrap_or(1),
+                                    "margin_mode": position["tradeMode"],
+                                    "position_value": position["positionValue"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                    "position_status": position["positionStatus"]
+                                }));
+                            }
+                        }
+                        Ok(result_positions)
+                    } else {
+                        Ok(vec![])
+                    }
+                } else {
+                    Ok(vec![])
+                }
+            }
+            "okx" => {
+                // OKX positions endpoint
+                let mut params = json!({});
+                if let Some(s) = symbol {
+                    params["instId"] = json!(s);
+                }
+
+                let response = self
+                    .okx_request(
+                        "/api/v5/account/positions",
+                        Method::GET,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                // Parse OKX positions response
+                if let Some(data) = response["data"].as_array() {
+                    let mut result = Vec::new();
+                    for position in data {
+                        let pos_size = position["pos"]
+                            .as_str()
+                            .unwrap_or("0")
+                            .parse::<f64>()
+                            .unwrap_or(0.0);
+
+                        // Only include positions with non-zero size
+                        if pos_size.abs() > 0.0 {
+                            result.push(json!({
+                                "exchange": "okx",
+                                "symbol": position["instId"],
+                                "side": if pos_size > 0.0 { "long" } else { "short" },
+                                "size": pos_size.abs(),
+                                "entry_price": position["avgPx"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                "mark_price": position["markPx"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                "unrealized_pnl": position["upl"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                "percentage": position["uplRatio"].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0),
+                                "leverage": position["lever"].as_str().unwrap_or("1").parse::<u32>().unwrap_or(1),
+                                "margin_mode": position["mgnMode"],
+                                "position_ccy": position["posCcy"],
+                                "position_side": position["posSide"]
+                            }));
+                        }
+                    }
+                    Ok(result)
+                } else {
+                    Ok(vec![])
+                }
+            }
+            _ => Err(ArbitrageError::not_implemented(format!(
+                "get_open_positions not implemented for exchange: {}",
+                exchange_id
+            ))),
+        }
     }
 
     async fn set_leverage(
         &self,
         exchange_id: &str,
-        _credentials: &ExchangeCredentials,
-        _symbol: &str,
-        _leverage: u32,
+        credentials: &ExchangeCredentials,
+        symbol: &str,
+        leverage: u32,
     ) -> ArbitrageResult<Value> {
-        Err(ArbitrageError::not_implemented(format!(
-            "set_leverage not implemented for exchange: {}",
-            exchange_id
-        )))
+        match exchange_id {
+            "binance" => {
+                // Binance futures leverage endpoint
+                let params = json!({
+                    "symbol": symbol,
+                    "leverage": leverage
+                });
+
+                let response = self
+                    .binance_request(
+                        "/fapi/v1/leverage",
+                        Method::POST,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                // Parse Binance leverage response
+                Ok(json!({
+                    "exchange": "binance",
+                    "symbol": symbol,
+                    "leverage": response["leverage"],
+                    "max_notional_value": response["maxNotionalValue"],
+                    "status": "success"
+                }))
+            }
+            "bybit" => {
+                // Bybit leverage endpoint
+                let params = json!({
+                    "category": "linear",
+                    "symbol": symbol,
+                    "buyLeverage": leverage.to_string(),
+                    "sellLeverage": leverage.to_string()
+                });
+
+                let response = self
+                    .bybit_request(
+                        "/v5/position/set-leverage",
+                        Method::POST,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                // Parse Bybit leverage response
+                if response["retCode"].as_i64() == Some(0) {
+                    Ok(json!({
+                        "exchange": "bybit",
+                        "symbol": symbol,
+                        "leverage": leverage,
+                        "status": "success",
+                        "message": response["retMsg"]
+                    }))
+                } else {
+                    Err(ArbitrageError::api_error(format!(
+                        "Bybit leverage setting failed: {}",
+                        response["retMsg"].as_str().unwrap_or("Unknown error")
+                    )))
+                }
+            }
+            "okx" => {
+                // OKX leverage endpoint
+                let params = json!({
+                    "instId": symbol,
+                    "lever": leverage.to_string(),
+                    "mgnMode": "cross"  // Default to cross margin
+                });
+
+                let response = self
+                    .okx_request(
+                        "/api/v5/account/set-leverage",
+                        Method::POST,
+                        Some(params),
+                        Some(credentials),
+                    )
+                    .await?;
+
+                // Parse OKX leverage response
+                if let Some(data) = response["data"].as_array() {
+                    if let Some(result) = data.first() {
+                        Ok(json!({
+                            "exchange": "okx",
+                            "symbol": symbol,
+                            "leverage": result["lever"],
+                            "margin_mode": result["mgnMode"],
+                            "position_side": result["posSide"],
+                            "status": "success"
+                        }))
+                    } else {
+                        Err(ArbitrageError::api_error(format!(
+                            "OKX leverage setting failed: {}",
+                            response["msg"].as_str().unwrap_or("Unknown error")
+                        )))
+                    }
+                } else {
+                    Err(ArbitrageError::api_error(format!(
+                        "OKX leverage setting failed: {}",
+                        response["msg"].as_str().unwrap_or("Unknown error")
+                    )))
+                }
+            }
+            _ => Err(ArbitrageError::not_implemented(format!(
+                "set_leverage not implemented for exchange: {}",
+                exchange_id
+            ))),
+        }
     }
 
     async fn get_trading_fees(

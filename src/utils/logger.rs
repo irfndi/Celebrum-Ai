@@ -3,7 +3,16 @@
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
+
+#[cfg(target_arch = "wasm32")]
 use worker::console_log;
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! console_log {
+    ($($arg:tt)*) => {
+        println!($($arg)*);
+    };
+}
 
 /// Log levels supported by the logger
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

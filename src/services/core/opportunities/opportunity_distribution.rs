@@ -1,6 +1,10 @@
 use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
 use crate::services::core::infrastructure::d1_database::D1Service;
 use crate::services::core::infrastructure::kv_service::KVService;
+use crate::services::core::infrastructure::{
+    CloudflareQueuesService, DistributionStrategy as QueueDistributionStrategy, MessagePriority,
+    VectorizeService,
+};
 use crate::services::core::user::session_management::SessionManagementService;
 
 use crate::types::{
@@ -67,6 +71,7 @@ impl Default for DistributionConfig {
 
 /// Service for distributing opportunities to eligible users
 /// Handles automated push notifications with fairness algorithms
+/// Enhanced with AI-powered matching and reliable queue-based delivery
 pub struct OpportunityDistributionService {
     d1_service: D1Service,
     kv_service: KVService,
@@ -76,6 +81,8 @@ pub struct OpportunityDistributionService {
     #[cfg(target_arch = "wasm32")]
     notification_sender: Option<Box<dyn NotificationSender>>,
     pipelines_service: Option<CloudflarePipelinesService>,
+    vectorize_service: Option<VectorizeService>,
+    queues_service: Option<CloudflareQueuesService>,
     config: DistributionConfig,
 }
 
@@ -91,6 +98,8 @@ impl OpportunityDistributionService {
             session_service,
             notification_sender: None,
             pipelines_service: None,
+            vectorize_service: None,
+            queues_service: None,
             config: DistributionConfig::default(),
         }
     }
@@ -114,7 +123,16 @@ impl OpportunityDistributionService {
         self.pipelines_service = Some(pipelines_service);
     }
 
+    pub fn set_vectorize_service(&mut self, vectorize_service: VectorizeService) {
+        self.vectorize_service = Some(vectorize_service);
+    }
+
+    pub fn set_queues_service(&mut self, queues_service: CloudflareQueuesService) {
+        self.queues_service = Some(queues_service);
+    }
+
     /// Distribute a global opportunity to eligible users
+    /// Enhanced with AI-powered matching and reliable queue-based delivery
     pub async fn distribute_opportunity(
         &self,
         opportunity: ArbitrageOpportunity,
@@ -135,30 +153,25 @@ impl OpportunityDistributionService {
         // Get eligible users
         let eligible_users = self.get_eligible_users(&global_opportunity).await?;
 
-        // Apply fairness algorithm
-        let selected_users = self
-            .apply_fairness_algorithm(&eligible_users, &global_opportunity)
-            .await?;
-
-        // Distribute to selected users
-        let mut distributed_count = 0;
-        for user_id in selected_users {
-            if self
-                .send_opportunity_to_user(&user_id, &global_opportunity)
+        // Apply AI-enhanced user matching if VectorizeService is available
+        let selected_users = if let Some(ref vectorize_service) = self.vectorize_service {
+            self.apply_ai_enhanced_matching(&eligible_users, &global_opportunity, vectorize_service)
                 .await?
-            {
-                distributed_count += 1;
+        } else {
+            // Fallback to traditional fairness algorithm
+            self.apply_fairness_algorithm(&eligible_users, &global_opportunity)
+                .await?
+        };
 
-                // Update user distribution tracking
-                self.update_user_distribution_tracking(&user_id, &global_opportunity)
-                    .await?;
-
-                // Respect rate limiting
-                if distributed_count >= self.config.batch_size {
-                    break;
-                }
-            }
-        }
+        // Use queue-based distribution if CloudflareQueuesService is available
+        let distributed_count = if let Some(ref queues_service) = self.queues_service {
+            self.distribute_via_queues(&selected_users, &global_opportunity, queues_service)
+                .await?
+        } else {
+            // Fallback to direct distribution
+            self.distribute_directly(&selected_users, &global_opportunity)
+                .await?
+        };
 
         // Store distribution analytics
         self.record_distribution_analytics(&global_opportunity, distributed_count)
@@ -264,6 +277,154 @@ impl OpportunityDistributionService {
         }
 
         Ok(selected_users)
+    }
+
+    /// Apply AI-enhanced user matching using VectorizeService
+    /// Ranks users based on their preference vectors and opportunity characteristics
+    async fn apply_ai_enhanced_matching(
+        &self,
+        eligible_users: &[String],
+        opportunity: &GlobalOpportunity,
+        vectorize_service: &VectorizeService,
+    ) -> ArbitrageResult<Vec<String>> {
+        // Get AI-ranked opportunities for each user
+        let mut user_rankings: Vec<(String, f32)> = Vec::new();
+
+        for user_id in eligible_users {
+            // Get personalized ranking for this opportunity
+            match vectorize_service
+                .get_personalized_opportunities(user_id, &[opportunity.opportunity.clone()])
+                .await
+            {
+                Ok(ranked_opportunities) => {
+                    if let Some(ranked) = ranked_opportunities.first() {
+                        user_rankings.push((user_id.clone(), ranked.combined_score));
+                    } else {
+                        // Default score if no ranking available
+                        user_rankings.push((user_id.clone(), 0.5));
+                    }
+                }
+                Err(_) => {
+                    // Fallback to default score if AI ranking fails
+                    user_rankings.push((user_id.clone(), 0.5));
+                }
+            }
+        }
+
+        // Sort by AI ranking score (highest first)
+        user_rankings.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Apply fairness constraints while respecting AI rankings
+        let mut selected_users = Vec::new();
+        let max_participants = self.config.max_participants_per_opportunity.unwrap_or(100) as usize;
+
+        for (user_id, _score) in user_rankings.iter().take(max_participants) {
+            // Check rate limiting and cooldown
+            if self.check_user_rate_limit(user_id).await? {
+                selected_users.push(user_id.clone());
+
+                // Respect batch size limits
+                if selected_users.len() >= self.config.batch_size as usize {
+                    break;
+                }
+            }
+        }
+
+        Ok(selected_users)
+    }
+
+    /// Distribute opportunities via CloudflareQueuesService for reliable delivery
+    async fn distribute_via_queues(
+        &self,
+        selected_users: &[String],
+        opportunity: &GlobalOpportunity,
+        queues_service: &CloudflareQueuesService,
+    ) -> ArbitrageResult<u32> {
+        // Determine message priority based on opportunity characteristics
+        let priority = self
+            .calculate_message_priority(&opportunity.opportunity)
+            .await?;
+
+        // Convert distribution strategy to queue distribution strategy
+        let queue_strategy = match opportunity.distribution_strategy {
+            DistributionStrategy::RoundRobin => QueueDistributionStrategy::RoundRobin,
+            DistributionStrategy::FirstComeFirstServe => QueueDistributionStrategy::Broadcast,
+            DistributionStrategy::PriorityBased => QueueDistributionStrategy::PriorityBased,
+            DistributionStrategy::Broadcast => QueueDistributionStrategy::Broadcast,
+        };
+
+        // Send opportunity distribution message to queue
+        let users_vec = selected_users.to_vec();
+        match queues_service
+            .send_opportunity_distribution(
+                &opportunity.opportunity,
+                users_vec,
+                priority,
+                queue_strategy,
+            )
+            .await
+        {
+            Ok(_message_id) => {
+                // Update tracking for all users
+                for user_id in selected_users {
+                    self.update_user_distribution_tracking(user_id, opportunity)
+                        .await?;
+                }
+                Ok(selected_users.len() as u32)
+            }
+            Err(e) => {
+                // Log error and fallback to direct distribution
+                eprintln!("Queue distribution failed, falling back to direct: {}", e);
+                self.distribute_directly(selected_users, opportunity).await
+            }
+        }
+    }
+
+    /// Fallback direct distribution method (original implementation)
+    async fn distribute_directly(
+        &self,
+        selected_users: &[String],
+        opportunity: &GlobalOpportunity,
+    ) -> ArbitrageResult<u32> {
+        let mut distributed_count = 0;
+
+        for user_id in selected_users {
+            if self.send_opportunity_to_user(user_id, opportunity).await? {
+                distributed_count += 1;
+
+                // Update user distribution tracking
+                self.update_user_distribution_tracking(user_id, opportunity)
+                    .await?;
+
+                // Respect rate limiting
+                if distributed_count >= self.config.batch_size {
+                    break;
+                }
+            }
+        }
+
+        Ok(distributed_count)
+    }
+
+    /// Calculate message priority for queue-based distribution
+    async fn calculate_message_priority(
+        &self,
+        opportunity: &ArbitrageOpportunity,
+    ) -> ArbitrageResult<MessagePriority> {
+        // High priority for high-value opportunities
+        if opportunity.rate_difference > 0.5 {
+            return Ok(MessagePriority::Critical);
+        }
+
+        if opportunity.rate_difference > 0.3 {
+            return Ok(MessagePriority::High);
+        }
+
+        if opportunity.rate_difference > 0.1 {
+            return Ok(MessagePriority::Normal);
+        }
+
+        Ok(MessagePriority::Low)
     }
 
     /// Send opportunity to a specific user
@@ -528,6 +689,54 @@ impl OpportunityDistributionService {
         Ok(())
     }
 
+    /// Calculate actual success rate from delivery metrics
+    async fn calculate_actual_success_rate(&self) -> ArbitrageResult<f64> {
+        // Query delivery success and failure metrics from the last 7 days
+        let seven_days_ago =
+            chrono::Utc::now().timestamp_millis() as u64 - (7 * 24 * 60 * 60 * 1000);
+
+        let success_query = "
+            SELECT 
+                COUNT(CASE WHEN delivery_status = 'sent' THEN 1 END) as successful_deliveries,
+                COUNT(CASE WHEN delivery_status = 'failed' THEN 1 END) as failed_deliveries,
+                COUNT(*) as total_deliveries
+            FROM opportunity_distribution_analytics 
+            WHERE distribution_timestamp >= ?
+        ";
+
+        let params = vec![serde_json::Value::Number(serde_json::Number::from(
+            seven_days_ago,
+        ))];
+
+        let rows = self.d1_service.query(success_query, &params).await?;
+
+        if let Some(row) = rows.first() {
+            let successful = row
+                .get("successful_deliveries")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0);
+            let _failed = row
+                .get("failed_deliveries")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0);
+            let total = row
+                .get("total_deliveries")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0);
+
+            if total > 0 {
+                let success_rate = (successful as f64 / total as f64) * 100.0;
+                Ok(success_rate)
+            } else {
+                // Default to 95% if no data available
+                Ok(95.0)
+            }
+        } else {
+            // Default to 95% if no analytics data
+            Ok(95.0)
+        }
+    }
+
     /// Get distribution statistics
     pub async fn get_distribution_stats(&self) -> ArbitrageResult<DistributionStats> {
         // Get today's distribution count from database
@@ -595,11 +804,14 @@ impl OpportunityDistributionService {
             150
         };
 
+        // Calculate actual success rate from delivery metrics
+        let success_rate = self.calculate_actual_success_rate().await?;
+
         Ok(DistributionStats {
             opportunities_distributed_today: today_count,
             active_users,
             average_distribution_time_ms,
-            success_rate_percentage: 98.5, // Would be calculated from delivery success metrics
+            success_rate_percentage: success_rate,
         })
     }
 }

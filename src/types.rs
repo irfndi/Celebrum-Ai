@@ -1670,10 +1670,10 @@ impl SessionOutcome {
 /// Configuration for session management behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionConfig {
-    pub default_session_duration_hours: u32,
-    pub max_session_duration_hours: u32,
-    pub activity_extension_hours: u32,
-    pub cleanup_interval_hours: u32,
+    pub default_session_duration_hours: f64,
+    pub max_session_duration_hours: f64,
+    pub activity_extension_hours: f64,
+    pub cleanup_interval_hours: f64,
     pub require_onboarding: bool,
     pub require_preferences_setup: bool,
     pub analytics_enabled: bool,
@@ -1682,10 +1682,10 @@ pub struct SessionConfig {
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
-            default_session_duration_hours: 168, // 7 days
-            max_session_duration_hours: 720,     // 30 days
-            activity_extension_hours: 168,       // 7 days
-            cleanup_interval_hours: 24,          // Daily cleanup
+            default_session_duration_hours: 0.25, // 15 minutes - secure for financial platforms
+            max_session_duration_hours: 2.0,      // 2 hours maximum
+            activity_extension_hours: 2.0,        // 2 hours extension on activity
+            cleanup_interval_hours: 0.25,         // 15 minutes cleanup interval
             require_onboarding: true,
             require_preferences_setup: false, // Optional during beta
             analytics_enabled: true,
@@ -2608,11 +2608,11 @@ impl AITemplate {
             is_system_default: true,
             created_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                 .as_millis() as u64,
             updated_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                 .as_millis() as u64,
         }
     }
@@ -2635,11 +2635,11 @@ impl AITemplate {
             is_system_default: false,
             created_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                 .as_millis() as u64,
             updated_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                 .as_millis() as u64,
         }
     }

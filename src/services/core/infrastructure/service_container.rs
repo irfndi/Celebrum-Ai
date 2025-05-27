@@ -1,10 +1,12 @@
 use crate::services::core::infrastructure::{D1Service, KVService};
+use crate::services::core::opportunities::opportunity_distribution::{
+    DistributionConfig, OpportunityDistributionService,
+};
 use crate::services::core::user::session_management::SessionManagementService;
-use crate::services::core::opportunities::opportunity_distribution::{OpportunityDistributionService, DistributionConfig};
 use crate::services::interfaces::telegram::telegram::TelegramService;
 use crate::utils::ArbitrageResult;
-use worker::{Env, kv::KvStore};
 use std::sync::Arc;
+use worker::{kv::KvStore, Env};
 
 /// Service container for managing session and opportunity distribution services
 /// Provides centralized dependency injection and service lifecycle management
@@ -20,17 +22,14 @@ impl ServiceContainer {
         // Create infrastructure services
         let d1_service = D1Service::new(env)?;
         let kv_service = KVService::new(kv_store);
-        
+
         // Create session management service
         let session_service = SessionManagementService::new(d1_service.clone(), kv_service.clone());
-        
+
         // Create opportunity distribution service
-        let distribution_service = OpportunityDistributionService::new(
-            d1_service,
-            kv_service,
-            session_service.clone(),
-        );
-        
+        let distribution_service =
+            OpportunityDistributionService::new(d1_service, kv_service, session_service.clone());
+
         Ok(Self {
             session_service,
             distribution_service,
@@ -39,7 +38,11 @@ impl ServiceContainer {
     }
 
     /// Create with custom distribution configuration
-    pub fn with_distribution_config(env: &Env, kv_store: KvStore, config: DistributionConfig) -> ArbitrageResult<Self> {
+    pub fn with_distribution_config(
+        env: &Env,
+        kv_store: KvStore,
+        config: DistributionConfig,
+    ) -> ArbitrageResult<Self> {
         let mut container = Self::new(env, kv_store)?;
         container.distribution_service = container.distribution_service.with_config(config);
         Ok(container)
@@ -48,10 +51,11 @@ impl ServiceContainer {
     /// Set the Telegram service for push notifications using Arc for shared ownership
     pub fn set_telegram_service(&mut self, telegram_service: TelegramService) {
         let arc_telegram_service = Arc::new(telegram_service);
-        
+
         // Set telegram service in distribution service
-        self.distribution_service.set_notification_sender(Box::new(arc_telegram_service.clone()));
-        
+        self.distribution_service
+            .set_notification_sender(Box::new(arc_telegram_service.clone()));
+
         // Store the Arc for container access
         self.telegram_service = Some(arc_telegram_service);
     }
@@ -81,17 +85,17 @@ impl ServiceContainer {
         // Check if Telegram service is set for push notifications
         if self.telegram_service.is_none() {
             return Err(crate::utils::ArbitrageError::configuration_error(
-                "Telegram service not configured for push notifications".to_string()
+                "Telegram service not configured for push notifications".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Health check for all services
     pub async fn health_check(&self) -> ArbitrageResult<ServiceHealthStatus> {
         let mut status = ServiceHealthStatus::default();
-        
+
         // Check session service health
         match self.session_service.get_active_session_count().await {
             Ok(_) => status.session_service_healthy = true,
@@ -100,26 +104,30 @@ impl ServiceContainer {
                 status.errors.push(format!("Session service error: {}", e));
             }
         }
-        
+
         // Check distribution service health
         match self.distribution_service.get_distribution_stats().await {
             Ok(_) => status.distribution_service_healthy = true,
             Err(e) => {
                 status.distribution_service_healthy = false;
-                status.errors.push(format!("Distribution service error: {}", e));
+                status
+                    .errors
+                    .push(format!("Distribution service error: {}", e));
             }
         }
-        
+
         // Check Telegram service health
         status.telegram_service_healthy = self.telegram_service.is_some();
         if !status.telegram_service_healthy {
-            status.errors.push("Telegram service not configured".to_string());
+            status
+                .errors
+                .push("Telegram service not configured".to_string());
         }
-        
-        status.overall_healthy = status.session_service_healthy 
-            && status.distribution_service_healthy 
+
+        status.overall_healthy = status.session_service_healthy
+            && status.distribution_service_healthy
             && status.telegram_service_healthy;
-        
+
         Ok(status)
     }
 
@@ -129,11 +137,18 @@ impl ServiceContainer {
     }
 
     /// Distribute opportunities to eligible users
-    pub async fn distribute_opportunities(&self, opportunities: &[crate::types::ArbitrageOpportunity]) -> ArbitrageResult<u32> {
+    pub async fn distribute_opportunities(
+        &self,
+        opportunities: &[crate::types::ArbitrageOpportunity],
+    ) -> ArbitrageResult<u32> {
         let mut total_distributed = 0;
-        
+
         for opportunity in opportunities {
-            match self.distribution_service.distribute_opportunity(opportunity.clone()).await {
+            match self
+                .distribution_service
+                .distribute_opportunity(opportunity.clone())
+                .await
+            {
                 Ok(count) => total_distributed += count,
                 Err(e) => {
                     // Log error but continue with other opportunities
@@ -141,7 +156,7 @@ impl ServiceContainer {
                 }
             }
         }
-        
+
         Ok(total_distributed)
     }
 }
@@ -165,4 +180,4 @@ impl ServiceHealthStatus {
             format!("Service issues: {}", self.errors.join(", "))
         }
     }
-} 
+}

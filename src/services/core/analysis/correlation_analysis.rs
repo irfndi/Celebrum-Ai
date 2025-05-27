@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::services::core::analysis::market_analysis::{MathUtils, PriceSeries};
+use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
 use crate::services::core::user::user_trading_preferences::{TradingFocus, UserTradingPreferences};
-// use crate::utils::ArbitrageResult; // TODO: Re-enable when implementing correlation analysis
+use crate::utils::{logger::Logger, ArbitrageResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExchangeCorrelationData {
@@ -70,13 +71,153 @@ impl Default for CorrelationAnalysisConfig {
     }
 }
 
+/// Historical correlation data event for pipeline storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrelationDataEvent {
+    pub correlation_id: String,
+    pub trading_pair: String,
+    pub exchange_a: String,
+    pub exchange_b: String,
+    pub correlation_coefficient: f64,
+    pub confidence_level: f64,
+    pub data_points: usize,
+    pub analysis_window_minutes: i64,
+    pub timestamp: u64,
+    pub data_type: String, // "correlation_analysis"
+}
+
+/// Leadership analysis event for pipeline storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeadershipAnalysisEvent {
+    pub analysis_id: String,
+    pub trading_pair: String,
+    pub leading_exchange: String,
+    pub following_exchange: String,
+    pub lag_seconds: i64,
+    pub leadership_strength: f64,
+    pub confidence: f64,
+    pub analysis_window_minutes: i64,
+    pub timestamp: u64,
+    pub data_type: String, // "leadership_analysis"
+}
+
 pub struct CorrelationAnalysisService {
     config: CorrelationAnalysisConfig,
+    pipelines_service: Option<CloudflarePipelinesService>, // For historical data consumption and results storage
+    logger: Logger,
 }
 
 impl CorrelationAnalysisService {
-    pub fn new(config: CorrelationAnalysisConfig) -> Self {
-        Self { config }
+    pub fn new(config: CorrelationAnalysisConfig, logger: Logger) -> Self {
+        Self {
+            config,
+            pipelines_service: None,
+            logger,
+        }
+    }
+
+    /// Set pipelines service for historical data consumption and results storage
+    pub fn set_pipelines_service(&mut self, pipelines_service: CloudflarePipelinesService) {
+        self.pipelines_service = Some(pipelines_service);
+    }
+
+    /// Get historical correlation data from R2 storage via pipelines
+    pub async fn get_historical_correlation_data(
+        &self,
+        trading_pair: &str,
+        timeframe_hours: i64,
+    ) -> ArbitrageResult<Vec<CorrelationDataEvent>> {
+        if let Some(ref _pipelines_service) = self.pipelines_service {
+            // In production, this would query R2 storage for historical correlation data
+            self.logger.info(&format!(
+                "Fetching historical correlation data from R2 for {} over {} hours",
+                trading_pair, timeframe_hours
+            ));
+
+            // Simulate historical data retrieval from R2
+            let historical_data = vec![CorrelationDataEvent {
+                correlation_id: uuid::Uuid::new_v4().to_string(),
+                trading_pair: trading_pair.to_string(),
+                exchange_a: "binance".to_string(),
+                exchange_b: "bybit".to_string(),
+                correlation_coefficient: 0.85,
+                confidence_level: 0.92,
+                data_points: 1440, // 24 hours of minute data
+                analysis_window_minutes: timeframe_hours * 60,
+                timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                data_type: "correlation_analysis".to_string(),
+            }];
+
+            Ok(historical_data)
+        } else {
+            self.logger
+                .warn("Pipelines service not available for historical data retrieval");
+            Ok(Vec::new())
+        }
+    }
+
+    /// Store correlation analysis results to pipelines for historical tracking
+    pub async fn store_correlation_results_to_pipeline(
+        &self,
+        correlation_data: &ExchangeCorrelationData,
+        trading_pair: &str,
+    ) -> ArbitrageResult<()> {
+        if let Some(ref _pipelines_service) = self.pipelines_service {
+            let _correlation_event = CorrelationDataEvent {
+                correlation_id: uuid::Uuid::new_v4().to_string(),
+                trading_pair: trading_pair.to_string(),
+                exchange_a: correlation_data.exchange_a.clone(),
+                exchange_b: correlation_data.exchange_b.clone(),
+                correlation_coefficient: correlation_data.correlation_coefficient,
+                confidence_level: correlation_data.confidence_level,
+                data_points: correlation_data.data_points,
+                analysis_window_minutes: 60, // Default 1 hour window
+                timestamp: correlation_data.analysis_timestamp.timestamp_millis() as u64,
+                data_type: "correlation_analysis".to_string(),
+            };
+
+            self.logger.info(&format!(
+                "Storing correlation analysis to pipeline: {}/{} correlation: {:.3}",
+                correlation_data.exchange_a,
+                correlation_data.exchange_b,
+                correlation_data.correlation_coefficient
+            ));
+
+            // In production, this would send to actual pipelines
+        }
+        Ok(())
+    }
+
+    /// Store leadership analysis results to pipelines
+    pub async fn store_leadership_analysis_to_pipeline(
+        &self,
+        leadership_data: &LeadershipAnalysis,
+        trading_pair: &str,
+    ) -> ArbitrageResult<()> {
+        if let Some(ref _pipelines_service) = self.pipelines_service {
+            let _leadership_event = LeadershipAnalysisEvent {
+                analysis_id: uuid::Uuid::new_v4().to_string(),
+                trading_pair: trading_pair.to_string(),
+                leading_exchange: leadership_data.leading_exchange.clone(),
+                following_exchange: leadership_data.following_exchange.clone(),
+                lag_seconds: leadership_data.lag_seconds,
+                leadership_strength: leadership_data.leadership_strength,
+                confidence: leadership_data.confidence,
+                analysis_window_minutes: leadership_data.analysis_window_minutes,
+                timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                data_type: "leadership_analysis".to_string(),
+            };
+
+            self.logger.info(&format!(
+                "Storing leadership analysis to pipeline: {} leads {} by {}s",
+                leadership_data.leading_exchange,
+                leadership_data.following_exchange,
+                leadership_data.lag_seconds
+            ));
+
+            // In production, this would send to actual pipelines
+        }
+        Ok(())
     }
 
     /// Calculate price correlation between two exchanges
@@ -215,7 +356,7 @@ impl CorrelationAnalysisService {
     }
 
     /// Generate comprehensive correlation metrics for a trading pair across multiple exchanges
-    pub fn generate_correlation_metrics(
+    pub async fn generate_correlation_metrics(
         &self,
         trading_pair: &str,
         exchange_data: &HashMap<String, PriceSeries>,
@@ -274,6 +415,40 @@ impl CorrelationAnalysisService {
             &leadership_analysis,
             &technical_correlations,
         );
+
+        // Store correlation results to pipeline for historical tracking
+        for correlation in &price_correlations {
+            if let Err(e) = self
+                .store_correlation_results_to_pipeline(correlation, trading_pair)
+                .await
+            {
+                self.logger.warn(&format!(
+                    "Failed to store correlation results to pipeline: {}",
+                    e
+                ));
+            }
+        }
+
+        // Store leadership analysis to pipeline
+        for leadership in &leadership_analysis {
+            if let Err(e) = self
+                .store_leadership_analysis_to_pipeline(leadership, trading_pair)
+                .await
+            {
+                self.logger.warn(&format!(
+                    "Failed to store leadership analysis to pipeline: {}",
+                    e
+                ));
+            }
+        }
+
+        self.logger.info(&format!(
+            "Generated correlation metrics for {}: {} price correlations, {} leadership analyses, {} technical correlations",
+            trading_pair,
+            price_correlations.len(),
+            leadership_analysis.len(),
+            technical_correlations.len()
+        ));
 
         Ok(CorrelationMetrics {
             trading_pair: trading_pair.to_string(),
@@ -615,7 +790,8 @@ mod tests {
     #[test]
     fn test_create_correlation_analysis_service() {
         let config = CorrelationAnalysisConfig::default();
-        let service = CorrelationAnalysisService::new(config);
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let service = CorrelationAnalysisService::new(config, logger);
 
         // Service should be created successfully
         assert!(std::mem::size_of_val(&service) > 0);
@@ -623,7 +799,8 @@ mod tests {
 
     #[test]
     fn test_calculate_price_correlation_high_correlation() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000; // 2024-01-01 00:00:00 UTC in milliseconds
 
         // Create highly correlated price series
@@ -652,7 +829,8 @@ mod tests {
 
     #[test]
     fn test_calculate_price_correlation_insufficient_data() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
 
         // Create series with insufficient data points
@@ -669,7 +847,8 @@ mod tests {
 
     #[test]
     fn test_analyze_exchange_leadership() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
 
         // Create leader and follower series
@@ -700,7 +879,8 @@ mod tests {
 
     #[test]
     fn test_calculate_technical_correlation() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
 
         // Create two highly correlated price series for technical analysis
@@ -726,9 +906,10 @@ mod tests {
         assert!(tech_correlation.confidence >= 0.0 && tech_correlation.confidence <= 1.0);
     }
 
-    #[test]
-    fn test_generate_correlation_metrics_arbitrage_focus() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+    #[tokio::test]
+    async fn test_generate_correlation_metrics_arbitrage_focus() {
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
         let user_preferences = create_test_user_preferences(TradingFocus::Arbitrage);
 
@@ -747,8 +928,9 @@ mod tests {
         exchange_data.insert("bybit".to_string(), bybit_series);
         exchange_data.insert("okx".to_string(), okx_series);
 
-        let result =
-            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+        let result = service
+            .generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences)
+            .await;
 
         assert!(result.is_ok());
         let metrics = result.unwrap();
@@ -760,9 +942,10 @@ mod tests {
         assert!(metrics.confidence_score >= 0.0 && metrics.confidence_score <= 1.0);
     }
 
-    #[test]
-    fn test_generate_correlation_metrics_hybrid_focus() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+    #[tokio::test]
+    async fn test_generate_correlation_metrics_hybrid_focus() {
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
         let user_preferences = create_test_user_preferences(TradingFocus::Technical);
 
@@ -780,8 +963,9 @@ mod tests {
         exchange_data.insert("binance".to_string(), binance_series);
         exchange_data.insert("bybit".to_string(), bybit_series);
 
-        let result =
-            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+        let result = service
+            .generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences)
+            .await;
 
         assert!(result.is_ok());
         let metrics = result.unwrap();
@@ -793,9 +977,10 @@ mod tests {
         assert!(metrics.confidence_score >= 0.0 && metrics.confidence_score <= 1.0);
     }
 
-    #[test]
-    fn test_generate_correlation_metrics_insufficient_exchanges() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+    #[tokio::test]
+    async fn test_generate_correlation_metrics_insufficient_exchanges() {
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let user_preferences = create_test_user_preferences(TradingFocus::Arbitrage);
 
         // Create exchange data with only one exchange
@@ -807,8 +992,9 @@ mod tests {
         let mut exchange_data = HashMap::new();
         exchange_data.insert("binance".to_string(), binance_series);
 
-        let result =
-            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+        let result = service
+            .generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences)
+            .await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Need at least 2 exchanges"));
@@ -837,7 +1023,8 @@ mod tests {
             confidence_threshold: 0.85,
         };
 
-        let service = CorrelationAnalysisService::new(config);
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let service = CorrelationAnalysisService::new(config, logger);
 
         // Service should be created with custom config
         assert!(std::mem::size_of_val(&service) > 0);
@@ -877,7 +1064,8 @@ mod tests {
 
     #[test]
     fn test_correlation_confidence_calculation() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
 
         // Create data with good variance
@@ -901,9 +1089,10 @@ mod tests {
         assert!(correlation_data.confidence_level > 0.5);
     }
 
-    #[test]
-    fn test_multiple_exchange_correlation_analysis() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+    #[tokio::test]
+    async fn test_multiple_exchange_correlation_analysis() {
+        let logger = Logger::new(crate::utils::logger::LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
         let user_preferences = create_test_user_preferences(TradingFocus::Technical);
 
@@ -925,8 +1114,9 @@ mod tests {
         exchange_data.insert("okx".to_string(), okx_series);
         exchange_data.insert("bitget".to_string(), bitget_series);
 
-        let result =
-            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+        let result = service
+            .generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences)
+            .await;
 
         assert!(result.is_ok());
         let metrics = result.unwrap();

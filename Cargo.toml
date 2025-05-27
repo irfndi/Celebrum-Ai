@@ -9,6 +9,8 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = []
 disabled_tests = []
+cloudflare_analytics = []
+cloudflare_queues = []
 
 [dependencies]
 worker = { version = "0.5.0", features = ["d1"] }

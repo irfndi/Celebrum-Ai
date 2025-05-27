@@ -852,20 +852,33 @@ VIP or Users Tier:
 - **Admin Trading API**: Super admin uses separate API keys with trading capabilities for personal automated trading
 - **Risk Isolation**: No risk of users accessing super admin trading capabilities through global opportunity system
 
-**FR6.1.1**: The system must implement hybrid Cloudflare infrastructure architecture
+**FR6.1.1**: The system must implement comprehensive hybrid Cloudflare infrastructure architecture
+- **Market Data Ingestion Layer**: Super admin read-only APIs → Cloudflare Pipelines → R2 storage → Analysis services
 - **Durable Objects**: Real-time coordination for session management, opportunity distribution, and rate limiting
 - **Pipelines + R2**: High-volume data ingestion (100MB/sec) for market data, analytics, and audit logs
-- **KV Store**: Fast caching layer for session validation and rate limiting
-- **D1 Database**: Structured data storage for core application data
-- **Hybrid Data Flow**: Real-time operations via Durable Objects, batch processing via Pipelines + R2
+- **KV Store**: Fast caching layer for session validation, rate limiting, and real-time market data
+- **D1 Database**: Structured application data (user sessions, preferences, processed AI analysis results)
+- **Hybrid Data Access Pattern**: Pipeline-first, KV cache fallback, super admin API last resort for all global services
+
+**FR6.1.2**: The system must implement centralized market data pipeline architecture with hybrid access patterns
+- **Market Data Ingestion**: All market data flows through Cloudflare Pipelines before analysis services + opportunity distribution
+- **Pipeline-First Analysis**: Analysis services consume data from pipelines instead of direct API calls
+- **Historical Data Storage**: R2 storage for historical market data and analysis results
+- **Centralized Rate Limiting**: Prevent multiple services from hitting exchange API limits
+- **Data Consistency**: Ensure all services use consistent market data sources
+- **Hybrid Access Pattern**: Services use pipeline-first, KV cache fallback, super admin API last resort strategy
+- **Service Integration**: GlobalOpportunityService and AI Intelligence Service enhanced with pipeline data consumption
+- **Storage Optimization**: D1 for structured application data, Pipelines/R2 for high-volume time-series data, KV for fast cache
 
 **FR6.2**: The system must implement comprehensive service layer architecture
 - **ExchangeService**: Real-time market data fetching with API rate limiting and connection pooling
 - **GlobalOpportunityService**: Fair distribution and queue management for opportunity delivery (max 2 opportunities, 10 daily, 4-hour cooldown)
 - **PositionsService**: Multi-exchange position tracking and management
 - **FundMonitoringService**: Real-time balance tracking and fund optimization
-- **CorrelationAnalysisService**: Cross-exchange market correlation analysis
+- **CorrelationAnalysisService**: Cross-exchange market correlation analysis with pipeline data consumption
 - **DynamicConfigService**: Runtime configuration management and validation
+- **MarketAnalysisService**: Technical analysis with Cloudflare Pipelines integration for market data and results storage
+- **TechnicalAnalysisService**: Technical indicators and signals with pipeline-based data consumption
 
 ### 6.2 Notification Security & Privacy Architecture
 

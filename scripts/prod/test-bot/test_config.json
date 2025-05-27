@@ -1,0 +1,265 @@
+{
+  "test_configuration": {
+    "description": "ArbEdge API Test Configuration - Defines expected behavior for RBAC & Subscription tiers",
+    "version": "1.0.0",
+    "base_url": "https://arb-edge.your-domain.workers.dev",
+    "test_users": {
+      "free_user": {
+        "user_id": "user_free_123",
+        "subscription_tier": "free",
+        "telegram_id": 123456789,
+        "permissions": {
+          "opportunities": {
+            "list": true,
+            "list_limit": 5,
+            "premium_features": false,
+            "execute": true,
+            "execute_limit_per_hour": 3
+          },
+          "analytics": {
+            "dashboard": false,
+            "user_analytics": true,
+            "advanced_metrics": false
+          },
+          "profile": {
+            "read": true,
+            "update": true,
+            "delete": false
+          },
+          "rate_limits": {
+            "requests_per_minute": 10,
+            "requests_per_hour": 100
+          }
+        }
+      },
+      "premium_user": {
+        "user_id": "user_premium_456",
+        "subscription_tier": "premium",
+        "telegram_id": 456789123,
+        "permissions": {
+          "opportunities": {
+            "list": true,
+            "list_limit": 20,
+            "premium_features": true,
+            "execute": true,
+            "execute_limit_per_hour": 10
+          },
+          "analytics": {
+            "dashboard": false,
+            "user_analytics": true,
+            "advanced_metrics": true
+          },
+          "profile": {
+            "read": true,
+            "update": true,
+            "delete": true
+          },
+          "rate_limits": {
+            "requests_per_minute": 30,
+            "requests_per_hour": 500
+          }
+        }
+      },
+      "pro_user": {
+        "user_id": "user_pro_789",
+        "subscription_tier": "pro",
+        "telegram_id": 789123456,
+        "permissions": {
+          "opportunities": {
+            "list": true,
+            "list_limit": 50,
+            "premium_features": true,
+            "execute": true,
+            "execute_limit_per_hour": 25
+          },
+          "analytics": {
+            "dashboard": true,
+            "user_analytics": true,
+            "advanced_metrics": true
+          },
+          "profile": {
+            "read": true,
+            "update": true,
+            "delete": true
+          },
+          "rate_limits": {
+            "requests_per_minute": 60,
+            "requests_per_hour": 1000
+          }
+        }
+      },
+      "admin_user": {
+        "user_id": "user_admin_000",
+        "subscription_tier": "admin",
+        "telegram_id": 999888777,
+        "permissions": {
+          "opportunities": {
+            "list": true,
+            "list_limit": 100,
+            "premium_features": true,
+            "execute": true,
+            "execute_limit_per_hour": 100
+          },
+          "analytics": {
+            "dashboard": true,
+            "user_analytics": true,
+            "advanced_metrics": true,
+            "system_analytics": true
+          },
+          "profile": {
+            "read": true,
+            "update": true,
+            "delete": true
+          },
+          "admin": {
+            "user_management": true,
+            "system_configuration": true,
+            "invitation_codes": true
+          },
+          "rate_limits": {
+            "requests_per_minute": 120,
+            "requests_per_hour": 5000
+          }
+        }
+      }
+    },
+    "telegram_bot_flows": {
+      "user_registration": {
+        "steps": [
+          {
+            "action": "send_start_command",
+            "expected_response": "welcome_message_with_registration_prompt"
+          },
+          {
+            "action": "provide_invitation_code",
+            "expected_response": "registration_success_or_error"
+          },
+          {
+            "action": "setup_preferences",
+            "expected_response": "preferences_saved_confirmation"
+          }
+        ]
+      },
+      "opportunity_discovery": {
+        "steps": [
+          {
+            "action": "send_opportunities_command",
+            "expected_response": "opportunities_list_based_on_subscription"
+          },
+          {
+            "action": "click_opportunity_details",
+            "expected_response": "detailed_opportunity_view"
+          },
+          {
+            "action": "execute_opportunity",
+            "expected_response": "execution_confirmation_or_limit_reached"
+          }
+        ]
+      },
+      "profile_management": {
+        "steps": [
+          {
+            "action": "send_profile_command",
+            "expected_response": "user_profile_display"
+          },
+          {
+            "action": "update_risk_tolerance",
+            "expected_response": "preferences_updated_confirmation"
+          },
+          {
+            "action": "view_subscription_status",
+            "expected_response": "subscription_details_and_limits"
+          }
+        ]
+      }
+    },
+    "expected_behaviors": {
+      "subscription_enforcement": {
+        "free_tier": {
+          "opportunity_limit": 5,
+          "premium_features_blocked": true,
+          "analytics_limited": true,
+          "rate_limit_strict": true
+        },
+        "premium_tier": {
+          "opportunity_limit": 20,
+          "premium_features_enabled": true,
+          "analytics_enhanced": true,
+          "rate_limit_relaxed": true
+        },
+        "pro_tier": {
+          "opportunity_limit": 50,
+          "premium_features_enabled": true,
+          "analytics_full": true,
+          "dashboard_access": true
+        },
+        "admin_tier": {
+          "opportunity_limit": 100,
+          "all_features_enabled": true,
+          "system_management": true,
+          "user_management": true
+        }
+      },
+      "rate_limiting": {
+        "enforcement_levels": {
+          "free": "strict",
+          "premium": "moderate",
+          "pro": "relaxed",
+          "admin": "minimal"
+        },
+        "escalation_responses": {
+          "warning": "rate_limit_warning_message",
+          "temporary_block": "temporary_block_notification",
+          "upgrade_prompt": "subscription_upgrade_suggestion"
+        }
+      },
+      "error_handling": {
+        "unauthorized_access": {
+          "response_code": 401,
+          "message": "Authentication required"
+        },
+        "insufficient_permissions": {
+          "response_code": 403,
+          "message": "Upgrade subscription for access"
+        },
+        "rate_limit_exceeded": {
+          "response_code": 429,
+          "message": "Rate limit exceeded, try again later"
+        },
+        "invalid_request": {
+          "response_code": 400,
+          "message": "Invalid request format"
+        }
+      }
+    },
+    "test_scenarios": {
+      "subscription_upgrade_flow": {
+        "description": "Test user upgrading from free to premium",
+        "steps": [
+          "verify_free_tier_limits",
+          "simulate_upgrade_request",
+          "verify_premium_tier_access",
+          "confirm_increased_limits"
+        ]
+      },
+      "rate_limit_recovery": {
+        "description": "Test rate limit enforcement and recovery",
+        "steps": [
+          "exceed_rate_limit",
+          "verify_429_response",
+          "wait_for_reset_window",
+          "verify_access_restored"
+        ]
+      },
+      "cross_tier_feature_access": {
+        "description": "Verify feature access across different subscription tiers",
+        "steps": [
+          "test_free_user_premium_feature_block",
+          "test_premium_user_analytics_access",
+          "test_pro_user_dashboard_access",
+          "test_admin_user_management_access"
+        ]
+      }
+    }
+  }
+} 

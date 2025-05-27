@@ -1076,11 +1076,11 @@ impl TelegramService {
         Ok(Some("Update processed".to_string()))
     }
 
-    /// Handle callback queries from inline keyboard buttons
-    async fn handle_callback_query(
+    /// Extract callback query data for processing
+    fn extract_callback_query_data(
         &self,
         callback_query: &serde_json::Map<String, Value>,
-    ) -> ArbitrageResult<Option<String>> {
+    ) -> ArbitrageResult<(String, String, String, String)> {
         // Extract callback data (the button's callback_data)
         let callback_data = callback_query
             .get("data")
@@ -1089,7 +1089,8 @@ impl TelegramService {
                 ArbitrageError::validation_error(
                     "Missing callback data in callback query".to_string(),
                 )
-            })?;
+            })?
+            .to_string();
 
         // Extract user ID from callback query
         let user_id = callback_query
@@ -1118,370 +1119,512 @@ impl TelegramService {
             .and_then(|id| id.as_str())
             .ok_or_else(|| {
                 ArbitrageError::validation_error("Missing callback query ID".to_string())
-            })?;
+            })?
+            .to_string();
 
-        // Note: Chat context not needed for callback query processing
+        Ok((callback_data, user_id, chat_id, callback_query_id))
+    }
 
-        // Process the callback data as a command
-        let response_message = match callback_data {
-            // Main menu navigation
-            "main_menu" => {
-                let keyboard = InlineKeyboard::create_main_menu()
-                    .filter_by_permissions(&self.user_profile_service, &user_id)
-                    .await;
+    /// Handle main menu callback
+    async fn handle_main_menu_callback(
+        &self,
+        user_id: &str,
+        chat_id: &str,
+    ) -> ArbitrageResult<&'static str> {
+        let keyboard = InlineKeyboard::create_main_menu()
+            .filter_by_permissions(&self.user_profile_service, user_id)
+            .await;
 
-                self.send_message_with_keyboard(
-                    &chat_id,
-                    "🏠 *Main Menu*\n\nChoose an option:",
-                    &keyboard,
-                )
-                .await?;
+        self.send_message_with_keyboard(chat_id, "🏠 *Main Menu*\n\nChoose an option:", &keyboard)
+            .await?;
 
-                "Main menu displayed"
-            }
+        Ok("Main menu displayed")
+    }
 
-            // Basic commands
+    /// Handle basic commands (opportunities, categories, profile, settings, help)
+    async fn handle_basic_commands_callback(
+        &self,
+        callback_data: &str,
+        user_id: &str,
+        chat_id: &str,
+    ) -> ArbitrageResult<&'static str> {
+        match callback_data {
             "opportunities" => {
                 let keyboard = InlineKeyboard::create_opportunities_menu()
-                    .filter_by_permissions(&self.user_profile_service, &user_id)
+                    .filter_by_permissions(&self.user_profile_service, user_id)
                     .await;
 
-                let message = self.get_enhanced_opportunities_message(&user_id, &[]).await;
-                self.send_message_with_keyboard(&chat_id, &message, &keyboard)
+                let message = self.get_enhanced_opportunities_message(user_id, &[]).await;
+                self.send_message_with_keyboard(chat_id, &message, &keyboard)
                     .await?;
-                "Opportunities displayed"
+                Ok("Opportunities displayed")
             }
             "categories" => {
-                let message = self.get_categories_message(&user_id).await;
-                self.send_message_to_chat(&chat_id, &message).await?;
-                "Categories displayed"
+                let message = self.get_categories_message(user_id).await;
+                self.send_message_to_chat(chat_id, &message).await?;
+                Ok("Categories displayed")
             }
             "profile" => {
-                let message = self.get_profile_message(&user_id).await;
-                self.send_message_to_chat(&chat_id, &message).await?;
-                "Profile displayed"
+                let message = self.get_profile_message(user_id).await;
+                self.send_message_to_chat(chat_id, &message).await?;
+                Ok("Profile displayed")
             }
             "settings" => {
-                let message = self.get_settings_message(&user_id).await;
-                self.send_message_to_chat(&chat_id, &message).await?;
-                "Settings displayed"
+                let message = self.get_settings_message(user_id).await;
+                self.send_message_to_chat(chat_id, &message).await?;
+                Ok("Settings displayed")
             }
             "help" => {
-                let message = self.get_help_message_with_role(&user_id).await;
-                self.send_message_to_chat(&chat_id, &message).await?;
-                "Help displayed"
+                let message = self.get_help_message_with_role(user_id).await;
+                self.send_message_to_chat(chat_id, &message).await?;
+                Ok("Help displayed")
             }
+            _ => Err(ArbitrageError::validation_error(format!(
+                "Unknown basic command: {}",
+                callback_data
+            ))),
+        }
+    }
 
-            // AI commands (with permission checks)
+    /// Handle AI commands (ai_insights, risk_assessment)
+    async fn handle_ai_commands_callback(
+        &self,
+        callback_data: &str,
+        user_id: &str,
+        chat_id: &str,
+    ) -> ArbitrageResult<&'static str> {
+        match callback_data {
             "ai_insights" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::AIEnhancedOpportunities)
+                    .check_user_permission(user_id, &CommandPermission::AIEnhancedOpportunities)
                     .await
                 {
-                    let message = self.get_ai_insights_message(&user_id).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "AI insights displayed"
+                    let message = self.get_ai_insights_message(user_id).await;
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("AI insights displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::AIEnhancedOpportunities)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "risk_assessment" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::AdvancedAnalytics)
+                    .check_user_permission(user_id, &CommandPermission::AdvancedAnalytics)
                     .await
                 {
-                    let message = self.get_risk_assessment_message(&user_id).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Risk assessment displayed"
+                    let message = self.get_risk_assessment_message(user_id).await;
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Risk assessment displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::AdvancedAnalytics)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
+            _ => Err(ArbitrageError::validation_error(format!(
+                "Unknown AI command: {}",
+                callback_data
+            ))),
+        }
+    }
 
-            // Trading commands (with permission checks)
+    /// Handle trading commands (balance, orders, positions, buy, sell)
+    async fn handle_trading_commands_callback(
+        &self,
+        callback_data: &str,
+        user_id: &str,
+        chat_id: &str,
+    ) -> ArbitrageResult<&'static str> {
+        match callback_data {
             "balance" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::AdvancedAnalytics)
+                    .check_user_permission(user_id, &CommandPermission::AdvancedAnalytics)
                     .await
                 {
-                    let message = self.get_balance_message(&user_id, &[]).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Balance displayed"
+                    let message = self.get_balance_message(user_id, &[]).await;
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Balance displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::AdvancedAnalytics)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "orders" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::AdvancedAnalytics)
+                    .check_user_permission(user_id, &CommandPermission::AdvancedAnalytics)
                     .await
                 {
-                    let message = self.get_orders_message(&user_id, &[]).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Orders displayed"
+                    let message = self.get_orders_message(user_id, &[]).await;
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Orders displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::AdvancedAnalytics)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "positions" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::AdvancedAnalytics)
+                    .check_user_permission(user_id, &CommandPermission::AdvancedAnalytics)
                     .await
                 {
-                    let message = self.get_positions_message(&user_id, &[]).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Positions displayed"
+                    let message = self.get_positions_message(user_id, &[]).await;
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Positions displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::AdvancedAnalytics)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "buy" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::ManualTrading)
+                    .check_user_permission(user_id, &CommandPermission::ManualTrading)
                     .await
                 {
-                    let message = self.get_buy_command_message(&user_id, &[]).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Buy command displayed"
+                    let message = self.get_buy_command_message(user_id, &[]).await;
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Buy command displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::ManualTrading)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "sell" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::ManualTrading)
+                    .check_user_permission(user_id, &CommandPermission::ManualTrading)
                     .await
                 {
-                    let message = self.get_sell_command_message(&user_id, &[]).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Sell command displayed"
+                    let message = self.get_sell_command_message(user_id, &[]).await;
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Sell command displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::ManualTrading)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
+            _ => Err(ArbitrageError::validation_error(format!(
+                "Unknown trading command: {}",
+                callback_data
+            ))),
+        }
+    }
 
-            // Auto trading commands (with permission checks)
+    /// Handle auto trading commands (auto_enable, auto_disable, auto_config)
+    async fn handle_auto_trading_commands_callback(
+        &self,
+        callback_data: &str,
+        user_id: &str,
+        chat_id: &str,
+    ) -> ArbitrageResult<&'static str> {
+        match callback_data {
             "auto_enable" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::AutomatedTrading)
+                    .check_user_permission(user_id, &CommandPermission::AutomatedTrading)
                     .await
                 {
-                    let message = self.get_auto_enable_message(&user_id).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Auto trading enabled"
+                    let message = self.get_auto_enable_message(user_id).await;
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Auto trading enabled")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::AutomatedTrading)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "auto_disable" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::AutomatedTrading)
+                    .check_user_permission(user_id, &CommandPermission::AutomatedTrading)
                     .await
                 {
-                    let message = self.get_auto_disable_message(&user_id).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Auto trading disabled"
+                    let message = self.get_auto_disable_message(user_id).await;
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Auto trading disabled")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::AutomatedTrading)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "auto_config" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::AutomatedTrading)
+                    .check_user_permission(user_id, &CommandPermission::AutomatedTrading)
                     .await
                 {
-                    let message = self.get_auto_config_message(&user_id, &[]).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Auto trading config displayed"
+                    let message = self.get_auto_config_message(user_id, &[]).await;
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Auto trading config displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::AutomatedTrading)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
+            _ => Err(ArbitrageError::validation_error(format!(
+                "Unknown auto trading command: {}",
+                callback_data
+            ))),
+        }
+    }
 
-            // Admin commands (with permission checks)
+    /// Handle admin commands
+    async fn handle_admin_commands_callback(
+        &self,
+        callback_data: &str,
+        user_id: &str,
+        chat_id: &str,
+    ) -> ArbitrageResult<&'static str> {
+        match callback_data {
             "admin_users" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::SystemAdministration)
+                    .check_user_permission(user_id, &CommandPermission::SystemAdministration)
                     .await
                 {
                     let message = self.get_admin_users_message(&[]).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Admin users displayed"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Admin users displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::SystemAdministration)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "admin_stats" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::SystemAdministration)
+                    .check_user_permission(user_id, &CommandPermission::SystemAdministration)
                     .await
                 {
                     let message = self.get_admin_stats_message().await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Admin stats displayed"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Admin stats displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::SystemAdministration)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "admin_config" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::SystemAdministration)
+                    .check_user_permission(user_id, &CommandPermission::SystemAdministration)
                     .await
                 {
                     let message = self.get_admin_config_message(&[]).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Admin config displayed"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Admin config displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::SystemAdministration)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "admin_broadcast" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::SystemAdministration)
+                    .check_user_permission(user_id, &CommandPermission::SystemAdministration)
                     .await
                 {
                     let message = self.get_admin_broadcast_message(&[]).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Admin broadcast displayed"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Admin broadcast displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::SystemAdministration)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "admin_group_config" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::SystemAdministration)
+                    .check_user_permission(user_id, &CommandPermission::SystemAdministration)
                     .await
                 {
                     let message = self.get_admin_group_config_message(&[]).await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Admin group config displayed"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Admin group config displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::SystemAdministration)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
+            _ => Err(ArbitrageError::validation_error(format!(
+                "Unknown admin command: {}",
+                callback_data
+            ))),
+        }
+    }
 
-            // Opportunities submenu
+    /// Handle opportunities submenu commands
+    async fn handle_opportunities_submenu_callback(
+        &self,
+        callback_data: &str,
+        user_id: &str,
+        chat_id: &str,
+    ) -> ArbitrageResult<&'static str> {
+        match callback_data {
             "opportunities_all" => {
                 let message = self
-                    .get_enhanced_opportunities_message(&user_id, &["all"])
+                    .get_enhanced_opportunities_message(user_id, &["all"])
                     .await;
-                self.send_message_to_chat(&chat_id, &message).await?;
-                "All opportunities displayed"
+                self.send_message_to_chat(chat_id, &message).await?;
+                Ok("All opportunities displayed")
             }
             "opportunities_top" => {
                 let message = self
-                    .get_enhanced_opportunities_message(&user_id, &["top"])
+                    .get_enhanced_opportunities_message(user_id, &["top"])
                     .await;
-                self.send_message_to_chat(&chat_id, &message).await?;
-                "Top opportunities displayed"
+                self.send_message_to_chat(chat_id, &message).await?;
+                Ok("Top opportunities displayed")
             }
             "opportunities_enhanced" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::AdvancedAnalytics)
+                    .check_user_permission(user_id, &CommandPermission::AdvancedAnalytics)
                     .await
                 {
                     let message = self
-                        .get_enhanced_opportunities_message(&user_id, &["enhanced"])
+                        .get_enhanced_opportunities_message(user_id, &["enhanced"])
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Enhanced opportunities displayed"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Enhanced opportunities displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::AdvancedAnalytics)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
             }
             "opportunities_ai" => {
                 if self
-                    .check_user_permission(&user_id, &CommandPermission::AIEnhancedOpportunities)
+                    .check_user_permission(user_id, &CommandPermission::AIEnhancedOpportunities)
                     .await
                 {
                     let message = self
-                        .get_enhanced_opportunities_message(&user_id, &["ai"])
+                        .get_enhanced_opportunities_message(user_id, &["ai"])
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "AI opportunities displayed"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("AI opportunities displayed")
                 } else {
                     let message = self
                         .get_permission_denied_message(CommandPermission::AIEnhancedOpportunities)
                         .await;
-                    self.send_message_to_chat(&chat_id, &message).await?;
-                    "Access denied"
+                    self.send_message_to_chat(chat_id, &message).await?;
+                    Ok("Access denied")
                 }
+            }
+            _ => Err(ArbitrageError::validation_error(format!(
+                "Unknown opportunities submenu command: {}",
+                callback_data
+            ))),
+        }
+    }
+
+    /// Handle unknown callback commands
+    async fn handle_unknown_callback(
+        &self,
+        callback_data: &str,
+        chat_id: &str,
+    ) -> ArbitrageResult<&'static str> {
+        let message = format!("❓ *Unknown Command*\n\nCallback data: `{}`\n\nPlease use the menu buttons or type /help for available commands.", callback_data);
+        self.send_message_to_chat(chat_id, &message).await?;
+        Ok("Unknown command")
+    }
+
+    /// Handle callback queries from inline keyboard buttons
+    async fn handle_callback_query(
+        &self,
+        callback_query: &serde_json::Map<String, Value>,
+    ) -> ArbitrageResult<Option<String>> {
+        // Extract callback query data using helper method
+        let (callback_data, user_id, chat_id, callback_query_id) =
+            self.extract_callback_query_data(callback_query)?;
+
+        // Route to appropriate handler based on callback data
+        let response_message = match callback_data.as_str() {
+            // Main menu navigation
+            "main_menu" => self.handle_main_menu_callback(&user_id, &chat_id).await?,
+
+            // Basic commands
+            "opportunities" | "categories" | "profile" | "settings" | "help" => {
+                self.handle_basic_commands_callback(&callback_data, &user_id, &chat_id)
+                    .await?
+            }
+
+            // AI commands
+            "ai_insights" | "risk_assessment" => {
+                self.handle_ai_commands_callback(&callback_data, &user_id, &chat_id)
+                    .await?
+            }
+
+            // Trading commands
+            "balance" | "orders" | "positions" | "buy" | "sell" => {
+                self.handle_trading_commands_callback(&callback_data, &user_id, &chat_id)
+                    .await?
+            }
+
+            // Auto trading commands
+            "auto_enable" | "auto_disable" | "auto_config" => {
+                self.handle_auto_trading_commands_callback(&callback_data, &user_id, &chat_id)
+                    .await?
+            }
+
+            // Admin commands
+            "admin_users" | "admin_stats" | "admin_config" | "admin_broadcast"
+            | "admin_group_config" => {
+                self.handle_admin_commands_callback(&callback_data, &user_id, &chat_id)
+                    .await?
+            }
+
+            // Opportunities submenu
+            "opportunities_all"
+            | "opportunities_top"
+            | "opportunities_enhanced"
+            | "opportunities_ai" => {
+                self.handle_opportunities_submenu_callback(&callback_data, &user_id, &chat_id)
+                    .await?
             }
 
             // Unknown callback data
             _ => {
-                let message = format!("❓ *Unknown Command*\n\nCallback data: `{}`\n\nPlease use the menu buttons or type /help for available commands.", callback_data);
-                self.send_message_to_chat(&chat_id, &message).await?;
-                "Unknown command"
+                self.handle_unknown_callback(&callback_data, &chat_id)
+                    .await?
             }
         };
 
         // Answer the callback query to remove the loading state
-        self.answer_callback_query(callback_query_id, Some(response_message))
+        self.answer_callback_query(&callback_query_id, Some(response_message))
             .await?;
 
         Ok(Some("OK".to_string()))
@@ -3383,201 +3526,122 @@ impl TelegramService {
     }
 }
 
-// Implement NotificationSender trait for TelegramService
-#[cfg(not(target_arch = "wasm32"))]
-#[async_trait::async_trait]
-impl NotificationSender for TelegramService {
-    async fn send_opportunity_notification(
-        &self,
-        chat_id: &str,
-        opportunity: &ArbitrageOpportunity,
-        is_private: bool,
-    ) -> ArbitrageResult<bool> {
-        // Format the opportunity message
-        let message = format_opportunity_message(opportunity);
+// Macro to implement NotificationSender trait for TelegramService
+macro_rules! impl_notification_sender_for_telegram_service {
+    ($async_trait_attr:meta) => {
+        #[$async_trait_attr]
+        impl NotificationSender for TelegramService {
+            async fn send_opportunity_notification(
+                &self,
+                chat_id: &str,
+                opportunity: &ArbitrageOpportunity,
+                is_private: bool,
+            ) -> ArbitrageResult<bool> {
+                // Format the opportunity message
+                let message = format_opportunity_message(opportunity);
 
-        // Send the message
-        match self.send_message_to_chat(chat_id, &message).await {
-            Ok(_) => {
-                // Track analytics if enabled
-                if self.analytics_enabled {
-                    let chat_context = ChatContext::new(
-                        chat_id.to_string(),
-                        if is_private {
-                            ChatType::Private
-                        } else {
-                            ChatType::Group
-                        },
-                        Some(chat_id.to_string()),
-                    );
+                // Send the message
+                match self.send_message_to_chat(chat_id, &message).await {
+                    Ok(_) => {
+                        // Track analytics if enabled
+                        if self.analytics_enabled {
+                            let chat_context = ChatContext::new(
+                                chat_id.to_string(),
+                                if is_private {
+                                    ChatType::Private
+                                } else {
+                                    ChatType::Group
+                                },
+                                Some(chat_id.to_string()),
+                            );
 
-                    // For analytics, use chat_id as user_id only for private chats
-                    // For groups, user_id should be None to avoid confusion
-                    let analytics_user_id = if is_private {
-                        Some(chat_id.to_string())
-                    } else {
-                        None
-                    };
+                            // For analytics, use chat_id as user_id only for private chats
+                            // For groups, user_id should be None to avoid confusion
+                            let analytics_user_id = if is_private {
+                                Some(chat_id.to_string())
+                            } else {
+                                None
+                            };
 
-                    let _ = self
-                        .track_message_analytics(
-                            format!("opp_{}", opportunity.id),
-                            analytics_user_id,
-                            &chat_context,
-                            "opportunity_notification",
-                            None,
-                            "opportunity",
-                            "sent",
-                            None,
-                            json!({
-                                "opportunity_id": opportunity.id,
-                                "pair": opportunity.pair,
-                                "rate_difference": opportunity.rate_difference,
-                                "is_private": is_private
-                            }),
-                        )
-                        .await;
+                            let _ = self
+                                .track_message_analytics(
+                                    format!("opp_{}", opportunity.id),
+                                    analytics_user_id,
+                                    &chat_context,
+                                    "opportunity_notification",
+                                    None,
+                                    "opportunity",
+                                    "sent",
+                                    None,
+                                    json!({
+                                        "opportunity_id": opportunity.id,
+                                        "pair": opportunity.pair,
+                                        "rate_difference": opportunity.rate_difference,
+                                        "is_private": is_private
+                                    }),
+                                )
+                                .await;
+                        }
+                        Ok(true)
+                    }
+                    Err(e) => {
+                        console_log!(
+                            "❌ Failed to send opportunity notification to {}: {}",
+                            chat_id,
+                            e
+                        );
+                        Ok(false)
+                    }
                 }
-                Ok(true)
             }
-            Err(e) => {
-                console_log!(
-                    "❌ Failed to send opportunity notification to {}: {}",
-                    chat_id,
-                    e
-                );
-                Ok(false)
+
+            async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
+                self.send_message_to_chat(chat_id, message).await
             }
         }
-    }
-
-    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
-        self.send_message_to_chat(chat_id, message).await
-    }
+    };
 }
 
-// WASM version without Send bounds
-#[cfg(target_arch = "wasm32")]
-#[async_trait::async_trait(?Send)]
-impl NotificationSender for TelegramService {
-    async fn send_opportunity_notification(
-        &self,
-        chat_id: &str,
-        opportunity: &ArbitrageOpportunity,
-        is_private: bool,
-    ) -> ArbitrageResult<bool> {
-        // Format the opportunity message
-        let message = format_opportunity_message(opportunity);
-
-        // Send the message
-        match self.send_message_to_chat(chat_id, &message).await {
-            Ok(_) => {
-                // Track analytics if enabled
-                if self.analytics_enabled {
-                    let chat_context = ChatContext::new(
-                        chat_id.to_string(),
-                        if is_private {
-                            ChatType::Private
-                        } else {
-                            ChatType::Group
-                        },
-                        Some(chat_id.to_string()),
-                    );
-
-                    // For analytics, use chat_id as user_id only for private chats
-                    // For groups, user_id should be None to avoid confusion
-                    let analytics_user_id = if is_private {
-                        Some(chat_id.to_string())
-                    } else {
-                        None
-                    };
-
-                    let _ = self
-                        .track_message_analytics(
-                            format!("opp_{}", opportunity.id),
-                            analytics_user_id,
-                            &chat_context,
-                            "opportunity_notification",
-                            None,
-                            "opportunity",
-                            "sent",
-                            None,
-                            json!({
-                                "opportunity_id": opportunity.id,
-                                "pair": opportunity.pair,
-                                "rate_difference": opportunity.rate_difference,
-                                "is_private": is_private
-                            }),
-                        )
-                        .await;
-                }
-                Ok(true)
-            }
-            Err(e) => {
-                console_log!(
-                    "❌ Failed to send opportunity notification to {}: {}",
+// Macro to implement NotificationSender trait for Arc<TelegramService>
+macro_rules! impl_notification_sender_for_arc_telegram_service {
+    ($async_trait_attr:meta) => {
+        #[$async_trait_attr]
+        impl NotificationSender for Arc<TelegramService> {
+            async fn send_opportunity_notification(
+                &self,
+                chat_id: &str,
+                opportunity: &ArbitrageOpportunity,
+                is_private: bool,
+            ) -> ArbitrageResult<bool> {
+                // Use the trait implementation from TelegramService
+                <TelegramService as NotificationSender>::send_opportunity_notification(
+                    self,
                     chat_id,
-                    e
-                );
-                Ok(false)
+                    opportunity,
+                    is_private,
+                )
+                .await
+            }
+
+            async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
+                (**self).send_message_to_chat(chat_id, message).await
             }
         }
-    }
-
-    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
-        self.send_message_to_chat(chat_id, message).await
-    }
+    };
 }
 
-// Implement NotificationSender for Arc<TelegramService> to enable shared ownership
+// Apply implementations with appropriate async_trait attributes
 #[cfg(not(target_arch = "wasm32"))]
-#[async_trait::async_trait]
-impl NotificationSender for Arc<TelegramService> {
-    async fn send_opportunity_notification(
-        &self,
-        chat_id: &str,
-        opportunity: &ArbitrageOpportunity,
-        is_private: bool,
-    ) -> ArbitrageResult<bool> {
-        // Use the trait implementation from TelegramService
-        <TelegramService as NotificationSender>::send_opportunity_notification(
-            self,
-            chat_id,
-            opportunity,
-            is_private,
-        )
-        .await
-    }
+impl_notification_sender_for_telegram_service!(async_trait::async_trait);
 
-    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
-        (**self).send_message_to_chat(chat_id, message).await
-    }
-}
-
-// WASM version for Arc<TelegramService> without Send bounds
 #[cfg(target_arch = "wasm32")]
-#[async_trait::async_trait(?Send)]
-impl NotificationSender for Arc<TelegramService> {
-    async fn send_opportunity_notification(
-        &self,
-        chat_id: &str,
-        opportunity: &ArbitrageOpportunity,
-        is_private: bool,
-    ) -> ArbitrageResult<bool> {
-        // Use the trait implementation from TelegramService
-        <TelegramService as NotificationSender>::send_opportunity_notification(
-            self,
-            chat_id,
-            opportunity,
-            is_private,
-        )
-        .await
-    }
+impl_notification_sender_for_telegram_service!(async_trait::async_trait(?Send));
 
-    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
-        (**self).send_message_to_chat(chat_id, message).await
-    }
-}
+#[cfg(not(target_arch = "wasm32"))]
+impl_notification_sender_for_arc_telegram_service!(async_trait::async_trait);
+
+#[cfg(target_arch = "wasm32")]
+impl_notification_sender_for_arc_telegram_service!(async_trait::async_trait(?Send));
 
 #[cfg(test)]
 mod tests {
