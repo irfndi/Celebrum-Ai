@@ -162,6 +162,20 @@ pub struct AnalyticsEngineService {
 }
 
 impl AnalyticsEngineService {
+    /// Validate and escape user_id to prevent SQL injection
+    fn validate_and_escape_user_id(&self, user_id: &str) -> ArbitrageResult<String> {
+        // Validate that user_id contains only allowed characters
+        if !user_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            return Err(crate::utils::ArbitrageError::validation_error(
+                "Invalid user_id: only alphanumeric characters, hyphens, and underscores are allowed".to_string()
+            ));
+        }
+        
+        // Escape single quotes by replacing them with two single quotes
+        let escaped = user_id.replace("'", "''");
+        Ok(escaped)
+    }
+
     /// Create new AnalyticsEngineService instance
     pub fn new(_env: &Env, config: AnalyticsEngineConfig) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
@@ -660,7 +674,7 @@ impl AnalyticsEngineService {
                         .unwrap_or(0);
 
                     // Calculate real metrics from actual data
-                    let time_window_minutes = (end_time - start_time) / (1000 * 60); // Convert ms to minutes
+                    let time_window_minutes = (end_time - start_time) / 60; // Convert seconds to minutes
                     let opportunities_per_minute = if time_window_minutes > 0 {
                         total as f32 / time_window_minutes as f32
                     } else {
@@ -729,7 +743,7 @@ impl AnalyticsEngineService {
                     } else {
                         100.0 - (avg_latency - 50.0) / 10.0
                     };
-                    let health_score = (success_rate + latency_score.max(0.0)) / 2.0;
+                    let health_score = (success_rate + latency_score.max(0.0f32)) / 2.0;
 
                     return Ok(SystemMetrics {
                         average_latency: avg_latency,
@@ -877,6 +891,7 @@ impl AnalyticsEngineService {
         start_time: u64,
         end_time: u64,
     ) -> ArbitrageResult<UserEngagementData> {
+        let escaped_user_id = self.validate_and_escape_user_id(user_id)?;
         let query = format!(
             "SELECT 
                 SUM(opportunities_viewed) as total_viewed,
@@ -884,7 +899,7 @@ impl AnalyticsEngineService {
                 MAX(timestamp) as last_activity
             FROM {} 
             WHERE event_type = 'user_engagement' AND user_id = '{}' AND timestamp BETWEEN {} AND {}",
-            self.config.dataset_name, user_id, start_time, end_time
+            self.config.dataset_name, escaped_user_id, start_time, end_time
         );
 
         if let Ok(result) = analytics_engine.query(&query).await {
@@ -905,7 +920,7 @@ impl AnalyticsEngineService {
                         .unwrap_or(0);
 
                     // Calculate real session frequency from actual data
-                    let time_window_weeks = (end_time - start_time) / (1000 * 60 * 60 * 24 * 7); // Convert ms to weeks
+                    let time_window_weeks = (end_time - start_time) / (60 * 60 * 24 * 7); // Convert seconds to weeks
                     let session_frequency_per_week = if time_window_weeks > 0 {
                         session_count as f32 / time_window_weeks as f32
                     } else {
@@ -937,6 +952,8 @@ impl AnalyticsEngineService {
         start_time: u64,
         end_time: u64,
     ) -> ArbitrageResult<UserConversionData> {
+        let escaped_user_id = self.validate_and_escape_user_id(user_id)?;
+        
         // First query: Get overall conversion stats
         let stats_query = format!(
             "SELECT 
@@ -945,7 +962,7 @@ impl AnalyticsEngineService {
                 SUM(CASE WHEN converted = true THEN profit_loss ELSE 0 END) as total_profit
             FROM {} 
             WHERE event_type = 'opportunity_conversion' AND user_id = '{}' AND timestamp BETWEEN {} AND {}",
-            self.config.dataset_name, user_id, start_time, end_time
+            self.config.dataset_name, escaped_user_id, start_time, end_time
         );
 
         // Second query: Get favorite pairs and exchanges
@@ -959,7 +976,7 @@ impl AnalyticsEngineService {
             GROUP BY pair, exchange_combination
             ORDER BY usage_count DESC
             LIMIT 5",
-            self.config.dataset_name, user_id, start_time, end_time
+            self.config.dataset_name, escaped_user_id, start_time, end_time
         );
 
         let mut total_executed = 0u64;
@@ -1035,13 +1052,14 @@ impl AnalyticsEngineService {
         start_time: u64,
         end_time: u64,
     ) -> ArbitrageResult<UserAIUsageData> {
+        let escaped_user_id = self.validate_and_escape_user_id(user_id)?;
         let query = format!(
             "SELECT 
                 COUNT(*) as total_ai_calls,
                 COUNT(DISTINCT DATE(timestamp)) as active_days
             FROM {} 
             WHERE event_type = 'ai_model_performance' AND user_id = '{}' AND timestamp BETWEEN {} AND {}",
-            self.config.dataset_name, user_id, start_time, end_time
+            self.config.dataset_name, escaped_user_id, start_time, end_time
         );
 
         if let Ok(result) = analytics_engine.query(&query).await {

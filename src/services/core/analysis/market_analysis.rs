@@ -8,6 +8,7 @@ use crate::services::{D1Service, UserTradingPreferencesService};
 use crate::utils::{logger::Logger, ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 // use worker::*; // TODO: Re-enable when implementing worker functionality
 
 // ============= CORE DATA STRUCTURES =============
@@ -463,8 +464,8 @@ impl MarketAnalysisService {
         low_24h: f64,
         change_24h: f64,
     ) -> ArbitrageResult<()> {
-        if let Some(ref _pipelines_service) = self.pipelines_service {
-            let _market_data = MarketDataEvent {
+        if let Some(ref pipelines_service) = self.pipelines_service {
+            let market_data = MarketDataEvent {
                 timestamp: chrono::Utc::now().timestamp_millis() as u64,
                 exchange: exchange.to_string(),
                 symbol: symbol.to_string(),
@@ -477,9 +478,11 @@ impl MarketAnalysisService {
             };
 
             // Store to pipelines for historical data and analytics
-            // This would be implemented as a custom pipeline ingestion method
+            let market_data_json = serde_json::to_value(&market_data)?;
+            pipelines_service.store_market_data(exchange, symbol, &market_data_json).await?;
+            
             self.logger.info(&format!(
-                "Storing market data to pipeline: {}/{} at ${}",
+                "Stored market data to pipeline: {}/{} at ${}",
                 exchange, symbol, price
             ));
         }
@@ -495,9 +498,9 @@ impl MarketAnalysisService {
         results: serde_json::Value,
         confidence_score: f64,
     ) -> ArbitrageResult<()> {
-        if let Some(ref _pipelines_service) = self.pipelines_service {
-            let _analysis_result = AnalysisResultEvent {
-                analysis_id: uuid::Uuid::new_v4().to_string(),
+        if let Some(ref pipelines_service) = self.pipelines_service {
+            let analysis_result = AnalysisResultEvent {
+                analysis_id: Uuid::new_v4().to_string(),
                 analysis_type: analysis_type.to_string(),
                 trading_pair: trading_pair.to_string(),
                 exchange: exchange.to_string(),
@@ -508,8 +511,11 @@ impl MarketAnalysisService {
             };
 
             // Store to pipelines for historical analysis tracking
+            let analysis_result_json = serde_json::to_value(&analysis_result)?;
+            pipelines_service.store_analysis_results(analysis_type, &analysis_result_json).await?;
+            
             self.logger.info(&format!(
-                "Storing analysis results to pipeline: {} for {}/{}",
+                "Stored analysis results to pipeline: {} for {}/{}",
                 analysis_type, exchange, trading_pair
             ));
         }

@@ -595,6 +595,7 @@ pub struct FundingRateInfo {
 pub struct ExchangeCredentials {
     pub api_key: String,
     pub secret: String,
+    pub passphrase: Option<String>, // Required for OKX, optional for other exchanges
     pub default_leverage: i32,
     pub exchange_type: String,
 }

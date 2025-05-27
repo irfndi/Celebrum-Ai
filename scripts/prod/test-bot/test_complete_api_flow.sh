@@ -32,12 +32,13 @@ log() {
     echo -e "$1" | tee -a "$LOG_FILE"
 }
 
-# Test function
+# Test function - now accepts curl arguments as array
 run_test() {
     local test_name="$1"
     local expected_status="$2"
-    local curl_command="$3"
-    local validation_function="$4"
+    local validation_function="$3"
+    shift 3
+    local curl_args=("$@")
     
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     log "${BLUE}[TEST $TOTAL_TESTS] $test_name${NC}"
@@ -46,7 +47,7 @@ run_test() {
     local response_file="$TEST_OUTPUT_DIR/response_$TOTAL_TESTS.json"
     local status_code
     
-    status_code=$(eval "$curl_command" \
+    status_code=$(curl "${curl_args[@]}" \
         -w "%{http_code}" \
         -s \
         -o "$response_file" \
@@ -126,25 +127,26 @@ log "========================================"
 log "${YELLOW}📋 HEALTH CHECK TESTS${NC}"
 
 run_test "Basic Health Check" "200" \
-    "curl -X GET '$BASE_URL/api/v1/health'" \
-    "validate_health_response"
+    "validate_health_response" \
+    -X GET "$BASE_URL/api/v1/health"
 
 run_test "Detailed Health Check" "200" \
-    "curl -X GET '$BASE_URL/api/v1/health/detailed'" \
-    "validate_health_response"
+    "validate_health_response" \
+    -X GET "$BASE_URL/api/v1/health/detailed"
 
 # 2. Authentication Tests
 log "${YELLOW}🔐 AUTHENTICATION TESTS${NC}"
 
 # Test authentication without credentials
 run_test "Unauthorized Access - No Headers" "401" \
-    "curl -X GET '$BASE_URL/api/v1/users/profile'" \
-    "validate_error_response"
+    "validate_error_response" \
+    -X GET "$BASE_URL/api/v1/users/profile"
 
 # Test with invalid user ID
 run_test "Unauthorized Access - Invalid User" "401" \
-    "curl -X GET '$BASE_URL/api/v1/users/profile' -H 'X-User-ID: invalid_user'" \
-    "validate_error_response"
+    "validate_error_response" \
+    -X GET "$BASE_URL/api/v1/users/profile" \
+    -H "X-User-ID: invalid_user"
 
 # 3. User Profile Tests (RBAC Testing)
 log "${YELLOW}👤 USER PROFILE & RBAC TESTS${NC}"
@@ -158,19 +160,23 @@ for tier_info in "free_user:$FREE_USER" "premium_user:$PREMIUM_USER" "pro_user:$
     
     # Get user profile
     run_test "Get Profile - $tier" "200" \
-        "curl -X GET '$BASE_URL/api/v1/users/profile' -H 'X-User-ID: $user_id'" \
-        "validate_user_profile"
+        "validate_user_profile" \
+        -X GET "$BASE_URL/api/v1/users/profile" \
+        -H "X-User-ID: $user_id"
     
     # Get user preferences
     run_test "Get Preferences - $tier" "200" \
-        "curl -X GET '$BASE_URL/api/v1/users/preferences' -H 'X-User-ID: $user_id'"
+        "" \
+        -X GET "$BASE_URL/api/v1/users/preferences" \
+        -H "X-User-ID: $user_id"
     
     # Update preferences (test write permissions)
     run_test "Update Preferences - $tier" "200" \
-        "curl -X PUT '$BASE_URL/api/v1/users/preferences' \
-         -H 'X-User-ID: $user_id' \
-         -H 'Content-Type: application/json' \
-         -d '{\"risk_tolerance\": 0.5, \"preferred_pairs\": [\"BTC/USDT\"]}'"
+        "" \
+        -X PUT "$BASE_URL/api/v1/users/preferences" \
+        -H "X-User-ID: $user_id" \
+        -H "Content-Type: application/json" \
+        -d '{"risk_tolerance": 0.5, "preferred_pairs": ["BTC/USDT"]}'
 done
 
 # 4. Opportunity Access Tests (Subscription-based)
@@ -184,20 +190,23 @@ for tier_info in "free_user:$FREE_USER" "premium_user:$PREMIUM_USER" "pro_user:$
     
     # List opportunities (different limits based on subscription)
     run_test "List Opportunities - $tier" "200" \
-        "curl -X GET '$BASE_URL/api/v1/opportunities?limit=10' -H 'X-User-ID: $user_id'" \
-        "validate_opportunities_list"
+        "validate_opportunities_list" \
+        -X GET "$BASE_URL/api/v1/opportunities?limit=10" \
+        -H "X-User-ID: $user_id"
     
     # Test premium features access
     if [[ "$tier" == "free_user" ]]; then
         # Free users should have limited access
         run_test "Premium Feature Access - $tier (Should Fail)" "403" \
-            "curl -X GET '$BASE_URL/api/v1/opportunities?premium=true' -H 'X-User-ID: $user_id'" \
-            "validate_error_response"
+            "validate_error_response" \
+            -X GET "$BASE_URL/api/v1/opportunities?premium=true" \
+            -H "X-User-ID: $user_id"
     else
         # Premium/Pro users should have access
         run_test "Premium Feature Access - $tier" "200" \
-            "curl -X GET '$BASE_URL/api/v1/opportunities?premium=true' -H 'X-User-ID: $user_id'" \
-            "validate_opportunities_list"
+            "validate_opportunities_list" \
+            -X GET "$BASE_URL/api/v1/opportunities?premium=true" \
+            -H "X-User-ID: $user_id"
     fi
 done
 
@@ -213,10 +222,11 @@ for tier_info in "free_user:$FREE_USER" "premium_user:$PREMIUM_USER" "pro_user:$
     
     # Execute opportunity (rate limits apply based on subscription)
     run_test "Execute Opportunity - $tier" "200" \
-        "curl -X POST '$BASE_URL/api/v1/opportunities/execute' \
-         -H 'X-User-ID: $user_id' \
-         -H 'Content-Type: application/json' \
-         -d '{\"opportunity_id\": \"test_opp_123\", \"amount\": 100}'"
+        "" \
+        -X POST "$BASE_URL/api/v1/opportunities/execute" \
+        -H "X-User-ID: $user_id" \
+        -H "Content-Type: application/json" \
+        -d '{"opportunity_id": "test_opp_123", "amount": 100}'
 done
 
 # 6. Analytics Access Tests (Admin/Pro only)

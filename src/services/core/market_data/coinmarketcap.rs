@@ -237,7 +237,7 @@ impl CoinMarketCapService {
 
         let mut response = Fetch::Request(request).send().await?;
         
-        if !response.status_code() == 200 {
+        if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(&format!(
                 "CMC API error: {}", response.status_code()
             )));
@@ -269,7 +269,7 @@ impl CoinMarketCapService {
 
         let mut response = Fetch::Request(request).send().await?;
         
-        if !response.status_code() == 200 {
+        if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(&format!(
                 "CMC Global Metrics API error: {}", response.status_code()
             )));

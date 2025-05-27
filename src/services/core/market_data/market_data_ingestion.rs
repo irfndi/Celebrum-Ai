@@ -9,6 +9,7 @@ use worker::*;
 use chrono::{DateTime, Utc};
 use reqwest::{Client, Method};
 use serde_json::{json, Value};
+use futures::future;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketDataIngestionConfig {
@@ -155,6 +156,11 @@ impl MarketDataIngestionService {
         }
     }
 
+    /// Set or update the pipelines service after initialization
+    pub fn set_pipelines_service(&mut self, pipelines_service: Option<CloudflarePipelinesService>) {
+        self.pipelines_service = pipelines_service;
+    }
+
     /// Main ingestion method implementing hybrid data access pattern
     pub async fn ingest_market_data(&mut self) -> ArbitrageResult<Vec<MarketDataSnapshot>> {
         let start_time = chrono::Utc::now().timestamp_millis() as u64;
@@ -162,6 +168,10 @@ impl MarketDataIngestionService {
 
         self.logger.info("Starting market data ingestion cycle");
 
+        // TODO: Implement concurrent processing for better performance
+        // Current limitation: Rust borrowing rules prevent concurrent access to &mut self
+        // Future improvement: Refactor to use Arc<Mutex<Self>> or separate the mutable state
+        
         // Ingest data for all monitored pairs and exchanges
         for pair in &self.config.monitored_pairs.clone() {
             for exchange in &self.config.monitored_exchanges.clone() {
@@ -592,7 +602,7 @@ impl MarketDataIngestionService {
                     high_24h: ticker["high24h"].as_str().and_then(|s| s.parse().ok()),
                     low_24h: ticker["low24h"].as_str().and_then(|s| s.parse().ok()),
                     change_24h: None, // OKX provides percentage, not absolute change
-                    change_percentage_24h: ticker["sodUtc8"].as_str().and_then(|s| s.parse::<f64>().ok().map(|v| v * 100.0)),
+                    change_percentage_24h: ticker["priceChangePercent"].as_str().and_then(|s| s.parse::<f64>().ok()),
                 });
             }
         }
@@ -655,24 +665,62 @@ impl MarketDataIngestionService {
         }
     }
 
-    /// Store snapshots to pipeline
+    /// Store snapshots to pipeline with error collection
     async fn store_snapshots_to_pipeline(
         &self,
         pipelines: &CloudflarePipelinesService,
         snapshots: &[MarketDataSnapshot],
     ) -> ArbitrageResult<()> {
+        let mut errors = Vec::new();
+        let mut successful_stores = 0;
+        
         for snapshot in snapshots {
-            let data = serde_json::to_value(snapshot)?;
+            let data = match serde_json::to_value(snapshot) {
+                Ok(data) => data,
+                Err(e) => {
+                    let error_msg = format!(
+                        "Failed to serialize snapshot for {}:{} - {}",
+                        snapshot.exchange.as_str(), snapshot.symbol, e
+                    );
+                    self.logger.warn(&error_msg);
+                    errors.push(error_msg);
+                    continue;
+                }
+            };
+            
             let key = format!("market_data_{}_{}", snapshot.exchange.as_str(), snapshot.symbol);
             
-            if let Err(e) = pipelines.store_market_data(&key, &data).await {
-                self.logger.warn(&format!(
-                    "Failed to store snapshot to pipeline for {}: {}",
-                    key, e
-                ));
+            match pipelines.store_market_data(&key, &data).await {
+                Ok(_) => {
+                    successful_stores += 1;
+                    self.logger.debug(&format!("Successfully stored snapshot for {}", key));
+                }
+                Err(e) => {
+                    let error_msg = format!(
+                        "Failed to store snapshot to pipeline for {}: {}",
+                        key, e
+                    );
+                    self.logger.warn(&error_msg);
+                    errors.push(error_msg);
+                }
             }
         }
         
+        // Return aggregated error if any failures occurred
+        if !errors.is_empty() {
+            let summary = format!(
+                "Pipeline storage completed with {} successes and {} failures. Errors: {}",
+                successful_stores,
+                errors.len(),
+                errors.join("; ")
+            );
+            return Err(ArbitrageError::storage_error(summary));
+        }
+        
+        self.logger.info(&format!(
+            "Successfully stored {} snapshots to pipeline",
+            successful_stores
+        ));
         Ok(())
     }
 

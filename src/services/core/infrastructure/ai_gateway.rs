@@ -336,13 +336,18 @@ impl AIGatewayService {
             payload["max_tokens"] = serde_json::Value::Number(max_tokens.into());
         }
         if let Some(temperature) = request.model_config.temperature {
-            payload["temperature"] = serde_json::Value::Number(
-                serde_json::Number::from_f64(temperature as f64).unwrap(),
-            );
+            if let Some(temp_number) = serde_json::Number::from_f64(temperature as f64) {
+                payload["temperature"] = serde_json::Value::Number(temp_number);
+            } else {
+                self.logger.warn(&format!("Invalid temperature value: {}", temperature));
+            }
         }
         if let Some(top_p) = request.model_config.top_p {
-            payload["top_p"] =
-                serde_json::Value::Number(serde_json::Number::from_f64(top_p as f64).unwrap());
+            if let Some(top_p_number) = serde_json::Number::from_f64(top_p as f64) {
+                payload["top_p"] = serde_json::Value::Number(top_p_number);
+            } else {
+                self.logger.warn(&format!("Invalid top_p value: {}", top_p));
+            }
         }
 
         Ok(payload)

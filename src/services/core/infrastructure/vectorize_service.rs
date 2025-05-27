@@ -954,10 +954,45 @@ impl VectorizeService {
         successful_interactions / interactions.len() as f32
     }
 
-    fn calculate_time_preferences(&self, _interactions: &[OpportunityInteraction]) -> Vec<f32> {
-        // Simplified time preference calculation
-        // In production, this would analyze hour-of-day and day-of-week patterns
-        vec![0.5, 0.5, 0.5, 0.5] // Placeholder for 4 time-based features
+    fn calculate_time_preferences(&self, interactions: &[OpportunityInteraction]) -> Vec<f32> {
+        if interactions.is_empty() {
+            return vec![0.5, 0.5, 0.5, 0.5]; // Default neutral preferences
+        }
+
+        // Analyze hour-of-day patterns (0-23 hours)
+        let mut hour_activity = [0.0; 24];
+        let mut hour_success = [0.0; 24];
+
+        for interaction in interactions {
+            let hour = ((interaction.timestamp / 1000) % 86400) / 3600; // Extract hour from timestamp
+            let hour_idx = (hour as usize).min(23);
+
+            hour_activity[hour_idx] += 1.0;
+            if interaction.was_successful {
+                hour_success[hour_idx] += 1.0;
+            }
+        }
+
+        // Calculate preferred time periods
+        let morning_activity = hour_activity[6..12].iter().sum::<f32>(); // 6 AM - 12 PM
+        let afternoon_activity = hour_activity[12..18].iter().sum::<f32>(); // 12 PM - 6 PM
+        let evening_activity = hour_activity[18..24].iter().sum::<f32>(); // 6 PM - 12 AM
+        let night_activity = hour_activity[0..6].iter().sum::<f32>(); // 12 AM - 6 AM
+
+        let total_activity =
+            morning_activity + afternoon_activity + evening_activity + night_activity;
+
+        if total_activity == 0.0 {
+            return vec![0.25, 0.25, 0.25, 0.25]; // Equal distribution if no data
+        }
+
+        // Normalize to preferences (0-1 scale)
+        vec![
+            morning_activity / total_activity,   // Morning preference
+            afternoon_activity / total_activity, // Afternoon preference
+            evening_activity / total_activity,   // Evening preference
+            night_activity / total_activity,     // Night preference
+        ]
     }
 
     fn get_user_pair_preference(&self, user_vector: &[f32], pair: &str) -> f32 {

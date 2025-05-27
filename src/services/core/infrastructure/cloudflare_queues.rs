@@ -492,8 +492,13 @@ impl CloudflareQueuesService {
         let mut retry_message = message.clone();
         retry_message.retry_count += 1;
 
-        // Exponential backoff for retry delay
-        let retry_delay = self.config.retry_delay_seconds * (2_u64.pow(retry_message.retry_count));
+        // Exponential backoff for retry delay with cap to prevent overflow
+        let max_delay_seconds = 3600; // Cap at 1 hour
+        let exponent = std::cmp::min(retry_message.retry_count, 10); // Cap exponent to prevent overflow
+        let retry_delay = std::cmp::min(
+            self.config.retry_delay_seconds * (2_u64.pow(exponent)),
+            max_delay_seconds
+        );
 
         let queue = self.queues.get(queue_name).ok_or_else(|| {
             ArbitrageError::service_unavailable(format!("Queue '{}' not available", queue_name))

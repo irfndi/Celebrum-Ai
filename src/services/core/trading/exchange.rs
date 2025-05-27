@@ -646,11 +646,12 @@ impl ExchangeService {
             let signature = self.create_hmac_signature(&sign_string, &credentials.secret)?;
 
             // Add OKX authentication headers
+            let passphrase = credentials.passphrase.as_deref().unwrap_or("");
             request_builder = request_builder
                 .header("OK-ACCESS-KEY", &credentials.api_key)
                 .header("OK-ACCESS-SIGN", signature)
                 .header("OK-ACCESS-TIMESTAMP", timestamp)
-                .header("OK-ACCESS-PASSPHRASE", ""); // OKX requires passphrase, but we'll use empty for now
+                .header("OK-ACCESS-PASSPHRASE", passphrase);
         } else if let Some(params) = &params {
             // For unauthenticated requests, handle query parameters
             if matches!(method, Method::GET) {
@@ -1911,6 +1912,7 @@ impl ExchangeInterface for ExchangeService {
         let credentials = ExchangeCredentials {
             api_key: api_key.to_string(),
             secret: secret.to_string(),
+            passphrase: None,
             default_leverage: leverage.unwrap_or(1),
             exchange_type: exchange_type.unwrap_or("spot").to_string(),
         };
@@ -2032,6 +2034,7 @@ mod tests {
         ExchangeCredentials {
             api_key: "test_api_key".to_string(),
             secret: "test_secret_key".to_string(),
+            passphrase: None,
             default_leverage: 20,
             exchange_type: "spot".to_string(),
         }

@@ -119,6 +119,12 @@ impl ArbitrageError {
             .with_code("AUTH_Z_ERROR")
     }
 
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Authorization, message)
+            .with_status(401)
+            .with_code("UNAUTHORIZED")
+    }
+
     pub fn rate_limit_error(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::RateLimit, message)
             .with_status(429)

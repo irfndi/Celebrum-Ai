@@ -248,7 +248,7 @@ impl GlobalOpportunityService {
         exchange_id: &ExchangeIdEnum,
         symbol: &str,
     ) -> ArbitrageResult<FundingRateInfo> {
-        use worker::*;
+        use worker::{Fetch, Method, Request, RequestInit};
 
         match exchange_id {
             ExchangeIdEnum::Bybit => {
@@ -412,6 +412,7 @@ impl GlobalOpportunityService {
                 let credentials = crate::types::ExchangeCredentials {
                     api_key: api_key.to_string(),
                     secret: secret.to_string(),
+                    passphrase: None, // Most exchanges don't require passphrase
                     default_leverage: 1, // Read-only APIs don't need leverage
                     exchange_type: "spot".to_string(), // Default to spot for read-only
                 };

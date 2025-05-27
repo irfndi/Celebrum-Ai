@@ -65,20 +65,15 @@ pub mod core {
         pub use ai_intelligence::AiIntelligenceService;
     }
 
-    // TODO: Fix invitation services - multiple compilation errors need to be resolved:
-    // 1. Missing ArbitrageError::unauthorized method
-    // 2. Missing D1Service::query and D1Service::execute methods
-    // 3. Type mismatches with unwrap_or_default() usage
-    // 4. Missing .await on async calls
-    // pub mod invitation {
-    //     pub mod affiliation_service;
-    //     pub mod invitation_service;
-    //     pub mod referral_service;
+    pub mod invitation {
+        pub mod affiliation_service;
+        pub mod invitation_service;
+        pub mod referral_service;
 
-    //     pub use affiliation_service::AffiliationService;
-    //     pub use invitation_service::InvitationService;
-    //     pub use referral_service::ReferralService;
-    // }
+        pub use affiliation_service::AffiliationService;
+        pub use invitation_service::InvitationService;
+        pub use referral_service::ReferralService;
+    }
 
     pub mod infrastructure {
         pub mod ai_gateway;
@@ -165,8 +160,7 @@ pub use core::infrastructure::{
     MonitoringObservabilityService, NotificationService, OpportunityCoordinatorDO,
     ServiceContainer, UserOpportunityQueueDO, VectorizeService,
 };
-// TODO: Re-enable when invitation services compilation errors are fixed
-// pub use core::invitation::{AffiliationService, InvitationService, ReferralService};
+pub use core::invitation::{AffiliationService, InvitationService, ReferralService};
 pub use core::opportunities::{
     EnhancedOpportunityService, GlobalOpportunityService, OpportunityCategorizationService,
     OpportunityDistributionService, OpportunityService, TechnicalTradingService,

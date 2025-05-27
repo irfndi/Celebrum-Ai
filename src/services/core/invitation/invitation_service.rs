@@ -1,11 +1,11 @@
 use crate::services::core::infrastructure::d1_database::D1Service;
 // Removed unused imports: UserProfile, SubscriptionTier, UserRole
-use crate::utils::ArbitrageResult;
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc, Duration};
-use uuid::Uuid;
-use anyhow::{Result, anyhow};
+
+use anyhow::{anyhow, Result};
+use chrono::{DateTime, Duration, Utc};
 use log;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct InvitationConfig {
@@ -67,7 +67,7 @@ pub struct InvitationService {
 
 impl InvitationService {
     pub fn new(d1_service: D1Service) -> Self {
-        Self { 
+        Self {
             d1_service,
             config: InvitationConfig::default(),
         }
@@ -81,7 +81,9 @@ impl InvitationService {
     pub async fn generate_invitation_code(&self, admin_user_id: &str) -> Result<InvitationCode> {
         // Verify admin has permission to generate codes
         if !self.verify_admin_permission(admin_user_id).await? {
-            return Err(anyhow!("Unauthorized: Only super admins can generate invitation codes"));
+            return Err(anyhow!(
+                "Unauthorized: Only super admins can generate invitation codes"
+            ));
         }
 
         let invitation_code = InvitationCode {
@@ -100,14 +102,23 @@ impl InvitationService {
     }
 
     /// Generate multiple invitation codes in a batch with proper transaction support
-    pub async fn generate_multiple_codes(&self, admin_user_id: &str, count: u32) -> Result<Vec<InvitationCode>> {
+    pub async fn generate_multiple_codes(
+        &self,
+        admin_user_id: &str,
+        count: u32,
+    ) -> Result<Vec<InvitationCode>> {
         // Upfront admin permission verification before any code generation
         if !self.verify_admin_permission(admin_user_id).await? {
-            return Err(anyhow!("Unauthorized: Only super admins can generate invitation codes"));
+            return Err(anyhow!(
+                "Unauthorized: Only super admins can generate invitation codes"
+            ));
         }
 
         if count == 0 || count > self.config.max_batch_size {
-            return Err(anyhow!("Invalid count: must be between 1 and {}", self.config.max_batch_size));
+            return Err(anyhow!(
+                "Invalid count: must be between 1 and {}",
+                self.config.max_batch_size
+            ));
         }
 
         // Pre-generate all codes and validate uniqueness before storage
@@ -127,54 +138,76 @@ impl InvitationService {
             codes.push(invitation);
         }
 
+        // Get count before transaction to avoid borrow issues
+        let codes_count = codes.len();
+        let codes_clone = codes.clone();
+
         // Use proper database transaction for atomic batch insertion
-        let result = self.d1_service.execute_transaction(|db| {
-            Box::pin(async move {
-                // Store all codes within the transaction
-                for code in &codes {
-                    let query = r#"
+        let result = self
+            .d1_service
+            .execute_transaction(|db| {
+                Box::pin(async move {
+                    // Store all codes within the transaction
+                    for code in &codes_clone {
+                        let query = r#"
                         INSERT INTO invitation_codes 
                         (id, code, created_by_admin_id, expires_at, created_at, is_active)
                         VALUES (?, ?, ?, ?, ?, ?)
                     "#;
-                    
-                    db.execute(query, &[
-                        code.id.clone().into(),
-                        code.code.clone().into(),
-                        code.created_by_admin_id.clone().into(),
-                        code.expires_at.to_rfc3339().into(),
-                        code.created_at.to_rfc3339().into(),
-                        code.is_active.into(),
-                    ]).await?;
-                }
-                
-                Ok(())
+
+                        db.execute(
+                            query,
+                            &[
+                                code.id.clone().into(),
+                                code.code.clone().into(),
+                                code.created_by_admin_id.clone().into(),
+                                code.expires_at.to_rfc3339().into(),
+                                code.created_at.to_rfc3339().into(),
+                                code.is_active.into(),
+                            ],
+                        )
+                        .await?;
+                    }
+
+                    Ok(())
+                })
             })
-        }).await;
+            .await;
 
         match result {
             Ok(()) => {
-                log::info!("Successfully stored {} invitation codes in atomic transaction", codes.len());
+                log::info!(
+                    "Successfully stored {} invitation codes in atomic transaction",
+                    codes_count
+                );
                 Ok(codes)
             }
             Err(e) => {
-                log::error!("Failed to store invitation codes in transaction: {}. All changes rolled back.", e);
+                log::error!(
+                    "Failed to store invitation codes in transaction: {}. All changes rolled back.",
+                    e
+                );
                 Err(anyhow!("Failed to store invitation codes in atomic transaction: {}. No codes were stored.", e))
             }
         }
     }
 
     /// Validate and use an invitation code during user registration
-    pub async fn use_invitation_code(&self, code: &str, user_id: &str, telegram_id: i64) -> Result<InvitationUsage> {
+    pub async fn use_invitation_code(
+        &self,
+        code: &str,
+        user_id: &str,
+        telegram_id: i64,
+    ) -> Result<InvitationUsage> {
         // Find the invitation code
         let invitation = self.find_invitation_by_code(code).await?;
-        
+
         // Validate the code
         self.validate_invitation_code(&invitation)?;
 
         // Mark code as used with provided user_id
         let beta_expires_at = Utc::now() + Duration::days(self.config.beta_access_days);
-        
+
         let usage = InvitationUsage {
             invitation_id: invitation.id.clone(),
             user_id: user_id.to_string(),
@@ -184,14 +217,19 @@ impl InvitationService {
         };
 
         // Use database transaction to ensure atomicity of marking code as used and storing usage
-        self.mark_invitation_used_transaction(&invitation.id, user_id, &usage).await?;
+        self.mark_invitation_used_transaction(&invitation.id, user_id, &usage)
+            .await?;
 
-        log::info!("Successfully used invitation code {} for user {} in atomic transaction", code, user_id);
+        log::info!(
+            "Successfully used invitation code {} for user {} in atomic transaction",
+            code,
+            user_id
+        );
         Ok(usage)
     }
 
     /// Check if an invitation code is valid
-    pub async fn validate_invitation_code(&self, invitation: &InvitationCode) -> Result<()> {
+    pub fn validate_invitation_code(&self, invitation: &InvitationCode) -> Result<()> {
         if !invitation.is_active {
             return Err(anyhow!("Invitation code is inactive"));
         }
@@ -208,9 +246,14 @@ impl InvitationService {
     }
 
     /// Get invitation code statistics for admin dashboard
-    pub async fn get_invitation_statistics(&self, admin_user_id: &str) -> Result<InvitationStatistics> {
+    pub async fn get_invitation_statistics(
+        &self,
+        admin_user_id: &str,
+    ) -> Result<InvitationStatistics> {
         if !self.verify_admin_permission(admin_user_id).await? {
-            return Err(anyhow!("Unauthorized: Only super admins can view invitation statistics"));
+            return Err(anyhow!(
+                "Unauthorized: Only super admins can view invitation statistics"
+            ));
         }
 
         let total_generated = self.count_total_invitations().await?;
@@ -223,27 +266,38 @@ impl InvitationService {
             total_used,
             total_expired,
             active_beta_users,
-            conversion_rate: if total_generated > 0 { 
-                (total_used as f64 / total_generated as f64) * 100.0 
-            } else { 
-                0.0 
+            conversion_rate: if total_generated > 0 {
+                (total_used as f64 / total_generated as f64) * 100.0
+            } else {
+                0.0
             },
         })
     }
 
     /// List all invitation codes created by an admin
-    pub async fn list_admin_invitations(&self, admin_user_id: &str, limit: Option<u32>) -> Result<Vec<InvitationCode>> {
+    pub async fn list_admin_invitations(
+        &self,
+        admin_user_id: &str,
+        limit: Option<u32>,
+    ) -> Result<Vec<InvitationCode>> {
         if !self.verify_admin_permission(admin_user_id).await? {
-            return Err(anyhow!("Unauthorized: Only super admins can list invitation codes"));
+            return Err(anyhow!(
+                "Unauthorized: Only super admins can list invitation codes"
+            ));
         }
 
-        self.get_invitations_by_admin(admin_user_id, limit.unwrap_or(50)).await
+        self.get_invitations_by_admin(admin_user_id, limit.unwrap_or(50))
+            .await
     }
 
     /// Check if a user's beta access has expired and needs downgrade
     pub async fn check_beta_expiration(&self, user_id: &str) -> Result<bool> {
-        if let Some(d1_usage) = self.d1_service.get_invitation_usage_by_user(user_id).await
-            .map_err(|e| anyhow!("Failed to get invitation usage: {}", e))? {
+        if let Some(d1_usage) = self
+            .d1_service
+            .get_invitation_usage_by_user(user_id)
+            .await
+            .map_err(|e| anyhow!("Failed to get invitation usage: {}", e))?
+        {
             Ok(Utc::now() > d1_usage.beta_expires_at)
         } else {
             Ok(false) // User wasn't invited via invitation code
@@ -252,8 +306,12 @@ impl InvitationService {
 
     /// Get beta expiration date for a user
     pub async fn get_beta_expiration(&self, user_id: &str) -> Result<Option<DateTime<Utc>>> {
-        if let Some(d1_usage) = self.d1_service.get_invitation_usage_by_user(user_id).await
-            .map_err(|e| anyhow!("Failed to get invitation usage: {}", e))? {
+        if let Some(d1_usage) = self
+            .d1_service
+            .get_invitation_usage_by_user(user_id)
+            .await
+            .map_err(|e| anyhow!("Failed to get invitation usage: {}", e))?
+        {
             Ok(Some(d1_usage.beta_expires_at))
         } else {
             Ok(None)
@@ -272,10 +330,10 @@ impl InvitationService {
     }
 
     fn generate_random_code(&self) -> String {
-        use rand::{Rng, rngs::OsRng};
+        use rand::{rngs::OsRng, Rng};
         const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         let mut rng = OsRng;
-        
+
         (0..8)
             .map(|_| {
                 let idx = rng.gen_range(0..CHARSET.len());
@@ -288,26 +346,26 @@ impl InvitationService {
         // Use subscription_tier as the authoritative source for admin status
         let query = "SELECT subscription_tier FROM user_profiles WHERE user_id = ?";
         let result = self.d1_service.query(query, &[user_id.into()]).await?;
-        
+
         if let Some(row) = result.first() {
             if let Some(tier_str) = row.get("subscription_tier") {
                 return Ok(tier_str == "SuperAdmin");
             }
         }
-        
+
         Ok(false)
     }
 
     async fn code_exists(&self, code: &str) -> Result<bool> {
         let query = "SELECT COUNT(*) as count FROM invitation_codes WHERE code = ?";
         let result = self.d1_service.query(query, &[code.into()]).await?;
-        
+
         if let Some(row) = result.first() {
             if let Some(count_str) = row.get("count") {
                 return Ok(count_str.parse::<i32>().unwrap_or(0) > 0);
             }
         }
-        
+
         Ok(false)
     }
 
@@ -317,65 +375,84 @@ impl InvitationService {
             (id, code, created_by_admin_id, expires_at, created_at, is_active)
             VALUES (?, ?, ?, ?, ?, ?)
         "#;
-        
-        self.d1_service.execute(query, &[
-            invitation.id.clone().into(),
-            invitation.code.clone().into(),
-            invitation.created_by_admin_id.clone().into(),
-            invitation.expires_at.to_rfc3339().into(),
-            invitation.created_at.to_rfc3339().into(),
-            invitation.is_active.into(),
-        ]).await?;
-        
+
+        self.d1_service
+            .execute(
+                query,
+                &[
+                    invitation.id.clone().into(),
+                    invitation.code.clone().into(),
+                    invitation.created_by_admin_id.clone().into(),
+                    invitation.expires_at.to_rfc3339().into(),
+                    invitation.created_at.to_rfc3339().into(),
+                    invitation.is_active.into(),
+                ],
+            )
+            .await?;
+
         Ok(())
     }
 
+    #[allow(dead_code)]
     async fn delete_invitation_code(&self, invitation_id: &str) -> Result<()> {
         let query = "DELETE FROM invitation_codes WHERE id = ?";
-        
-        self.d1_service.execute(query, &[invitation_id.into()]).await?;
-        
+
+        self.d1_service
+            .execute(query, &[invitation_id.into()])
+            .await?;
+
         Ok(())
     }
 
-    fn parse_invitation_from_row(&self, row: &std::collections::HashMap<String, String>) -> Result<InvitationCode> {
+    fn parse_invitation_from_row(
+        &self,
+        row: &std::collections::HashMap<String, String>,
+    ) -> Result<InvitationCode> {
         // Explicitly check required fields and return errors if missing
-        let id = row.get("id")
+        let id = row
+            .get("id")
             .ok_or_else(|| anyhow!("Missing required field: id"))?;
-        
-        let code = row.get("code")
+
+        let code = row
+            .get("code")
             .ok_or_else(|| anyhow!("Missing required field: code"))?;
-        
-        let created_by_admin_id = row.get("created_by_admin_id")
+
+        let created_by_admin_id = row
+            .get("created_by_admin_id")
             .ok_or_else(|| anyhow!("Missing required field: created_by_admin_id"))?;
-        
-        let expires_at_str = row.get("expires_at")
+
+        let expires_at_str = row
+            .get("expires_at")
             .ok_or_else(|| anyhow!("Missing required field: expires_at"))?;
-        
-        let created_at_str = row.get("created_at")
+
+        let created_at_str = row
+            .get("created_at")
             .ok_or_else(|| anyhow!("Missing required field: created_at"))?;
-        
-        let is_active_str = row.get("is_active")
+
+        let is_active_str = row
+            .get("is_active")
             .ok_or_else(|| anyhow!("Missing required field: is_active"))?;
-        
+
         // Parse required fields with proper error handling
         let expires_at = DateTime::parse_from_rfc3339(expires_at_str)
             .map_err(|e| anyhow!("Invalid expires_at format '{}': {}", expires_at_str, e))?
             .with_timezone(&Utc);
-        
+
         let created_at = DateTime::parse_from_rfc3339(created_at_str)
             .map_err(|e| anyhow!("Invalid created_at format '{}': {}", created_at_str, e))?
             .with_timezone(&Utc);
-        
-        let is_active = is_active_str.parse::<bool>()
+
+        let is_active = is_active_str
+            .parse::<bool>()
             .map_err(|e| anyhow!("Invalid is_active format '{}': {}", is_active_str, e))?;
-        
+
         // Optional fields can use safe defaults
         let used_by_user_id = row.get("used_by_user_id").cloned();
-        let used_at = row.get("used_at")
+        let used_at = row
+            .get("used_at")
             .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&Utc));
-        
+
         Ok(InvitationCode {
             id: id.clone(),
             code: code.clone(),
@@ -394,9 +471,9 @@ impl InvitationService {
             FROM invitation_codes 
             WHERE code = ?
         "#;
-        
+
         let result = self.d1_service.query(query, &[code.into()]).await?;
-        
+
         if let Some(row) = result.first() {
             self.parse_invitation_from_row(row)
         } else {
@@ -405,11 +482,12 @@ impl InvitationService {
     }
 
     /// Helper method to execute count queries with consistent error handling
-    async fn execute_count_query(&self, query: &str, params: &[crate::services::core::infrastructure::d1_database::Value]) -> Result<u32> {
+    async fn execute_count_query(&self, query: &str, params: &[serde_json::Value]) -> Result<u32> {
         let result = self.d1_service.query(query, params).await?;
 
         if let Some(row) = result.first() {
-            let count_str = row.get("count").unwrap_or("0");
+            let default_count = "0".to_string();
+            let count_str = row.get("count").unwrap_or(&default_count);
             match count_str.parse::<u32>() {
                 Ok(count) => Ok(count),
                 Err(e) => {
@@ -423,55 +501,73 @@ impl InvitationService {
     }
 
     /// Helper method to handle the transaction logic for marking invitation codes as used
-    async fn mark_invitation_used_transaction(&self, invitation_id: &str, user_id: &str, usage: &InvitationUsage) -> Result<()> {
+    async fn mark_invitation_used_transaction(
+        &self,
+        invitation_id: &str,
+        user_id: &str,
+        usage: &InvitationUsage,
+    ) -> Result<()> {
         let invitation_id = invitation_id.to_string();
         let user_id_clone = user_id.to_string();
         let usage_clone = usage.clone();
 
-        self.d1_service.execute_transaction(|db| {
-            Box::pin(async move {
-                // Mark invitation code as used
-                let mark_used_query = r#"
+        self.d1_service
+            .execute_transaction(|db| {
+                Box::pin(async move {
+                    // Mark invitation code as used
+                    let mark_used_query = r#"
                     UPDATE invitation_codes 
                     SET used_by_user_id = ?, used_at = ?, is_active = false
                     WHERE id = ?
                 "#;
 
-                db.execute(mark_used_query, &[
-                    user_id_clone.clone().into(),
-                    Utc::now().to_rfc3339().into(),
-                    invitation_id.clone().into(),
-                ]).await?;
+                    db.execute(
+                        mark_used_query,
+                        &[
+                            user_id_clone.clone().into(),
+                            Utc::now().to_rfc3339().into(),
+                            invitation_id.clone().into(),
+                        ],
+                    )
+                    .await?;
 
-                // Store invitation usage record
-                let store_usage_query = r#"
+                    // Store invitation usage record
+                    let store_usage_query = r#"
                     INSERT INTO invitation_usage 
                     (invitation_id, user_id, telegram_id, used_at, beta_expires_at)
                     VALUES (?, ?, ?, ?, ?)
                 "#;
 
-                db.execute(store_usage_query, &[
-                    usage_clone.invitation_id.clone().into(),
-                    usage_clone.user_id.clone().into(),
-                    usage_clone.telegram_id.into(),
-                    usage_clone.used_at.to_rfc3339().into(),
-                    usage_clone.beta_expires_at.to_rfc3339().into(),
-                ]).await?;
+                    db.execute(
+                        store_usage_query,
+                        &[
+                            usage_clone.invitation_id.clone().into(),
+                            usage_clone.user_id.clone().into(),
+                            usage_clone.telegram_id.into(),
+                            usage_clone.used_at.to_rfc3339().into(),
+                            usage_clone.beta_expires_at.to_rfc3339().into(),
+                        ],
+                    )
+                    .await?;
 
-                Ok(())
+                    Ok(())
+                })
             })
-        }).await
-        .map_err(|e| anyhow!("Failed to use invitation code in atomic transaction: {}", e))
+            .await
+            .map_err(|e| anyhow!("Failed to use invitation code in atomic transaction: {}", e))
     }
 
-
-
     async fn count_total_invitations(&self) -> Result<u32> {
-        self.execute_count_query("SELECT COUNT(*) as count FROM invitation_codes", &[]).await
+        self.execute_count_query("SELECT COUNT(*) as count FROM invitation_codes", &[])
+            .await
     }
 
     async fn count_used_invitations(&self) -> Result<u32> {
-        self.execute_count_query("SELECT COUNT(*) as count FROM invitation_codes WHERE used_by_user_id IS NOT NULL", &[]).await
+        self.execute_count_query(
+            "SELECT COUNT(*) as count FROM invitation_codes WHERE used_by_user_id IS NOT NULL",
+            &[],
+        )
+        .await
     }
 
     async fn count_expired_invitations(&self) -> Result<u32> {
@@ -482,7 +578,11 @@ impl InvitationService {
         self.execute_count_query("SELECT COUNT(*) as count FROM invitation_usage WHERE beta_expires_at > datetime('now')", &[]).await
     }
 
-    async fn get_invitations_by_admin(&self, admin_user_id: &str, limit: u32) -> Result<Vec<InvitationCode>> {
+    async fn get_invitations_by_admin(
+        &self,
+        admin_user_id: &str,
+        limit: u32,
+    ) -> Result<Vec<InvitationCode>> {
         let query = r#"
             SELECT id, code, created_by_admin_id, used_by_user_id, expires_at, created_at, used_at, is_active
             FROM invitation_codes 
@@ -490,15 +590,18 @@ impl InvitationService {
             ORDER BY created_at DESC
             LIMIT ?
         "#;
-        
-        let result = self.d1_service.query(query, &[admin_user_id.into(), limit.to_string().into()]).await?;
-        
+
+        let result = self
+            .d1_service
+            .query(query, &[admin_user_id.into(), limit.to_string().into()])
+            .await?;
+
         let mut invitations = Vec::new();
         for row in result {
             let invitation = self.parse_invitation_from_row(&row)?;
             invitations.push(invitation);
         }
-        
+
         Ok(invitations)
     }
 }
@@ -510,4 +613,4 @@ pub struct InvitationStatistics {
     pub total_expired: u32,
     pub active_beta_users: u32,
     pub conversion_rate: f64,
-} 
+}
