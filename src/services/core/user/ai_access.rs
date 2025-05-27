@@ -171,7 +171,7 @@ impl AIAccessService {
             
             // Simulate saving to ensure consistent behavior
             // In production, this should save to a local database or file
-            log::info!("Created new AI usage tracker for user {} in non-WASM environment", user_id);
+            log::info!("Created new AI usage tracker in non-WASM environment");
             
             Ok(tracker)
         }
@@ -214,7 +214,7 @@ impl AIAccessService {
             // Non-WASM implementation for development/testing
             // TODO: Implement proper database persistence for testing environments
             log::warn!("AI usage tracker save operation skipped in non-WASM environment - implement proper database persistence");
-            log::info!("Would save AI usage tracker for user {} with {} calls used", tracker.user_id, tracker.ai_calls_used);
+            log::info!("Would save AI usage tracker with {} calls used", tracker.ai_calls_used);
         }
 
         Ok(())

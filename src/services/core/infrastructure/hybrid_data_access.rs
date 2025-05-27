@@ -66,6 +66,91 @@ impl Default for HybridDataAccessConfig {
     }
 }
 
+impl HybridDataAccessConfig {
+    /// Validate configuration values
+    pub fn validate(&self) -> ArbitrageResult<()> {
+        // Validate timeout values (should be positive and within reasonable limits)
+        if self.pipeline_timeout_seconds == 0 || self.pipeline_timeout_seconds > 300 {
+            return Err(ArbitrageError::validation_error(
+                "pipeline_timeout_seconds must be between 1 and 300 seconds"
+            ));
+        }
+
+        if self.api_timeout_seconds == 0 || self.api_timeout_seconds > 600 {
+            return Err(ArbitrageError::validation_error(
+                "api_timeout_seconds must be between 1 and 600 seconds"
+            ));
+        }
+
+        // Validate cache TTL (should be positive and reasonable)
+        if self.cache_ttl_seconds == 0 || self.cache_ttl_seconds > 86400 {
+            return Err(ArbitrageError::validation_error(
+                "cache_ttl_seconds must be between 1 and 86400 seconds (24 hours)"
+            ));
+        }
+
+        // Validate retry count
+        if self.max_retries > 10 {
+            return Err(ArbitrageError::validation_error(
+                "max_retries must not exceed 10"
+            ));
+        }
+
+        // Validate freshness threshold
+        if self.freshness_threshold_seconds == 0 || self.freshness_threshold_seconds > 3600 {
+            return Err(ArbitrageError::validation_error(
+                "freshness_threshold_seconds must be between 1 and 3600 seconds (1 hour)"
+            ));
+        }
+
+        // Validate refresh interval
+        if self.refresh_interval_seconds == 0 || self.refresh_interval_seconds > 3600 {
+            return Err(ArbitrageError::validation_error(
+                "refresh_interval_seconds must be between 1 and 3600 seconds (1 hour)"
+            ));
+        }
+
+        // Validate health check interval
+        if self.health_check_interval_seconds == 0 || self.health_check_interval_seconds > 300 {
+            return Err(ArbitrageError::validation_error(
+                "health_check_interval_seconds must be between 1 and 300 seconds"
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Create a new validated configuration
+    pub fn new_validated(
+        cache_ttl_seconds: u64,
+        pipeline_timeout_seconds: u32,
+        api_timeout_seconds: u32,
+        max_retries: u32,
+        enable_data_freshness_validation: bool,
+        freshness_threshold_seconds: u64,
+        enable_automatic_refresh: bool,
+        refresh_interval_seconds: u64,
+        enable_health_monitoring: bool,
+        health_check_interval_seconds: u64,
+    ) -> ArbitrageResult<Self> {
+        let config = Self {
+            cache_ttl_seconds,
+            pipeline_timeout_seconds,
+            api_timeout_seconds,
+            max_retries,
+            enable_data_freshness_validation,
+            freshness_threshold_seconds,
+            enable_automatic_refresh,
+            refresh_interval_seconds,
+            enable_health_monitoring,
+            health_check_interval_seconds,
+        };
+
+        config.validate()?;
+        Ok(config)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataSourceHealth {
     pub source: DataAccessSource,
@@ -199,41 +284,69 @@ impl HybridDataAccessService {
     }
 
     /// Transform symbol for Binance API format
-    fn transform_symbol_for_binance(symbol: &str) -> String {
-        symbol.replace("-", "").to_uppercase()
+    fn transform_symbol_for_binance(symbol: &str) -> ArbitrageResult<String> {
+        if symbol.is_empty() {
+            return Err(ArbitrageError::validation_error("Symbol cannot be empty"));
+        }
+
+        let transformed = symbol.replace("-", "").replace("_", "").to_uppercase();
+
+        // Basic validation for Binance symbol format
+        if transformed.len() < 6 || transformed.len() > 12 {
+            return Err(ArbitrageError::validation_error("Invalid symbol length for Binance"));
+        }
+
+        Ok(transformed)
     }
 
     /// Transform symbol for Bybit API format
-    fn transform_symbol_for_bybit(symbol: &str) -> String {
-        symbol.replace("-", "").to_uppercase()
+    fn transform_symbol_for_bybit(symbol: &str) -> ArbitrageResult<String> {
+        if symbol.is_empty() {
+            return Err(ArbitrageError::validation_error("Symbol cannot be empty"));
+        }
+
+        let transformed = symbol.replace("-", "").replace("_", "").to_uppercase();
+
+        // Basic validation for Bybit symbol format
+        if transformed.len() < 6 || transformed.len() > 12 {
+            return Err(ArbitrageError::validation_error("Invalid symbol length for Bybit"));
+        }
+
+        Ok(transformed)
     }
 
     /// Transform symbol for OKX API format
-    fn transform_symbol_for_okx(symbol: &str) -> String {
-        symbol.to_uppercase()
+    fn transform_symbol_for_okx(symbol: &str) -> ArbitrageResult<String> {
+        if symbol.is_empty() {
+            return Err(ArbitrageError::validation_error("Symbol cannot be empty"));
+        }
+
+        let transformed = symbol.to_uppercase();
+
+        // Basic validation for OKX symbol format
+        if transformed.len() < 6 || transformed.len() > 15 {
+            return Err(ArbitrageError::validation_error("Invalid symbol length for OKX"));
+        }
+
+        Ok(transformed)
     }
 
-    /// Fetch with timeout handling
+    /// Fetch with timeout handling using a simpler approach
     async fn fetch_with_timeout(&self, request: Request) -> ArbitrageResult<Response> {
-        // Use a simple timeout approach since we're in a Cloudflare Worker environment
-        // Note: In a real implementation, you might want to use AbortController
-        // For now, we'll rely on the underlying fetch timeout behavior
-        // In a production environment, you might want to implement proper timeout handling
-        // using AbortController or similar mechanisms
-        match Fetch::Request(request).send().await {
-            Ok(response) => Ok(response),
-            Err(e) => {
-                // Check if this might be a timeout error
-                let error_msg = format!("{}", e);
-                if error_msg.contains("timeout") || error_msg.contains("aborted") {
-                    Err(ArbitrageError::api_error(format!(
-                        "Request timeout after {} seconds: {}",
-                        self.api_timeout_seconds, e
-                    )))
-                } else {
-                    Err(ArbitrageError::api_error(format!("Request failed: {}", e)))
-                }
-            }
+        // For Cloudflare Workers, we'll use a simpler timeout approach
+        // since AbortController support may be limited in the worker environment
+        
+        // Create a timeout future
+        let timeout_duration = std::time::Duration::from_secs(self.api_timeout_seconds as u64);
+        
+        // Use tokio::time::timeout for timeout handling
+        match tokio::time::timeout(timeout_duration, Fetch::Request(request).send()).await {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(e)) => Err(ArbitrageError::api_error(format!("Request failed: {}", e))),
+            Err(_) => Err(ArbitrageError::api_error(format!(
+                "Request timeout after {} seconds",
+                self.api_timeout_seconds
+            ))),
         }
     }
 
@@ -528,7 +641,7 @@ impl HybridDataAccessService {
 
     /// Fetch Binance data
     async fn fetch_binance_data(&self, symbol: &str) -> ArbitrageResult<MarketDataSnapshot> {
-        let binance_symbol = Self::transform_symbol_for_binance(symbol);
+        let binance_symbol = Self::transform_symbol_for_binance(symbol)?;
         let url = format!(
             "https://api.binance.com/api/v3/ticker/24hr?symbol={}",
             binance_symbol
@@ -574,7 +687,7 @@ impl HybridDataAccessService {
 
     /// Fetch Bybit data
     async fn fetch_bybit_data(&self, symbol: &str) -> ArbitrageResult<MarketDataSnapshot> {
-        let bybit_symbol = Self::transform_symbol_for_bybit(symbol);
+        let bybit_symbol = Self::transform_symbol_for_bybit(symbol)?;
         let url = format!(
             "https://api.bybit.com/v5/market/tickers?category=spot&symbol={}",
             bybit_symbol
@@ -637,7 +750,7 @@ impl HybridDataAccessService {
 
     /// Fetch OKX data
     async fn fetch_okx_data(&self, symbol: &str) -> ArbitrageResult<MarketDataSnapshot> {
-        let okx_symbol = Self::transform_symbol_for_okx(symbol);
+        let okx_symbol = Self::transform_symbol_for_okx(symbol)?;
         let url = format!(
             "https://www.okx.com/api/v5/market/ticker?instId={}",
             okx_symbol
@@ -814,7 +927,7 @@ impl HybridDataAccessService {
 
     /// Fetch Binance funding rate
     async fn fetch_binance_funding_rate(&self, symbol: &str) -> ArbitrageResult<FundingRateInfo> {
-        let binance_symbol = Self::transform_symbol_for_binance(symbol);
+        let binance_symbol = Self::transform_symbol_for_binance(symbol)?;
         let url = format!(
             "https://fapi.binance.com/fapi/v1/premiumIndex?symbol={}",
             binance_symbol
@@ -863,7 +976,7 @@ impl HybridDataAccessService {
 
     /// Fetch Bybit funding rate
     async fn fetch_bybit_funding_rate(&self, symbol: &str) -> ArbitrageResult<FundingRateInfo> {
-        let bybit_symbol = Self::transform_symbol_for_bybit(symbol);
+        let bybit_symbol = Self::transform_symbol_for_bybit(symbol)?;
         let url = format!(
             "https://api.bybit.com/v5/market/funding/history?category=linear&symbol={}&limit=1",
             bybit_symbol
@@ -960,7 +1073,7 @@ impl HybridDataAccessService {
     }
 
     /// Update metrics
-    fn update_metrics(&mut self, start_time: f64, _success: bool) {
+    fn update_metrics(&mut self, start_time: f64, success: bool) {
         let latency = js_sys::Date::now() - start_time;
 
         // Check for division by zero
@@ -976,13 +1089,17 @@ impl HybridDataAccessService {
         self.metrics.average_latency_ms =
             (self.metrics.average_latency_ms * (total_requests - 1.0) + latency) / total_requests;
 
-        // Update success rate based on actual success parameter
-        // Calculate successful requests from the hit counters (these are only incremented on success)
-        let successful_requests =
-            self.metrics.pipeline_hits + self.metrics.cache_hits + self.metrics.api_calls;
-
-        // Calculate success rate as successful_requests divided by total_requests
-        self.metrics.success_rate = (successful_requests as f64) / total_requests;
+        // Track success/failure and update success rate
+        if success {
+            // Success rate calculation should track cumulative success count
+            let current_success_count = (self.metrics.success_rate * (total_requests - 1.0)) as u64;
+            let new_success_count = current_success_count + 1;
+            self.metrics.success_rate = (new_success_count as f64) / total_requests;
+        } else {
+            // Failure case - don't increment success count
+            let current_success_count = (self.metrics.success_rate * (total_requests - 1.0)) as u64;
+            self.metrics.success_rate = (current_success_count as f64) / total_requests;
+        }
 
         self.metrics.last_updated = Utc::now().timestamp_millis() as u64;
     }
@@ -1008,6 +1125,8 @@ impl HybridDataAccessService {
 
     /// Health check
     pub async fn health_check(&self) -> ArbitrageResult<serde_json::Value> {
+        let test_key = format!("health_check_{}", Utc::now().timestamp_millis());
+
         let mut health_status = serde_json::json!({
             "status": "healthy",
             "pipelines_available": self.pipelines_service.is_some(),
@@ -1018,7 +1137,7 @@ impl HybridDataAccessService {
 
         // Test pipeline connectivity if available
         if let Some(ref pipelines) = self.pipelines_service {
-            match pipelines.get_latest_data("health_check").await {
+            match pipelines.get_latest_data(&test_key).await {
                 Ok(_) => {
                     health_status["pipelines_status"] = serde_json::json!("connected");
                 }
@@ -1030,7 +1149,7 @@ impl HybridDataAccessService {
         }
 
         // Test KV store connectivity
-        match self.kv_store.get("health_check").text().await {
+        match self.kv_store.get(&test_key).text().await {
             Ok(_) => {
                 health_status["kv_status"] = serde_json::json!("connected");
             }
@@ -1039,6 +1158,9 @@ impl HybridDataAccessService {
                 health_status["status"] = serde_json::json!("degraded");
             }
         }
+
+        // Cleanup test data (ignore errors)
+        let _ = self.kv_store.delete(&test_key).await;
 
         Ok(health_status)
     }

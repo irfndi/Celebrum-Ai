@@ -330,7 +330,7 @@ impl AffiliationService {
                         }
                     }
                     Err(e) => {
-                        log::warn!("Failed to calculate metrics for user {}: {}", user_id, e);
+                        log::warn!("Failed to calculate metrics for user: {}", e);
                         continue;
                     }
                 }

@@ -143,17 +143,23 @@ async fn process_opportunity_message(
             crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::RoundRobin => {
                 // TODO: Implement round-robin distribution logic - tracked in issue #124
                 // This should implement fair rotation among users based on last distribution index
-                todo!("Round-robin distribution not yet implemented - tracked in issue #124");
+                return Err(crate::utils::ArbitrageError::configuration_error(
+                    "Round-robin distribution strategy not yet implemented - tracked in issue #124"
+                ));
             }
             crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::PriorityBased => {
                 // TODO: Implement priority-based distribution logic - tracked in issue #125
                 // This should prioritize users based on subscription tier or activity level
-                todo!("Priority-based distribution not yet implemented - tracked in issue #125");
+                return Err(crate::utils::ArbitrageError::configuration_error(
+                    "Priority-based distribution strategy not yet implemented - tracked in issue #125"
+                ));
             }
             crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::GeographicBased => {
                 // TODO: Implement geographic-based distribution logic - tracked in issue #126
                 // This should filter users by location or timezone before sending messages
-                todo!("Geographic-based distribution not yet implemented - tracked in issue #126");
+                return Err(crate::utils::ArbitrageError::configuration_error(
+                    "Geographic-based distribution strategy not yet implemented - tracked in issue #126"
+                ));
             }
         }
     }
@@ -228,11 +234,15 @@ async fn process_analytics_message(
 /// Initialize Telegram service from environment
 async fn initialize_telegram_service(env: &Env) -> ArbitrageResult<crate::services::interfaces::telegram::telegram::TelegramService> {
     let bot_token = env.secret("TELEGRAM_BOT_TOKEN")
-        .map_err(|_| crate::utils::ArbitrageError::configuration_error("TELEGRAM_BOT_TOKEN not found"))?
+        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
+            format!("TELEGRAM_BOT_TOKEN secret not found or accessible: {}", e)
+        ))?
         .to_string();
     
     let chat_id = env.var("TELEGRAM_CHAT_ID")
-        .map_err(|_| crate::utils::ArbitrageError::configuration_error("TELEGRAM_CHAT_ID not found"))?
+        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
+            format!("TELEGRAM_CHAT_ID environment variable not found: {}", e)
+        ))?
         .to_string();
 
     let config = crate::services::interfaces::telegram::telegram::TelegramConfig {

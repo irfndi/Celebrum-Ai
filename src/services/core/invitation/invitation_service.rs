@@ -221,9 +221,7 @@ impl InvitationService {
             .await?;
 
         log::info!(
-            "Successfully used invitation code {} for user {} in atomic transaction",
-            code,
-            user_id
+            "Successfully used invitation code in atomic transaction"
         );
         Ok(usage)
     }
