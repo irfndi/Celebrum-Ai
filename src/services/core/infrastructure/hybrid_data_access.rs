@@ -375,8 +375,9 @@ impl HybridDataAccessService {
 
             let timeout_ms = (self.api_timeout_seconds as u64) * 1000;
             let timeout_future = TimeoutFuture::new(timeout_ms as u32);
-            let fetch_request = Fetch::Request(request);
-            let request_future = fetch_request.send();
+
+            // Create the fetch request and get the future in one expression to avoid lifetime issues
+            let request_future = Fetch::Request(request).send();
 
             match select(Box::pin(request_future), Box::pin(timeout_future)).await {
                 Either::Left((result, _)) => match result {
@@ -1177,6 +1178,37 @@ impl HybridDataAccessService {
         };
     }
 
+    /// Helper function to execute operations with timeout for both WASM and non-WASM targets
+    async fn execute_with_timeout<F, T>(
+        &self,
+        future: F,
+        timeout_seconds: u64,
+    ) -> std::result::Result<T, &'static str>
+    where
+        F: std::future::Future<Output = T>,
+    {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use futures::future::{select, Either};
+            use gloo_timers::future::TimeoutFuture;
+
+            let timeout_future = TimeoutFuture::new((timeout_seconds * 1000) as u32);
+            match select(Box::pin(future), Box::pin(timeout_future)).await {
+                Either::Left((result, _)) => Ok(result),
+                Either::Right((_, _)) => Err("timeout"),
+            }
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let timeout_duration = std::time::Duration::from_secs(timeout_seconds);
+            match tokio::time::timeout(timeout_duration, future).await {
+                Ok(result) => Ok(result),
+                Err(_) => Err("timeout"),
+            }
+        }
+    }
+
     /// Health check
     pub async fn health_check(&self) -> ArbitrageResult<serde_json::Value> {
         let test_key = format!("health_check_{}", Utc::now().timestamp_millis());
@@ -1191,74 +1223,31 @@ impl HybridDataAccessService {
 
         // Test pipeline connectivity if available
         if let Some(ref pipelines) = self.pipelines_service {
-            #[cfg(target_arch = "wasm32")]
+            match self
+                .execute_with_timeout(pipelines.get_latest_data(&test_key), 5)
+                .await
             {
-                use futures::future::{select, Either};
-                use gloo_timers::future::TimeoutFuture;
-
-                let timeout_future = TimeoutFuture::new(5000); // 5 seconds
-                let pipeline_future = pipelines.get_latest_data(&test_key);
-
-                match select(Box::pin(pipeline_future), Box::pin(timeout_future)).await {
-                    Either::Left((Ok(_), _)) => {
-                        health_status["pipelines_status"] = serde_json::json!("connected");
-                    }
-                    Either::Left((Err(_), _)) | Either::Right((_, _)) => {
-                        health_status["pipelines_status"] = serde_json::json!("disconnected");
-                        health_status["status"] = serde_json::json!("degraded");
-                    }
+                Ok(Ok(_)) => {
+                    health_status["pipelines_status"] = serde_json::json!("connected");
                 }
-            }
-
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                let timeout_duration = std::time::Duration::from_secs(5);
-                match tokio::time::timeout(timeout_duration, pipelines.get_latest_data(&test_key))
-                    .await
-                {
-                    Ok(Ok(_)) => {
-                        health_status["pipelines_status"] = serde_json::json!("connected");
-                    }
-                    Ok(Err(_)) | Err(_) => {
-                        health_status["pipelines_status"] = serde_json::json!("disconnected");
-                        health_status["status"] = serde_json::json!("degraded");
-                    }
+                Ok(Err(_)) | Err(_) => {
+                    health_status["pipelines_status"] = serde_json::json!("disconnected");
+                    health_status["status"] = serde_json::json!("degraded");
                 }
             }
         }
 
         // Test KV store connectivity
-        #[cfg(target_arch = "wasm32")]
+        match self
+            .execute_with_timeout(self.kv_store.get(&test_key).text(), 5)
+            .await
         {
-            use futures::future::{select, Either};
-            use gloo_timers::future::TimeoutFuture;
-
-            let timeout_future = TimeoutFuture::new(5000); // 5 seconds
-            let kv_future = self.kv_store.get(&test_key).text();
-
-            match select(Box::pin(kv_future), Box::pin(timeout_future)).await {
-                Either::Left((Ok(_), _)) => {
-                    health_status["kv_status"] = serde_json::json!("connected");
-                }
-                Either::Left((Err(_), _)) | Either::Right((_, _)) => {
-                    health_status["kv_status"] = serde_json::json!("disconnected");
-                    health_status["status"] = serde_json::json!("degraded");
-                }
+            Ok(Ok(_)) => {
+                health_status["kv_status"] = serde_json::json!("connected");
             }
-        }
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let timeout_duration = std::time::Duration::from_secs(5);
-            match tokio::time::timeout(timeout_duration, self.kv_store.get(&test_key).text()).await
-            {
-                Ok(Ok(_)) => {
-                    health_status["kv_status"] = serde_json::json!("connected");
-                }
-                Ok(Err(_)) | Err(_) => {
-                    health_status["kv_status"] = serde_json::json!("disconnected");
-                    health_status["status"] = serde_json::json!("degraded");
-                }
+            Ok(Err(_)) | Err(_) => {
+                health_status["kv_status"] = serde_json::json!("disconnected");
+                health_status["status"] = serde_json::json!("degraded");
             }
         }
 
