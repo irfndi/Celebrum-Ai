@@ -51,26 +51,27 @@ binding = "ArbEdgeR2_Analytics"
 bucket_name = "prod-arb-edge-analytics"
 
 # Queues (for message consumption via #[event(queue)])
-[[queues.consumers]]
-queue = "prod-opportunity-distribution"
-max_batch_size = 10
-max_batch_timeout = 30
-max_retries = 3
-dead_letter_queue = "dead-letter-queue"
+# Note: Queues require a paid plan - commented out for free tier deployment
+# [[queues.consumers]]
+# queue = "prod-opportunity-distribution"
+# max_batch_size = 10
+# max_batch_timeout = 30
+# max_retries = 3
+# dead_letter_queue = "dead-letter-queue"
 
-[[queues.consumers]]
-queue = "prod-user-notifications"
-max_batch_size = 5
-max_batch_timeout = 15
-max_retries = 3
-dead_letter_queue = "dead-letter-queue"
+# [[queues.consumers]]
+# queue = "prod-user-notifications"
+# max_batch_size = 5
+# max_batch_timeout = 15
+# max_retries = 3
+# dead_letter_queue = "dead-letter-queue"
 
-[[queues.consumers]]
-queue = "prod-analytics-events"
-max_batch_size = 100
-max_batch_timeout = 60
-max_retries = 2
-dead_letter_queue = "dead-letter-queue"
+# [[queues.consumers]]
+# queue = "prod-analytics-events"
+# max_batch_size = 100
+# max_batch_timeout = 60
+# max_retries = 2
+# dead_letter_queue = "dead-letter-queue"
 
 # Durable Objects (if needed)
 # [[durable_objects.bindings]]
@@ -78,34 +79,40 @@ dead_letter_queue = "dead-letter-queue"
 # class_name = "TradingSession"
 
 # Pipelines (direct bindings available)
-[[pipelines]]
-pipeline = "prod-market-data-pipeline"
-binding = "PROD_MARKET_DATA_PIPELINE"
+# Note: Pipelines may require a paid plan - commented out for free tier deployment
+# [[pipelines]]
+# pipeline = "prod-market-data-pipeline"
+# binding = "PROD_MARKET_DATA_PIPELINE"
 
-[[pipelines]]
-pipeline = "prod-analytics-pipeline"
-binding = "PROD_ANALYTICS_PIPELINE"
+# [[pipelines]]
+# pipeline = "prod-analytics-pipeline"
+# binding = "PROD_ANALYTICS_PIPELINE"
 
-[[pipelines]]
-pipeline = "prod-audit-pipeline"
-binding = "PROD_AUDIT_PIPELINE"
+# [[pipelines]]
+# pipeline = "prod-audit-pipeline"
+# binding = "PROD_AUDIT_PIPELINE"
 
 # Analytics Engine dataset
 # Note: Analytics Engine is configured via HTTP API, not bindings
 # Dataset name: arbitrage_analytics
 
+[[analytics_engine_datasets]]
+binding = "ARBITRAGE_ANALYTICS"
+dataset = "arbitrage_analytics"
+
 # Cron Triggers
-[[triggers.crons]]
-cron = "*/5 * * * *"  # Every 5 minutes
-name = "market-data-refresh"
+# Note: Cron triggers may require a paid plan - commented out for free tier deployment
+# [[triggers.crons]]
+# cron = "*/5 * * * *"  # Every 5 minutes
+# name = "market-data-refresh"
 
-[[triggers.crons]]
-cron = "0 */1 * * *"  # Every hour
-name = "analytics-aggregation"
+# [[triggers.crons]]
+# cron = "0 */1 * * *"  # Every hour
+# name = "analytics-aggregation"
 
-[[triggers.crons]]
-cron = "0 0 * * *"    # Daily at midnight
-name = "cleanup-expired-data"
+# [[triggers.crons]]
+# cron = "0 0 * * *"    # Daily at midnight
+# name = "cleanup-expired-data"
 
 
 

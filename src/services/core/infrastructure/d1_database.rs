@@ -1747,7 +1747,10 @@ impl D1Service {
             Err(e) => {
                 // Rollback on failure
                 if let Err(rollback_err) = self.rollback_transaction().await {
-                    crate::utils::logger::logger().error(&format!("Failed to rollback transaction: {:?}", rollback_err));
+                    crate::utils::logger::logger().error(&format!(
+                        "Failed to rollback transaction: {:?}",
+                        rollback_err
+                    ));
                 }
                 Err(e)
             }
@@ -1777,7 +1780,10 @@ impl D1Service {
             Err(e) => {
                 // Rollback on failure
                 if let Err(rollback_err) = self.rollback_transaction().await {
-                    crate::utils::logger::logger().error(&format!("Failed to rollback transaction: {:?}", rollback_err));
+                    crate::utils::logger::logger().error(&format!(
+                        "Failed to rollback transaction: {:?}",
+                        rollback_err
+                    ));
                 }
                 Err(e)
             }

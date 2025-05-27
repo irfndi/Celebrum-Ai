@@ -10,6 +10,37 @@ const DEFAULT_AVERAGE_SUBSCRIPTION_COST: f64 = 29.0; // $29 average subscription
 const DEFAULT_COMMISSION_RATE: f64 = 0.1; // 10% commission rate
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AffiliationConfig {
+    pub volume_thresholds: Vec<(u32, f64)>, // (referral_count, bonus)
+    pub quality_thresholds: Vec<(f64, f64)>, // (conversion_rate, bonus)
+    pub tier_thresholds: Vec<(f64, f64, PerformanceTier)>, // (revenue, engagement, tier)
+}
+
+impl Default for AffiliationConfig {
+    fn default() -> Self {
+        Self {
+            volume_thresholds: vec![
+                (50, 10.0), // High volume bonus
+                (20, 5.0),  // Medium volume bonus
+                (10, 2.0),  // Low volume bonus
+            ],
+            quality_thresholds: vec![
+                (50.0, 15.0), // Exceptional conversion rate
+                (30.0, 10.0), // High conversion rate
+                (20.0, 5.0),  // Good conversion rate
+            ],
+            tier_thresholds: vec![
+                (10000.0, 80.0, PerformanceTier::Diamond), // Top tier
+                (5000.0, 70.0, PerformanceTier::Platinum), // High tier
+                (2000.0, 60.0, PerformanceTier::Gold),     // Mid-high tier
+                (500.0, 40.0, PerformanceTier::Silver),    // Mid tier
+                                                           // Bronze is default for below thresholds
+            ],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AffiliationProgram {
     pub id: String,
     pub user_id: String,
@@ -85,11 +116,19 @@ pub enum PerformanceTier {
 
 pub struct AffiliationService {
     d1_service: D1Service,
+    config: AffiliationConfig,
 }
 
 impl AffiliationService {
     pub fn new(d1_service: D1Service) -> Self {
-        Self { d1_service }
+        Self {
+            d1_service,
+            config: AffiliationConfig::default(),
+        }
+    }
+
+    pub fn new_with_config(d1_service: D1Service, config: AffiliationConfig) -> Self {
+        Self { d1_service, config }
     }
 
     /// Submit an application for affiliation program
@@ -346,18 +385,10 @@ impl AffiliationService {
                     }
                 }
                 Err(e) => {
-                    if let Some(user_id) = user_ids.get(i) {
-                        // Sanitize user ID for logging to avoid exposing sensitive information
-                        let sanitized_user_id = if user_id.len() > 8 {
-                            format!("{}***{}", &user_id[..4], &user_id[user_id.len() - 4..])
-                        } else {
-                            "***".to_string()
-                        };
-                        // Use our sanitized logger instead of standard log macro
-                        crate::utils::logger::logger().warn(&format!(
-                            "Failed to calculate metrics for user {}: {}",
-                            sanitized_user_id, e
-                        ));
+                    if user_ids.get(i).is_some() {
+                        // Log without user identifier to avoid security scanner warnings
+                        crate::utils::logger::logger()
+                            .warn(&format!("Failed to calculate metrics for affiliate: {}", e));
                     }
                 }
             }
@@ -498,8 +529,10 @@ impl AffiliationService {
         let application = self.get_application_by_id(application_id).await?;
 
         // Determine kickback rate based on program type and follower count
-        let kickback_rate = self
-            .calculate_initial_kickback_rate(&application.program_type, application.follower_count);
+        let kickback_rate = Self::calculate_initial_kickback_rate(
+            &application.program_type,
+            application.follower_count,
+        );
 
         let program_type = application.program_type.clone();
         let program = AffiliationProgram {
@@ -510,7 +543,7 @@ impl AffiliationService {
             follower_count: Some(application.follower_count),
             platform: Some(application.platform),
             kickback_rate,
-            special_features: self.get_default_special_features(&program_type),
+            special_features: Self::get_default_special_features(&program_type),
             created_at: Utc::now(),
             updated_at: Utc::now(),
             verified_at: Some(Utc::now()),
@@ -522,7 +555,6 @@ impl AffiliationService {
     }
 
     fn calculate_initial_kickback_rate(
-        &self,
         program_type: &AffiliationProgramType,
         follower_count: u32,
     ) -> f64 {
@@ -547,7 +579,7 @@ impl AffiliationService {
         base_rate + follower_bonus
     }
 
-    fn get_default_special_features(&self, program_type: &AffiliationProgramType) -> Vec<String> {
+    fn get_default_special_features(program_type: &AffiliationProgramType) -> Vec<String> {
         match program_type {
             AffiliationProgramType::Influencer => vec![
                 "priority_support".to_string(),
@@ -811,7 +843,13 @@ impl AffiliationService {
 
         if let Some(row) = result.first() {
             let count_str = row.get("count").map_or("0", |v| v);
-            Ok(count_str.parse().unwrap_or(0))
+            match count_str.parse::<u32>() {
+                Ok(count) => Ok(count),
+                Err(e) => Err(ArbitrageError::parse_error(format!(
+                    "Failed to parse referral count '{}': {}",
+                    count_str, e
+                ))),
+            }
         } else {
             Ok(0)
         }
@@ -847,7 +885,13 @@ impl AffiliationService {
 
         if let Some(row) = result.first() {
             let count_str = row.get("count").map_or("0", |v| v);
-            Ok(count_str.parse().unwrap_or(0))
+            match count_str.parse::<u32>() {
+                Ok(count) => Ok(count),
+                Err(e) => Err(ArbitrageError::parse_error(format!(
+                    "Failed to parse conversion count '{}': {}",
+                    count_str, e
+                ))),
+            }
         } else {
             Ok(0)
         }
@@ -880,10 +924,16 @@ impl AffiliationService {
             .await?;
 
         let total_bonuses = if let Some(row) = bonus_result.first() {
-            row.get("total_bonuses")
-                .map_or("0", |v| v)
-                .parse::<f64>()
-                .unwrap_or(0.0)
+            let bonus_str = row.get("total_bonuses").map_or("0", |v| v);
+            match bonus_str.parse::<f64>() {
+                Ok(bonuses) => bonuses,
+                Err(e) => {
+                    return Err(ArbitrageError::parse_error(format!(
+                        "Failed to parse total bonuses '{}': {}",
+                        bonus_str, e
+                    )));
+                }
+            }
         } else {
             0.0
         };
@@ -911,27 +961,23 @@ impl AffiliationService {
         // Base conversion rate (0-100)
         let conversion_rate = (conversions as f64 / referrals as f64) * 100.0;
 
-        // Bonus factors for high activity
-        let volume_bonus = if referrals >= 50 {
-            10.0 // High volume bonus
-        } else if referrals >= 20 {
-            5.0 // Medium volume bonus
-        } else if referrals >= 10 {
-            2.0 // Low volume bonus
-        } else {
-            0.0 // No bonus
-        };
+        // Bonus factors for high activity (configurable)
+        let volume_bonus = self
+            .config
+            .volume_thresholds
+            .iter()
+            .find(|(threshold, _)| referrals >= *threshold)
+            .map(|(_, bonus)| *bonus)
+            .unwrap_or(0.0);
 
-        // Quality bonus for high conversion rates
-        let quality_bonus = if conversion_rate >= 50.0 {
-            15.0 // Exceptional conversion rate
-        } else if conversion_rate >= 30.0 {
-            10.0 // High conversion rate
-        } else if conversion_rate >= 20.0 {
-            5.0 // Good conversion rate
-        } else {
-            0.0 // No bonus
-        };
+        // Quality bonus for high conversion rates (configurable)
+        let quality_bonus = self
+            .config
+            .quality_thresholds
+            .iter()
+            .find(|(threshold, _)| conversion_rate >= *threshold)
+            .map(|(_, bonus)| *bonus)
+            .unwrap_or(0.0);
 
         // Calculate final engagement score (capped at 100)
         let engagement_score = (conversion_rate + volume_bonus + quality_bonus).min(100.0);
@@ -944,18 +990,16 @@ impl AffiliationService {
         engagement_score: f64,
         revenue: f64,
     ) -> ArbitrageResult<PerformanceTier> {
-        // Tier determination based on both engagement score and revenue
-        let tier = if revenue >= 10000.0 && engagement_score >= 80.0 {
-            PerformanceTier::Diamond // Top tier: $10k+ revenue + 80%+ engagement
-        } else if revenue >= 5000.0 && engagement_score >= 70.0 {
-            PerformanceTier::Platinum // High tier: $5k+ revenue + 70%+ engagement
-        } else if revenue >= 2000.0 && engagement_score >= 60.0 {
-            PerformanceTier::Gold // Mid-high tier: $2k+ revenue + 60%+ engagement
-        } else if revenue >= 500.0 && engagement_score >= 40.0 {
-            PerformanceTier::Silver // Mid tier: $500+ revenue + 40%+ engagement
-        } else {
-            PerformanceTier::Bronze // Entry tier: Below thresholds
-        };
+        // Tier determination based on both engagement score and revenue (configurable)
+        let tier = self
+            .config
+            .tier_thresholds
+            .iter()
+            .find(|(revenue_threshold, engagement_threshold, _)| {
+                revenue >= *revenue_threshold && engagement_score >= *engagement_threshold
+            })
+            .map(|(_, _, tier)| tier.clone())
+            .unwrap_or(PerformanceTier::Bronze); // Default to Bronze if no thresholds met
 
         Ok(tier)
     }
