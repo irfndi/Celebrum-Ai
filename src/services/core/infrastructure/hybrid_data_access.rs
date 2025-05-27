@@ -438,7 +438,7 @@ impl HybridDataAccessService {
 
             // Create a longer-lived binding for the fetch request to avoid lifetime issues
             let fetch_request = Fetch::Request(request);
-            let request_future = fetch_request.send();
+            let request_future = async move { fetch_request.send().await };
 
             match select(Box::pin(request_future), Box::pin(timeout_future)).await {
                 Either::Left((result, _)) => match result {

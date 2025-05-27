@@ -94,19 +94,25 @@ ci-pipeline: ## Run comprehensive CI pipeline
 	@echo "🔍 Step 2: Clippy Linting Check"
 	@cargo clippy --lib -- -D warnings
 	@echo "✅ Step 2: Clippy Linting Passed"
-	@echo "🧪 Step 3: Library Tests"
+	@echo "🎯 Step 3: WASM Target Compilation Check"
+	@cargo check --target wasm32-unknown-unknown --lib
+	@echo "✅ Step 3: WASM Target Compilation Passed"
+	@echo "🧪 Step 4: Library Tests"
 	@cargo test --lib
-	@echo "✅ Step 3: Library Tests Passed (327 tests)"
-	@echo "🧪 Step 4: Unit Tests"
+	@echo "✅ Step 4: Library Tests Passed (327 tests)"
+	@echo "🧪 Step 5: Unit Tests"
 	@$(MAKE) unit-tests
-	@echo "✅ Step 4: Unit Tests Passed (67 tests)"
-	@echo "🧪 Step 5: Integration & E2E Tests"
+	@echo "✅ Step 5: Unit Tests Passed (67 tests)"
+	@echo "🧪 Step 6: Integration & E2E Tests"
 	@$(MAKE) integration-tests
 	@$(MAKE) e2e-tests
-	@echo "✅ Step 5: Integration & E2E Tests Passed (74 tests)"
-	@echo "🔧 Step 6: Final Compilation Check"
+	@echo "✅ Step 6: Integration & E2E Tests Passed (74 tests)"
+	@echo "🔧 Step 7: Final Native Compilation Check"
 	@cargo check
-	@echo "✅ Step 6: Final Compilation Check Passed"
+	@echo "✅ Step 7: Final Native Compilation Check Passed"
+	@echo "🎯 Step 8: Final WASM Build Verification"
+	@cargo build --target wasm32-unknown-unknown --lib --quiet
+	@echo "✅ Step 8: Final WASM Build Verification Passed"
 	@echo "🎉 CI Pipeline Completed Successfully!"
 	@echo "📊 Test Summary:"
 	@echo "   - Library Tests: 327 tests"
@@ -115,6 +121,7 @@ ci-pipeline: ## Run comprehensive CI pipeline
 	@echo "   - E2E Tests: 12 tests"
 	@echo "   - Total: 468 tests passing"
 	@echo "   - Coverage: 50-80% achieved across all modules"
+	@echo "   - WASM Compatibility: ✅ Verified"
 
 # Coverage and documentation
 coverage: ## Generate test coverage report
@@ -145,11 +152,15 @@ check: ## Quick build check
 	@echo "🔍 Quick build check..."
 	@cargo check
 
-check-all: lint test build build-wasm ## Run all basic checks (lint, test, build native & WASM)
+check-wasm: ## Quick WASM compilation check
+	@echo "🎯 Quick WASM compilation check..."
+	@cargo check --target wasm32-unknown-unknown --lib
+
+check-all: lint test build build-wasm check-wasm ## Run all basic checks (lint, test, build native & WASM)
 	@echo "✅ All basic checks completed successfully!"
 
 # Legacy commands (maintained for compatibility)
-dev: fmt lint test ## Quick development cycle (format, lint, test)
+dev: fmt lint test check-wasm ## Quick development cycle (format, lint, test, WASM check)
 	@echo "🚀 Development cycle completed!"
 
 ci: ci-pipeline ## Alias for ci-pipeline (legacy)
