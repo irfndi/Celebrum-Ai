@@ -979,7 +979,7 @@ mod tests {
 
     #[test]
     fn test_data_access_source_enum() {
-        let sources = vec![
+        let sources = [
             DataAccessSource::Pipeline,
             DataAccessSource::Cache,
             DataAccessSource::RealAPI,

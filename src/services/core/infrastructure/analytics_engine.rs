@@ -1,5 +1,9 @@
 // Cloudflare Workers Analytics Engine Service for Enhanced Observability
 // Leverages Workers Analytics Engine for custom business metrics, real-time dashboards, and performance tracking
+//
+// Note: This implementation uses HTTP API calls to Cloudflare Analytics Engine
+// since direct bindings are not available in the current worker crate version.
+// In production, this would use Cloudflare Analytics Engine REST API with proper authentication.
 
 use crate::types::{ArbitrageOpportunity, ExchangeIdEnum};
 use crate::utils::{ArbitrageError, ArbitrageResult};
@@ -7,25 +11,119 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::Env;
 
-// Mock AnalyticsEngine type for compilation when not available in worker crate
-#[cfg(not(feature = "cloudflare_analytics"))]
-pub struct AnalyticsEngine;
+/// Production Analytics Engine HTTP client
+pub struct AnalyticsEngineClient {
+    account_id: String,
+    api_token: String,
+    dataset_name: String,
+    http_client: reqwest::Client,
+}
 
-#[cfg(not(feature = "cloudflare_analytics"))]
-impl AnalyticsEngine {
-    pub async fn write_data_point(&self, _data: &[serde_json::Value]) -> Result<(), String> {
-        // Mock implementation - in real Cloudflare environment this would write to Analytics Engine
-        Ok(())
+impl AnalyticsEngineClient {
+    pub fn new(account_id: String, api_token: String, dataset_name: String) -> Self {
+        Self {
+            account_id,
+            api_token,
+            dataset_name,
+            http_client: reqwest::Client::new(),
+        }
     }
 
-    pub async fn query(&self, _query: &str) -> Result<serde_json::Value, String> {
-        // Mock implementation - return empty result
-        Ok(serde_json::json!({"data": []}))
+    /// Send data points to Analytics Engine via HTTP API
+    pub async fn write_data_point(&self, data: &[serde_json::Value]) -> Result<(), String> {
+        let url = format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/analytics_engine/sql",
+            self.account_id
+        );
+
+        let payload = serde_json::json!({
+            "sql": format!("INSERT INTO {} VALUES {}",
+                self.dataset_name,
+                self.format_values_for_insert(data)
+            )
+        });
+
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_token))
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            Err(format!("Analytics Engine API error: {}", error_text))
+        }
+    }
+
+    /// Query data from Analytics Engine via HTTP API
+    pub async fn query(&self, query: &str) -> Result<serde_json::Value, String> {
+        let url = format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/analytics_engine/sql",
+            self.account_id
+        );
+
+        let payload = serde_json::json!({
+            "sql": query
+        });
+
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_token))
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        if response.status().is_success() {
+            response
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse response: {}", e))
+        } else {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            Err(format!("Analytics Engine API error: {}", error_text))
+        }
+    }
+
+    fn format_values_for_insert(&self, data: &[serde_json::Value]) -> String {
+        data.iter()
+            .map(|value| match value {
+                serde_json::Value::Object(obj) => {
+                    let values: Vec<String> = obj
+                        .values()
+                        .map(|v| match v {
+                            serde_json::Value::String(s) => format!("'{}'", s.replace("'", "''")),
+                            serde_json::Value::Number(n) => n.to_string(),
+                            serde_json::Value::Bool(b) => b.to_string(),
+                            serde_json::Value::Null => "NULL".to_string(),
+                            _ => format!("'{}'", v.to_string().replace("'", "''")),
+                        })
+                        .collect();
+                    format!("({})", values.join(", "))
+                }
+                _ => format!("('{}')", value.to_string().replace("'", "''")),
+            })
+            .collect::<Vec<String>>()
+            .join(", ")
     }
 }
 
-#[cfg(feature = "cloudflare_analytics")]
-use worker::AnalyticsEngine;
+// Type alias for backward compatibility
+pub type AnalyticsEngine = AnalyticsEngineClient;
 
 /// Configuration for Analytics Engine service
 #[derive(Debug, Clone)]
@@ -180,36 +278,33 @@ impl AnalyticsEngineService {
     }
 
     /// Create new AnalyticsEngineService instance
-    pub fn new(_env: &Env, config: AnalyticsEngineConfig) -> ArbitrageResult<Self> {
+    pub fn new(env: &Env, config: AnalyticsEngineConfig) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
         let analytics_engine = {
-            #[cfg(feature = "cloudflare_analytics")]
-            match env.analytics_engine(&config.dataset_name) {
-                Ok(engine) => {
-                    logger.info(&format!(
-                        "Analytics Engine dataset '{}' connected successfully",
-                        config.dataset_name
-                    ));
-                    Some(engine)
-                }
-                Err(e) => {
-                    logger.warn(&format!(
-                        "Failed to connect to Analytics Engine dataset '{}': {}",
-                        config.dataset_name, e
-                    ));
-                    None
-                }
-            }
+            // Get credentials from environment
+            let account_id = env
+                .var("CLOUDFLARE_ACCOUNT_ID")
+                .map_err(|_| {
+                    ArbitrageError::configuration_error("CLOUDFLARE_ACCOUNT_ID not found")
+                })?
+                .to_string();
 
-            #[cfg(not(feature = "cloudflare_analytics"))]
-            {
-                logger.warn(&format!(
-                    "Analytics Engine dataset '{}' not available - using mock implementation",
-                    config.dataset_name
-                ));
-                Some(AnalyticsEngine)
-            }
+            let api_token = env
+                .secret("CLOUDFLARE_API_TOKEN")
+                .map_err(|_| ArbitrageError::configuration_error("CLOUDFLARE_API_TOKEN not found"))?
+                .to_string();
+
+            logger.info(&format!(
+                "Analytics Engine service initialized for dataset '{}' - using production HTTP API",
+                config.dataset_name
+            ));
+
+            Some(AnalyticsEngineClient::new(
+                account_id,
+                api_token,
+                config.dataset_name.clone(),
+            ))
         };
 
         Ok(Self {
@@ -741,7 +836,7 @@ impl AnalyticsEngineService {
 
                     // Calculate real health score from actual data
                     let success_rate = (successful as f32 / total as f32) * 100.0;
-                    let latency_score = if avg_latency <= 50.0 {
+                    let latency_score: f32 = if avg_latency <= 50.0 {
                         100.0
                     } else {
                         100.0 - (avg_latency - 50.0) / 10.0

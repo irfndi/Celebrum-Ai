@@ -131,6 +131,12 @@ if [ "$SUPER_ADMIN_USER_ID" = "null" ] || [ -z "$SUPER_ADMIN_USER_ID" ]; then
     exit 1
 fi
 
+if [ "$SUPER_ADMIN_TELEGRAM_ID" = "null" ] || [ -z "$SUPER_ADMIN_TELEGRAM_ID" ]; then
+    echo "❌ Error: No super admin telegram ID found in production D1 database"
+    echo "💡 Please ensure the super admin user has a valid telegram_id in the users table"
+    exit 1
+fi
+
 echo "✅ Found super admin: $SUPER_ADMIN_USER_ID (Telegram ID: $SUPER_ADMIN_TELEGRAM_ID)"
 
 # Start testing

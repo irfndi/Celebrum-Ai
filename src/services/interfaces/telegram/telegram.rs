@@ -7354,7 +7354,7 @@ mod tests {
         assert_eq!(troubleshooting_topic, "troubleshooting");
 
         // Test that topics are properly categorized
-        let topics = vec![
+        let topics = [
             getting_started_topic,
             trading_topic,
             ai_topic,
@@ -7372,10 +7372,10 @@ mod tests {
         let service = TelegramService::new(config);
 
         // Test that error handling integrates with existing command structure
-        assert!(service.analytics_enabled == true); // Default analytics state
+        assert!(service.analytics_enabled); // Default analytics state
 
         // Test that enhanced error handling doesn't break existing functionality
-        assert!(service.config.is_test_mode == true);
+        assert!(service.config.is_test_mode);
         assert!(!service.config.bot_token.is_empty());
     }
 

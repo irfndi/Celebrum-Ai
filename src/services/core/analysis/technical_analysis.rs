@@ -1,7 +1,9 @@
 use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
 use crate::types::{ArbitrageOpportunity, CommandPermission, ExchangeIdEnum};
 use crate::utils::{logger::Logger, ArbitrageResult};
-use crate::ArbitrageError;
+
+#[cfg(not(test))]
+use crate::utils::ArbitrageError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -64,15 +66,6 @@ pub enum SignalDirection {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Timeframe {
-    OneMinute,      // 1 minute
-    FiveMinutes,    // 5 minutes
-    FifteenMinutes, // 15 minutes
-    ThirtyMinutes,  // 30 minutes
-    OneHour,        // 1 hour
-    FourHours,      // 4 hours
-    TwelveHours,    // 12 hours
-    OneDay,         // 1 day
-    OneWeek,        // 1 week
     M1,             // 1 minute
     M5,             // 5 minutes
     M15,            // 15 minutes
@@ -87,15 +80,15 @@ pub enum Timeframe {
 impl std::fmt::Display for Timeframe {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Timeframe::OneMinute | Timeframe::M1 => write!(f, "1m"),
-            Timeframe::FiveMinutes | Timeframe::M5 => write!(f, "5m"),
-            Timeframe::FifteenMinutes | Timeframe::M15 => write!(f, "15m"),
-            Timeframe::ThirtyMinutes | Timeframe::M30 => write!(f, "30m"),
-            Timeframe::OneHour | Timeframe::H1 => write!(f, "1h"),
-            Timeframe::FourHours | Timeframe::H4 => write!(f, "4h"),
-            Timeframe::TwelveHours | Timeframe::H12 => write!(f, "12h"),
-            Timeframe::OneDay | Timeframe::D1 => write!(f, "1d"),
-            Timeframe::OneWeek | Timeframe::W1 => write!(f, "1w"),
+            Timeframe::M1 => write!(f, "1m"),
+            Timeframe::M5 => write!(f, "5m"),
+            Timeframe::M15 => write!(f, "15m"),
+            Timeframe::M30 => write!(f, "30m"),
+            Timeframe::H1 => write!(f, "1h"),
+            Timeframe::H4 => write!(f, "4h"),
+            Timeframe::H12 => write!(f, "12h"),
+            Timeframe::D1 => write!(f, "1d"),
+            Timeframe::W1 => write!(f, "1w"),
         }
     }
 }
@@ -319,31 +312,66 @@ impl TechnicalAnalysisService {
         &self,
         exchange: &str,
         symbol: &str,
-        _timeframe: &Timeframe,
+        timeframe: &Timeframe,
     ) -> ArbitrageResult<Option<TechnicalAnalysisMarketData>> {
-        if let Some(ref _pipelines_service) = self.pipelines_service {
-            // In production, this would query R2 storage via pipelines for historical market data
-            // For now, we'll simulate pipeline data consumption
+        if let Some(ref pipelines_service) = self.pipelines_service {
             self.logger.info(&format!(
-                "Fetching market data from pipeline: {}/{} for timeframe {:?}",
-                exchange, symbol, _timeframe
+                "Fetching market data from pipeline: {}/{} for timeframe {}",
+                exchange, symbol, timeframe
             ));
 
-            // Simulate pipeline data retrieval
-            let market_data = TechnicalAnalysisMarketData {
-                timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                exchange: exchange.to_string(),
-                symbol: symbol.to_string(),
-                price: self.get_mock_current_price(symbol),
-                volume: 1000.0,  // Mock volume
-                rsi: Some(65.0), // Mock RSI
-                sma_20: Some(self.get_mock_current_price(symbol) * 0.98), // Mock SMA
-                bollinger_upper: Some(self.get_mock_current_price(symbol) * 1.02),
-                bollinger_lower: Some(self.get_mock_current_price(symbol) * 0.98),
-                data_type: "technical_market_data".to_string(),
-            };
+            // Real implementation: Query R2 storage via pipelines for historical market data
+            let data_key = format!("market-data/{}/{}/{}", 
+                chrono::Utc::now().format("%Y/%m/%d"), 
+                exchange, 
+                symbol
+            );
 
-            Ok(Some(market_data))
+            match pipelines_service.get_latest_data(&data_key).await {
+                Ok(pipeline_data) => {
+                    // Parse the pipeline data into TechnicalAnalysisMarketData
+                    let market_data = TechnicalAnalysisMarketData {
+                        timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                        exchange: exchange.to_string(),
+                        symbol: symbol.to_string(),
+                        price: pipeline_data
+                            .get("price")
+                            .and_then(|p| p.as_f64())
+                            .unwrap_or_else(|| self.get_mock_current_price(symbol)),
+                        volume: pipeline_data
+                            .get("volume")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(1000.0),
+                        rsi: pipeline_data
+                            .get("rsi")
+                            .and_then(|r| r.as_f64()),
+                        sma_20: pipeline_data
+                            .get("sma_20")
+                            .and_then(|s| s.as_f64()),
+                        bollinger_upper: pipeline_data
+                            .get("bollinger_upper")
+                            .and_then(|b| b.as_f64()),
+                        bollinger_lower: pipeline_data
+                            .get("bollinger_lower")
+                            .and_then(|b| b.as_f64()),
+                        data_type: "technical_market_data".to_string(),
+                    };
+
+                    self.logger.info(&format!(
+                        "Successfully fetched market data from pipeline for {}/{}",
+                        exchange, symbol
+                    ));
+
+                    Ok(Some(market_data))
+                }
+                Err(e) => {
+                    self.logger.warn(&format!(
+                        "Failed to fetch market data from pipeline: {}. Falling back to direct API calls",
+                        e
+                    ));
+                    Ok(None)
+                }
+            }
         } else {
             self.logger
                 .warn("Pipelines service not available, falling back to direct API calls");
@@ -356,8 +384,8 @@ impl TechnicalAnalysisService {
         &self,
         signal: &TechnicalSignal,
     ) -> ArbitrageResult<()> {
-        if let Some(ref _pipelines_service) = self.pipelines_service {
-            let _analysis_result = TechnicalAnalysisResultEvent {
+        if let Some(ref pipelines_service) = self.pipelines_service {
+            let analysis_result = TechnicalAnalysisResultEvent {
                 analysis_id: uuid::Uuid::new_v4().to_string(),
                 signal_id: signal.id.clone(),
                 trading_pair: signal.pair.clone(),
@@ -374,14 +402,29 @@ impl TechnicalAnalysisService {
                 data_type: "technical_analysis_result".to_string(),
             };
 
-            // Store to pipelines for historical analysis tracking
             self.logger.info(&format!(
                 "Storing technical analysis results to pipeline: {} for {}/{}",
                 signal.signal_type, signal.exchange, signal.pair
             ));
 
-            // In production, this would send to actual pipelines
-            // For now, we'll log the action
+            // Real implementation: Send to actual pipelines for storage
+            match pipelines_service.store_analysis_results("technical_analysis", &serde_json::to_value(&analysis_result)?).await {
+                Ok(_) => {
+                    self.logger.info(&format!(
+                        "Successfully stored technical analysis results to pipeline for signal {}",
+                        signal.id
+                    ));
+                }
+                Err(e) => {
+                    self.logger.warn(&format!(
+                        "Failed to store technical analysis results to pipeline: {}. Results will be lost.",
+                        e
+                    ));
+                    // Don't fail the entire operation if pipeline storage fails
+                }
+            }
+        } else {
+            self.logger.warn("Pipelines service not available, technical analysis results will not be stored");
         }
         Ok(())
     }
@@ -588,8 +631,6 @@ impl TechnicalAnalysisService {
         pair: &str,
         timeframe: &Timeframe,
     ) -> ArbitrageResult<TechnicalAnalysisMarketData> {
-        use crate::types::ExchangeIdEnum;
-
         self.logger.info(&format!(
             "Fetching real market data: exchange={:?}, pair={}, timeframe={:?}",
             exchange, pair, timeframe
@@ -598,7 +639,7 @@ impl TechnicalAnalysisService {
         // In test mode, return mock data to avoid network calls
         #[cfg(test)]
         {
-            return Ok(TechnicalAnalysisMarketData {
+            Ok(TechnicalAnalysisMarketData {
                 timestamp: chrono::Utc::now().timestamp_millis() as u64,
                 exchange: exchange.to_string(),
                 symbol: pair.to_string(),
@@ -609,7 +650,7 @@ impl TechnicalAnalysisService {
                 bollinger_upper: Some(self.get_mock_current_price(pair) * 1.02),
                 bollinger_lower: Some(self.get_mock_current_price(pair) * 0.98),
                 data_type: "test_mock_data".to_string(),
-            });
+            })
         }
 
         // For unsupported exchanges, return mock data immediately (only in non-test mode)
@@ -634,21 +675,23 @@ impl TechnicalAnalysisService {
             }
         }
 
+        #[cfg(not(test))]
         let client = reqwest::Client::new();
 
         // Try to fetch real data, but fall back to mock data if it fails
+        #[cfg(not(test))]
         let result = match exchange {
             ExchangeIdEnum::Binance => {
                 let interval = match timeframe {
-                    Timeframe::OneMinute | Timeframe::M1 => "1m",
-                    Timeframe::FiveMinutes | Timeframe::M5 => "5m",
-                    Timeframe::FifteenMinutes | Timeframe::M15 => "15m",
-                    Timeframe::ThirtyMinutes | Timeframe::M30 => "30m",
-                    Timeframe::OneHour | Timeframe::H1 => "1h",
-                    Timeframe::FourHours | Timeframe::H4 => "4h",
-                    Timeframe::TwelveHours | Timeframe::H12 => "12h",
-                    Timeframe::OneDay | Timeframe::D1 => "1d",
-                    Timeframe::OneWeek | Timeframe::W1 => "1w",
+                    Timeframe::M1 => "1m",
+                    Timeframe::M5 => "5m",
+                    Timeframe::M15 => "15m",
+                    Timeframe::M30 => "30m",
+                    Timeframe::H1 => "1h",
+                    Timeframe::H4 => "4h",
+                    Timeframe::H12 => "12h",
+                    Timeframe::D1 => "1d",
+                    Timeframe::W1 => "1w",
                 };
 
                 let url = format!(
@@ -703,15 +746,15 @@ impl TechnicalAnalysisService {
             }
             ExchangeIdEnum::Bybit => {
                 let interval = match timeframe {
-                    Timeframe::OneMinute | Timeframe::M1 => "1",
-                    Timeframe::FiveMinutes | Timeframe::M5 => "5",
-                    Timeframe::FifteenMinutes | Timeframe::M15 => "15",
-                    Timeframe::ThirtyMinutes | Timeframe::M30 => "30",
-                    Timeframe::OneHour | Timeframe::H1 => "60",
-                    Timeframe::FourHours | Timeframe::H4 => "240",
-                    Timeframe::TwelveHours | Timeframe::H12 => "720",
-                    Timeframe::OneDay | Timeframe::D1 => "D",
-                    Timeframe::OneWeek | Timeframe::W1 => "W",
+                    Timeframe::M1 => "1",
+                    Timeframe::M5 => "5",
+                    Timeframe::M15 => "15",
+                    Timeframe::M30 => "30",
+                    Timeframe::H1 => "60",
+                    Timeframe::H4 => "240",
+                    Timeframe::H12 => "720",
+                    Timeframe::D1 => "D",
+                    Timeframe::W1 => "W",
                 };
 
                 let url = format!(
@@ -780,20 +823,23 @@ impl TechnicalAnalysisService {
         };
 
         // Return the result or fallback to mock data on error
-        result.or_else(|_| {
-            Ok(TechnicalAnalysisMarketData {
-                timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                exchange: exchange.to_string(),
-                symbol: pair.to_string(),
-                price: self.get_mock_current_price(pair),
-                volume: 1000.0,
-                rsi: None,
-                sma_20: None,
-                bollinger_upper: None,
-                bollinger_lower: None,
-                data_type: "error_fallback_mock_data".to_string(),
+        #[cfg(not(test))]
+        {
+            result.or_else(|_| {
+                Ok(TechnicalAnalysisMarketData {
+                    timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                    exchange: exchange.to_string(),
+                    symbol: pair.to_string(),
+                    price: self.get_mock_current_price(pair),
+                    volume: 1000.0,
+                    rsi: None,
+                    sma_20: None,
+                    bollinger_upper: None,
+                    bollinger_lower: None,
+                    data_type: "error_fallback_mock_data".to_string(),
+                })
             })
-        })
+        }
     }
 
     /// Perform real technical analysis on market data

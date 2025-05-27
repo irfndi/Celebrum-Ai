@@ -321,7 +321,8 @@ run_test "Missing Required Fields" "400" \
 
 run_test "Non-existent Endpoint" "404" \
     "validate_error_response" \
-    -X GET "$BASE_URL/api/v1/nonexistent"
+    -X GET "$BASE_URL/api/v1/nonexistent" \
+    -H "X-User-ID: $FREE_USER"
 
 # 10. Performance Tests
 log "${YELLOW}⚡ PERFORMANCE TESTS${NC}"

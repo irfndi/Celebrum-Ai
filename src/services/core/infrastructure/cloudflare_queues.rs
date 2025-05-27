@@ -1,5 +1,10 @@
 // Cloudflare Queues Service for Robust Message Queuing
 // Leverages Cloudflare Queues for reliable opportunity distribution, retry logic, and dead letter queues
+//
+// Note: This implementation uses HTTP API calls to Cloudflare Queues
+// since direct bindings are not available in the current worker crate version.
+// In production, this would use Cloudflare Queues REST API with proper authentication.
+// For message consumption, use the #[event(queue)] macro pattern as documented.
 
 use crate::types::ArbitrageOpportunity;
 use crate::utils::{ArbitrageError, ArbitrageResult};
@@ -7,23 +12,125 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::Env;
 
-// Mock Queue and QueueEvent types for compilation when not available in worker crate
-#[cfg(not(feature = "cloudflare_queues"))]
-pub struct Queue;
+// Note: worker::{Queue, QueueEvent} are not available in the current worker crate version
+// Using mock implementations and HTTP API calls instead
 
-#[cfg(not(feature = "cloudflare_queues"))]
-impl Queue {
-    pub async fn send(&self, _message: &QueueMessage, _delay: Option<u64>) -> Result<(), String> {
-        // Mock implementation - in real Cloudflare environment this would send to queue
-        Ok(())
+/// Production Cloudflare Queue HTTP client
+pub struct CloudflareQueueClient {
+    account_id: String,
+    api_token: String,
+    queue_name: String,
+    http_client: reqwest::Client,
+}
+
+impl CloudflareQueueClient {
+    pub fn new(account_id: String, api_token: String, queue_name: String) -> Self {
+        Self {
+            account_id,
+            api_token,
+            queue_name,
+            http_client: reqwest::Client::new(),
+        }
+    }
+
+    /// Send message to queue via HTTP API
+    pub async fn send(&self, message: &QueueMessage, delay: Option<u64>) -> Result<(), String> {
+        let url = format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/queues/{}/messages",
+            self.account_id, self.queue_name
+        );
+
+        let mut payload = serde_json::json!({
+            "messages": [{
+                "body": serde_json::to_string(&message.payload)
+                    .map_err(|e| format!("Failed to serialize message: {}", e))?,
+                "contentType": "application/json"
+            }]
+        });
+
+        if let Some(delay_seconds) = delay {
+            payload["messages"][0]["delaySeconds"] =
+                serde_json::Value::Number(serde_json::Number::from(delay_seconds));
+        }
+
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_token))
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            Err(format!("Queue API error: {}", error_text))
+        }
+    }
+
+    /// Send batch of messages to queue
+    pub async fn send_batch(&self, messages: &[QueueMessage]) -> Result<(), String> {
+        let url = format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/queues/{}/messages",
+            self.account_id, self.queue_name
+        );
+
+        let message_bodies: Result<Vec<_>, _> = messages
+            .iter()
+            .map(|msg| {
+                serde_json::to_string(&msg.payload).map(|body| {
+                    serde_json::json!({
+                        "body": body,
+                        "contentType": "application/json"
+                    })
+                })
+            })
+            .collect();
+
+        let payload = serde_json::json!({
+            "messages": message_bodies.map_err(|e| format!("Failed to serialize messages: {}", e))?
+        });
+
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_token))
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            Err(format!("Queue API error: {}", error_text))
+        }
     }
 }
 
-#[cfg(not(feature = "cloudflare_queues"))]
-pub struct QueueEvent;
+// Type alias for backward compatibility
+pub type Queue = CloudflareQueueClient;
 
-#[cfg(feature = "cloudflare_queues")]
-use worker::{Queue, QueueEvent};
+/// Queue event structure for message consumption
+/// Use with #[event(queue)] macro for consuming messages
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct QueueEvent {
+    pub id: String,
+    pub timestamp: u64,
+    pub body: serde_json::Value,
+    pub attempts: u32,
+}
 
 /// Configuration for Cloudflare Queues service
 #[derive(Debug, Clone)]
@@ -175,11 +282,22 @@ pub struct CloudflareQueuesService {
 
 impl CloudflareQueuesService {
     /// Create new CloudflareQueuesService instance
-    pub fn new(_env: &Env, config: CloudflareQueuesConfig) -> ArbitrageResult<Self> {
+    pub fn new(env: &Env, config: CloudflareQueuesConfig) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
         let mut queues = HashMap::new();
 
-        // Initialize queues
+        // Get credentials from environment
+        let account_id = env
+            .var("CLOUDFLARE_ACCOUNT_ID")
+            .map_err(|_| ArbitrageError::configuration_error("CLOUDFLARE_ACCOUNT_ID not found"))?
+            .to_string();
+
+        let api_token = env
+            .secret("CLOUDFLARE_API_TOKEN")
+            .map_err(|_| ArbitrageError::configuration_error("CLOUDFLARE_API_TOKEN not found"))?
+            .to_string();
+
+        // Initialize queues using production HTTP API
         let queue_names = vec![
             &config.opportunity_queue_name,
             &config.notification_queue_name,
@@ -188,28 +306,18 @@ impl CloudflareQueuesService {
         ];
 
         for queue_name in queue_names {
-            #[cfg(feature = "cloudflare_queues")]
-            match env.queue(queue_name) {
-                Ok(queue) => {
-                    logger.info(&format!("Queue '{}' connected successfully", queue_name));
-                    queues.insert(queue_name.clone(), queue);
-                }
-                Err(e) => {
-                    logger.warn(&format!(
-                        "Failed to connect to queue '{}': {}",
-                        queue_name, e
-                    ));
-                }
-            }
+            logger.info(&format!(
+                "Queue '{}' initialized for production HTTP API access",
+                queue_name
+            ));
 
-            #[cfg(not(feature = "cloudflare_queues"))]
-            {
-                logger.warn(&format!(
-                    "Queue '{}' not available - using mock implementation",
-                    queue_name
-                ));
-                queues.insert(queue_name.clone(), Queue);
-            }
+            let queue_client = CloudflareQueueClient::new(
+                account_id.clone(),
+                api_token.clone(),
+                queue_name.clone(),
+            );
+
+            queues.insert(queue_name.clone(), queue_client);
         }
 
         Ok(Self {

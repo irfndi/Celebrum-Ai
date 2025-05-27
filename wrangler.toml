@@ -1,52 +1,128 @@
+# Cloudflare Workers Configuration for ArbEdge
+# Production-ready configuration with all service bindings
+
 name = "arb-edge"
-compatibility_date = "2025-05-06"
+main = "src/lib.rs"
+compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
-main = "build/worker/shim.mjs"
 
 # Build configuration for Rust
 [build]
 command = "chmod +x build.sh && ./build.sh"
 
-# KV Namespace for storing configuration and state
+# Environment variables (non-sensitive)
+[vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "info"
+RATE_LIMIT_REQUESTS_PER_MINUTE = "60"
+CACHE_TTL_SECONDS = "300"
+
+# KV Namespaces
 [[kv_namespaces]]
 binding = "ArbEdgeKV"
 id = "1018c576bf664c15afe0c53d85df8ed0"
 preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
 
-# D1 Database for structured data
+[[kv_namespaces]]
+binding = "PROD_BOT_MARKET_CACHE"
+id = "c5b936f1c0eb4f50ae9519f64bd3c5d9"
+preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
+
+[[kv_namespaces]]
+binding = "PROD_BOT_SESSION_STORE"
+id = "d090d03b365b4619800d96ad1da5ac8c"
+preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
+
+# D1 Database
 [[d1_databases]]
 binding = "ArbEdgeD1"
 database_name = "prod-arb-edge"
 database_id = "879bf844-93b2-433d-9319-6e6065bbfdfd"
 migrations_dir = "sql/migrations"
 
-# Durable Object migrations - Delete old PositionsManager
-[[migrations]]
-tag = "v1"
-deleted_classes = ["PositionsManager"]
+# R2 Buckets
+[[r2_buckets]]
+binding = "ArbEdgeR2"
+bucket_name = "prod-arb-edge"
 
-# Cron Triggers for scheduled tasks
-[triggers]
-crons = ["*/5 * * * *"] # Run every 5 minutes
+[[r2_buckets]]
+binding = "ArbEdgeR2_Analytics"
+bucket_name = "prod-arb-edge-analytics"
+
+# Queues (for message consumption via #[event(queue)])
+[[queues.consumers]]
+queue = "prod-opportunity-distribution"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "dead-letter-queue"
+
+[[queues.consumers]]
+queue = "prod-user-notifications"
+max_batch_size = 5
+max_batch_timeout = 15
+max_retries = 3
+dead_letter_queue = "dead-letter-queue"
+
+[[queues.consumers]]
+queue = "prod-analytics-events"
+max_batch_size = 100
+max_batch_timeout = 60
+max_retries = 2
+dead_letter_queue = "dead-letter-queue"
+
+# Durable Objects (if needed)
+[[durable_objects.bindings]]
+name = "PROD_TRADING_SESSION"
+class_name = "TradingSession"
+
+# Pipelines (direct bindings available)
+[[pipelines]]
+pipeline = "prod-market-data-pipeline"
+binding = "PROD_MARKET_DATA_PIPELINE"
+
+[[pipelines]]
+pipeline = "prod-analytics-pipeline"
+binding = "PROD_ANALYTICS_PIPELINE"
+
+[[pipelines]]
+pipeline = "prod-audit-pipeline"
+binding = "PROD_AUDIT_PIPELINE"
+
+# Analytics Engine dataset
+# Note: Analytics Engine is configured via HTTP API, not bindings
+# Dataset name: arbitrage_analytics
+
+# Cron Triggers
+[[triggers.crons]]
+cron = "*/5 * * * *"  # Every 5 minutes
+name = "market-data-refresh"
+
+[[triggers.crons]]
+cron = "0 */1 * * *"  # Every hour
+name = "analytics-aggregation"
+
+[[triggers.crons]]
+cron = "0 0 * * *"    # Daily at midnight
+name = "cleanup-expired-data"
 
 # Environment variables
 [vars]
 ENVIRONMENT = "production"
 SUPER_ADMIN_USER_ID = "1082762347"
 
-# Development environment variables
-[env.dev]
-name = "arb-edge-dev"
-[env.dev.vars]
-ENVIRONMENT = "development"
-SUPER_ADMIN_USER_ID = "1082762347"
+# Limits and performance
+[limits]
+cpu_ms = 30000  # 30 seconds max CPU time
 
-# Secrets are now stored as regular Worker secrets
-# Use: wrangler secret put TELEGRAM_BOT_TOKEN
+# Development environment
+[env.development]
+vars = { ENVIRONMENT = "development", LOG_LEVEL = "debug" }
 
-# Enable observability
-[observability]
-enabled = true
+# Staging environment  
+[env.staging]
+vars = { ENVIRONMENT = "staging", LOG_LEVEL = "info" }
 
-[observability.logs]
-enabled = true
+# Production environment
+[env.production]
+vars = { ENVIRONMENT = "production", LOG_LEVEL = "warn" }
