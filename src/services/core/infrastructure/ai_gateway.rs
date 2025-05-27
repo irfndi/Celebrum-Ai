@@ -339,7 +339,8 @@ impl AIGatewayService {
             if let Some(temp_number) = serde_json::Number::from_f64(temperature as f64) {
                 payload["temperature"] = serde_json::Value::Number(temp_number);
             } else {
-                self.logger.warn(&format!("Invalid temperature value: {}", temperature));
+                self.logger
+                    .warn(&format!("Invalid temperature value: {}", temperature));
             }
         }
         if let Some(top_p) = request.model_config.top_p {

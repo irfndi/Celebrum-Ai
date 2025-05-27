@@ -434,9 +434,8 @@ impl VectorizeService {
         opportunities: &[ArbitrageOpportunity],
     ) -> ArbitrageResult<Vec<RankedOpportunity>> {
         if !self.config.enabled {
-            return Err(ArbitrageError::service_unavailable(
-                "Vectorize service disabled",
-            ));
+            // Return empty results when service is disabled for consistent behavior
+            return Ok(Vec::new());
         }
 
         // Use the existing rank_opportunities_for_user method
@@ -596,7 +595,11 @@ impl VectorizeService {
 
         // Rate difference features (normalized)
         features.push(opportunity.rate_difference as f32 * 1000.0); // Scale up for better representation
-        features.push((opportunity.rate_difference as f32).ln_1p()); // Log transform for skewed data
+
+        // Safe log transform for skewed data - prevent NaN by clamping rate_difference
+        let rate_diff = opportunity.rate_difference as f32;
+        let safe_rate_diff = if rate_diff <= -1.0 { -0.999 } else { rate_diff };
+        features.push(safe_rate_diff.ln_1p()); // Log transform for skewed data
 
         // Exchange features (one-hot encoding)
         let exchanges = [
@@ -1037,13 +1040,39 @@ impl VectorizeService {
         &self,
         metadata: &serde_json::Value,
     ) -> ArbitrageResult<ArbitrageOpportunity> {
-        // This would reconstruct the full opportunity from stored metadata
-        // For now, return a simplified version
+        // Parse exchange combination from metadata
+        let exchange_combination = metadata["exchange_combination"]
+            .as_str()
+            .unwrap_or("Binance-Bybit");
+
+        // Split exchange combination and parse exchanges
+        let exchanges: Vec<&str> = exchange_combination.split('-').collect();
+        let (long_exchange, short_exchange) = if exchanges.len() >= 2 {
+            let long_exchange = match exchanges[0] {
+                "Binance" => ExchangeIdEnum::Binance,
+                "Bybit" => ExchangeIdEnum::Bybit,
+                "OKX" => ExchangeIdEnum::OKX,
+                "Bitget" => ExchangeIdEnum::Bitget,
+                _ => ExchangeIdEnum::Binance, // Default fallback
+            };
+            let short_exchange = match exchanges[1] {
+                "Binance" => ExchangeIdEnum::Binance,
+                "Bybit" => ExchangeIdEnum::Bybit,
+                "OKX" => ExchangeIdEnum::OKX,
+                "Bitget" => ExchangeIdEnum::Bitget,
+                _ => ExchangeIdEnum::Bybit, // Default fallback
+            };
+            (long_exchange, short_exchange)
+        } else {
+            // Fallback to default exchanges if parsing fails
+            (ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit)
+        };
+
         Ok(ArbitrageOpportunity {
             id: metadata["id"].as_str().unwrap_or("").to_string(),
             pair: metadata["pair"].as_str().unwrap_or("").to_string(),
-            long_exchange: ExchangeIdEnum::Binance, // Would parse from metadata
-            short_exchange: ExchangeIdEnum::Bybit,  // Would parse from metadata
+            long_exchange,
+            short_exchange,
             long_rate: Some(0.0),
             short_rate: Some(0.0),
             rate_difference: metadata["rate_difference"].as_f64().unwrap_or(0.0),

@@ -165,12 +165,15 @@ impl AnalyticsEngineService {
     /// Validate and escape user_id to prevent SQL injection
     fn validate_and_escape_user_id(&self, user_id: &str) -> ArbitrageResult<String> {
         // Validate that user_id contains only allowed characters
-        if !user_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        if !user_id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
             return Err(crate::utils::ArbitrageError::validation_error(
                 "Invalid user_id: only alphanumeric characters, hyphens, and underscores are allowed".to_string()
             ));
         }
-        
+
         // Escape single quotes by replacing them with two single quotes
         let escaped = user_id.replace("'", "''");
         Ok(escaped)
@@ -953,7 +956,7 @@ impl AnalyticsEngineService {
         end_time: u64,
     ) -> ArbitrageResult<UserConversionData> {
         let escaped_user_id = self.validate_and_escape_user_id(user_id)?;
-        
+
         // First query: Get overall conversion stats
         let stats_query = format!(
             "SELECT 

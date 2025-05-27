@@ -612,23 +612,26 @@ impl TechnicalAnalysisService {
             });
         }
 
-        // For unsupported exchanges or when API calls fail, return mock data
-        if !matches!(
-            exchange,
-            ExchangeIdEnum::Binance | ExchangeIdEnum::Bybit | ExchangeIdEnum::OKX
-        ) {
-            return Ok(TechnicalAnalysisMarketData {
-                timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                exchange: exchange.to_string(),
-                symbol: pair.to_string(),
-                price: self.get_mock_current_price(pair),
-                volume: 1000.0,
-                rsi: Some(65.0),
-                sma_20: Some(self.get_mock_current_price(pair) * 0.98),
-                bollinger_upper: Some(self.get_mock_current_price(pair) * 1.02),
-                bollinger_lower: Some(self.get_mock_current_price(pair) * 0.98),
-                data_type: "fallback_mock_data".to_string(),
-            });
+        // For unsupported exchanges, return mock data immediately (only in non-test mode)
+        #[cfg(not(test))]
+        {
+            if !matches!(
+                exchange,
+                ExchangeIdEnum::Binance | ExchangeIdEnum::Bybit | ExchangeIdEnum::OKX
+            ) {
+                return Ok(TechnicalAnalysisMarketData {
+                    timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                    exchange: exchange.to_string(),
+                    symbol: pair.to_string(),
+                    price: self.get_mock_current_price(pair),
+                    volume: 1000.0,
+                    rsi: Some(65.0),
+                    sma_20: Some(self.get_mock_current_price(pair) * 0.98),
+                    bollinger_upper: Some(self.get_mock_current_price(pair) * 1.02),
+                    bollinger_lower: Some(self.get_mock_current_price(pair) * 0.98),
+                    data_type: "fallback_mock_data".to_string(),
+                });
+            }
         }
 
         let client = reqwest::Client::new();

@@ -412,7 +412,7 @@ impl GlobalOpportunityService {
                 let credentials = crate::types::ExchangeCredentials {
                     api_key: api_key.to_string(),
                     secret: secret.to_string(),
-                    passphrase: None, // Most exchanges don't require passphrase
+                    passphrase: None,    // Most exchanges don't require passphrase
                     default_leverage: 1, // Read-only APIs don't need leverage
                     exchange_type: "spot".to_string(), // Default to spot for read-only
                 };

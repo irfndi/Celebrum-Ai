@@ -497,7 +497,7 @@ impl CloudflareQueuesService {
         let exponent = std::cmp::min(retry_message.retry_count, 10); // Cap exponent to prevent overflow
         let retry_delay = std::cmp::min(
             self.config.retry_delay_seconds * (2_u64.pow(exponent)),
-            max_delay_seconds
+            max_delay_seconds,
         );
 
         let queue = self.queues.get(queue_name).ok_or_else(|| {
@@ -622,16 +622,17 @@ impl CloudflareQueuesService {
     }
 
     /// Purge queue (for testing/maintenance)
+    /// Note: Cloudflare Queues API doesn't support direct purging
     pub async fn purge_queue(&mut self, queue_name: &str) -> ArbitrageResult<()> {
         let _queue = self.queues.get(queue_name).ok_or_else(|| {
             ArbitrageError::service_unavailable(format!("Queue '{}' not available", queue_name))
         })?;
 
-        // Note: Cloudflare Queues doesn't have a direct purge method
-        // This would need to be implemented by consuming all messages
-        self.logger
-            .warn(&format!("Purge requested for queue: {}", queue_name));
-
-        Ok(())
+        // Cloudflare Queues doesn't have a direct purge method
+        // To implement purging, we would need to consume all visible messages in a loop
+        // For now, return an error to indicate this limitation
+        Err(ArbitrageError::service_unavailable(
+            "Queue purging is not supported by Cloudflare Queues API. Use message consumption instead."
+        ))
     }
 }

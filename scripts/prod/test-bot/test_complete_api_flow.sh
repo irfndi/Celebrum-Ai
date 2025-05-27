@@ -241,17 +241,20 @@ for tier_info in "free_user:$FREE_USER" "premium_user:$PREMIUM_USER" "pro_user:$
     if [[ "$tier" == "admin_user" || "$tier" == "pro_user" ]]; then
         # Admin and Pro users should have analytics access
         run_test "Dashboard Analytics - $tier" "200" \
-            "curl -X GET '$BASE_URL/api/v1/analytics/dashboard' -H 'X-User-ID: $user_id'" \
-            "validate_analytics_data"
+            "validate_analytics_data" \
+            -X GET "$BASE_URL/api/v1/analytics/dashboard" \
+            -H "X-User-ID: $user_id"
         
         run_test "User Analytics - $tier" "200" \
-            "curl -X GET '$BASE_URL/api/v1/analytics/user' -H 'X-User-ID: $user_id'" \
-            "validate_analytics_data"
+            "validate_analytics_data" \
+            -X GET "$BASE_URL/api/v1/analytics/user" \
+            -H "X-User-ID: $user_id"
     else
         # Free and Premium users should be denied
         run_test "Dashboard Analytics - $tier (Should Fail)" "403" \
-            "curl -X GET '$BASE_URL/api/v1/analytics/dashboard' -H 'X-User-ID: $user_id'" \
-            "validate_error_response"
+            "validate_error_response" \
+            -X GET "$BASE_URL/api/v1/analytics/dashboard" \
+            -H "X-User-ID: $user_id"
     fi
 done
 
@@ -292,9 +295,10 @@ for i in "${!webhook_payloads[@]}"; do
     payload="${webhook_payloads[$i]}"
     
     run_test "Telegram Webhook Simulation $((i+1))" "200" \
-        "curl -X POST '$BASE_URL/webhook/telegram' \
-         -H 'Content-Type: application/json' \
-         -d '$payload'"
+        "" \
+        -X POST "$BASE_URL/webhook/telegram" \
+        -H "Content-Type: application/json" \
+        -d "$payload"
 done
 
 # 9. Error Handling Tests
@@ -302,22 +306,22 @@ log "${YELLOW}🚨 ERROR HANDLING TESTS${NC}"
 
 # Test various error scenarios
 run_test "Invalid JSON Payload" "400" \
-    "curl -X POST '$BASE_URL/api/v1/opportunities/execute' \
-     -H 'X-User-ID: $FREE_USER' \
-     -H 'Content-Type: application/json' \
-     -d 'invalid json'" \
-    "validate_error_response"
+    "validate_error_response" \
+    -X POST "$BASE_URL/api/v1/opportunities/execute" \
+    -H "X-User-ID: $FREE_USER" \
+    -H "Content-Type: application/json" \
+    -d "invalid json"
 
 run_test "Missing Required Fields" "400" \
-    "curl -X POST '$BASE_URL/api/v1/opportunities/execute' \
-     -H 'X-User-ID: $FREE_USER' \
-     -H 'Content-Type: application/json' \
-     -d '{}'" \
-    "validate_error_response"
+    "validate_error_response" \
+    -X POST "$BASE_URL/api/v1/opportunities/execute" \
+    -H "X-User-ID: $FREE_USER" \
+    -H "Content-Type: application/json" \
+    -d "{}"
 
 run_test "Non-existent Endpoint" "404" \
-    "curl -X GET '$BASE_URL/api/v1/nonexistent'" \
-    "validate_error_response"
+    "validate_error_response" \
+    -X GET "$BASE_URL/api/v1/nonexistent"
 
 # 10. Performance Tests
 log "${YELLOW}⚡ PERFORMANCE TESTS${NC}"

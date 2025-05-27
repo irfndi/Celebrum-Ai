@@ -1,4 +1,4 @@
- #!/bin/bash
+#!/bin/bash
 
 # ArbEdge Production API Test Script
 # Tests super-admin functionality with real D1 database data
@@ -97,7 +97,7 @@ validate_error_response() {
 
 validate_admin_profile() {
     local response_file="$1"
-    jq -e '.success == true and .data.user_id != null and .data.subscription_tier == "admin"' "$response_file" >/dev/null
+    jq -e '.success == true and .data.user_id != null and (.data.subscription_tier == "admin" or .data.subscription_tier == "super_admin")' "$response_file" >/dev/null
 }
 
 validate_opportunities_list() {

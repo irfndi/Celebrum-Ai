@@ -531,6 +531,22 @@ pub struct Balance {
 
 pub type Balances = HashMap<String, Balance>;
 
+/// Exchange balance information with asset breakdown
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExchangeBalance {
+    pub exchange: String,
+    pub assets: HashMap<String, AssetBalance>,
+    pub timestamp: u64,
+}
+
+/// Individual asset balance information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetBalance {
+    pub available: f64,
+    pub locked: f64,
+    pub total: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Order {
     pub id: String,
@@ -547,6 +563,67 @@ pub struct Order {
     pub timestamp: Option<DateTime<Utc>>,
     pub datetime: Option<String>,
     pub fee: Option<Fee>,
+}
+
+/// Order information for Telegram bot display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderInfo {
+    pub order_id: String,
+    pub symbol: String,
+    pub side: String,
+    pub order_type: String,
+    pub orig_qty: f64,
+    pub executed_qty: f64,
+    pub remaining_qty: f64,
+    pub price: f64,
+    pub remaining_value: f64,
+    pub filled_percentage: f64,
+    pub status: String,
+    pub exchange: String,
+}
+
+/// Position information for Telegram bot display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionInfo {
+    pub position_id: String,
+    pub symbol: String,
+    pub side: String,
+    pub size: f64,
+    pub entry_price: f64,
+    pub mark_price: f64,
+    pub unrealized_pnl: f64,
+    pub realized_pnl: f64,
+    pub margin: f64,
+    pub leverage: f64,
+    pub percentage_pnl: f64,
+    pub exchange: String,
+}
+
+/// AI insights summary for Telegram bot display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiInsightsSummary {
+    pub opportunities_processed: u32,
+    pub average_confidence: f64,
+    pub risk_assessments_completed: u32,
+    pub market_sentiment: String,
+    pub key_insights: Vec<String>,
+    pub performance_score: f64,
+    pub prediction_accuracy: f64,
+    pub risk_score: f64,
+}
+
+/// Risk assessment summary for Telegram bot display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskAssessmentSummary {
+    pub overall_risk_score: f64,
+    pub portfolio_correlation: f64,
+    pub position_concentration: f64,
+    pub market_conditions_risk: f64,
+    pub volatility_risk: f64,
+    pub total_portfolio_value: f64,
+    pub active_positions: u32,
+    pub diversification_score: f64,
+    pub recommendations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

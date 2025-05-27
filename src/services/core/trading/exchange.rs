@@ -2002,6 +2002,190 @@ impl ExchangeInterface for ExchangeService {
     }
 }
 
+impl ExchangeService {
+    /// Get structured balance data for Binance
+    pub async fn get_binance_balance(
+        &self,
+        api_key: &str,
+        secret: &str,
+    ) -> ArbitrageResult<ExchangeBalance> {
+        let credentials = ExchangeCredentials {
+            api_key: api_key.to_string(),
+            secret: secret.to_string(),
+            passphrase: None,
+            default_leverage: 1,
+            exchange_type: "binance".to_string(),
+        };
+
+        let response = self.get_balance("binance", &credentials).await?;
+        self.parse_binance_balance_response(response).await
+    }
+
+    /// Get structured balance data for Bybit
+    pub async fn get_bybit_balance(
+        &self,
+        api_key: &str,
+        secret: &str,
+    ) -> ArbitrageResult<ExchangeBalance> {
+        let credentials = ExchangeCredentials {
+            api_key: api_key.to_string(),
+            secret: secret.to_string(),
+            passphrase: None,
+            default_leverage: 1,
+            exchange_type: "bybit".to_string(),
+        };
+
+        let response = self.get_balance("bybit", &credentials).await?;
+        self.parse_bybit_balance_response(response).await
+    }
+
+    /// Get structured balance data for OKX
+    pub async fn get_okx_balance(
+        &self,
+        api_key: &str,
+        secret: &str,
+        passphrase: &str,
+    ) -> ArbitrageResult<ExchangeBalance> {
+        let credentials = ExchangeCredentials {
+            api_key: api_key.to_string(),
+            secret: secret.to_string(),
+            passphrase: Some(passphrase.to_string()),
+            default_leverage: 1,
+            exchange_type: "okx".to_string(),
+        };
+
+        let response = self.get_balance("okx", &credentials).await?;
+        self.parse_okx_balance_response(response).await
+    }
+
+    /// Parse Binance balance response into structured format
+    async fn parse_binance_balance_response(
+        &self,
+        response: Value,
+    ) -> ArbitrageResult<ExchangeBalance> {
+        let mut assets = std::collections::HashMap::new();
+
+        if let Some(balances) = response["balances"].as_array() {
+            for balance in balances {
+                if let (Some(asset), Some(free), Some(locked)) = (
+                    balance["asset"].as_str(),
+                    balance["free"].as_str(),
+                    balance["locked"].as_str(),
+                ) {
+                    let free_amount: f64 = free.parse().unwrap_or(0.0);
+                    let locked_amount: f64 = locked.parse().unwrap_or(0.0);
+                    let total = free_amount + locked_amount;
+
+                    if total > 0.0 {
+                        assets.insert(
+                            asset.to_string(),
+                            AssetBalance {
+                                available: free_amount,
+                                locked: locked_amount,
+                                total,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(ExchangeBalance {
+            exchange: "binance".to_string(),
+            assets,
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+        })
+    }
+
+    /// Parse Bybit balance response into structured format
+    async fn parse_bybit_balance_response(
+        &self,
+        response: Value,
+    ) -> ArbitrageResult<ExchangeBalance> {
+        let mut assets = std::collections::HashMap::new();
+
+        if let Some(result) = response["result"].as_object() {
+            if let Some(list) = result["list"].as_array() {
+                if let Some(account) = list.first() {
+                    if let Some(coins) = account["coin"].as_array() {
+                        for coin in coins {
+                            if let (Some(asset), Some(wallet_balance), Some(available_balance)) = (
+                                coin["coin"].as_str(),
+                                coin["walletBalance"].as_str(),
+                                coin["availableToWithdraw"].as_str(),
+                            ) {
+                                let total: f64 = wallet_balance.parse().unwrap_or(0.0);
+                                let available: f64 = available_balance.parse().unwrap_or(0.0);
+                                let locked = total - available;
+
+                                if total > 0.0 {
+                                    assets.insert(
+                                        asset.to_string(),
+                                        AssetBalance {
+                                            available,
+                                            locked,
+                                            total,
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(ExchangeBalance {
+            exchange: "bybit".to_string(),
+            assets,
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+        })
+    }
+
+    /// Parse OKX balance response into structured format
+    async fn parse_okx_balance_response(
+        &self,
+        response: Value,
+    ) -> ArbitrageResult<ExchangeBalance> {
+        let mut assets = std::collections::HashMap::new();
+
+        if let Some(data) = response["data"].as_array() {
+            if let Some(account) = data.first() {
+                if let Some(details) = account["details"].as_array() {
+                    for detail in details {
+                        if let (Some(asset), Some(available), Some(frozen)) = (
+                            detail["ccy"].as_str(),
+                            detail["availBal"].as_str(),
+                            detail["frozenBal"].as_str(),
+                        ) {
+                            let available_amount: f64 = available.parse().unwrap_or(0.0);
+                            let locked_amount: f64 = frozen.parse().unwrap_or(0.0);
+                            let total = available_amount + locked_amount;
+
+                            if total > 0.0 {
+                                assets.insert(
+                                    asset.to_string(),
+                                    AssetBalance {
+                                        available: available_amount,
+                                        locked: locked_amount,
+                                        total,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(ExchangeBalance {
+            exchange: "okx".to_string(),
+            assets,
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+        })
+    }
+}
+
 // RbacExchangeInterface implementation removed - RBAC operations now handled by UserExchangeApiService
 
 #[cfg(test)]

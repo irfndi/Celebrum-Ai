@@ -3,7 +3,6 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-// use rand::Rng; // TODO: Re-enable when implementing random generation features
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserReferralCode {
