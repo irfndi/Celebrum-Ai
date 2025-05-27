@@ -72,48 +72,48 @@ impl HybridDataAccessConfig {
         // Validate timeout values (should be positive and within reasonable limits)
         if self.pipeline_timeout_seconds == 0 || self.pipeline_timeout_seconds > 300 {
             return Err(ArbitrageError::validation_error(
-                "pipeline_timeout_seconds must be between 1 and 300 seconds"
+                "pipeline_timeout_seconds must be between 1 and 300 seconds",
             ));
         }
 
         if self.api_timeout_seconds == 0 || self.api_timeout_seconds > 600 {
             return Err(ArbitrageError::validation_error(
-                "api_timeout_seconds must be between 1 and 600 seconds"
+                "api_timeout_seconds must be between 1 and 600 seconds",
             ));
         }
 
         // Validate cache TTL (should be positive and reasonable)
         if self.cache_ttl_seconds == 0 || self.cache_ttl_seconds > 86400 {
             return Err(ArbitrageError::validation_error(
-                "cache_ttl_seconds must be between 1 and 86400 seconds (24 hours)"
+                "cache_ttl_seconds must be between 1 and 86400 seconds (24 hours)",
             ));
         }
 
         // Validate retry count
         if self.max_retries > 10 {
             return Err(ArbitrageError::validation_error(
-                "max_retries must not exceed 10"
+                "max_retries must not exceed 10",
             ));
         }
 
         // Validate freshness threshold
         if self.freshness_threshold_seconds == 0 || self.freshness_threshold_seconds > 3600 {
             return Err(ArbitrageError::validation_error(
-                "freshness_threshold_seconds must be between 1 and 3600 seconds (1 hour)"
+                "freshness_threshold_seconds must be between 1 and 3600 seconds (1 hour)",
             ));
         }
 
         // Validate refresh interval
         if self.refresh_interval_seconds == 0 || self.refresh_interval_seconds > 3600 {
             return Err(ArbitrageError::validation_error(
-                "refresh_interval_seconds must be between 1 and 3600 seconds (1 hour)"
+                "refresh_interval_seconds must be between 1 and 3600 seconds (1 hour)",
             ));
         }
 
         // Validate health check interval
         if self.health_check_interval_seconds == 0 || self.health_check_interval_seconds > 300 {
             return Err(ArbitrageError::validation_error(
-                "health_check_interval_seconds must be between 1 and 300 seconds"
+                "health_check_interval_seconds must be between 1 and 300 seconds",
             ));
         }
 
@@ -121,6 +121,7 @@ impl HybridDataAccessConfig {
     }
 
     /// Create a new validated configuration
+    #[allow(clippy::too_many_arguments)]
     pub fn new_validated(
         cache_ttl_seconds: u64,
         pipeline_timeout_seconds: u32,
@@ -293,7 +294,9 @@ impl HybridDataAccessService {
 
         // Basic validation for Binance symbol format
         if transformed.len() < 6 || transformed.len() > 12 {
-            return Err(ArbitrageError::validation_error("Invalid symbol length for Binance"));
+            return Err(ArbitrageError::validation_error(
+                "Invalid symbol length for Binance",
+            ));
         }
 
         Ok(transformed)
@@ -309,7 +312,9 @@ impl HybridDataAccessService {
 
         // Basic validation for Bybit symbol format
         if transformed.len() < 6 || transformed.len() > 12 {
-            return Err(ArbitrageError::validation_error("Invalid symbol length for Bybit"));
+            return Err(ArbitrageError::validation_error(
+                "Invalid symbol length for Bybit",
+            ));
         }
 
         Ok(transformed)
@@ -325,7 +330,9 @@ impl HybridDataAccessService {
 
         // Basic validation for OKX symbol format
         if transformed.len() < 6 || transformed.len() > 15 {
-            return Err(ArbitrageError::validation_error("Invalid symbol length for OKX"));
+            return Err(ArbitrageError::validation_error(
+                "Invalid symbol length for OKX",
+            ));
         }
 
         Ok(transformed)
@@ -335,10 +342,10 @@ impl HybridDataAccessService {
     async fn fetch_with_timeout(&self, request: Request) -> ArbitrageResult<Response> {
         // For Cloudflare Workers, we'll use a simpler timeout approach
         // since AbortController support may be limited in the worker environment
-        
+
         // Create a timeout future
         let timeout_duration = std::time::Duration::from_secs(self.api_timeout_seconds as u64);
-        
+
         // Use tokio::time::timeout for timeout handling
         match tokio::time::timeout(timeout_duration, Fetch::Request(request).send()).await {
             Ok(Ok(response)) => Ok(response),

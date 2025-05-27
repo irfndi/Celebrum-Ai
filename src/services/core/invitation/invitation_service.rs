@@ -220,9 +220,7 @@ impl InvitationService {
         self.mark_invitation_used_transaction(&invitation.id, user_id, &usage)
             .await?;
 
-        log::info!(
-            "Successfully used invitation code in atomic transaction"
-        );
+        log::info!("Successfully used invitation code in atomic transaction");
         Ok(usage)
     }
 

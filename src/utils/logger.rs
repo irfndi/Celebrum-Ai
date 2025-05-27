@@ -1,9 +1,9 @@
 // src/utils/logger.rs
 
+use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
-use regex::Regex;
 
 #[cfg(target_arch = "wasm32")]
 use worker::console_log;
@@ -58,14 +58,14 @@ impl DataSanitizer {
             (Regex::new(r#""user_id"\s*:\s*"([^"]+)""#).unwrap(), r#""user_id":"[USER_ID_REDACTED]""#),
             (Regex::new(r"\buser_id[:\s=]+['\x22]?([^'\x22\s,}]+)['\x22]?").unwrap(), "user_id: [USER_ID_REDACTED]"),
             (Regex::new(r"\buser\s+([0-9a-fA-F-]{8,})").unwrap(), "user [USER_ID_REDACTED]"),
-            
+
             // Telegram IDs - must come before phone numbers to avoid conflicts
             (Regex::new(r#""telegram_id":"(\d{8,})""#).unwrap(), r#""telegram_id":"[TELEGRAM_ID_REDACTED]""#),
             (Regex::new(r"\btelegram_id[:\s=]+['\x22]?(\d{8,})['\x22]?").unwrap(), "telegram_id: [TELEGRAM_ID_REDACTED]"),
 
             (Regex::new(r#""chat_id":"(-?\d{8,})""#).unwrap(), r#""chat_id":"[CHAT_ID_REDACTED]""#),
             (Regex::new(r"\bchat_id[:\s=]+['\x22]?(-?\d{8,})['\x22]?").unwrap(), "chat_id: [CHAT_ID_REDACTED]"),
-            
+
             // API Keys and Secrets
             (Regex::new(r#""api_key":"(sk-[a-zA-Z0-9_-]{20,}|[a-zA-Z0-9_-]{16,})""#).unwrap(), r#""api_key":"[API_KEY_REDACTED]""#),
             (Regex::new(r"\bapi_key[:\s=]+['\x22]?(sk-[a-zA-Z0-9_-]{20,}|[a-zA-Z0-9_-]{16,})['\x22]?").unwrap(), "api_key: [API_KEY_REDACTED]"),
@@ -75,26 +75,26 @@ impl DataSanitizer {
             (Regex::new(r"\bsecret[:\s=]+['\x22]?([a-zA-Z0-9_/+=]{16,})['\x22]?").unwrap(), "secret: [SECRET_REDACTED]"),
             (Regex::new(r#""token":"([a-zA-Z0-9_.-]{16,})""#).unwrap(), r#""token":"[TOKEN_REDACTED]""#),
             (Regex::new(r"\btoken[:\s=]+['\x22]?([a-zA-Z0-9_.-]{16,})['\x22]?").unwrap(), "token: [TOKEN_REDACTED]"),
-            
+
             // Email addresses
             (Regex::new(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b").unwrap(), "[EMAIL_REDACTED]"),
-            
+
             // Phone numbers (international format) - comes after telegram_id to avoid conflicts
             (Regex::new(r"\b\+[1-9]\d{10,14}\b").unwrap(), "[PHONE_REDACTED]"),
-            
+
             // Credit card numbers (basic pattern)
             (Regex::new(r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b").unwrap(), "[CARD_REDACTED]"),
-            
+
             // IP addresses
             (Regex::new(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b").unwrap(), "[IP_REDACTED]"),
-            
+
             // Session IDs and similar long alphanumeric strings
             (Regex::new(r#""session_id"\s*:\s*"([a-zA-Z0-9_-]{20,})""#).unwrap(), r#""session_id":"[SESSION_ID_REDACTED]""#),
             (Regex::new(r"\bsession[_-]?id[:\s=]+['\x22]?([a-zA-Z0-9_-]{20,})['\x22]?").unwrap(), "session_id: [SESSION_ID_REDACTED]"),
-            
+
             // Database connection strings
             (Regex::new(r"\b(postgres|mysql|mongodb)://[^\s]+").unwrap(), "[DB_CONNECTION_REDACTED]"),
-            
+
             // URLs with potential sensitive query parameters
             (Regex::new(r"\bhttps?://[^\s]*[?&](api_key|token|secret|password)=[^&\s]*").unwrap(), "[URL_WITH_SENSITIVE_PARAMS_REDACTED]"),
         ];
@@ -104,11 +104,11 @@ impl DataSanitizer {
 
     fn sanitize(&self, text: &str) -> String {
         let mut sanitized = text.to_string();
-        
+
         for (pattern, replacement) in &self.patterns {
             sanitized = pattern.replace_all(&sanitized, *replacement).to_string();
         }
-        
+
         sanitized
     }
 
@@ -123,7 +123,7 @@ impl DataSanitizer {
                     let sanitized_value = self.sanitize_value(v);
                     sanitized_map.insert(sanitized_key, sanitized_value);
                 }
-                
+
                 // Also sanitize the final JSON representation to catch patterns like "telegram_id":"123456789"
                 let json_obj = Value::Object(sanitized_map);
                 if let Ok(json_str) = serde_json::to_string(&json_obj) {
@@ -134,9 +134,7 @@ impl DataSanitizer {
                 }
                 json_obj
             }
-            Value::Array(arr) => {
-                Value::Array(arr.iter().map(|v| self.sanitize_value(v)).collect())
-            }
+            Value::Array(arr) => Value::Array(arr.iter().map(|v| self.sanitize_value(v)).collect()),
             _ => value.clone(),
         }
     }
@@ -226,9 +224,10 @@ impl Logger {
         }
 
         // Final sanitization of the entire log object
-        let final_log_str = serde_json::to_string(&log_obj)
-            .unwrap_or_else(|_| format!("[{}] {}: {}", timestamp, level.as_str(), sanitized_message));
-        
+        let final_log_str = serde_json::to_string(&log_obj).unwrap_or_else(|_| {
+            format!("[{}] {}: {}", timestamp, level.as_str(), sanitized_message)
+        });
+
         sanitizer.sanitize(&final_log_str)
     }
 
@@ -278,7 +277,7 @@ impl Logger {
 
     pub fn add_error(&self, error: &dyn std::error::Error, context: Option<&Value>) {
         let sanitizer = get_sanitizer();
-        
+
         let error_meta = serde_json::json!({
             "error": sanitizer.sanitize(&error.to_string()),
             "error_type": std::any::type_name_of_val(error),
@@ -388,25 +387,25 @@ mod tests {
     #[test]
     fn test_data_sanitization() {
         let sanitizer = DataSanitizer::new();
-        
+
         // Test user ID sanitization
         let text_with_user_id = "Failed to process user_id: 12345678-1234-1234-1234-123456789012";
         let sanitized = sanitizer.sanitize(text_with_user_id);
         assert!(sanitized.contains("[USER_ID_REDACTED]"));
         assert!(!sanitized.contains("12345678-1234-1234-1234-123456789012"));
-        
+
         // Test telegram ID sanitization
         let text_with_telegram_id = "telegram_id: 123456789";
         let sanitized = sanitizer.sanitize(text_with_telegram_id);
         assert!(sanitized.contains("[TELEGRAM_ID_REDACTED]"));
         assert!(!sanitized.contains("123456789"));
-        
+
         // Test API key sanitization
         let text_with_api_key = "api_key: sk-1234567890abcdef1234567890abcdef";
         let sanitized = sanitizer.sanitize(text_with_api_key);
         assert!(sanitized.contains("[API_KEY_REDACTED]"));
         assert!(!sanitized.contains("sk-1234567890abcdef1234567890abcdef"));
-        
+
         // Test email sanitization
         let text_with_email = "User email: user@example.com";
         let sanitized = sanitizer.sanitize(text_with_email);
@@ -417,7 +416,7 @@ mod tests {
     #[test]
     fn test_sanitize_json_value() {
         let sanitizer = DataSanitizer::new();
-        
+
         let json_value = serde_json::json!({
             "user_id": "12345678-1234-1234-1234-123456789012",
             "email": "test@example.com",
@@ -426,20 +425,23 @@ mod tests {
                 "telegram_id": "123456789"
             }
         });
-        
+
         let sanitized = sanitizer.sanitize_value(&json_value);
         let sanitized_str = serde_json::to_string(&sanitized).unwrap();
-        
+
         // Debug output to see what we get
         println!("Original: {}", serde_json::to_string(&json_value).unwrap());
         println!("Sanitized: {}", sanitized_str);
-        
+
         assert!(sanitized_str.contains("[USER_ID_REDACTED]"));
         assert!(sanitized_str.contains("[EMAIL_REDACTED]"));
         // The API key pattern might not match in JSON context, let's check if it's sanitized differently
-        assert!(sanitized_str.contains("[API_KEY_REDACTED]") || !sanitized_str.contains("sk-1234567890abcdef1234567890abcdef"));
+        assert!(
+            sanitized_str.contains("[API_KEY_REDACTED]")
+                || !sanitized_str.contains("sk-1234567890abcdef1234567890abcdef")
+        );
         assert!(sanitized_str.contains("[TELEGRAM_ID_REDACTED]"));
-        
+
         assert!(!sanitized_str.contains("12345678-1234-1234-1234-123456789012"));
         assert!(!sanitized_str.contains("test@example.com"));
         assert!(!sanitized_str.contains("sk-1234567890abcdef1234567890abcdef"));
@@ -449,16 +451,15 @@ mod tests {
     #[test]
     fn test_logger_message_sanitization() {
         let logger = Logger::new(LogLevel::Info);
-        
+
         // Test that the format_message method sanitizes sensitive data
-        let message_with_sensitive_data = "Processing user_id: 12345678-1234-1234-1234-123456789012 with email: user@example.com";
+        let message_with_sensitive_data =
+            "Processing user_id: 12345678-1234-1234-1234-123456789012 with email: user@example.com";
         let formatted = logger.format_message(&LogLevel::Info, message_with_sensitive_data, None);
-        
+
         assert!(formatted.contains("[USER_ID_REDACTED]"));
         assert!(formatted.contains("[EMAIL_REDACTED]"));
         assert!(!formatted.contains("12345678-1234-1234-1234-123456789012"));
         assert!(!formatted.contains("user@example.com"));
     }
-
-
 }
