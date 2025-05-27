@@ -33,12 +33,13 @@ log() {
     echo -e "$1" | tee -a "$LOG_FILE"
 }
 
-# Test function
+# Test function - accepts curl arguments as array to avoid eval
 run_test() {
     local test_name="$1"
     local expected_status="$2"
-    local curl_command="$3"
-    local validation_function="$4"
+    local validation_function="$3"
+    shift 3
+    local curl_args=("$@")
     
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     log "${BLUE}[TEST $TOTAL_TESTS] $test_name${NC}"
@@ -47,7 +48,7 @@ run_test() {
     local response_file="$TEST_OUTPUT_DIR/response_$TOTAL_TESTS.json"
     local status_code
     
-    status_code=$(eval "$curl_command" \
+    status_code=$(curl "${curl_args[@]}" \
         -w "%{http_code}" \
         -s \
         -o "$response_file" \
@@ -150,141 +151,201 @@ log "========================================"
 log "${YELLOW}📋 HEALTH CHECK TESTS${NC}"
 
 run_test "Basic Health Check" "200" \
-    "curl -X GET '$BASE_URL/api/v1/health'" \
-    "validate_health_response"
+    "validate_health_response" \
+    -X GET "$BASE_URL/api/v1/health"
 
 run_test "Detailed Health Check" "200" \
-    "curl -X GET '$BASE_URL/api/v1/health/detailed'" \
-    "validate_health_response"
+    "validate_health_response" \
+    -X GET "$BASE_URL/api/v1/health/detailed"
 
 # 2. Super Admin Authentication Tests
 log "${YELLOW}🔐 SUPER ADMIN AUTHENTICATION TESTS${NC}"
 
 # Test with super admin credentials
 run_test "Super Admin Profile Access" "200" \
-    "curl -X GET '$BASE_URL/api/v1/users/profile' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_admin_profile"
+    "validate_admin_profile" \
+    -X GET "$BASE_URL/api/v1/users/profile" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "Super Admin Preferences" "200" \
-    "curl -X GET '$BASE_URL/api/v1/users/preferences' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'"
+    "" \
+    -X GET "$BASE_URL/api/v1/users/preferences" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 # 3. D1 Database Integration Tests
 log "${YELLOW}🗄️ D1 DATABASE INTEGRATION TESTS${NC}"
 
 # Test D1 database queries through API
 run_test "Get All Users from D1" "200" \
-    "curl -X GET '$BASE_URL/api/v1/admin/users' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_d1_data"
+    "validate_d1_data" \
+    -X GET "$BASE_URL/api/v1/admin/users" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "Get User Sessions from D1" "200" \
-    "curl -X GET '$BASE_URL/api/v1/admin/sessions' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_d1_data"
+    "validate_d1_data" \
+    -X GET "$BASE_URL/api/v1/admin/sessions" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "Get Opportunities from D1" "200" \
-    "curl -X GET '$BASE_URL/api/v1/admin/opportunities' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_d1_data"
+    "validate_d1_data" \
+    -X GET "$BASE_URL/api/v1/admin/opportunities" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "Get User Profiles from D1" "200" \
-    "curl -X GET '$BASE_URL/api/v1/admin/user-profiles' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_d1_data"
+    "validate_d1_data" \
+    -X GET "$BASE_URL/api/v1/admin/user-profiles" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 # 4. Super Admin Opportunity Access Tests
 log "${YELLOW}💰 SUPER ADMIN OPPORTUNITY ACCESS TESTS${NC}"
 
 # Test super admin opportunity access (should have unlimited access)
 run_test "List Opportunities - Super Admin" "200" \
-    "curl -X GET '$BASE_URL/api/v1/opportunities?limit=100' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_opportunities_list"
+    "validate_opportunities_list" \
+    -X GET "$BASE_URL/api/v1/opportunities?limit=100" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "Premium Features Access - Super Admin" "200" \
-    "curl -X GET '$BASE_URL/api/v1/opportunities?premium=true' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_opportunities_list"
+    "validate_opportunities_list" \
+    -X GET "$BASE_URL/api/v1/opportunities?premium=true" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "Advanced Opportunities - Super Admin" "200" \
-    "curl -X GET '$BASE_URL/api/v1/opportunities?advanced=true&ai_enhanced=true' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_opportunities_list"
+    "validate_opportunities_list" \
+    -X GET "$BASE_URL/api/v1/opportunities?advanced=true&ai_enhanced=true" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 # 5. Super Admin Analytics Access Tests
 log "${YELLOW}📊 SUPER ADMIN ANALYTICS ACCESS TESTS${NC}"
 
 # Super admin should have access to all analytics
 run_test "Dashboard Analytics - Super Admin" "200" \
-    "curl -X GET '$BASE_URL/api/v1/analytics/dashboard' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_analytics_data"
+    "validate_analytics_data" \
+    -X GET "$BASE_URL/api/v1/analytics/dashboard" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "System Analytics - Super Admin" "200" \
-    "curl -X GET '$BASE_URL/api/v1/analytics/system' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_analytics_data"
+    "validate_analytics_data" \
+    -X GET "$BASE_URL/api/v1/analytics/system" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "User Analytics - Super Admin" "200" \
-    "curl -X GET '$BASE_URL/api/v1/analytics/users' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_analytics_data"
+    "validate_analytics_data" \
+    -X GET "$BASE_URL/api/v1/analytics/users" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "Performance Analytics - Super Admin" "200" \
-    "curl -X GET '$BASE_URL/api/v1/analytics/performance' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_analytics_data"
+    "validate_analytics_data" \
+    -X GET "$BASE_URL/api/v1/analytics/performance" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 # 6. Super Admin Management Functions
 log "${YELLOW}👑 SUPER ADMIN MANAGEMENT TESTS${NC}"
 
 # Test super admin management capabilities
 run_test "User Management Access" "200" \
-    "curl -X GET '$BASE_URL/api/v1/admin/manage/users' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_user_management"
+    "validate_user_management" \
+    -X GET "$BASE_URL/api/v1/admin/manage/users" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "System Configuration Access" "200" \
-    "curl -X GET '$BASE_URL/api/v1/admin/config/system' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'"
+    "" \
+    -X GET "$BASE_URL/api/v1/admin/config/system" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "Invitation Code Management" "200" \
-    "curl -X GET '$BASE_URL/api/v1/admin/invitations' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'"
+    "" \
+    -X GET "$BASE_URL/api/v1/admin/invitations" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 # 7. Real Exchange API Integration Tests
 log "${YELLOW}🏦 EXCHANGE API INTEGRATION TESTS${NC}"
 
 # Test real exchange API calls through super admin
 run_test "Exchange Balance - Super Admin" "200" \
-    "curl -X GET '$BASE_URL/api/v1/trading/balance' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'"
+    "" \
+    -X GET "$BASE_URL/api/v1/trading/balance" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "Exchange Markets - Super Admin" "200" \
-    "curl -X GET '$BASE_URL/api/v1/trading/markets' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'"
+    "" \
+    -X GET "$BASE_URL/api/v1/trading/markets" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 run_test "Exchange Opportunities - Super Admin" "200" \
-    "curl -X GET '$BASE_URL/api/v1/trading/opportunities' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'"
+    "" \
+    -X GET "$BASE_URL/api/v1/trading/opportunities" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 # 8. AI Intelligence Service Tests
 log "${YELLOW}🤖 AI INTELLIGENCE SERVICE TESTS${NC}"
 
 # Test AI services with super admin access
 run_test "AI Market Analysis - Super Admin" "200" \
-    "curl -X POST '$BASE_URL/api/v1/ai/analyze' \
-     -H 'X-User-ID: $SUPER_ADMIN_USER_ID' \
-     -H 'Content-Type: application/json' \
-     -d '{\"pair\": \"BTC/USDT\", \"exchanges\": [\"binance\", \"bybit\"]}'"
+    "" \
+    -X POST "$BASE_URL/api/v1/ai/analyze" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID" \
+    -H "Content-Type: application/json" \
+    -d '{"pair": "BTC/USDT", "exchanges": ["binance", "bybit"]}'
 
 run_test "AI Risk Assessment - Super Admin" "200" \
-    "curl -X POST '$BASE_URL/api/v1/ai/risk-assessment' \
-     -H 'X-User-ID: $SUPER_ADMIN_USER_ID' \
-     -H 'Content-Type: application/json' \
-     -d '{\"portfolio\": {\"BTC\": 1.0, \"ETH\": 5.0}}'"
+    "" \
+    -X POST "$BASE_URL/api/v1/ai/risk-assessment" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID" \
+    -H "Content-Type: application/json" \
+    -d '{"portfolio": {"BTC": 1.0, "ETH": 5.0}}'
 
 # 9. Telegram Bot Integration Tests
 log "${YELLOW}🤖 TELEGRAM BOT INTEGRATION TESTS${NC}"
 
-# Test Telegram webhook with super admin
+# Test Telegram webhook with super admin - using jq to safely construct JSON
+TELEGRAM_START_PAYLOAD=$(jq -n \
+    --arg telegram_id "$SUPER_ADMIN_TELEGRAM_ID" \
+    '{
+        "message": {
+            "chat": {"id": ($telegram_id | tonumber)},
+            "from": {"id": ($telegram_id | tonumber), "username": "superadmin"},
+            "text": "/start"
+        }
+    }')
+
+TELEGRAM_OPPORTUNITIES_PAYLOAD=$(jq -n \
+    --arg telegram_id "$SUPER_ADMIN_TELEGRAM_ID" \
+    '{
+        "message": {
+            "chat": {"id": ($telegram_id | tonumber)},
+            "from": {"id": ($telegram_id | tonumber), "username": "superadmin"},
+            "text": "/opportunities"
+        }
+    }')
+
+TELEGRAM_ADMIN_STATS_PAYLOAD=$(jq -n \
+    --arg telegram_id "$SUPER_ADMIN_TELEGRAM_ID" \
+    '{
+        "message": {
+            "chat": {"id": ($telegram_id | tonumber)},
+            "from": {"id": ($telegram_id | tonumber), "username": "superadmin"},
+            "text": "/admin_stats"
+        }
+    }')
+
 run_test "Telegram Start Command - Super Admin" "200" \
-    "curl -X POST '$BASE_URL/webhook/telegram' \
-     -H 'Content-Type: application/json' \
-     -d '{\"message\":{\"chat\":{\"id\":$SUPER_ADMIN_TELEGRAM_ID},\"from\":{\"id\":$SUPER_ADMIN_TELEGRAM_ID,\"username\":\"superadmin\"},\"text\":\"/start\"}}'"
+    "" \
+    -X POST "$BASE_URL/webhook/telegram" \
+    -H "Content-Type: application/json" \
+    -d "$TELEGRAM_START_PAYLOAD"
 
 run_test "Telegram Opportunities Command - Super Admin" "200" \
-    "curl -X POST '$BASE_URL/webhook/telegram' \
-     -H 'Content-Type: application/json' \
-     -d '{\"message\":{\"chat\":{\"id\":$SUPER_ADMIN_TELEGRAM_ID},\"from\":{\"id\":$SUPER_ADMIN_TELEGRAM_ID,\"username\":\"superadmin\"},\"text\":\"/opportunities\"}}'"
+    "" \
+    -X POST "$BASE_URL/webhook/telegram" \
+    -H "Content-Type: application/json" \
+    -d "$TELEGRAM_OPPORTUNITIES_PAYLOAD"
 
 run_test "Telegram Admin Stats Command - Super Admin" "200" \
-    "curl -X POST '$BASE_URL/webhook/telegram' \
-     -H 'Content-Type: application/json' \
-     -d '{\"message\":{\"chat\":{\"id\":$SUPER_ADMIN_TELEGRAM_ID},\"from\":{\"id\":$SUPER_ADMIN_TELEGRAM_ID,\"username\":\"superadmin\"},\"text\":\"/admin_stats\"}}'"
+    "" \
+    -X POST "$BASE_URL/webhook/telegram" \
+    -H "Content-Type: application/json" \
+    -d "$TELEGRAM_ADMIN_STATS_PAYLOAD"
 
 # 10. Performance and Load Tests
 log "${YELLOW}⚡ PERFORMANCE TESTS${NC}"
@@ -310,15 +371,16 @@ log "${YELLOW}🚨 ERROR HANDLING TESTS${NC}"
 
 # Test error scenarios even with super admin
 run_test "Invalid JSON Payload" "400" \
-    "curl -X POST '$BASE_URL/api/v1/opportunities/execute' \
-     -H 'X-User-ID: $SUPER_ADMIN_USER_ID' \
-     -H 'Content-Type: application/json' \
-     -d 'invalid json'" \
-    "validate_error_response"
+    "validate_error_response" \
+    -X POST "$BASE_URL/api/v1/opportunities/execute" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID" \
+    -H "Content-Type: application/json" \
+    -d "invalid json"
 
 run_test "Non-existent Endpoint" "404" \
-    "curl -X GET '$BASE_URL/api/v1/nonexistent' -H 'X-User-ID: $SUPER_ADMIN_USER_ID'" \
-    "validate_error_response"
+    "validate_error_response" \
+    -X GET "$BASE_URL/api/v1/nonexistent" \
+    -H "X-User-ID: $SUPER_ADMIN_USER_ID"
 
 # Test Summary
 log "========================================"

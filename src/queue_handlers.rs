@@ -16,8 +16,17 @@ pub async fn opportunity_queue_handler(
 ) -> Result<()> {
     console_log!("Processing opportunity distribution batch: {} messages", message_batch.messages().len());
 
+    // Initialize telegram service once for the entire batch
+    let telegram_service = match initialize_telegram_service(&env).await {
+        Ok(service) => Some(service),
+        Err(e) => {
+            console_error!("Failed to initialize telegram service: {}", e);
+            None
+        }
+    };
+
     for message in message_batch.messages() {
-        match process_opportunity_message(message.body(), &env).await {
+        match process_opportunity_message(message.body(), &env, telegram_service.as_ref()).await {
             Ok(_) => {
                 console_log!("Successfully processed opportunity message: {}", message.body().message_id);
                 message.ack();
@@ -85,10 +94,13 @@ pub async fn analytics_queue_handler(
 /// Process opportunity distribution message
 async fn process_opportunity_message(
     message: &OpportunityDistributionMessage,
-    env: &Env,
+    _env: &Env,
+    telegram_service: Option<&crate::services::interfaces::telegram::telegram::TelegramService>,
 ) -> ArbitrageResult<()> {
-    // Initialize services
-    let telegram_service = initialize_telegram_service(env).await?;
+    // Use the pre-initialized telegram service
+    let telegram_service = telegram_service.ok_or_else(|| {
+        crate::utils::ArbitrageError::configuration_error("Telegram service not available")
+    })?;
     
     // Distribute opportunity to target users
     for user_id in &message.target_users {
@@ -131,11 +143,24 @@ async fn process_notification_message(
             telegram_service.send_private_message(&message.content, &message.user_id).await?;
         }
         crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::Email => {
-            // TODO: Implement email delivery
-            console_log!("Email delivery not yet implemented for message: {}", message.message_id);
+            // TODO: Implement email delivery - tracked in issue #123
+            // See: https://github.com/irfndi/ArbEdge/issues/123
+            console_log!("Email delivery not yet implemented for message: {} - tracked in issue #123", message.message_id);
+            return Err(crate::utils::ArbitrageError::configuration_error(
+                "Email delivery not yet implemented - tracked in issue #123"
+            ));
         }
-        _ => {
-            console_log!("Unsupported delivery method for message: {}", message.message_id);
+        crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::Push => {
+            console_log!("Push notification delivery not yet implemented for message: {}", message.message_id);
+            return Err(crate::utils::ArbitrageError::configuration_error(
+                "Push notification delivery not yet implemented"
+            ));
+        }
+        crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::Sms => {
+            console_log!("SMS delivery not yet implemented for message: {}", message.message_id);
+            return Err(crate::utils::ArbitrageError::configuration_error(
+                "SMS delivery not yet implemented"
+            ));
         }
     }
 

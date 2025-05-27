@@ -843,7 +843,7 @@ impl HybridDataAccessService {
     }
 
     /// Update metrics
-    fn update_metrics(&mut self, start_time: f64, _success: bool) {
+    fn update_metrics(&mut self, start_time: f64, success: bool) {
         let latency = js_sys::Date::now() - start_time;
 
         // Update average latency
@@ -851,11 +851,19 @@ impl HybridDataAccessService {
         self.metrics.average_latency_ms =
             (self.metrics.average_latency_ms * (total_requests - 1.0) + latency) / total_requests;
 
-        // Update success rate
-        let successful_requests =
-            self.metrics.pipeline_hits + self.metrics.cache_hits + self.metrics.api_calls;
+        // Update success rate based on actual success parameter
+        if success {
+            // Only count as successful if the success parameter is true
+            let successful_requests =
+                self.metrics.pipeline_hits + self.metrics.cache_hits + self.metrics.api_calls;
+            self.metrics.success_rate = (successful_requests as f64) / total_requests;
+        } else {
+            // Recalculate success rate excluding this failed request
+            let successful_requests =
+                self.metrics.pipeline_hits + self.metrics.cache_hits + self.metrics.api_calls;
+            self.metrics.success_rate = (successful_requests as f64) / total_requests;
+        }
 
-        self.metrics.success_rate = (successful_requests as f64) / total_requests;
         self.metrics.last_updated = Utc::now().timestamp_millis() as u64;
     }
 

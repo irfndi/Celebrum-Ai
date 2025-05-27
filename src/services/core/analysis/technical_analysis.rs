@@ -66,15 +66,15 @@ pub enum SignalDirection {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Timeframe {
-    M1,             // 1 minute
-    M5,             // 5 minutes
-    M15,            // 15 minutes
-    M30,            // 30 minutes
-    H1,             // 1 hour
-    H4,             // 4 hours
-    H12,            // 12 hours
-    D1,             // 1 day
-    W1,             // 1 week
+    M1,  // 1 minute
+    M5,  // 5 minutes
+    M15, // 15 minutes
+    M30, // 30 minutes
+    H1,  // 1 hour
+    H4,  // 4 hours
+    H12, // 12 hours
+    D1,  // 1 day
+    W1,  // 1 week
 }
 
 impl std::fmt::Display for Timeframe {
@@ -321,9 +321,10 @@ impl TechnicalAnalysisService {
             ));
 
             // Real implementation: Query R2 storage via pipelines for historical market data
-            let data_key = format!("market-data/{}/{}/{}", 
-                chrono::Utc::now().format("%Y/%m/%d"), 
-                exchange, 
+            let data_key = format!(
+                "market-data/{}/{}/{}",
+                chrono::Utc::now().format("%Y/%m/%d"),
+                exchange,
                 symbol
             );
 
@@ -342,12 +343,8 @@ impl TechnicalAnalysisService {
                             .get("volume")
                             .and_then(|v| v.as_f64())
                             .unwrap_or(1000.0),
-                        rsi: pipeline_data
-                            .get("rsi")
-                            .and_then(|r| r.as_f64()),
-                        sma_20: pipeline_data
-                            .get("sma_20")
-                            .and_then(|s| s.as_f64()),
+                        rsi: pipeline_data.get("rsi").and_then(|r| r.as_f64()),
+                        sma_20: pipeline_data.get("sma_20").and_then(|s| s.as_f64()),
                         bollinger_upper: pipeline_data
                             .get("bollinger_upper")
                             .and_then(|b| b.as_f64()),
@@ -408,7 +405,13 @@ impl TechnicalAnalysisService {
             ));
 
             // Real implementation: Send to actual pipelines for storage
-            match pipelines_service.store_analysis_results("technical_analysis", &serde_json::to_value(&analysis_result)?).await {
+            match pipelines_service
+                .store_analysis_results(
+                    "technical_analysis",
+                    &serde_json::to_value(&analysis_result)?,
+                )
+                .await
+            {
                 Ok(_) => {
                     self.logger.info(&format!(
                         "Successfully stored technical analysis results to pipeline for signal {}",
@@ -424,7 +427,9 @@ impl TechnicalAnalysisService {
                 }
             }
         } else {
-            self.logger.warn("Pipelines service not available, technical analysis results will not be stored");
+            self.logger.warn(
+                "Pipelines service not available, technical analysis results will not be stored",
+            );
         }
         Ok(())
     }
