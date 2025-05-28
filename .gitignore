@@ -49,3 +49,5 @@ tarpaulin-report.html
 *.env
 .env.example
 .env.*
+
+test_results/
