@@ -142,6 +142,7 @@ pub struct VectorizeMatch {
 pub struct VectorizeService {
     config: VectorizeConfig,
     logger: crate::utils::logger::Logger,
+    #[allow(dead_code)]
     fallback_enabled: bool,
     last_health_check: std::sync::Arc<std::sync::Mutex<Option<u64>>>,
     service_available: std::sync::Arc<std::sync::Mutex<bool>>,
@@ -161,21 +162,22 @@ impl VectorizeService {
         }
 
         // Validate configuration
-        let service_available = if config.enabled && (config.account_id.is_empty() || config.api_token.is_empty()) {
-            logger.warn("Vectorize service disabled: missing Cloudflare credentials");
-            config.enabled = false;
-            false
-        } else {
-            config.enabled
-        };
+        let service_available =
+            if config.enabled && (config.account_id.is_empty() || config.api_token.is_empty()) {
+                logger.warn("Vectorize service disabled: missing Cloudflare credentials");
+                config.enabled = false;
+                false
+            } else {
+                config.enabled
+            };
 
         logger.info(&format!(
             "Vectorize service initialized: enabled={}, index='{}', fallback_enabled={}",
             config.enabled, config.index_name, !config.enabled
         ));
 
-        Ok(Self { 
-            config, 
+        Ok(Self {
+            config,
             logger,
             fallback_enabled: true, // Always enable fallback mechanisms
             last_health_check: std::sync::Arc::new(std::sync::Mutex::new(None)),
@@ -189,13 +191,13 @@ impl VectorizeService {
         let should_check = {
             let last_check = self.last_health_check.lock().unwrap();
             let current_status = *self.service_available.lock().unwrap();
-            
+
             match *last_check {
                 None => true, // Never checked
                 Some(last_time) => {
                     let now = chrono::Utc::now().timestamp_millis() as u64;
                     let time_since_check = now - last_time;
-                    
+
                     // Check more frequently if service is down (every 1 minute)
                     // Check less frequently if service is up (every 5 minutes)
                     if current_status {
@@ -221,11 +223,12 @@ impl VectorizeService {
         }
 
         let was_available = *self.service_available.lock().unwrap();
-        
+
         let available = match self.health_check().await {
             Ok(true) => {
                 if !was_available {
-                    self.logger.info("Vectorize service has recovered and is now available");
+                    self.logger
+                        .info("Vectorize service has recovered and is now available");
                 } else {
                     self.logger.debug("Vectorize service health check passed");
                 }
@@ -233,7 +236,9 @@ impl VectorizeService {
             }
             Ok(false) => {
                 if was_available {
-                    self.logger.warn("Vectorize service has become unavailable - switching to local fallback");
+                    self.logger.warn(
+                        "Vectorize service has become unavailable - switching to local fallback",
+                    );
                 } else {
                     self.logger.debug("Vectorize service still unavailable");
                 }
@@ -241,9 +246,13 @@ impl VectorizeService {
             }
             Err(e) => {
                 if was_available {
-                    self.logger.warn(&format!("Vectorize service health check error: {} - switching to local fallback", e));
+                    self.logger.warn(&format!(
+                        "Vectorize service health check error: {} - switching to local fallback",
+                        e
+                    ));
                 } else {
-                    self.logger.debug(&format!("Vectorize service still down: {}", e));
+                    self.logger
+                        .debug(&format!("Vectorize service still down: {}", e));
                 }
                 false
             }
@@ -251,7 +260,8 @@ impl VectorizeService {
 
         // Update availability status and timestamp
         *self.service_available.lock().unwrap() = available;
-        *self.last_health_check.lock().unwrap() = Some(chrono::Utc::now().timestamp_millis() as u64);
+        *self.last_health_check.lock().unwrap() =
+            Some(chrono::Utc::now().timestamp_millis() as u64);
     }
 
     /// Store opportunity embedding in Vectorize
@@ -518,11 +528,11 @@ impl VectorizeService {
             let market_stability_score = self.calculate_local_market_stability_score(opportunity);
 
             // Weighted combination of factors
-            let combined_score = (rate_difference_score * 0.3) +
-                               (risk_score * 0.2) +
-                               (liquidity_score * 0.2) +
-                               (time_sensitivity_score * 0.15) +
-                               (market_stability_score * 0.15);
+            let combined_score = (rate_difference_score * 0.3)
+                + (risk_score * 0.2)
+                + (liquidity_score * 0.2)
+                + (time_sensitivity_score * 0.15)
+                + (market_stability_score * 0.15);
 
             let mut ranking_factors = HashMap::new();
             ranking_factors.insert("rate_difference".to_string(), rate_difference_score);
@@ -557,11 +567,9 @@ impl VectorizeService {
 
     /// Calculate rate difference score (higher rate difference = better score)
     fn calculate_rate_difference_score(&self, opportunity: &ArbitrageOpportunity) -> f32 {
-        // Normalize rate difference to 0-1 scale
-        // Assume 0.1% (0.001) is minimum viable, 2% (0.02) is excellent
-        let rate_diff = opportunity.rate_difference.abs() as f32;
-        let normalized = ((rate_diff - 0.001) / (0.02 - 0.001)).clamp(0.0, 1.0);
-        normalized
+        let rate_diff = opportunity.rate_difference;
+        // Normalize rate difference to 0-1 scale (0.1% to 2% range)
+        ((rate_diff - 0.001) / (0.02 - 0.001)).clamp(0.0, 1.0) as f32
     }
 
     /// Calculate local risk score (lower risk = better score)
@@ -570,7 +578,10 @@ impl VectorizeService {
         let mut factor_count = 0.0;
 
         // Exchange risk assessment
-        let exchange_risk = match (opportunity.long_exchange.as_str(), opportunity.short_exchange.as_str()) {
+        let exchange_risk = match (
+            opportunity.long_exchange.as_str(),
+            opportunity.short_exchange.as_str(),
+        ) {
             ("binance", _) | (_, "binance") => 0.1, // Binance is low risk
             ("bybit", _) | (_, "bybit") => 0.2,     // Bybit is medium-low risk
             ("okx", _) | (_, "okx") => 0.3,         // OKX is medium risk
@@ -592,9 +603,9 @@ impl VectorizeService {
 
         // Pair risk assessment
         let pair_risk = match opportunity.pair.as_str() {
-            "BTCUSDT" | "ETHUSDT" => 0.1,  // Major pairs are low risk
-            "SOLUSDT" | "ADAUSDT" => 0.2,  // Popular alts are medium-low risk
-            _ => 0.4,                      // Other pairs are higher risk
+            "BTCUSDT" | "ETHUSDT" => 0.1, // Major pairs are low risk
+            "SOLUSDT" | "ADAUSDT" => 0.2, // Popular alts are medium-low risk
+            _ => 0.4,                     // Other pairs are higher risk
         };
         risk_factors += pair_risk;
         factor_count += 1.0;
@@ -619,7 +630,10 @@ impl VectorizeService {
         liquidity_score += pair_liquidity * 0.6;
 
         // Exchange liquidity
-        let exchange_liquidity = match (opportunity.long_exchange.as_str(), opportunity.short_exchange.as_str()) {
+        let exchange_liquidity = match (
+            opportunity.long_exchange.as_str(),
+            opportunity.short_exchange.as_str(),
+        ) {
             ("binance", _) | (_, "binance") => 1.0,
             ("bybit", _) | (_, "bybit") => 0.8,
             ("okx", _) | (_, "okx") => 0.7,
@@ -655,12 +669,12 @@ impl VectorizeService {
         // For now, use rate difference as a proxy for stability
         // More stable (moderate) rate differences are preferred
         let rate_diff = opportunity.rate_difference.abs();
-        
-        if rate_diff >= 0.005 && rate_diff <= 0.015 {
+
+        if (0.005..=0.015).contains(&rate_diff) {
             1.0 // Sweet spot for arbitrage
-        } else if rate_diff >= 0.002 && rate_diff <= 0.025 {
+        } else if (0.002..=0.025).contains(&rate_diff) {
             0.8 // Good range
-        } else if rate_diff >= 0.001 && rate_diff <= 0.05 {
+        } else if (0.001..=0.05).contains(&rate_diff) {
             0.6 // Acceptable range
         } else {
             0.3 // Either too small or suspiciously large
@@ -1368,42 +1382,42 @@ impl VectorizeService {
         // Attempt health check with timeout and retry
         let mut attempts = 0;
         const MAX_ATTEMPTS: u32 = 3;
-        const TIMEOUT_MS: u64 = 5000; // 5 second timeout
 
         while attempts < MAX_ATTEMPTS {
             attempts += 1;
-            
-            match tokio::time::timeout(
-                std::time::Duration::from_millis(TIMEOUT_MS),
-                self.vectorize_query(&query)
-            ).await {
-                Ok(Ok(_response)) => {
-                    // Service is available and responding
-                    return Ok(true);
+
+            let response_result = self.vectorize_query(&query).await;
+
+            match response_result {
+                Ok(response) => {
+                    let is_healthy = response.success;
+                    if is_healthy {
+                        return Ok(true);
+                    } else if attempts >= MAX_ATTEMPTS {
+                        self.logger.debug(&format!(
+                            "Vectorize health check failed after {} attempts: success={}",
+                            attempts, response.success
+                        ));
+                        return Ok(false);
+                    }
                 }
-                Ok(Err(e)) => {
-                    // Service responded but with an error
+                Err(e) => {
                     if attempts >= MAX_ATTEMPTS {
                         self.logger.debug(&format!(
-                            "Vectorize health check failed after {} attempts: {}",
+                            "Vectorize health check error after {} attempts: {}",
                             attempts, e
                         ));
                         return Ok(false);
                     }
-                    // Wait before retry
-                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                 }
-                Err(_timeout) => {
-                    // Request timed out
-                    if attempts >= MAX_ATTEMPTS {
-                        self.logger.debug(&format!(
-                            "Vectorize health check timed out after {} attempts",
-                            attempts
-                        ));
-                        return Ok(false);
-                    }
-                    // Wait before retry
-                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            }
+
+            // Wait before retry using worker-compatible delay
+            if attempts < MAX_ATTEMPTS {
+                // Use a simple delay mechanism compatible with WASM
+                let start = worker::Date::now().as_millis();
+                while worker::Date::now().as_millis() - start < 1000 {
+                    // Simple busy wait for 1 second - not ideal but WASM compatible
                 }
             }
         }

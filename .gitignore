@@ -47,3 +47,5 @@ target/
 tarpaulin-report.html
 
 *.env
+.env.example
+.env.*

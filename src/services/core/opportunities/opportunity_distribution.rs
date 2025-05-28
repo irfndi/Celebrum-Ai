@@ -816,11 +816,16 @@ impl OpportunityDistributionService {
     }
 
     /// Get opportunities for a specific user
-    pub async fn get_user_opportunities(&self, user_id: &str) -> ArbitrageResult<Vec<ArbitrageOpportunity>> {
+    pub async fn get_user_opportunities(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<Vec<ArbitrageOpportunity>> {
         // Try to get from KV cache first
         let cache_key = format!("user_opportunities:{}", user_id);
         if let Ok(Some(cached_data)) = self.kv_service.get(&cache_key).await {
-            if let Ok(opportunities) = serde_json::from_str::<Vec<ArbitrageOpportunity>>(&cached_data) {
+            if let Ok(opportunities) =
+                serde_json::from_str::<Vec<ArbitrageOpportunity>>(&cached_data)
+            {
                 return Ok(opportunities);
             }
         }
@@ -853,67 +858,102 @@ impl OpportunityDistributionService {
             serde_json::Value::Number(serde_json::Number::from(one_hour_ago)),
         ];
 
-        let rows = self.d1_service.query(query, &params).await.unwrap_or_default();
-        
-        let opportunities: Vec<ArbitrageOpportunity> = rows.into_iter().filter_map(|row| {
-            // Convert database row to ArbitrageOpportunity - row is HashMap<String, String>
-            let opportunity_id = row.get("opportunity_id")?.clone();
-            let pair = row.get("pair")?.clone();
-            
-            // Parse exchange enums from strings
-            let long_exchange = row.get("long_exchange")
-                .and_then(|s| s.parse::<crate::types::ExchangeIdEnum>().ok())?;
-            let short_exchange = row.get("short_exchange")
-                .and_then(|s| s.parse::<crate::types::ExchangeIdEnum>().ok())?;
-            
-            // Parse numeric values from strings
-            let long_rate = row.get("long_rate")
-                .and_then(|s| if s.is_empty() { None } else { s.parse::<f64>().ok() });
-            let short_rate = row.get("short_rate")
-                .and_then(|s| if s.is_empty() { None } else { s.parse::<f64>().ok() });
-            let rate_difference = row.get("rate_difference")?.parse::<f64>().ok()?;
-            let net_rate_difference = row.get("net_rate_difference")
-                .and_then(|s| if s.is_empty() { None } else { s.parse::<f64>().ok() });
-            let potential_profit_value = row.get("potential_profit_value")
-                .and_then(|s| if s.is_empty() { None } else { s.parse::<f64>().ok() });
-            
-            // Parse opportunity type from string
-            let opportunity_type = row.get("opportunity_type")
-                .map(|s| match s.as_str() {
-                    "funding_rate" => crate::types::ArbitrageType::FundingRate,
-                    "spot_futures" => crate::types::ArbitrageType::SpotFutures,
-                    "cross_exchange" => crate::types::ArbitrageType::CrossExchange,
-                    _ => crate::types::ArbitrageType::CrossExchange,
-                })
-                .unwrap_or(crate::types::ArbitrageType::CrossExchange);
-            
-            let details = row.get("details")
-                .and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
-            let timestamp = row.get("timestamp")
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
+        let rows = self
+            .d1_service
+            .query(query, &params)
+            .await
+            .unwrap_or_default();
 
-            Some(ArbitrageOpportunity {
-                id: opportunity_id,
-                pair,
-                long_exchange,
-                short_exchange,
-                long_rate,
-                short_rate,
-                rate_difference,
-                net_rate_difference,
-                potential_profit_value,
-                timestamp,
-                r#type: opportunity_type,
-                details,
-                min_exchanges_required: 2,
+        let opportunities: Vec<ArbitrageOpportunity> = rows
+            .into_iter()
+            .filter_map(|row| {
+                // Convert database row to ArbitrageOpportunity - row is HashMap<String, String>
+                let opportunity_id = row.get("opportunity_id")?.clone();
+                let pair = row.get("pair")?.clone();
+
+                // Parse exchange enums from strings
+                let long_exchange = row
+                    .get("long_exchange")
+                    .and_then(|s| s.parse::<crate::types::ExchangeIdEnum>().ok())?;
+                let short_exchange = row
+                    .get("short_exchange")
+                    .and_then(|s| s.parse::<crate::types::ExchangeIdEnum>().ok())?;
+
+                // Parse numeric values from strings
+                let long_rate = row.get("long_rate").and_then(|s| {
+                    if s.is_empty() {
+                        None
+                    } else {
+                        s.parse::<f64>().ok()
+                    }
+                });
+                let short_rate = row.get("short_rate").and_then(|s| {
+                    if s.is_empty() {
+                        None
+                    } else {
+                        s.parse::<f64>().ok()
+                    }
+                });
+                let rate_difference = row.get("rate_difference")?.parse::<f64>().ok()?;
+                let net_rate_difference = row.get("net_rate_difference").and_then(|s| {
+                    if s.is_empty() {
+                        None
+                    } else {
+                        s.parse::<f64>().ok()
+                    }
+                });
+                let potential_profit_value = row.get("potential_profit_value").and_then(|s| {
+                    if s.is_empty() {
+                        None
+                    } else {
+                        s.parse::<f64>().ok()
+                    }
+                });
+
+                // Parse opportunity type from string
+                let opportunity_type = row
+                    .get("opportunity_type")
+                    .map(|s| match s.as_str() {
+                        "funding_rate" => crate::types::ArbitrageType::FundingRate,
+                        "spot_futures" => crate::types::ArbitrageType::SpotFutures,
+                        "cross_exchange" => crate::types::ArbitrageType::CrossExchange,
+                        _ => crate::types::ArbitrageType::CrossExchange,
+                    })
+                    .unwrap_or(crate::types::ArbitrageType::CrossExchange);
+
+                let details =
+                    row.get("details")
+                        .and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
+                let timestamp = row
+                    .get("timestamp")
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
+
+                Some(ArbitrageOpportunity {
+                    id: opportunity_id,
+                    pair,
+                    long_exchange,
+                    short_exchange,
+                    long_rate,
+                    short_rate,
+                    rate_difference,
+                    net_rate_difference,
+                    potential_profit_value,
+                    timestamp,
+                    r#type: opportunity_type,
+                    details,
+                    min_exchanges_required: 2,
+                })
             })
-        }).collect();
+            .collect();
 
         // Cache the results for 5 minutes
         if !opportunities.is_empty() {
             if let Ok(cached_json) = serde_json::to_string(&opportunities) {
-                let _ = self.kv_service.put(&cache_key, &cached_json, Some(300)).await;
+                let _ = self
+                    .kv_service
+                    .put(&cache_key, &cached_json, Some(300))
+                    .await;
             }
         }
 
@@ -925,7 +965,9 @@ impl OpportunityDistributionService {
         // Try to get from KV cache first
         let cache_key = "all_opportunities";
         if let Ok(Some(cached_data)) = self.kv_service.get(cache_key).await {
-            if let Ok(opportunities) = serde_json::from_str::<Vec<ArbitrageOpportunity>>(&cached_data) {
+            if let Ok(opportunities) =
+                serde_json::from_str::<Vec<ArbitrageOpportunity>>(&cached_data)
+            {
                 return Ok(opportunities);
             }
         }
@@ -952,71 +994,106 @@ impl OpportunityDistributionService {
         "#;
 
         let one_hour_ago = chrono::Utc::now().timestamp() as u64 - 3600;
-        let params = vec![
-            serde_json::Value::Number(serde_json::Number::from(one_hour_ago)),
-        ];
+        let params = vec![serde_json::Value::Number(serde_json::Number::from(
+            one_hour_ago,
+        ))];
 
-        let rows = self.d1_service.query(query, &params).await.unwrap_or_default();
-        
-        let opportunities: Vec<ArbitrageOpportunity> = rows.into_iter().filter_map(|row| {
-            // Convert database row to ArbitrageOpportunity - row is HashMap<String, String>
-            let opportunity_id = row.get("opportunity_id")?.clone();
-            let pair = row.get("pair")?.clone();
-            
-            // Parse exchange enums from strings
-            let long_exchange = row.get("long_exchange")
-                .and_then(|s| s.parse::<crate::types::ExchangeIdEnum>().ok())?;
-            let short_exchange = row.get("short_exchange")
-                .and_then(|s| s.parse::<crate::types::ExchangeIdEnum>().ok())?;
-            
-            // Parse numeric values from strings
-            let long_rate = row.get("long_rate")
-                .and_then(|s| if s.is_empty() { None } else { s.parse::<f64>().ok() });
-            let short_rate = row.get("short_rate")
-                .and_then(|s| if s.is_empty() { None } else { s.parse::<f64>().ok() });
-            let rate_difference = row.get("rate_difference")?.parse::<f64>().ok()?;
-            let net_rate_difference = row.get("net_rate_difference")
-                .and_then(|s| if s.is_empty() { None } else { s.parse::<f64>().ok() });
-            let potential_profit_value = row.get("potential_profit_value")
-                .and_then(|s| if s.is_empty() { None } else { s.parse::<f64>().ok() });
-            
-            // Parse opportunity type from string
-            let opportunity_type = row.get("opportunity_type")
-                .map(|s| match s.as_str() {
-                    "funding_rate" => crate::types::ArbitrageType::FundingRate,
-                    "spot_futures" => crate::types::ArbitrageType::SpotFutures,
-                    "cross_exchange" => crate::types::ArbitrageType::CrossExchange,
-                    _ => crate::types::ArbitrageType::CrossExchange,
+        let rows = self
+            .d1_service
+            .query(query, &params)
+            .await
+            .unwrap_or_default();
+
+        let opportunities: Vec<ArbitrageOpportunity> = rows
+            .into_iter()
+            .filter_map(|row| {
+                // Convert database row to ArbitrageOpportunity - row is HashMap<String, String>
+                let opportunity_id = row.get("opportunity_id")?.clone();
+                let pair = row.get("pair")?.clone();
+
+                // Parse exchange enums from strings
+                let long_exchange = row
+                    .get("long_exchange")
+                    .and_then(|s| s.parse::<crate::types::ExchangeIdEnum>().ok())?;
+                let short_exchange = row
+                    .get("short_exchange")
+                    .and_then(|s| s.parse::<crate::types::ExchangeIdEnum>().ok())?;
+
+                // Parse numeric values from strings
+                let long_rate = row.get("long_rate").and_then(|s| {
+                    if s.is_empty() {
+                        None
+                    } else {
+                        s.parse::<f64>().ok()
+                    }
+                });
+                let short_rate = row.get("short_rate").and_then(|s| {
+                    if s.is_empty() {
+                        None
+                    } else {
+                        s.parse::<f64>().ok()
+                    }
+                });
+                let rate_difference = row.get("rate_difference")?.parse::<f64>().ok()?;
+                let net_rate_difference = row.get("net_rate_difference").and_then(|s| {
+                    if s.is_empty() {
+                        None
+                    } else {
+                        s.parse::<f64>().ok()
+                    }
+                });
+                let potential_profit_value = row.get("potential_profit_value").and_then(|s| {
+                    if s.is_empty() {
+                        None
+                    } else {
+                        s.parse::<f64>().ok()
+                    }
+                });
+
+                // Parse opportunity type from string
+                let opportunity_type = row
+                    .get("opportunity_type")
+                    .map(|s| match s.as_str() {
+                        "funding_rate" => crate::types::ArbitrageType::FundingRate,
+                        "spot_futures" => crate::types::ArbitrageType::SpotFutures,
+                        "cross_exchange" => crate::types::ArbitrageType::CrossExchange,
+                        _ => crate::types::ArbitrageType::CrossExchange,
+                    })
+                    .unwrap_or(crate::types::ArbitrageType::CrossExchange);
+
+                let details =
+                    row.get("details")
+                        .and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
+                let timestamp = row
+                    .get("timestamp")
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
+
+                Some(ArbitrageOpportunity {
+                    id: opportunity_id,
+                    pair,
+                    long_exchange,
+                    short_exchange,
+                    long_rate,
+                    short_rate,
+                    rate_difference,
+                    net_rate_difference,
+                    potential_profit_value,
+                    timestamp,
+                    r#type: opportunity_type,
+                    details,
+                    min_exchanges_required: 2,
                 })
-                .unwrap_or(crate::types::ArbitrageType::CrossExchange);
-            
-            let details = row.get("details")
-                .and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
-            let timestamp = row.get("timestamp")
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
-
-            Some(ArbitrageOpportunity {
-                id: opportunity_id,
-                pair,
-                long_exchange,
-                short_exchange,
-                long_rate,
-                short_rate,
-                rate_difference,
-                net_rate_difference,
-                potential_profit_value,
-                timestamp,
-                r#type: opportunity_type,
-                details,
-                min_exchanges_required: 2,
             })
-        }).collect();
+            .collect();
 
         // Cache the results for 2 minutes
         if !opportunities.is_empty() {
             if let Ok(cached_json) = serde_json::to_string(&opportunities) {
-                let _ = self.kv_service.put(cache_key, &cached_json, Some(120)).await;
+                let _ = self
+                    .kv_service
+                    .put(cache_key, &cached_json, Some(120))
+                    .await;
             }
         }
 

@@ -1,10 +1,12 @@
+use crate::services::core::infrastructure::cloudflare_pipelines::{
+    CloudflarePipelinesService, PipelinesConfig,
+};
+use crate::services::core::infrastructure::vectorize_service::{VectorizeConfig, VectorizeService};
 use crate::services::core::infrastructure::{D1Service, KVService};
-use crate::services::core::infrastructure::cloudflare_pipelines::{CloudflarePipelinesService, PipelinesConfig};
-use crate::services::core::infrastructure::vectorize_service::{VectorizeService, VectorizeConfig};
 use crate::services::core::opportunities::opportunity_distribution::{
     DistributionConfig, OpportunityDistributionService,
 };
-use crate::services::core::trading::exchange::{ExchangeService, ExchangeInterface};
+use crate::services::core::trading::exchange::{ExchangeInterface, ExchangeService};
 use crate::services::core::user::session_management::SessionManagementService;
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::services::interfaces::telegram::telegram::TelegramService;
@@ -45,8 +47,11 @@ impl ServiceContainer {
         let session_service = SessionManagementService::new(d1_service.clone(), kv_service.clone());
 
         // Create opportunity distribution service
-        let distribution_service =
-            OpportunityDistributionService::new(d1_service.clone(), kv_service.clone(), session_service.clone());
+        let distribution_service = OpportunityDistributionService::new(
+            d1_service.clone(),
+            kv_service.clone(),
+            session_service.clone(),
+        );
 
         Ok(Self {
             session_service,
@@ -88,36 +93,38 @@ impl ServiceContainer {
     pub fn set_user_profile_service(&mut self, encryption_key: String) {
         // UserProfileService expects raw KvStore, not KVService
         let kv_store = self.kv_service.get_kv_store();
-        let user_profile_service = UserProfileService::new(
-            kv_store,
-            self.d1_service.clone(),
-            encryption_key,
-        );
+        let user_profile_service =
+            UserProfileService::new(kv_store, self.d1_service.clone(), encryption_key);
         self.user_profile_service = Some(Arc::new(user_profile_service));
     }
 
     /// Initialize Vectorize service with fallback mechanisms
     pub fn set_vectorize_service(&mut self, env: &Env, config: Option<VectorizeConfig>) {
         let vectorize_config = config.unwrap_or_default();
-        
+
         match VectorizeService::new(env, vectorize_config.clone()) {
             Ok(service) => {
                 let arc_service = Arc::new(service);
-                
+
                 // Set vectorize service in distribution service if available
-                if let Some(vectorize_service) = Arc::try_unwrap(arc_service.clone()).ok() {
-                    self.distribution_service.set_vectorize_service(vectorize_service);
+                if let Ok(vectorize_service) = Arc::try_unwrap(arc_service.clone()) {
+                    self.distribution_service
+                        .set_vectorize_service(vectorize_service);
                     self.vectorize_service = Some(arc_service);
                 } else {
                     // If we can't unwrap, create a new instance for distribution service
                     if let Ok(dist_service) = VectorizeService::new(env, vectorize_config.clone()) {
-                        self.distribution_service.set_vectorize_service(dist_service);
+                        self.distribution_service
+                            .set_vectorize_service(dist_service);
                     }
                     self.vectorize_service = Some(arc_service);
                 }
             }
             Err(e) => {
-                worker::console_log!("Failed to initialize Vectorize service: {} - continuing with fallback mode", e);
+                worker::console_log!(
+                    "Failed to initialize Vectorize service: {} - continuing with fallback mode",
+                    e
+                );
                 self.vectorize_service = None;
             }
         }
@@ -126,14 +133,19 @@ impl ServiceContainer {
     /// Initialize Pipelines service with fallback mechanisms
     pub fn set_pipelines_service(&mut self, env: &Env, config: Option<PipelinesConfig>) {
         let pipelines_config = config.unwrap_or_default();
-        
+
         match CloudflarePipelinesService::new(env, pipelines_config) {
             Ok(service) => {
                 self.pipelines_service = Some(Arc::new(service));
-                worker::console_log!("Pipelines service initialized successfully with fallback support");
+                worker::console_log!(
+                    "Pipelines service initialized successfully with fallback support"
+                );
             }
             Err(e) => {
-                worker::console_log!("Failed to initialize Pipelines service: {} - continuing with fallback mode", e);
+                worker::console_log!(
+                    "Failed to initialize Pipelines service: {} - continuing with fallback mode",
+                    e
+                );
                 self.pipelines_service = None;
             }
         }
@@ -256,16 +268,23 @@ impl ServiceContainer {
                 Ok(true) => status.vectorize_service_healthy = true,
                 Ok(false) => {
                     status.vectorize_service_healthy = false;
-                    status.errors.push("Vectorize service unhealthy - using fallback mode".to_string());
+                    status
+                        .errors
+                        .push("Vectorize service unhealthy - using fallback mode".to_string());
                 }
                 Err(e) => {
                     status.vectorize_service_healthy = false;
-                    status.errors.push(format!("Vectorize service error: {} - using fallback mode", e));
+                    status.errors.push(format!(
+                        "Vectorize service error: {} - using fallback mode",
+                        e
+                    ));
                 }
             }
         } else {
             status.vectorize_service_healthy = false;
-            status.errors.push("Vectorize service not configured - using fallback mode".to_string());
+            status
+                .errors
+                .push("Vectorize service not configured - using fallback mode".to_string());
         }
 
         // Check pipelines service health
@@ -274,16 +293,23 @@ impl ServiceContainer {
                 Ok(true) => status.pipelines_service_healthy = true,
                 Ok(false) => {
                     status.pipelines_service_healthy = false;
-                    status.errors.push("Pipelines service unhealthy - using fallback storage".to_string());
+                    status
+                        .errors
+                        .push("Pipelines service unhealthy - using fallback storage".to_string());
                 }
                 Err(e) => {
                     status.pipelines_service_healthy = false;
-                    status.errors.push(format!("Pipelines service error: {} - using fallback storage", e));
+                    status.errors.push(format!(
+                        "Pipelines service error: {} - using fallback storage",
+                        e
+                    ));
                 }
             }
         } else {
             status.pipelines_service_healthy = false;
-            status.errors.push("Pipelines service not configured - using fallback storage".to_string());
+            status
+                .errors
+                .push("Pipelines service not configured - using fallback storage".to_string());
         }
 
         status.overall_healthy = status.session_service_healthy
@@ -291,8 +317,8 @@ impl ServiceContainer {
             && status.exchange_service_healthy
             && status.telegram_service_healthy
             && status.user_profile_service_healthy;
-            // Note: Vectorize and Pipelines are optional services with fallbacks,
-            // so they don't affect overall health status
+        // Note: Vectorize and Pipelines are optional services with fallbacks,
+        // so they don't affect overall health status
 
         Ok(status)
     }

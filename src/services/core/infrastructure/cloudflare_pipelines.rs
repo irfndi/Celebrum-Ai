@@ -1,8 +1,8 @@
 use crate::utils::ArbitrageResult;
 use crate::ArbitrageError;
+use chrono;
 use serde_json::json;
 use uuid::Uuid;
-use chrono;
 
 /// Configuration for Cloudflare Pipelines integration
 #[derive(Debug, Clone)]
@@ -107,6 +107,7 @@ pub struct CloudflarePipelinesService {
     http_client: reqwest::Client,
     account_id: String,
     api_token: String,
+    #[allow(dead_code)]
     fallback_enabled: bool,
     service_available: std::sync::Arc<std::sync::Mutex<bool>>,
     last_health_check: std::sync::Arc<std::sync::Mutex<Option<u64>>>,
@@ -122,7 +123,9 @@ impl CloudflarePipelinesService {
         let account_id = env
             .var("CLOUDFLARE_ACCOUNT_ID")
             .map_err(|_| {
-                logger.warn("CLOUDFLARE_ACCOUNT_ID not found - Pipelines service will use fallback mode");
+                logger.warn(
+                    "CLOUDFLARE_ACCOUNT_ID not found - Pipelines service will use fallback mode",
+                );
                 ArbitrageError::configuration_error("CLOUDFLARE_ACCOUNT_ID not found")
             })?
             .to_string();
@@ -130,7 +133,9 @@ impl CloudflarePipelinesService {
         let api_token = env
             .secret("CLOUDFLARE_API_TOKEN")
             .map_err(|_| {
-                logger.warn("CLOUDFLARE_API_TOKEN not found - Pipelines service will use fallback mode");
+                logger.warn(
+                    "CLOUDFLARE_API_TOKEN not found - Pipelines service will use fallback mode",
+                );
                 ArbitrageError::configuration_error("CLOUDFLARE_API_TOKEN not found")
             })?
             .to_string();
@@ -161,13 +166,13 @@ impl CloudflarePipelinesService {
         let should_check = {
             let last_check = self.last_health_check.lock().unwrap();
             let current_status = *self.service_available.lock().unwrap();
-            
+
             match *last_check {
                 None => true, // Never checked
                 Some(last_time) => {
                     let now = chrono::Utc::now().timestamp_millis() as u64;
                     let time_since_check = now - last_time;
-                    
+
                     // Check more frequently if service is down (every 1 minute)
                     // Check less frequently if service is up (every 5 minutes)
                     if current_status {
@@ -197,7 +202,8 @@ impl CloudflarePipelinesService {
         let available = match self.health_check().await {
             Ok(true) => {
                 if !was_available {
-                    self.logger.info("Pipelines service has recovered and is now available");
+                    self.logger
+                        .info("Pipelines service has recovered and is now available");
                 } else {
                     self.logger.debug("Pipelines service health check passed");
                 }
@@ -205,7 +211,9 @@ impl CloudflarePipelinesService {
             }
             Ok(false) => {
                 if was_available {
-                    self.logger.warn("Pipelines service has become unavailable - switching to fallback storage");
+                    self.logger.warn(
+                        "Pipelines service has become unavailable - switching to fallback storage",
+                    );
                 } else {
                     self.logger.debug("Pipelines service still unavailable");
                 }
@@ -213,9 +221,13 @@ impl CloudflarePipelinesService {
             }
             Err(e) => {
                 if was_available {
-                    self.logger.warn(&format!("Pipelines service health check error: {} - switching to fallback storage", e));
+                    self.logger.warn(&format!(
+                        "Pipelines service health check error: {} - switching to fallback storage",
+                        e
+                    ));
                 } else {
-                    self.logger.debug(&format!("Pipelines service still down: {}", e));
+                    self.logger
+                        .debug(&format!("Pipelines service still down: {}", e));
                 }
                 false
             }
@@ -223,7 +235,8 @@ impl CloudflarePipelinesService {
 
         // Update availability status and timestamp
         *self.service_available.lock().unwrap() = available;
-        *self.last_health_check.lock().unwrap() = Some(chrono::Utc::now().timestamp_millis() as u64);
+        *self.last_health_check.lock().unwrap() =
+            Some(chrono::Utc::now().timestamp_millis() as u64);
     }
 
     /// Health check for Pipelines service
@@ -241,32 +254,33 @@ impl CloudflarePipelinesService {
         // Attempt health check with timeout and retry
         let mut attempts = 0;
         const MAX_ATTEMPTS: u32 = 3;
-        const TIMEOUT_SECS: u64 = 5; // 5 second timeout
 
         while attempts < MAX_ATTEMPTS {
             attempts += 1;
-            
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(TIMEOUT_SECS),
-                self.http_client
-                    .get(&url)
-                    .header("Authorization", format!("Bearer {}", self.api_token))
-                    .header("Content-Type", "application/json")
-                    .send()
-            ).await {
-                Ok(Ok(response)) => {
+
+            let response_result = self
+                .http_client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", self.api_token))
+                .header("Content-Type", "application/json")
+                .send()
+                .await;
+
+            match response_result {
+                Ok(response) => {
                     let is_healthy = response.status().is_success();
                     if is_healthy {
                         return Ok(true);
                     } else if attempts >= MAX_ATTEMPTS {
                         self.logger.debug(&format!(
                             "Pipelines health check failed after {} attempts: HTTP {}",
-                            attempts, response.status()
+                            attempts,
+                            response.status()
                         ));
                         return Ok(false);
                     }
                 }
-                Ok(Err(e)) => {
+                Err(e) => {
                     if attempts >= MAX_ATTEMPTS {
                         self.logger.debug(&format!(
                             "Pipelines health check network error after {} attempts: {}",
@@ -275,20 +289,15 @@ impl CloudflarePipelinesService {
                         return Ok(false);
                     }
                 }
-                Err(_timeout) => {
-                    if attempts >= MAX_ATTEMPTS {
-                        self.logger.debug(&format!(
-                            "Pipelines health check timed out after {} attempts",
-                            attempts
-                        ));
-                        return Ok(false);
-                    }
-                }
             }
-            
-            // Wait before retry
+
+            // Wait before retry using worker-compatible delay
             if attempts < MAX_ATTEMPTS {
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                // Use a simple delay mechanism compatible with WASM
+                let start = worker::Date::now().as_millis();
+                while worker::Date::now().as_millis() - start < 1000 {
+                    // Simple busy wait for 1 second - not ideal but WASM compatible
+                }
             }
         }
 
@@ -432,40 +441,40 @@ impl CloudflarePipelinesService {
     /// Fallback method to store analytics data when Pipelines is unavailable
     async fn store_analytics_fallback(&self, event: &AnalyticsEvent) -> ArbitrageResult<()> {
         // Store to KV with TTL for later batch processing when Pipelines recovers
-        let kv_key = format!("analytics_fallback:{}:{}", event.event_type, event.event_id);
-        let event_json = serde_json::to_string(event).map_err(|e| {
+        let _kv_key = format!("analytics_fallback:{}:{}", event.event_type, event.event_id);
+        let _event_json = serde_json::to_string(event).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize analytics event: {}", e))
         })?;
-        
+
         self.logger.info(&format!(
             "Analytics fallback: Storing to KV - event_type={}, user_id={}, opportunity_id={:?}",
             event.event_type, event.user_id, event.opportunity_id
         ));
-        
+
         // Note: In a real implementation, this would integrate with the service container
         // to access KV and D1 services. For now, we log the fallback action.
         // The service container pattern ensures proper service access.
-        
+
         Ok(())
     }
 
     /// Fallback method to store audit data when Pipelines is unavailable
     async fn store_audit_fallback(&self, event: &AuditEvent) -> ArbitrageResult<()> {
         // Store to KV with TTL for later batch processing
-        let kv_key = format!("audit_fallback:{}:{}", event.action_type, event.audit_id);
-        let event_json = serde_json::to_string(event).map_err(|e| {
+        let _kv_key = format!("audit_fallback:{}:{}", event.action_type, event.audit_id);
+        let _event_json = serde_json::to_string(event).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize audit event: {}", e))
         })?;
-        
+
         self.logger.info(&format!(
             "Audit fallback: Storing critical audit log - action_type={}, user_id={}, success={}",
             event.action_type, event.user_id, event.success
         ));
-        
+
         // Note: In a real implementation, this would integrate with the service container
         // to access KV and D1 services. Audit logs are critical and would be stored
         // persistently through the D1Service with proper error handling.
-        
+
         Ok(())
     }
 
@@ -699,7 +708,8 @@ impl CloudflarePipelinesService {
     /// Get pipeline statistics and performance metrics
     pub async fn get_pipeline_stats(&self) -> ArbitrageResult<PipelineStats> {
         if !self.is_service_available().await {
-            self.logger.warn("Pipelines service unavailable - returning fallback stats");
+            self.logger
+                .warn("Pipelines service unavailable - returning fallback stats");
             return Ok(PipelineStats {
                 market_data_events_today: 0,
                 analytics_events_today: 0,
@@ -725,9 +735,13 @@ impl CloudflarePipelinesService {
     }
 
     /// Get performance analytics for a specific user
-    pub async fn get_performance_analytics(&self, user_id: &str) -> ArbitrageResult<serde_json::Value> {
+    pub async fn get_performance_analytics(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<serde_json::Value> {
         if !self.is_service_available().await {
-            self.logger.warn("Pipelines service unavailable - returning fallback performance data");
+            self.logger
+                .warn("Pipelines service unavailable - returning fallback performance data");
             return Ok(serde_json::json!({
                 "user_id": user_id,
                 "avg_execution_time": 0.0,

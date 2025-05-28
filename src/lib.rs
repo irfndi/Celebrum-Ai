@@ -7,6 +7,7 @@ pub mod utils;
 
 use serde_json::json;
 use services::core::infrastructure::d1_database::D1Service;
+use services::core::infrastructure::service_container::ServiceContainer;
 use services::core::opportunities::opportunity::{OpportunityService, OpportunityServiceConfig};
 use services::core::trading::exchange::{ExchangeInterface, ExchangeService};
 use services::core::trading::positions::{
@@ -19,7 +20,6 @@ use std::sync::Arc;
 use types::{AccountInfo, ExchangeIdEnum, StructuredTradingPair};
 use utils::{ArbitrageError, ArbitrageResult};
 use uuid::Uuid;
-use services::core::infrastructure::service_container::ServiceContainer;
 
 // Global service container - initialized once per worker instance
 static mut GLOBAL_SERVICE_CONTAINER: Option<Arc<ServiceContainer>> = None;
@@ -27,14 +27,18 @@ static mut GLOBAL_SERVICE_CONTAINER: Option<Arc<ServiceContainer>> = None;
 /// Get or initialize the global service container
 async fn get_service_container(env: &Env) -> Result<Arc<ServiceContainer>> {
     unsafe {
-        if let Some(container) = &GLOBAL_SERVICE_CONTAINER {
-            return Ok(container.clone());
+        let container_ptr = &raw const GLOBAL_SERVICE_CONTAINER;
+        if !container_ptr.is_null() {
+            if let Some(container) = &*container_ptr {
+                return Ok(container.clone());
+            }
         }
 
         // Initialize service container
         let kv_store = env.kv("ArbEdgeKV")?;
-        let mut container = ServiceContainer::new(env, kv_store)
-            .map_err(|e| worker::Error::RustError(format!("Failed to create service container: {}", e)))?;
+        let mut container = ServiceContainer::new(env, kv_store).map_err(|e| {
+            worker::Error::RustError(format!("Failed to create service container: {}", e))
+        })?;
 
         // Set up Telegram service if available
         if let Ok(bot_token) = env.var("TELEGRAM_BOT_TOKEN") {
@@ -312,7 +316,7 @@ async fn create_opportunity_service(
         .unwrap_or(0.001);
 
     // Create services
-    let exchange_service = Arc::new(ExchangeService::new(&custom_env)?);
+    let exchange_service = Arc::new(ExchangeService::new(custom_env)?);
 
     let telegram_service = if let Ok(bot_token) = custom_env.worker_env.var("TELEGRAM_BOT_TOKEN") {
         Some(Arc::new(TelegramService::new(
@@ -584,14 +588,6 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
                         Ok(exchange_service) => {
                             telegram_service.set_exchange_service(exchange_service);
                             console_log!("✅ ExchangeService initialized successfully");
-
-                            // Note: GlobalOpportunityService initialization skipped for now due to complex dependencies
-                            // It will be initialized later when needed or in a separate initialization phase
-                            if user_profile_service_available {
-                                console_log!("✅ Prerequisites available for GlobalOpportunityService (will initialize when needed)");
-                            } else {
-                                console_log!("⚠️ UserProfileService not available - GlobalOpportunityService will use fallback");
-                            }
                         }
                         Err(e) => {
                             console_log!(
@@ -601,67 +597,13 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
                         }
                     }
 
-                    // Initialize OpportunityDistributionService
-                    let session_management_service_clone =
-                        services::core::user::session_management::SessionManagementService::new(
-                            d1_service.clone(),
-                            kv_service.clone(),
-                        );
-                    let opportunity_distribution_service = services::core::opportunities::opportunity_distribution::OpportunityDistributionService::new(
-                        d1_service.clone(),
-                        kv_service.clone(),
-                        session_management_service_clone,
-                    );
-                    telegram_service
-                        .set_opportunity_distribution_service(opportunity_distribution_service);
-                    console_log!("✅ OpportunityDistributionService initialized successfully");
-
-                    // Initialize AiIntegrationService if API keys are available
-                    if let Ok(encryption_key) = env.var("ENCRYPTION_KEY") {
-                        console_log!("✅ ENCRYPTION_KEY found, initializing AiIntegrationService");
-                        let ai_config =
-                            services::core::ai::ai_integration::AiIntegrationConfig::default();
-                        let ai_integration_service =
-                            services::core::ai::ai_integration::AiIntegrationService::new(
-                                ai_config,
-                                kv_store.clone(),
-                                encryption_key.to_string(),
-                            );
-                        telegram_service.set_ai_integration_service(ai_integration_service);
-                        console_log!("✅ AiIntegrationService initialized successfully");
+                    // Note: GlobalOpportunityService initialization skipped for now due to complex dependencies
+                    // It will be initialized later when needed or in a separate initialization phase
+                    if user_profile_service_available {
+                        console_log!("✅ Prerequisites available for GlobalOpportunityService (will initialize when needed)");
                     } else {
-                        console_log!("⚠️ ENCRYPTION_KEY not found - AiIntegrationService not initialized (will use fallback)");
+                        console_log!("⚠️ UserProfileService not available - GlobalOpportunityService will use fallback");
                     }
-
-                    // Initialize MarketAnalysisService (create new UserTradingPreferencesService instance)
-                    let logger_for_market =
-                        crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-                    let user_trading_preferences_service_for_market = services::core::user::user_trading_preferences::UserTradingPreferencesService::new(
-                        d1_service.clone(),
-                        logger_for_market,
-                    );
-                    let logger_for_market_analysis =
-                        crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-                    let market_analysis_service =
-                        services::core::analysis::market_analysis::MarketAnalysisService::new(
-                            d1_service.clone(),
-                            user_trading_preferences_service_for_market,
-                            logger_for_market_analysis,
-                        );
-                    telegram_service.set_market_analysis_service(market_analysis_service);
-                    console_log!("✅ MarketAnalysisService initialized successfully");
-
-                    // Initialize TechnicalAnalysisService
-                    let technical_analysis_config = services::core::analysis::technical_analysis::TechnicalAnalysisConfig::default();
-                    let logger_for_technical =
-                        crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-                    let technical_analysis_service =
-                        services::core::analysis::technical_analysis::TechnicalAnalysisService::new(
-                            technical_analysis_config,
-                            logger_for_technical,
-                        );
-                    telegram_service.set_technical_analysis_service(technical_analysis_service);
-                    console_log!("✅ TechnicalAnalysisService initialized successfully");
                 }
                 Err(e) => {
                     console_log!("❌ Failed to initialize D1Service: {:?}", e);
@@ -718,7 +660,8 @@ async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> 
     let positions_service = ProductionPositionsService::new(kv);
 
     // Parse position data
-    let position_data: CreatePositionData = match serde_json::from_value(position_data_json.clone()) {
+    let position_data: CreatePositionData = match serde_json::from_value(position_data_json.clone())
+    {
         Ok(data) => data,
         Err(e) => return Response::error(format!("Invalid position data format: {}", e), 400),
     };
@@ -728,10 +671,13 @@ async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> 
         Ok(Some(profile)) => profile,
         Ok(None) => {
             return Response::error(
-                format!("User profile not found for user_id: {}. Please create a profile first.", user_id), 
-                404
+                format!(
+                    "User profile not found for user_id: {}. Please create a profile first.",
+                    user_id
+                ),
+                404,
             );
-        },
+        }
         Err(e) => return Response::error(format!("Failed to fetch user profile: {}", e), 500),
     };
 
@@ -1100,7 +1046,8 @@ async fn handle_api_get_user_profile(req: Request, env: Env) -> Result<Response>
     };
 
     // Get encryption key from environment
-    let encryption_key = env.var("ENCRYPTION_KEY")
+    let encryption_key = env
+        .var("ENCRYPTION_KEY")
         .map(|secret| secret.to_string())
         .unwrap_or_else(|_| "default_key_for_development".to_string());
 
@@ -1162,7 +1109,8 @@ async fn handle_api_update_user_profile(mut req: Request, env: Env) -> Result<Re
     let update_data: serde_json::Value = req.json().await?;
 
     // Get encryption key from environment
-    let encryption_key = env.var("ENCRYPTION_KEY")
+    let encryption_key = env
+        .var("ENCRYPTION_KEY")
         .map(|secret| secret.to_string())
         .unwrap_or_else(|_| "default_key_for_development".to_string());
 
@@ -1179,25 +1127,36 @@ async fn handle_api_update_user_profile(mut req: Request, env: Env) -> Result<Re
     match user_profile_service.get_user_profile(&user_id).await {
         Ok(Some(mut profile)) => {
             // Update the profile with new data
-            if let Some(telegram_username) = update_data.get("telegram_username").and_then(|v| v.as_str()) {
+            if let Some(telegram_username) = update_data
+                .get("telegram_username")
+                .and_then(|v| v.as_str())
+            {
                 profile.telegram_username = Some(telegram_username.to_string());
             }
-            if let Some(risk_tolerance) = update_data.get("risk_tolerance").and_then(|v| v.as_f64()) {
+            if let Some(risk_tolerance) = update_data.get("risk_tolerance").and_then(|v| v.as_f64())
+            {
                 profile.configuration.risk_tolerance_percentage = risk_tolerance;
             }
-            if let Some(trading_pairs) = update_data.get("trading_pairs").and_then(|v| v.as_array()) {
+            if let Some(trading_pairs) = update_data.get("trading_pairs").and_then(|v| v.as_array())
+            {
                 profile.configuration.trading_pairs = trading_pairs
                     .iter()
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
                     .collect();
             }
-            if let Some(auto_trading) = update_data.get("auto_trading_enabled").and_then(|v| v.as_bool()) {
+            if let Some(auto_trading) = update_data
+                .get("auto_trading_enabled")
+                .and_then(|v| v.as_bool())
+            {
                 profile.configuration.auto_trading_enabled = auto_trading;
             }
             if let Some(max_leverage) = update_data.get("max_leverage").and_then(|v| v.as_u64()) {
                 profile.configuration.max_leverage = max_leverage as u32;
             }
-            if let Some(max_entry_size) = update_data.get("max_entry_size_usdt").and_then(|v| v.as_f64()) {
+            if let Some(max_entry_size) = update_data
+                .get("max_entry_size_usdt")
+                .and_then(|v| v.as_f64())
+            {
                 profile.configuration.max_entry_size_usdt = max_entry_size;
             }
 
@@ -1218,7 +1177,8 @@ async fn handle_api_update_user_profile(mut req: Request, env: Env) -> Result<Re
                     Response::from_json(&response)
                 }
                 Err(e) => {
-                    let response = ApiResponse::<()>::error(format!("Failed to update user profile: {}", e));
+                    let response =
+                        ApiResponse::<()>::error(format!("Failed to update user profile: {}", e));
                     Ok(Response::from_json(&response)?.with_status(500))
                 }
             }
@@ -1278,7 +1238,8 @@ async fn handle_api_update_user_preferences(mut req: Request, env: Env) -> Resul
     let update_data: serde_json::Value = req.json().await?;
 
     // Get encryption key from environment
-    let encryption_key = env.var("ENCRYPTION_KEY")
+    let encryption_key = env
+        .var("ENCRYPTION_KEY")
         .map(|secret| secret.to_string())
         .unwrap_or_else(|_| "default_key_for_development".to_string());
 
@@ -1295,22 +1256,30 @@ async fn handle_api_update_user_preferences(mut req: Request, env: Env) -> Resul
     match user_profile_service.get_user_profile(&user_id).await {
         Ok(Some(mut profile)) => {
             // Update the profile configuration with new preferences
-            if let Some(risk_tolerance) = update_data.get("risk_tolerance").and_then(|v| v.as_f64()) {
+            if let Some(risk_tolerance) = update_data.get("risk_tolerance").and_then(|v| v.as_f64())
+            {
                 profile.configuration.risk_tolerance_percentage = risk_tolerance;
             }
-            if let Some(trading_pairs) = update_data.get("trading_pairs").and_then(|v| v.as_array()) {
+            if let Some(trading_pairs) = update_data.get("trading_pairs").and_then(|v| v.as_array())
+            {
                 profile.configuration.trading_pairs = trading_pairs
                     .iter()
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
                     .collect();
             }
-            if let Some(auto_trading) = update_data.get("auto_trading_enabled").and_then(|v| v.as_bool()) {
+            if let Some(auto_trading) = update_data
+                .get("auto_trading_enabled")
+                .and_then(|v| v.as_bool())
+            {
                 profile.configuration.auto_trading_enabled = auto_trading;
             }
             if let Some(max_leverage) = update_data.get("max_leverage").and_then(|v| v.as_u64()) {
                 profile.configuration.max_leverage = max_leverage as u32;
             }
-            if let Some(max_entry_size) = update_data.get("max_entry_size_usdt").and_then(|v| v.as_f64()) {
+            if let Some(max_entry_size) = update_data
+                .get("max_entry_size_usdt")
+                .and_then(|v| v.as_f64())
+            {
                 profile.configuration.max_entry_size_usdt = max_entry_size;
             }
 
@@ -1325,7 +1294,10 @@ async fn handle_api_update_user_preferences(mut req: Request, env: Env) -> Resul
                     Response::from_json(&response)
                 }
                 Err(e) => {
-                    let response = ApiResponse::<()>::error(format!("Failed to update user preferences: {}", e));
+                    let response = ApiResponse::<()>::error(format!(
+                        "Failed to update user preferences: {}",
+                        e
+                    ));
                     Ok(Response::from_json(&response)?.with_status(500))
                 }
             }
@@ -1358,32 +1330,37 @@ async fn handle_api_get_opportunities(req: Request, env: Env) -> Result<Response
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get opportunities from distribution service with fallback to exchange service
-    let opportunities = match container.distribution_service().get_user_opportunities(&user_id).await {
+    let opportunities = match _container
+        .distribution_service()
+        .get_user_opportunities(&user_id)
+        .await
+    {
         Ok(opps) => opps,
         Err(_) => {
             // Fallback: Get opportunities directly from exchange service
             let custom_env = types::Env::new(env.clone());
             match create_opportunity_service(&custom_env).await {
-                Ok(opp_service) => {
-                    match opp_service.monitor_opportunities().await {
-                        Ok(opps) => opps,
-                        Err(e) => {
-                            let response = ApiResponse::<()>::error(format!("Failed to get opportunities: {}", e));
-                            return Ok(Response::from_json(&response)?.with_status(500));
-                        }
+                Ok(opp_service) => match opp_service.monitor_opportunities().await {
+                    Ok(opps) => opps,
+                    Err(e) => {
+                        let response =
+                            ApiResponse::<()>::error(format!("Failed to get opportunities: {}", e));
+                        return Ok(Response::from_json(&response)?.with_status(500));
                     }
-                }
+                },
                 Err(e) => {
-                    let response = ApiResponse::<()>::error(format!("Service creation failed: {}", e));
+                    let response =
+                        ApiResponse::<()>::error(format!("Service creation failed: {}", e));
                     return Ok(Response::from_json(&response)?.with_status(500));
                 }
             }
@@ -1410,23 +1387,27 @@ async fn handle_api_execute_opportunity(mut req: Request, env: Env) -> Result<Re
 
     // Check permissions - Premium tier and above for execution
     if !check_user_permissions(&user_id, "premium", &env).await? {
-        let response = ApiResponse::<()>::error("Premium subscription required for opportunity execution".to_string());
+        let response = ApiResponse::<()>::error(
+            "Premium subscription required for opportunity execution".to_string(),
+        );
         return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let execution_data: serde_json::Value = req.json().await?;
-    
+
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Execute opportunity through exchange service
-    let opportunity_id = execution_data.get("opportunity_id")
+    let opportunity_id = execution_data
+        .get("opportunity_id")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
@@ -1454,41 +1435,47 @@ async fn handle_api_get_dashboard_analytics(req: Request, env: Env) -> Result<Re
 
     // Check permissions - Pro tier and above for analytics
     if !check_user_permissions(&user_id, "pro", &env).await? {
-        let response = ApiResponse::<()>::error("Pro subscription required for analytics".to_string());
+        let response =
+            ApiResponse::<()>::error("Pro subscription required for analytics".to_string());
         return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get analytics data from D1 with KV caching
-    let analytics_data = match container.d1_service().get_user_analytics(&user_id).await {
+    let analytics_data = match _container.d1_service().get_user_analytics(&user_id).await {
         Ok(data) => data,
         Err(_) => {
             // Fallback to KV cache
-            match container.kv_service().get(&format!("analytics:dashboard:{}", user_id)).await {
-                Ok(Some(cached_data)) => {
-                    serde_json::from_str(&cached_data).unwrap_or_else(|_| serde_json::json!({
+            match _container
+                .kv_service()
+                .get(&format!("analytics:dashboard:{}", user_id))
+                .await
+            {
+                Ok(Some(cached_data)) => serde_json::from_str(&cached_data).unwrap_or_else(|_| {
+                    serde_json::json!({
                         "total_opportunities": 0,
                         "executed_trades": 0,
                         "total_pnl": 0.0,
                         "success_rate": 0.0,
                         "cached": true
-                    }))
-                }
+                    })
+                }),
                 _ => serde_json::json!({
                     "total_opportunities": 0,
                     "executed_trades": 0,
                     "total_pnl": 0.0,
                     "success_rate": 0.0,
                     "fallback": true
-                })
+                }),
             }
         }
     };
@@ -1513,16 +1500,17 @@ async fn handle_api_get_system_analytics(req: Request, env: Env) -> Result<Respo
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get system health and analytics
-    let health_status = container.health_check().await.unwrap_or_else(|_| {
+    let health_status = _container.health_check().await.unwrap_or_else(|_| {
         crate::services::core::infrastructure::service_container::ServiceHealthStatus {
             overall_healthy: false,
             session_service_healthy: false,
@@ -1564,16 +1552,17 @@ async fn handle_api_get_user_analytics(req: Request, env: Env) -> Result<Respons
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get user analytics from D1 with fallback to KV
-    let user_analytics = match container.d1_service().get_all_user_analytics().await {
+    let user_analytics = match _container.d1_service().get_all_user_analytics().await {
         Ok(data) => data,
         Err(_) => {
             // Fallback to aggregated KV data
@@ -1607,28 +1596,33 @@ async fn handle_api_get_performance_analytics(req: Request, env: Env) -> Result<
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get performance analytics with Pipelines fallback to KV
-    let performance_data = if let Some(pipelines_service) = container.pipelines_service() {
+    let performance_data = if let Some(pipelines_service) = _container.pipelines_service() {
         match pipelines_service.get_performance_analytics(&user_id).await {
             Ok(data) => data,
             Err(_) => {
                 // Fallback to KV cache
-                match container.kv_service().get(&format!("performance:{}", user_id)).await {
+                match _container
+                    .kv_service()
+                    .get(&format!("performance:{}", user_id))
+                    .await
+                {
                     Ok(Some(cached)) => serde_json::from_str(&cached).unwrap_or_default(),
                     _ => serde_json::json!({
                         "avg_execution_time": 0.0,
                         "success_rate": 0.0,
                         "total_volume": 0.0,
                         "fallback_mode": true
-                    })
+                    }),
                 }
             }
         }
@@ -1661,20 +1655,25 @@ async fn handle_api_get_user_specific_analytics(req: Request, env: Env) -> Resul
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get user-specific analytics from D1 with KV fallback
-    let user_analytics = match container.d1_service().get_user_analytics(&user_id).await {
+    let user_analytics = match _container.d1_service().get_user_analytics(&user_id).await {
         Ok(data) => data,
         Err(_) => {
             // Fallback to KV cache
-            match container.kv_service().get(&format!("user_analytics:{}", user_id)).await {
+            match _container
+                .kv_service()
+                .get(&format!("user_analytics:{}", user_id))
+                .await
+            {
                 Ok(Some(cached)) => serde_json::from_str(&cached).unwrap_or_default(),
                 _ => serde_json::json!({
                     "total_trades": 0,
@@ -1682,7 +1681,7 @@ async fn handle_api_get_user_specific_analytics(req: Request, env: Env) -> Resul
                     "win_rate": 0.0,
                     "avg_trade_size": 0.0,
                     "fallback_mode": true
-                })
+                }),
             }
         }
     };
@@ -1708,16 +1707,17 @@ async fn handle_api_admin_get_users(req: Request, env: Env) -> Result<Response> 
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get all users from D1 with pagination
-    let users = match container.d1_service().get_all_users().await {
+    let users = match _container.d1_service().get_all_users().await {
         Ok(users) => users,
         Err(e) => {
             let response = ApiResponse::<()>::error(format!("Failed to fetch users: {}", e));
@@ -1749,16 +1749,17 @@ async fn handle_api_admin_get_sessions(req: Request, env: Env) -> Result<Respons
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get active sessions from session service
-    let sessions = match container.session_service().get_all_active_sessions().await {
+    let sessions = match _container.session_service().get_all_active_sessions().await {
         Ok(sessions) => sessions,
         Err(e) => {
             let response = ApiResponse::<()>::error(format!("Failed to fetch sessions: {}", e));
@@ -1790,19 +1791,25 @@ async fn handle_api_admin_get_opportunities(req: Request, env: Env) -> Result<Re
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get all opportunities from distribution service
-    let opportunities = match container.distribution_service().get_all_opportunities().await {
+    let opportunities = match _container
+        .distribution_service()
+        .get_all_opportunities()
+        .await
+    {
         Ok(opps) => opps,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Failed to fetch opportunities: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Failed to fetch opportunities: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
@@ -1831,20 +1838,22 @@ async fn handle_api_admin_get_user_profiles(req: Request, env: Env) -> Result<Re
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get all user profiles if user profile service is available
-    let profiles = if let Some(user_profile_service) = container.user_profile_service() {
+    let profiles = if let Some(user_profile_service) = _container.user_profile_service() {
         match user_profile_service.get_all_user_profiles().await {
             Ok(profiles) => profiles,
             Err(e) => {
-                let response = ApiResponse::<()>::error(format!("Failed to fetch user profiles: {}", e));
+                let response =
+                    ApiResponse::<()>::error(format!("Failed to fetch user profiles: {}", e));
                 return Ok(Response::from_json(&response)?.with_status(500));
             }
         }
@@ -1954,16 +1963,17 @@ async fn handle_api_admin_invitations(req: Request, env: Env) -> Result<Response
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get invitation data from D1
-    let invitations = match container.d1_service().get_all_invitations().await {
+    let invitations = match _container.d1_service().get_all_invitations().await {
         Ok(invitations) => invitations,
         Err(e) => {
             let response = ApiResponse::<()>::error(format!("Failed to fetch invitations: {}", e));
@@ -1991,21 +2001,24 @@ async fn handle_api_get_trading_balance(req: Request, env: Env) -> Result<Respon
 
     // Check permissions - Premium tier and above for trading
     if !check_user_permissions(&user_id, "premium", &env).await? {
-        let response = ApiResponse::<()>::error("Premium subscription required for trading features".to_string());
+        let response = ApiResponse::<()>::error(
+            "Premium subscription required for trading features".to_string(),
+        );
         return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get user profile for balance information
-    let balance_info = if let Some(user_profile_service) = container.user_profile_service() {
+    let balance_info = if let Some(user_profile_service) = _container.user_profile_service() {
         match user_profile_service.get_user_profile(&user_id).await {
             Ok(Some(profile)) => serde_json::json!({
                 "total_balance_usdt": profile.account_balance_usdt,
@@ -2019,7 +2032,7 @@ async fn handle_api_get_trading_balance(req: Request, env: Env) -> Result<Respon
                 "reserved_balance": 0.0,
                 "currency": "USDT",
                 "error": "Profile not found"
-            })
+            }),
         }
     } else {
         serde_json::json!({
@@ -2051,16 +2064,17 @@ async fn handle_api_get_trading_markets(req: Request, env: Env) -> Result<Respon
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get markets from exchange service
-    let markets = match container.exchange_service().get_markets("binance").await {
+    let markets = match _container.exchange_service().get_markets("binance").await {
         Ok(markets) => markets,
         Err(e) => {
             let response = ApiResponse::<()>::error(format!("Failed to fetch markets: {}", e));
@@ -2093,19 +2107,28 @@ async fn handle_api_get_trading_opportunities(req: Request, env: Env) -> Result<
     }
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
 
     // Get trading opportunities from distribution service
-    let opportunities = match container.distribution_service().get_user_opportunities(&user_id).await {
-        Ok(opps) => opps.into_iter().filter(|opp| opp.rate_difference > 0.005).collect::<Vec<_>>(), // Filter for trading-worthy opportunities
+    let opportunities = match _container
+        .distribution_service()
+        .get_user_opportunities(&user_id)
+        .await
+    {
+        Ok(opps) => opps
+            .into_iter()
+            .filter(|opp| opp.rate_difference > 0.005)
+            .collect::<Vec<_>>(), // Filter for trading-worthy opportunities
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Failed to fetch trading opportunities: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Failed to fetch trading opportunities: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
@@ -2131,17 +2154,19 @@ async fn handle_api_ai_analyze(mut req: Request, env: Env) -> Result<Response> {
 
     // Check permissions - Premium tier and above for AI features
     if !check_user_permissions(&user_id, "premium", &env).await? {
-        let response = ApiResponse::<()>::error("Premium subscription required for AI features".to_string());
+        let response =
+            ApiResponse::<()>::error("Premium subscription required for AI features".to_string());
         return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let analysis_request: serde_json::Value = req.json().await?;
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
@@ -2162,13 +2187,17 @@ async fn handle_api_ai_analyze(mut req: Request, env: Env) -> Result<Response> {
     });
 
     // Store analysis in D1 for audit trail
-    if let Err(e) = container.d1_service().store_ai_analysis_audit(
-        &user_id,
-        "market_analysis",
-        &analysis_request,
-        &analysis_result,
-        150
-    ).await {
+    if let Err(e) = _container
+        .d1_service()
+        .store_ai_analysis_audit(
+            &user_id,
+            "market_analysis",
+            &analysis_request,
+            &analysis_result,
+            150,
+        )
+        .await
+    {
         worker::console_log!("Failed to store AI analysis audit: {}", e);
     }
 
@@ -2187,17 +2216,20 @@ async fn handle_api_ai_risk_assessment(mut req: Request, env: Env) -> Result<Res
 
     // Check permissions - Premium tier and above
     if !check_user_permissions(&user_id, "premium", &env).await? {
-        let response = ApiResponse::<()>::error("Premium subscription required for AI risk assessment".to_string());
+        let response = ApiResponse::<()>::error(
+            "Premium subscription required for AI risk assessment".to_string(),
+        );
         return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let risk_request: serde_json::Value = req.json().await?;
 
     // Get service container
-    let container = match get_service_container(&env).await {
+    let _container = match get_service_container(&env).await {
         Ok(container) => container,
         Err(e) => {
-            let response = ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
+            let response =
+                ApiResponse::<()>::error(format!("Service initialization failed: {}", e));
             return Ok(Response::from_json(&response)?.with_status(500));
         }
     };
@@ -2226,13 +2258,17 @@ async fn handle_api_ai_risk_assessment(mut req: Request, env: Env) -> Result<Res
     });
 
     // Store risk assessment in D1 for audit trail
-    if let Err(e) = container.d1_service().store_ai_analysis_audit(
-        &user_id,
-        "risk_assessment",
-        &risk_request,
-        &risk_assessment,
-        120
-    ).await {
+    if let Err(e) = _container
+        .d1_service()
+        .store_ai_analysis_audit(
+            &user_id,
+            "risk_assessment",
+            &risk_request,
+            &risk_assessment,
+            120,
+        )
+        .await
+    {
         worker::console_log!("Failed to store risk assessment audit: {}", e);
     }
 

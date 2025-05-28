@@ -3279,8 +3279,10 @@ impl D1Service {
             WHERE ta.user_id = ?1
         "#;
 
-        let rows = self.query(query, &[serde_json::Value::String(user_id.to_string())]).await?;
-        
+        let rows = self
+            .query(query, &[serde_json::Value::String(user_id.to_string())])
+            .await?;
+
         if let Some(row) = rows.first() {
             Ok(serde_json::json!({
                 "total_trades": row.get("total_trades").unwrap_or(&"0".to_string()).parse::<i64>().unwrap_or(0),
@@ -3316,7 +3318,7 @@ impl D1Service {
         "#;
 
         let rows = self.query(query, &[]).await?;
-        
+
         if let Some(row) = rows.first() {
             Ok(serde_json::json!({
                 "total_users": row.get("total_users").unwrap_or(&"0".to_string()).parse::<i64>().unwrap_or(0),
@@ -3357,7 +3359,7 @@ impl D1Service {
         "#;
 
         let rows = self.query(query, &[]).await?;
-        
+
         let users: Vec<serde_json::Value> = rows.into_iter().map(|row| {
             serde_json::json!({
                 "user_id": row.get("user_id").unwrap_or(&"".to_string()),
@@ -3392,7 +3394,7 @@ impl D1Service {
         "#;
 
         let rows = self.query(query, &[]).await?;
-        
+
         let invitations: Vec<serde_json::Value> = rows.into_iter().map(|row| {
             serde_json::json!({
                 "code": row.get("code").unwrap_or(&"".to_string()),

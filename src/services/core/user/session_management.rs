@@ -395,10 +395,7 @@ impl SessionManagementService {
 
         match result {
             Some(row) => {
-                let count = row
-                    .get("count")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
+                let count = row.get("count").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                 Ok(count)
             }
             None => Ok(0),
@@ -419,18 +416,21 @@ impl SessionManagementService {
 
         let rows = self.d1_service.query(query, &[]).await.unwrap_or_default();
 
-        let sessions: Vec<serde_json::Value> = rows.into_iter().map(|row| {
-            serde_json::json!({
-                "user_id": row.get("user_id").unwrap_or(&"".to_string()),
-                "telegram_id": row.get("telegram_id").unwrap_or(&"0".to_string()),
-                "session_state": row.get("session_state").unwrap_or(&"unknown".to_string()),
-                "created_at": row.get("created_at").unwrap_or(&"".to_string()),
-                "last_activity": row.get("last_activity").unwrap_or(&"".to_string()),
-                "expires_at": row.get("expires_at").unwrap_or(&"".to_string()),
-                "activity_count": row.get("activity_count").unwrap_or(&"0".to_string()),
-                "context": row.get("context").unwrap_or(&"{}".to_string())
+        let sessions: Vec<serde_json::Value> = rows
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "user_id": row.get("user_id").unwrap_or(&"".to_string()),
+                    "telegram_id": row.get("telegram_id").unwrap_or(&"0".to_string()),
+                    "session_state": row.get("session_state").unwrap_or(&"unknown".to_string()),
+                    "created_at": row.get("created_at").unwrap_or(&"".to_string()),
+                    "last_activity": row.get("last_activity").unwrap_or(&"".to_string()),
+                    "expires_at": row.get("expires_at").unwrap_or(&"".to_string()),
+                    "activity_count": row.get("activity_count").unwrap_or(&"0".to_string()),
+                    "context": row.get("context").unwrap_or(&"{}".to_string())
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(sessions)
     }

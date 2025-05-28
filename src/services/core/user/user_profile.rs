@@ -439,6 +439,7 @@ impl UserProfileService {
         Ok(())
     }
 
+    #[allow(dead_code)]
     async fn get_invitation_code_from_cache(
         &self,
         code: &str,

@@ -205,12 +205,15 @@ impl ExchangeService {
     #[allow(clippy::result_large_err)]
     pub fn new(env: &Env) -> ArbitrageResult<Self> {
         // Try ARBITRAGE_KV first, then fallback to ArbEdgeKV
-        let kv = env.worker_env.kv("ARBITRAGE_KV")
+        let kv = env
+            .worker_env
+            .kv("ARBITRAGE_KV")
             .or_else(|_| env.worker_env.kv("ArbEdgeKV"))
             .map_err(|e| {
-                ArbitrageError::internal_error(
-                    format!("Failed to get KV store: Neither ARBITRAGE_KV nor ArbEdgeKV binding found: {}", e)
-                )
+                ArbitrageError::internal_error(format!(
+                    "Failed to get KV store: Neither ARBITRAGE_KV nor ArbEdgeKV binding found: {}",
+                    e
+                ))
             })?;
 
         let client = Client::new();
@@ -491,32 +494,35 @@ impl ExchangeService {
         let mut last_error = None;
 
         for attempt in 0..=max_retries {
-            match self.binance_futures_request_single(endpoint, method.clone(), params.clone(), auth).await {
+            match self
+                .binance_futures_request_single(endpoint, method.clone(), params.clone(), auth)
+                .await
+            {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     last_error = Some(e.clone());
-                    
+
                     if attempt < max_retries {
                         // Check if we should retry based on error type
                         let should_retry = match &e.kind {
                             crate::utils::error::ErrorKind::NetworkError => true,
                             crate::utils::error::ErrorKind::ExchangeError => {
                                 // Retry on rate limits and temporary server errors
-                                e.message.contains("rate limit") || 
-                                e.message.contains("503") || 
-                                e.message.contains("502") ||
-                                e.message.contains("timeout")
-                            },
+                                e.message.contains("rate limit")
+                                    || e.message.contains("503")
+                                    || e.message.contains("502")
+                                    || e.message.contains("timeout")
+                            }
                             _ => false,
                         };
 
                         if should_retry {
                             let delay = std::cmp::min(1000 * (2_u64.pow(attempt)), 10000); // Exponential backoff, max 10s
                             console_log!("Binance Futures API request failed (attempt {}), retrying in {}ms: {}", attempt + 1, delay, e.message);
-                            
+
                             #[cfg(not(target_arch = "wasm32"))]
                             sleep(Duration::from_millis(delay)).await;
-                            
+
                             #[cfg(target_arch = "wasm32")]
                             {
                                 // For WASM, we can't sleep, so just continue
@@ -531,7 +537,9 @@ impl ExchangeService {
         }
 
         Err(last_error.unwrap_or_else(|| {
-            ArbitrageError::network_error("All Binance Futures API retry attempts failed".to_string())
+            ArbitrageError::network_error(
+                "All Binance Futures API retry attempts failed".to_string(),
+            )
         }))
     }
 
@@ -570,7 +578,7 @@ impl ExchangeService {
 
             // Create query string for signature
             let query_string = query_params.join("&");
-            
+
             // Create signature
             let signature = self.create_hmac_signature(&query_string, &credentials.secret)?;
             query_params.push(format!("signature={}", signature));
@@ -604,7 +612,7 @@ impl ExchangeService {
         if !status.is_success() {
             return Err(ArbitrageError::exchange_error(
                 "binance_futures",
-                format!("Binance Futures API error ({}): {}", status, response_text)
+                format!("Binance Futures API error ({}): {}", status, response_text),
             ));
         }
 
@@ -1271,7 +1279,12 @@ impl ExchangeInterface for ExchangeService {
 
                 // Use Binance Futures API for funding rates
                 let response = self
-                    .binance_futures_request("/fapi/v1/premiumIndex", Method::GET, Some(params), None)
+                    .binance_futures_request(
+                        "/fapi/v1/premiumIndex",
+                        Method::GET,
+                        Some(params),
+                        None,
+                    )
                     .await?;
 
                 if response.is_array() {
