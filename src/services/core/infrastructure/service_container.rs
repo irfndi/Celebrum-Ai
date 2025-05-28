@@ -106,18 +106,29 @@ impl ServiceContainer {
             Ok(service) => {
                 let arc_service = Arc::new(service);
 
-                // Set vectorize service in distribution service if available
-                if let Ok(vectorize_service) = Arc::try_unwrap(arc_service.clone()) {
-                    self.distribution_service
-                        .set_vectorize_service(vectorize_service);
-                    self.vectorize_service = Some(arc_service);
-                } else {
-                    // If we can't unwrap, create a new instance for distribution service
-                    if let Ok(dist_service) = VectorizeService::new(env, vectorize_config.clone()) {
+                // Try to unwrap the original Arc to set in distribution service
+                // If successful, we'll create a new Arc for self.vectorize_service
+                match Arc::try_unwrap(arc_service) {
+                    Ok(vectorize_service) => {
+                        // Successfully unwrapped - set in distribution service and create new Arc
                         self.distribution_service
-                            .set_vectorize_service(dist_service);
+                            .set_vectorize_service(vectorize_service);
+                        
+                        // Create a new instance for our Arc storage
+                        if let Ok(new_service) = VectorizeService::new(env, vectorize_config) {
+                            self.vectorize_service = Some(Arc::new(new_service));
+                        } else {
+                            self.vectorize_service = None;
+                        }
                     }
-                    self.vectorize_service = Some(arc_service);
+                    Err(arc_service) => {
+                        // Couldn't unwrap (shouldn't happen with new Arc), store the Arc and create separate instance
+                        if let Ok(dist_service) = VectorizeService::new(env, vectorize_config) {
+                            self.distribution_service
+                                .set_vectorize_service(dist_service);
+                        }
+                        self.vectorize_service = Some(arc_service);
+                    }
                 }
             }
             Err(e) => {
@@ -237,13 +248,29 @@ impl ServiceContainer {
             }
         }
 
-        // Check exchange service health (test with a simple market request)
-        match self.exchange_service.get_markets("binance").await {
-            Ok(_) => status.exchange_service_healthy = true,
-            Err(e) => {
-                status.exchange_service_healthy = false;
-                status.errors.push(format!("Exchange service error: {}", e));
+        // Check exchange service health (try multiple exchanges for robustness)
+        let supported_exchanges = ["binance", "bybit"];
+        let mut exchange_healthy = false;
+        let mut exchange_errors = Vec::new();
+        
+        for exchange in &supported_exchanges {
+            match self.exchange_service.get_markets(exchange).await {
+                Ok(_) => {
+                    exchange_healthy = true;
+                    break; // If any exchange works, consider service healthy
+                }
+                Err(e) => {
+                    exchange_errors.push(format!("{}: {}", exchange, e));
+                }
             }
+        }
+        
+        status.exchange_service_healthy = exchange_healthy;
+        if !exchange_healthy {
+            status.errors.push(format!(
+                "Exchange service error - all exchanges failed: [{}]", 
+                exchange_errors.join(", ")
+            ));
         }
 
         // Check Telegram service health

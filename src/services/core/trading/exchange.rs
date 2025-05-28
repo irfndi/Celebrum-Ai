@@ -1,23 +1,22 @@
 // src/services/exchange.rs
 
 use chrono::Utc;
+use hmac::{Hmac, Mac};
 use reqwest::{Client, Method};
 use serde_json::{json, Value};
+use sha2::Sha256;
 use std::collections::HashMap;
 use worker::console_log;
 
 use crate::services::core::user::user_profile::UserProfileService;
-use crate::types::*;
+use crate::types::{
+    AssetBalance, CommandPermission, ExchangeBalance, ExchangeCredentials, ExchangeIdEnum, Limits, Market, MinMax,
+    OrderBook, Precision, Ticker,
+};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 
 // Exchange authentication helper
 use hex;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-
-// For async sleep functionality
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::time::{sleep, Duration};
 
 pub trait ExchangeInterface {
     #[allow(async_fn_in_trait)]
@@ -203,7 +202,7 @@ pub struct ExchangeService {
 
 impl ExchangeService {
     #[allow(clippy::result_large_err)]
-    pub fn new(env: &Env) -> ArbitrageResult<Self> {
+    pub fn new(env: &crate::types::Env) -> ArbitrageResult<Self> {
         // Try ARBITRAGE_KV first, then fallback to ArbEdgeKV
         let kv = env
             .worker_env
@@ -348,9 +347,8 @@ impl ExchangeService {
                 .as_u64()
                 .and_then(|ts| chrono::DateTime::from_timestamp((ts / 1000) as i64, 0));
 
-            let mark_price = rate_data["markPrice"]
-                .as_str()
-                .and_then(|s| s.parse::<f64>().ok());
+            // Note: Binance funding rate API doesn't provide markPrice field
+            // Only returns symbol, fundingRate, and fundingTime
 
             Ok(crate::types::FundingRateInfo {
                 symbol: symbol.to_string(),
@@ -358,7 +356,7 @@ impl ExchangeService {
                 timestamp: Some(chrono::Utc::now()),
                 datetime: Some(chrono::Utc::now().to_rfc3339()),
                 next_funding_time: funding_time,
-                estimated_rate: mark_price,
+                estimated_rate: None, // Not available in Binance funding rate API
             })
         } else {
             Err(ArbitrageError::not_found(format!(
@@ -491,56 +489,12 @@ impl ExchangeService {
         auth: Option<&ExchangeCredentials>,
         max_retries: u32,
     ) -> ArbitrageResult<Value> {
-        let mut last_error = None;
-
-        for attempt in 0..=max_retries {
-            match self
-                .binance_futures_request_single(endpoint, method.clone(), params.clone(), auth)
-                .await
-            {
-                Ok(response) => return Ok(response),
-                Err(e) => {
-                    last_error = Some(e.clone());
-
-                    if attempt < max_retries {
-                        // Check if we should retry based on error type
-                        let should_retry = match &e.kind {
-                            crate::utils::error::ErrorKind::NetworkError => true,
-                            crate::utils::error::ErrorKind::ExchangeError => {
-                                // Retry on rate limits and temporary server errors
-                                e.message.contains("rate limit")
-                                    || e.message.contains("503")
-                                    || e.message.contains("502")
-                                    || e.message.contains("timeout")
-                            }
-                            _ => false,
-                        };
-
-                        if should_retry {
-                            let delay = std::cmp::min(1000 * (2_u64.pow(attempt)), 10000); // Exponential backoff, max 10s
-                            console_log!("Binance Futures API request failed (attempt {}), retrying in {}ms: {}", attempt + 1, delay, e.message);
-
-                            #[cfg(not(target_arch = "wasm32"))]
-                            sleep(Duration::from_millis(delay)).await;
-
-                            #[cfg(target_arch = "wasm32")]
-                            {
-                                // For WASM, we can't sleep, so just continue
-                                console_log!("WASM environment: skipping sleep, immediate retry");
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        Err(last_error.unwrap_or_else(|| {
-            ArbitrageError::network_error(
-                "All Binance Futures API retry attempts failed".to_string(),
-            )
-        }))
+        self.retry_with_backoff(
+            || self.binance_futures_request_single(endpoint, method.clone(), params.clone(), auth),
+            max_retries,
+            "Binance Futures API request",
+        )
+        .await
     }
 
     async fn binance_futures_request_single(
@@ -933,20 +887,128 @@ impl ExchangeService {
     fn create_hmac_signature(&self, message: &str, secret: &str) -> ArbitrageResult<String> {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
-
         type HmacSha256 = Hmac<Sha256>;
 
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| ArbitrageError::validation_error(format!("Invalid secret key: {}", e)))?;
-
+            .map_err(|e| ArbitrageError::authentication_error(format!("Invalid secret: {}", e)))?;
         mac.update(message.as_bytes());
         let result = mac.finalize();
-        let signature = {
-            use base64::{prelude::BASE64_STANDARD, Engine};
-            BASE64_STANDARD.encode(result.into_bytes())
-        };
+        Ok(hex::encode(result.into_bytes()))
+    }
 
-        Ok(signature)
+    /// Generic retry function with exponential backoff
+    async fn retry_with_backoff<F, Fut, T>(
+        &self,
+        operation: F,
+        max_retries: u32,
+        operation_name: &str,
+    ) -> ArbitrageResult<T>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = ArbitrageResult<T>>,
+    {
+        let mut last_error = None;
+
+        for attempt in 0..=max_retries {
+            match operation().await {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    last_error = Some(e.clone());
+
+                    if attempt < max_retries {
+                        let should_retry = self.should_retry_error(&e);
+                        
+                        if should_retry {
+                            let delay = self.calculate_retry_delay(&e, attempt);
+                            console_log!("{} failed (attempt {}), retrying in {}ms: {}", 
+                                operation_name, attempt + 1, delay, e.message);
+
+                            self.async_delay(delay).await;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            ArbitrageError::network_error(format!("All {} retry attempts failed", operation_name))
+        }))
+    }
+
+    /// Determine if an error should trigger a retry
+    fn should_retry_error(&self, error: &ArbitrageError) -> bool {
+        match error.status {
+            Some(429) | Some(418) | Some(403) => true, // Rate limit, IP ban, WAF limit
+            _ => match &error.kind {
+                crate::utils::error::ErrorKind::NetworkError => true,
+                crate::utils::error::ErrorKind::ExchangeError => {
+                    error.message.contains("rate limit")
+                        || error.message.contains("503")
+                        || error.message.contains("502")
+                        || error.message.contains("timeout")
+                }
+                _ => false,
+            }
+        }
+    }
+
+    /// Calculate retry delay based on error type and attempt number
+    fn calculate_retry_delay(&self, error: &ArbitrageError, attempt: u32) -> u64 {
+        use rand::Rng;
+        
+        let base_delay = match error.status {
+            Some(429) => {
+                // Rate limit - extract retry-after header if available
+                self.extract_retry_after_from_error(error).unwrap_or(60) * 1000
+            }
+            Some(418) => {
+                // IP ban - longer wait time
+                self.extract_retry_after_from_error(error).unwrap_or(300) * 1000
+            }
+            Some(403) => {
+                // WAF limit - exponential backoff with jitter
+                let base = 30 * (attempt + 1) as u64 * 1000;
+                let jitter = rand::thread_rng().gen_range(0..=base / 4); // 0-25% jitter
+                base + jitter
+            }
+            _ => {
+                // General exponential backoff with overflow protection and jitter
+                // Cap the exponent to prevent overflow (2^10 = 1024, so max ~1 second base)
+                let capped_attempt = std::cmp::min(attempt, 10);
+                let base_delay = 1000 * (2_u64.pow(capped_attempt));
+                let max_delay = 10000; // 10 seconds max
+                let delay_without_jitter = std::cmp::min(base_delay, max_delay);
+                
+                // Add jitter (±25% of the delay)
+                let jitter_range = delay_without_jitter / 4;
+                let jitter = rand::thread_rng().gen_range(0..=jitter_range * 2);
+                let jitter_offset = jitter.saturating_sub(jitter_range); // Can be negative
+                
+                delay_without_jitter.saturating_add(jitter_offset)
+            }
+        };
+        
+        // Ensure minimum delay of 100ms and maximum of 5 minutes
+        std::cmp::max(100, std::cmp::min(base_delay, 300_000))
+    }
+
+    /// Cross-platform async delay
+    async fn async_delay(&self, delay_ms: u64) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use tokio::time::{sleep, Duration};
+            sleep(Duration::from_millis(delay_ms)).await;
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Use gloo-timers for non-blocking async delay in WASM
+            use gloo_timers::future::TimeoutFuture;
+            use std::time::Duration;
+            TimeoutFuture::new(delay_ms as u32).await;
+        }
     }
 
     async fn binance_request_with_retry(
@@ -957,102 +1019,12 @@ impl ExchangeService {
         auth: Option<&ExchangeCredentials>,
         max_retries: u32,
     ) -> ArbitrageResult<Value> {
-        let mut retry_count = 0;
-
-        loop {
-            match self
-                .binance_request_single(endpoint, method.clone(), params.clone(), auth)
-                .await
-            {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    // Check if this is a rate limit or IP ban error
-                    let should_retry = match e.status {
-                        Some(429) => {
-                            // Rate limit - extract retry-after header if available
-                            let retry_after = self.extract_retry_after_from_error(&e).unwrap_or(60);
-                            if retry_count < max_retries {
-                                console_log!("Binance rate limit hit (429), retrying in {} seconds. Attempt {}/{}", retry_after, retry_count + 1, max_retries);
-                                #[cfg(not(target_arch = "wasm32"))]
-                                sleep(Duration::from_secs(retry_after)).await;
-                                #[cfg(target_arch = "wasm32")]
-                                {
-                                    // For WASM, use a simple delay mechanism
-                                    let start =
-                                        web_sys::window().unwrap().performance().unwrap().now();
-                                    while web_sys::window().unwrap().performance().unwrap().now()
-                                        - start
-                                        < (retry_after * 1000) as f64
-                                    {
-                                        // Busy wait - not ideal but works for WASM
-                                    }
-                                }
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        Some(418) => {
-                            // IP ban - longer wait time
-                            let retry_after =
-                                self.extract_retry_after_from_error(&e).unwrap_or(300); // Default 5 minutes
-                            if retry_count < max_retries {
-                                console_log!("Binance IP ban detected (418), retrying in {} seconds. Attempt {}/{}", retry_after, retry_count + 1, max_retries);
-                                #[cfg(not(target_arch = "wasm32"))]
-                                sleep(Duration::from_secs(retry_after)).await;
-                                #[cfg(target_arch = "wasm32")]
-                                {
-                                    // For WASM, use a simple delay mechanism
-                                    let start =
-                                        web_sys::window().unwrap().performance().unwrap().now();
-                                    while web_sys::window().unwrap().performance().unwrap().now()
-                                        - start
-                                        < (retry_after * 1000) as f64
-                                    {
-                                        // Busy wait - not ideal but works for WASM
-                                    }
-                                }
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        Some(403) => {
-                            // WAF limit - moderate wait time
-                            if retry_count < max_retries {
-                                let wait_time = 30 * (retry_count + 1) as u64; // Exponential backoff
-                                console_log!("Binance WAF limit hit (403), retrying in {} seconds. Attempt {}/{}", wait_time, retry_count + 1, max_retries);
-                                #[cfg(not(target_arch = "wasm32"))]
-                                sleep(Duration::from_secs(wait_time)).await;
-                                #[cfg(target_arch = "wasm32")]
-                                {
-                                    // For WASM, use a simple delay mechanism
-                                    let start =
-                                        web_sys::window().unwrap().performance().unwrap().now();
-                                    while web_sys::window().unwrap().performance().unwrap().now()
-                                        - start
-                                        < (wait_time * 1000) as f64
-                                    {
-                                        // Busy wait - not ideal but works for WASM
-                                    }
-                                }
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        _ => false,
-                    };
-
-                    if should_retry {
-                        retry_count += 1;
-                        continue;
-                    } else {
-                        return Err(e);
-                    }
-                }
-            }
-        }
+        self.retry_with_backoff(
+            || self.binance_request_single(endpoint, method.clone(), params.clone(), auth),
+            max_retries,
+            "Binance API request",
+        )
+        .await
     }
 }
 
