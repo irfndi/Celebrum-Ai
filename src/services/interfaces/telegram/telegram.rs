@@ -520,7 +520,10 @@ impl TelegramService {
     }
 
     /// Set the GlobalOpportunity service for opportunity management
-    pub fn set_global_opportunity_service(&mut self, global_opportunity_service: GlobalOpportunityService) {
+    pub fn set_global_opportunity_service(
+        &mut self,
+        global_opportunity_service: GlobalOpportunityService,
+    ) {
         self.global_opportunity_service = Some(global_opportunity_service);
     }
 
@@ -540,12 +543,18 @@ impl TelegramService {
     }
 
     /// Set the TechnicalAnalysis service for technical analysis
-    pub fn set_technical_analysis_service(&mut self, technical_analysis_service: TechnicalAnalysisService) {
+    pub fn set_technical_analysis_service(
+        &mut self,
+        technical_analysis_service: TechnicalAnalysisService,
+    ) {
         self.technical_analysis_service = Some(technical_analysis_service);
     }
 
     /// Set the UserTradingPreferences service for user preferences
-    pub fn set_user_trading_preferences_service(&mut self, user_trading_preferences_service: UserTradingPreferencesService) {
+    pub fn set_user_trading_preferences_service(
+        &mut self,
+        user_trading_preferences_service: UserTradingPreferencesService,
+    ) {
         self.user_trading_preferences_service = Some(user_trading_preferences_service);
     }
 

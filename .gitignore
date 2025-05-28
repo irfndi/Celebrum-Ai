@@ -44,3 +44,5 @@ target/
 
 .wrangler/
 tarpaulin-report.html
+
+*.env

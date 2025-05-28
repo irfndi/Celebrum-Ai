@@ -405,7 +405,9 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
                     console_log!("✅ D1Service set on TelegramService successfully");
 
                     // Initialize UserProfileService for RBAC if encryption key is available
-                    let user_profile_service_available = if let Ok(encryption_key) = env.var("ENCRYPTION_KEY") {
+                    let user_profile_service_available = if let Ok(encryption_key) =
+                        env.var("ENCRYPTION_KEY")
+                    {
                         console_log!(
                             "✅ ENCRYPTION_KEY found, initializing UserProfileService for RBAC"
                         );
@@ -423,15 +425,17 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
                     };
 
                     // Initialize UserTradingPreferencesService first (needed by other services)
-                    let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
+                    let logger =
+                        crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
                     let user_trading_preferences_service = services::core::user::user_trading_preferences::UserTradingPreferencesService::new(
                         d1_service.clone(),
                         logger,
                     );
-                    telegram_service.set_user_trading_preferences_service(user_trading_preferences_service);
+                    telegram_service
+                        .set_user_trading_preferences_service(user_trading_preferences_service);
                     console_log!("✅ UserTradingPreferencesService initialized successfully");
 
-                                        // Initialize ExchangeService (needed by GlobalOpportunityService)
+                    // Initialize ExchangeService (needed by GlobalOpportunityService)
                     let custom_env = types::Env::new(env.clone());
                     match services::core::trading::exchange::ExchangeService::new(&custom_env) {
                         Ok(exchange_service) => {
@@ -447,32 +451,39 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
                             }
                         }
                         Err(e) => {
-                            console_log!("⚠️ Failed to initialize ExchangeService: {} (will use fallback)", e);
+                            console_log!(
+                                "⚠️ Failed to initialize ExchangeService: {} (will use fallback)",
+                                e
+                            );
                         }
                     }
 
                     // Initialize OpportunityDistributionService
-                    let session_management_service_clone = services::core::user::session_management::SessionManagementService::new(
-                        d1_service.clone(),
-                        kv_service.clone(),
-                    );
+                    let session_management_service_clone =
+                        services::core::user::session_management::SessionManagementService::new(
+                            d1_service.clone(),
+                            kv_service.clone(),
+                        );
                     let opportunity_distribution_service = services::core::opportunities::opportunity_distribution::OpportunityDistributionService::new(
                         d1_service.clone(),
                         kv_service.clone(),
                         session_management_service_clone,
                     );
-                    telegram_service.set_opportunity_distribution_service(opportunity_distribution_service);
+                    telegram_service
+                        .set_opportunity_distribution_service(opportunity_distribution_service);
                     console_log!("✅ OpportunityDistributionService initialized successfully");
 
                     // Initialize AiIntegrationService if API keys are available
                     if let Ok(encryption_key) = env.var("ENCRYPTION_KEY") {
                         console_log!("✅ ENCRYPTION_KEY found, initializing AiIntegrationService");
-                        let ai_config = services::core::ai::ai_integration::AiIntegrationConfig::default();
-                        let ai_integration_service = services::core::ai::ai_integration::AiIntegrationService::new(
-                            ai_config,
-                            kv_store.clone(),
-                            encryption_key.to_string(),
-                        );
+                        let ai_config =
+                            services::core::ai::ai_integration::AiIntegrationConfig::default();
+                        let ai_integration_service =
+                            services::core::ai::ai_integration::AiIntegrationService::new(
+                                ai_config,
+                                kv_store.clone(),
+                                encryption_key.to_string(),
+                            );
                         telegram_service.set_ai_integration_service(ai_integration_service);
                         console_log!("✅ AiIntegrationService initialized successfully");
                     } else {
@@ -480,27 +491,32 @@ async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response>
                     }
 
                     // Initialize MarketAnalysisService (create new UserTradingPreferencesService instance)
-                    let logger_for_market = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
+                    let logger_for_market =
+                        crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
                     let user_trading_preferences_service_for_market = services::core::user::user_trading_preferences::UserTradingPreferencesService::new(
                         d1_service.clone(),
                         logger_for_market,
                     );
-                    let logger_for_market_analysis = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-                    let market_analysis_service = services::core::analysis::market_analysis::MarketAnalysisService::new(
-                        d1_service.clone(),
-                        user_trading_preferences_service_for_market,
-                        logger_for_market_analysis,
-                    );
+                    let logger_for_market_analysis =
+                        crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
+                    let market_analysis_service =
+                        services::core::analysis::market_analysis::MarketAnalysisService::new(
+                            d1_service.clone(),
+                            user_trading_preferences_service_for_market,
+                            logger_for_market_analysis,
+                        );
                     telegram_service.set_market_analysis_service(market_analysis_service);
                     console_log!("✅ MarketAnalysisService initialized successfully");
 
                     // Initialize TechnicalAnalysisService
                     let technical_analysis_config = services::core::analysis::technical_analysis::TechnicalAnalysisConfig::default();
-                    let logger_for_technical = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-                    let technical_analysis_service = services::core::analysis::technical_analysis::TechnicalAnalysisService::new(
-                        technical_analysis_config,
-                        logger_for_technical,
-                    );
+                    let logger_for_technical =
+                        crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
+                    let technical_analysis_service =
+                        services::core::analysis::technical_analysis::TechnicalAnalysisService::new(
+                            technical_analysis_config,
+                            logger_for_technical,
+                        );
                     telegram_service.set_technical_analysis_service(technical_analysis_service);
                     console_log!("✅ TechnicalAnalysisService initialized successfully");
                 }
