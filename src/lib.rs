@@ -5,6 +5,7 @@ pub mod services;
 pub mod types;
 pub mod utils;
 
+use once_cell::sync::OnceCell;
 use serde_json::json;
 use services::core::infrastructure::d1_database::D1Service;
 use services::core::infrastructure::service_container::ServiceContainer;
@@ -21,45 +22,48 @@ use types::{AccountInfo, ExchangeIdEnum, StructuredTradingPair};
 use utils::{ArbitrageError, ArbitrageResult};
 use uuid::Uuid;
 
-// Global service container - initialized once per worker instance
-static mut GLOBAL_SERVICE_CONTAINER: Option<Arc<ServiceContainer>> = None;
+// Thread-safe global service container - initialized once per worker instance
+static GLOBAL_SERVICE_CONTAINER: OnceCell<Arc<ServiceContainer>> = OnceCell::new();
 
 /// Get or initialize the global service container
 async fn get_service_container(env: &Env) -> Result<Arc<ServiceContainer>> {
-    unsafe {
-        let container_ptr = &raw const GLOBAL_SERVICE_CONTAINER;
-        if !container_ptr.is_null() {
-            if let Some(container) = &*container_ptr {
-                return Ok(container.clone());
-            }
+    // Try to get existing container first
+    if let Some(container) = GLOBAL_SERVICE_CONTAINER.get() {
+        return Ok(container.clone());
+    }
+
+    // Initialize service container
+    let kv_store = env.kv("ArbEdgeKV")?;
+    let mut container = ServiceContainer::new(env, kv_store).map_err(|e| {
+        worker::Error::RustError(format!("Failed to create service container: {}", e))
+    })?;
+
+    // Set up Telegram service if available
+    if let Ok(bot_token) = env.var("TELEGRAM_BOT_TOKEN") {
+        let telegram_service = services::interfaces::telegram::telegram::TelegramService::new(
+            services::interfaces::telegram::telegram::TelegramConfig {
+                bot_token: bot_token.to_string(),
+                chat_id: "0".to_string(),
+                is_test_mode: false,
+            },
+        );
+        container.set_telegram_service(telegram_service);
+    }
+
+    // Set up user profile service if encryption key is available
+    if let Ok(encryption_key) = env.var("ENCRYPTION_KEY") {
+        container.set_user_profile_service(encryption_key.to_string());
+    }
+
+    let container_arc = Arc::new(container);
+    
+    // Try to set the global container, but if another thread beat us to it, use theirs
+    match GLOBAL_SERVICE_CONTAINER.set(container_arc.clone()) {
+        Ok(()) => Ok(container_arc),
+        Err(_) => {
+            // Another thread initialized it first, use that one
+            Ok(GLOBAL_SERVICE_CONTAINER.get().unwrap().clone())
         }
-
-        // Initialize service container
-        let kv_store = env.kv("ArbEdgeKV")?;
-        let mut container = ServiceContainer::new(env, kv_store).map_err(|e| {
-            worker::Error::RustError(format!("Failed to create service container: {}", e))
-        })?;
-
-        // Set up Telegram service if available
-        if let Ok(bot_token) = env.var("TELEGRAM_BOT_TOKEN") {
-            let telegram_service = services::interfaces::telegram::telegram::TelegramService::new(
-                services::interfaces::telegram::telegram::TelegramConfig {
-                    bot_token: bot_token.to_string(),
-                    chat_id: "0".to_string(),
-                    is_test_mode: false,
-                },
-            );
-            container.set_telegram_service(telegram_service);
-        }
-
-        // Set up user profile service if encryption key is available
-        if let Ok(encryption_key) = env.var("ENCRYPTION_KEY") {
-            container.set_user_profile_service(encryption_key.to_string());
-        }
-
-        let container_arc = Arc::new(container);
-        GLOBAL_SERVICE_CONTAINER = Some(container_arc.clone());
-        Ok(container_arc)
     }
 }
 
@@ -646,13 +650,14 @@ async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> 
         Err(e) => return Response::error(format!("D1 database initialization failed: {}", e), 500),
     };
 
-    // Handle missing ENCRYPTION_KEY gracefully
+    // Handle missing ENCRYPTION_KEY - fail immediately for security
     let encryption_key = match env.var("ENCRYPTION_KEY") {
         Ok(key) => key.to_string(),
         Err(_) => {
-            // For development/testing, provide a default key with warning
-            console_log!("⚠️ WARNING: ENCRYPTION_KEY not found, using default key for development");
-            "development_key_not_for_production".to_string()
+            return Response::error(
+                "ENCRYPTION_KEY environment variable is required for security. Application cannot start without proper encryption key.",
+                500
+            );
         }
     };
 
@@ -955,17 +960,24 @@ async fn check_user_permissions(user_id: &str, required_tier: &str, env: &Env) -
         }
     }
 
-    // Fallback to simple pattern matching for testing/development
-    let subscription_tier = if user_id.contains("admin") {
-        types::SubscriptionTier::SuperAdmin
-    } else if user_id.contains("enterprise") || user_id.contains("pro") {
-        types::SubscriptionTier::Enterprise // Map both "enterprise" and "pro" to Enterprise
-    } else if user_id.contains("premium") {
-        types::SubscriptionTier::Premium
-    } else if user_id.contains("basic") {
-        types::SubscriptionTier::Basic
+    // Fallback to simple pattern matching ONLY in development/testing environments
+    // This is a security risk and should never be enabled in production
+    let subscription_tier = if env.var("ENABLE_FALLBACK_PERMISSIONS").is_ok() {
+        console_log!("⚠️ WARNING: Using fallback permission logic - NOT FOR PRODUCTION");
+        if user_id.contains("admin") {
+            types::SubscriptionTier::SuperAdmin
+        } else if user_id.contains("enterprise") || user_id.contains("pro") {
+            types::SubscriptionTier::Enterprise // Map both "enterprise" and "pro" to Enterprise
+        } else if user_id.contains("premium") {
+            types::SubscriptionTier::Premium
+        } else if user_id.contains("basic") {
+            types::SubscriptionTier::Basic
+        } else {
+            types::SubscriptionTier::Free
+        }
     } else {
-        types::SubscriptionTier::Free
+        // In production, deny access if no valid user profile found
+        return Ok(false);
     };
 
     Ok(check_subscription_tier_permission(

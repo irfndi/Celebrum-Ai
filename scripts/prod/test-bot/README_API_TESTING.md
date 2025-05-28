@@ -23,7 +23,7 @@ make test-api-staging
 make test-api-production
 
 # Run tests with custom URL
-BASE_URL=arb-edge.irfandimarsya.workers.dev make test-api
+BASE_URL=https://arb-edge.irfandimarsya.workers.dev make test-api
 ```
 
 ## Test Categories
