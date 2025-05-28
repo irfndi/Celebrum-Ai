@@ -1032,15 +1032,59 @@ async fn handle_api_detailed_health_check(_req: Request, env: Env) -> Result<Res
     // Check service health
     let kv_healthy = env.kv("ArbEdgeKV").is_ok();
     let d1_healthy = env.d1("ArbEdgeD1").is_ok();
+    
+    // Test KV store with a simple operation
+    let kv_operational = if kv_healthy {
+        match env.kv("ArbEdgeKV") {
+            Ok(kv) => {
+                // Try a simple get operation to test connectivity
+                match kv.get("health_check_test").text().await {
+                    Ok(_) => true,
+                    Err(_) => false,
+                }
+            }
+            Err(_) => false,
+        }
+    } else {
+        false
+    };
+    
+    // Test D1 database with a simple query
+    let d1_operational = if d1_healthy {
+        match services::core::infrastructure::D1Service::new(&env) {
+            Ok(d1_service) => {
+                // Try a simple query to test connectivity
+                match d1_service.health_check().await {
+                    Ok(is_healthy) => is_healthy,
+                    Err(_) => false,
+                }
+            }
+            Err(_) => false,
+        }
+    } else {
+        false
+    };
+    
+    // Test Telegram service by checking if bot token is configured
+    let telegram_healthy = env.var("TELEGRAM_BOT_TOKEN").is_ok();
+    
+    // Test Exchange service by checking if API keys are configured
+    let exchange_healthy = env.var("BINANCE_API_KEY").is_ok() && env.var("BINANCE_SECRET_KEY").is_ok();
+    
+    // Test AI service by checking if OpenAI API key is configured
+    let ai_healthy = env.var("OPENAI_API_KEY").is_ok();
+    
+    // Determine overall health status
+    let overall_healthy = kv_operational && d1_operational && telegram_healthy && exchange_healthy && ai_healthy;
 
     let response = ApiResponse::success(serde_json::json!({
-        "status": "healthy",
+        "status": if overall_healthy { "healthy" } else { "degraded" },
         "services": {
-            "kv_store": if kv_healthy { "online" } else { "offline" },
-            "d1_database": if d1_healthy { "online" } else { "offline" },
-            "telegram_service": "online",
-            "exchange_service": "online",
-            "ai_service": "online"
+            "kv_store": if kv_operational { "online" } else { "offline" },
+            "d1_database": if d1_operational { "online" } else { "offline" },
+            "telegram_service": if telegram_healthy { "online" } else { "offline" },
+            "exchange_service": if exchange_healthy { "online" } else { "offline" },
+            "ai_service": if ai_healthy { "online" } else { "offline" }
         },
         "timestamp": chrono::Utc::now().timestamp()
     }));
@@ -1237,13 +1281,28 @@ async fn handle_api_update_user_preferences(mut req: Request, env: Env) -> Resul
         }
     };
 
-    let update_data: serde_json::Value = req.json().await?;
+    // Parse and validate the update request
+    let update_request: types::UpdateUserPreferencesRequest = match req.json().await {
+        Ok(data) => data,
+        Err(e) => {
+            let response = ApiResponse::<()>::error(format!("Invalid JSON format: {}", e));
+            return Ok(Response::from_json(&response)?.with_status(400));
+        }
+    };
+
+    // Validate the request
+    if let Err(validation_error) = update_request.validate() {
+        let response = ApiResponse::<()>::error(format!("Validation error: {}", validation_error));
+        return Ok(Response::from_json(&response)?.with_status(400));
+    }
 
     // Get encryption key from environment
     let encryption_key = env
         .var("ENCRYPTION_KEY")
         .map(|secret| secret.to_string())
-        .unwrap_or_else(|_| "default_key_for_development".to_string());
+        .map_err(|_| {
+            worker::Error::RustError("ENCRYPTION_KEY environment variable is required for security. Application cannot start without proper encryption key.".to_string())
+        })?;
 
     // Initialize services
     let kv_store = env.kv("ArbEdgeKV")?;
@@ -1257,50 +1316,41 @@ async fn handle_api_update_user_preferences(mut req: Request, env: Env) -> Resul
     // Update user preferences in database
     match user_profile_service.get_user_profile(&user_id).await {
         Ok(Some(mut profile)) => {
-            // Update the profile configuration with new preferences
-            if let Some(risk_tolerance) = update_data.get("risk_tolerance").and_then(|v| v.as_f64())
-            {
-                profile.configuration.risk_tolerance_percentage = risk_tolerance;
-            }
-            if let Some(trading_pairs) = update_data.get("trading_pairs").and_then(|v| v.as_array())
-            {
-                profile.configuration.trading_pairs = trading_pairs
-                    .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect();
-            }
-            if let Some(auto_trading) = update_data
-                .get("auto_trading_enabled")
-                .and_then(|v| v.as_bool())
-            {
-                profile.configuration.auto_trading_enabled = auto_trading;
-            }
-            if let Some(max_leverage) = update_data.get("max_leverage").and_then(|v| v.as_u64()) {
-                profile.configuration.max_leverage = max_leverage as u32;
-            }
-            if let Some(max_entry_size) = update_data
-                .get("max_entry_size_usdt")
-                .and_then(|v| v.as_f64())
-            {
-                profile.configuration.max_entry_size_usdt = max_entry_size;
-            }
-
-            // Update the profile in database
-            match user_profile_service.update_user_profile(&profile).await {
+            // Apply validated updates to the profile
+            match update_request.apply_to_profile(&mut profile) {
                 Ok(_) => {
-                    let response = ApiResponse::success(serde_json::json!({
-                        "user_id": user_id,
-                        "preferences_updated": true,
-                        "timestamp": chrono::Utc::now().timestamp()
-                    }));
-                    Response::from_json(&response)
+                    // Update the profile in database
+                    match user_profile_service.update_user_profile(&profile).await {
+                        Ok(_) => {
+                            let response = ApiResponse::success(serde_json::json!({
+                                "user_id": user_id,
+                                "preferences_updated": true,
+                                "updated_preferences": {
+                                    "risk_tolerance": profile.configuration.risk_tolerance_percentage,
+                                    "trading_pairs": profile.configuration.trading_pairs,
+                                    "auto_trading_enabled": profile.configuration.auto_trading_enabled,
+                                    "max_leverage": profile.configuration.max_leverage,
+                                    "max_entry_size_usdt": profile.configuration.max_entry_size_usdt,
+                                    "min_entry_size_usdt": profile.configuration.min_entry_size_usdt,
+                                    "opportunity_threshold": profile.configuration.opportunity_threshold,
+                                    "notification_preferences": profile.configuration.notification_preferences
+                                },
+                                "timestamp": chrono::Utc::now().timestamp()
+                            }));
+                            Response::from_json(&response)
+                        }
+                        Err(e) => {
+                            let response = ApiResponse::<()>::error(format!(
+                                "Failed to update user preferences: {}",
+                                e
+                            ));
+                            Ok(Response::from_json(&response)?.with_status(500))
+                        }
+                    }
                 }
                 Err(e) => {
-                    let response = ApiResponse::<()>::error(format!(
-                        "Failed to update user preferences: {}",
-                        e
-                    ));
-                    Ok(Response::from_json(&response)?.with_status(500))
+                    let response = ApiResponse::<()>::error(format!("Failed to apply updates: {}", e));
+                    Ok(Response::from_json(&response)?.with_status(400))
                 }
             }
         }

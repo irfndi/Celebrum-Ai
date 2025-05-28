@@ -3003,3 +3003,139 @@ impl UpdateUserProfileRequest {
         Ok(())
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateUserPreferencesRequest {
+    pub risk_tolerance: Option<f64>,
+    pub trading_pairs: Option<Vec<String>>,
+    pub auto_trading_enabled: Option<bool>,
+    pub max_leverage: Option<u32>,
+    pub max_entry_size_usdt: Option<f64>,
+    pub min_entry_size_usdt: Option<f64>,
+    pub opportunity_threshold: Option<f64>,
+    pub notification_preferences: Option<NotificationPreferences>,
+}
+
+impl UpdateUserPreferencesRequest {
+    /// Validate the user preferences update request
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate risk tolerance
+        if let Some(risk_tolerance) = self.risk_tolerance {
+            if !(0.0..=1.0).contains(&risk_tolerance) {
+                return Err("Risk tolerance must be between 0.0 and 1.0".to_string());
+            }
+        }
+
+        // Validate max leverage
+        if let Some(max_leverage) = self.max_leverage {
+            if max_leverage == 0 || max_leverage > 100 {
+                return Err("Max leverage must be between 1 and 100".to_string());
+            }
+        }
+
+        // Validate max entry size
+        if let Some(max_entry_size) = self.max_entry_size_usdt {
+            if max_entry_size <= 0.0 {
+                return Err("Max entry size must be positive".to_string());
+            }
+        }
+
+        // Validate min entry size
+        if let Some(min_entry_size) = self.min_entry_size_usdt {
+            if min_entry_size <= 0.0 {
+                return Err("Min entry size must be positive".to_string());
+            }
+        }
+
+        // Validate that min entry size is not greater than max entry size
+        if let (Some(min_size), Some(max_size)) = (self.min_entry_size_usdt, self.max_entry_size_usdt) {
+            if min_size > max_size {
+                return Err("Min entry size cannot be greater than max entry size".to_string());
+            }
+        }
+
+        // Validate opportunity threshold
+        if let Some(threshold) = self.opportunity_threshold {
+            if threshold < 0.0 || threshold > 1.0 {
+                return Err("Opportunity threshold must be between 0.0 and 1.0".to_string());
+            }
+        }
+
+        // Validate trading pairs
+        if let Some(ref trading_pairs) = self.trading_pairs {
+            if trading_pairs.is_empty() {
+                return Err("Trading pairs list cannot be empty".to_string());
+            }
+            
+            for pair in trading_pairs {
+                if pair.trim().is_empty() {
+                    return Err("Trading pair cannot be empty".to_string());
+                }
+                // Basic validation for trading pair format (should contain USDT, BTC, ETH, etc.)
+                if !pair.contains("USDT") && !pair.contains("BTC") && !pair.contains("ETH") {
+                    return Err(format!("Invalid trading pair format: {}", pair));
+                }
+            }
+        }
+
+        // Validate notification preferences
+        if let Some(ref notif_prefs) = self.notification_preferences {
+            if notif_prefs.min_profit_threshold_usdt < 0.0 {
+                return Err("Min profit threshold must be non-negative".to_string());
+            }
+            if notif_prefs.max_notifications_per_hour == 0 || notif_prefs.max_notifications_per_hour > 100 {
+                return Err("Max notifications per hour must be between 1 and 100".to_string());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Apply the validated preferences to a user profile
+    pub fn apply_to_profile(&self, profile: &mut UserProfile) -> Result<(), String> {
+        // Apply risk tolerance
+        if let Some(risk_tolerance) = self.risk_tolerance {
+            profile.configuration.risk_tolerance_percentage = risk_tolerance;
+        }
+
+        // Apply trading pairs
+        if let Some(ref trading_pairs) = self.trading_pairs {
+            profile.configuration.trading_pairs = trading_pairs.clone();
+        }
+
+        // Apply auto trading setting
+        if let Some(auto_trading) = self.auto_trading_enabled {
+            profile.configuration.auto_trading_enabled = auto_trading;
+        }
+
+        // Apply max leverage
+        if let Some(max_leverage) = self.max_leverage {
+            profile.configuration.max_leverage = max_leverage;
+        }
+
+        // Apply max entry size
+        if let Some(max_entry_size) = self.max_entry_size_usdt {
+            profile.configuration.max_entry_size_usdt = max_entry_size;
+        }
+
+        // Apply min entry size
+        if let Some(min_entry_size) = self.min_entry_size_usdt {
+            profile.configuration.min_entry_size_usdt = min_entry_size;
+        }
+
+        // Apply opportunity threshold
+        if let Some(threshold) = self.opportunity_threshold {
+            profile.configuration.opportunity_threshold = threshold;
+        }
+
+        // Apply notification preferences
+        if let Some(ref notif_prefs) = self.notification_preferences {
+            profile.configuration.notification_preferences = notif_prefs.clone();
+        }
+
+        // Update the profile's updated_at timestamp
+        profile.updated_at = chrono::Utc::now().timestamp() as u64;
+
+        Ok(())
+    }
+}

@@ -98,7 +98,7 @@ impl D1Service {
                 subscription_tier, trading_preferences, 
                 created_at, updated_at, last_login_at, account_status, 
                 beta_expires_at, account_balance_usdt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ",
         );
 
