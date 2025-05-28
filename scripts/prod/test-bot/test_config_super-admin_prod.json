@@ -1,0 +1,96 @@
+{
+  "production_test_configuration": {
+    "description": "ArbEdge Production API Test Configuration - Super Admin focused testing with real D1 database",
+    "version": "1.0.0",
+    "environment": "production",
+    "base_url": "https://arb-edge.irfandimarsya.workers.dev",
+    "test_focus": "super_admin_only",
+    "super_admin_user": {
+      "user_id": "FETCHED_FROM_D1_AT_RUNTIME",
+      "subscription_tier": "super_admin", 
+      "telegram_id": "FETCHED_FROM_D1_AT_RUNTIME",
+      "description": "Real super admin user fetched from production D1 database at runtime",
+      "permissions": {
+        "opportunities": {
+          "list": true,
+          "list_limit": 1000,
+          "premium_features": true,
+          "advanced_features": true,
+          "ai_enhanced": true,
+          "execute": true,
+          "execute_limit_per_hour": 1000
+        },
+        "analytics": {
+          "dashboard": true,
+          "user_analytics": true,
+          "advanced_metrics": true,
+          "system_analytics": true,
+          "performance_analytics": true,
+          "real_time_monitoring": true
+        },
+        "profile": {
+          "read": true,
+          "update": true,
+          "delete": true,
+          "manage_all_users": true
+        },
+        "admin": {
+          "user_management": true,
+          "system_configuration": true,
+          "invitation_codes": true,
+          "database_access": true,
+          "api_key_management": true,
+          "system_monitoring": true
+        },
+        "trading": {
+          "all_exchanges": true,
+          "unlimited_trading": true,
+          "advanced_orders": true,
+          "portfolio_management": true,
+          "risk_management": true
+        },
+        "rate_limits": {
+          "requests_per_minute": 1000,
+          "requests_per_hour": 50000,
+          "concurrent_requests": 100
+        }
+      }
+    },
+    "d1_database_tests": {
+      "description": "Tests that validate D1 database integration and data retrieval",
+      "tables_to_test": [
+        {
+          "table": "users",
+          "endpoint": "/api/v1/admin/users",
+          "expected_fields": ["user_id", "telegram_id", "subscription_tier", "created_at"]
+        },
+        {
+          "table": "user_sessions",
+          "endpoint": "/api/v1/admin/sessions",
+          "expected_fields": ["session_id", "user_id", "created_at", "expires_at", "is_active"]
+        },
+        {
+          "table": "opportunities",
+          "endpoint": "/api/v1/admin/opportunities",
+          "expected_fields": ["opportunity_id", "pair", "exchange_long", "exchange_short", "profit_percentage"]
+        },
+        {
+          "table": "user_profiles",
+          "endpoint": "/api/v1/admin/user-profiles",
+          "expected_fields": ["user_id", "risk_tolerance", "preferred_pairs", "api_keys_encrypted"]
+        }
+      ]
+    },
+    "validation_criteria": {
+      "critical_tests": [
+        "health_checks_pass",
+        "super_admin_authentication",
+        "d1_database_connectivity",
+        "opportunity_retrieval",
+        "analytics_access",
+        "telegram_bot_integration"
+      ],
+      "success_threshold": "100%"
+    }
+  }
+} 

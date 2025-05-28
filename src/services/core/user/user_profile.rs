@@ -195,6 +195,74 @@ impl UserProfileService {
         Ok((api_key, secret))
     }
 
+    /// Execute a read-only query on the D1 database for analytics and logging
+    /// SECURITY: Only SELECT queries are allowed to prevent SQL injection
+    #[allow(dead_code)]
+    pub(crate) async fn execute_readonly_query(
+        &self,
+        query: &str,
+        params: &[serde_json::Value],
+    ) -> ArbitrageResult<()> {
+        // Validate that the query is read-only (SELECT only)
+        let trimmed_query = query.trim().to_lowercase();
+        if !trimmed_query.starts_with("select") {
+            return Err(ArbitrageError::validation_error(
+                "Only SELECT queries are allowed for security reasons",
+            ));
+        }
+
+        // Additional validation: ensure no dangerous keywords
+        let dangerous_keywords = [
+            "insert", "update", "delete", "drop", "create", "alter", "exec", "execute",
+        ];
+        for keyword in dangerous_keywords {
+            if trimmed_query.contains(keyword) {
+                return Err(ArbitrageError::validation_error(format!(
+                    "Query contains forbidden keyword: {}",
+                    keyword
+                )));
+            }
+        }
+
+        self.d1_service.execute(query, params).await
+    }
+
+    /// Execute a write operation (INSERT, UPDATE, DELETE) on the D1 database
+    /// SECURITY: This method is restricted to crate-level access and should only be used
+    /// for trusted operations with validated inputs
+    pub(crate) async fn execute_write_operation(
+        &self,
+        query: &str,
+        params: &[serde_json::Value],
+    ) -> ArbitrageResult<()> {
+        // Validate that the query is a write operation
+        let trimmed_query = query.trim().to_lowercase();
+        let allowed_write_operations = ["insert", "update", "delete"];
+
+        let is_valid_write = allowed_write_operations
+            .iter()
+            .any(|op| trimmed_query.starts_with(op));
+
+        if !is_valid_write {
+            return Err(ArbitrageError::validation_error(
+                "Only INSERT, UPDATE, DELETE operations are allowed for write operations",
+            ));
+        }
+
+        // Additional validation: ensure no dangerous keywords for write operations
+        let dangerous_keywords = ["drop", "create", "alter", "exec", "execute"];
+        for keyword in dangerous_keywords {
+            if trimmed_query.contains(keyword) {
+                return Err(ArbitrageError::validation_error(format!(
+                    "Query contains forbidden keyword: {}",
+                    keyword
+                )));
+            }
+        }
+
+        self.d1_service.execute(query, params).await
+    }
+
     // Session Management (KV only for fast access)
     pub async fn store_user_session(&self, session: &UserSession) -> ArbitrageResult<()> {
         let key = format!("user_session:{}", session.telegram_chat_id);

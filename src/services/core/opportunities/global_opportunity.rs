@@ -11,7 +11,7 @@ use crate::services::core::trading::exchange::{ExchangeService, SuperAdminApiCon
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::Utc;
-use futures::future::join_all;
+
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,6 +28,9 @@ pub struct GlobalOpportunityService {
     current_queue: Option<OpportunityQueue>,
     distribution_tracking: HashMap<String, UserOpportunityDistribution>,
     super_admin_configs: HashMap<String, SuperAdminApiConfig>, // Read-only API configs
+    pipelines_service: Option<
+        crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService,
+    >, // Pipeline integration
 }
 
 impl GlobalOpportunityService {
@@ -40,6 +43,9 @@ impl GlobalOpportunityService {
         exchange_service: Arc<ExchangeService>,
         user_profile_service: Arc<UserProfileService>,
         kv_store: KvStore,
+        pipelines_service: Option<
+            crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService,
+        >,
     ) -> Self {
         Self {
             config,
@@ -49,6 +55,7 @@ impl GlobalOpportunityService {
             current_queue: None,
             distribution_tracking: HashMap::new(),
             super_admin_configs: HashMap::new(),
+            pipelines_service,
         }
     }
 
@@ -72,6 +79,304 @@ impl GlobalOpportunityService {
 
         self.super_admin_configs.insert(exchange_id, config);
         Ok(())
+    }
+
+    /// Set pipelines service for data ingestion and storage
+    pub fn set_pipelines_service(
+        &mut self,
+        pipelines_service: crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService,
+    ) {
+        self.pipelines_service = Some(pipelines_service);
+    }
+
+    /// Get market data from pipeline with fallback to super admin APIs
+    /// Implements hybrid data access pattern: Pipeline-first, KV cache fallback, API last resort
+    async fn get_market_data_from_pipeline(
+        &self,
+        exchange: &str,
+        symbol: &str,
+    ) -> ArbitrageResult<serde_json::Value> {
+        // 1. Try pipelines (primary)
+        if let Some(pipelines) = &self.pipelines_service {
+            let pipeline_key = format!("market_data:{}:{}", exchange, symbol);
+            match pipelines.get_latest_data(&pipeline_key).await {
+                Ok(data) => {
+                    log_info!(
+                        "Retrieved market data from pipeline",
+                        serde_json::json!({
+                            "exchange": exchange,
+                            "symbol": symbol,
+                            "source": "pipeline"
+                        })
+                    );
+                    return Ok(data);
+                }
+                Err(e) => {
+                    log_info!(
+                        "Pipeline data not available, falling back",
+                        serde_json::json!({
+                            "exchange": exchange,
+                            "symbol": symbol,
+                            "error": e.to_string()
+                        })
+                    );
+                }
+            }
+        }
+
+        // 2. Try KV cache (fallback)
+        let cache_key = format!("market_data:{}:{}", exchange, symbol);
+        match self.kv_store.get(&cache_key).text().await {
+            Ok(Some(cached_data)) => {
+                match serde_json::from_str::<serde_json::Value>(&cached_data) {
+                    Ok(data) => {
+                        log_info!(
+                            "Retrieved market data from KV cache",
+                            serde_json::json!({
+                                "exchange": exchange,
+                                "symbol": symbol,
+                                "source": "kv_cache"
+                            })
+                        );
+                        return Ok(data);
+                    }
+                    Err(e) => {
+                        log_info!(
+                            "Failed to parse cached market data",
+                            serde_json::json!({
+                                "exchange": exchange,
+                                "symbol": symbol,
+                                "error": e.to_string()
+                            })
+                        );
+                    }
+                }
+            }
+            Ok(None) => {
+                log_info!(
+                    "No cached market data available",
+                    serde_json::json!({
+                        "exchange": exchange,
+                        "symbol": symbol
+                    })
+                );
+            }
+            Err(e) => {
+                log_info!(
+                    "KV cache access failed",
+                    serde_json::json!({
+                        "exchange": exchange,
+                        "symbol": symbol,
+                        "error": e.to_string()
+                    })
+                );
+            }
+        }
+
+        // 3. Try super admin API (last resort)
+        if let Some(super_admin_config) = self.super_admin_configs.get(exchange) {
+            super_admin_config.validate_read_only()?;
+
+            match self
+                .exchange_service
+                .get_global_funding_rates(exchange, Some(symbol))
+                .await
+            {
+                Ok(rates) => {
+                    let data = serde_json::to_value(&rates)?;
+
+                    // Cache for future use
+                    if let Ok(data_str) = serde_json::to_string(&data) {
+                        if let Ok(put_builder) = self.kv_store.put(&cache_key, data_str) {
+                            let _ = put_builder.expiration_ttl(60).execute().await;
+                            // 1 minute TTL
+                        }
+                    }
+
+                    log_info!(
+                        "Retrieved market data from super admin API",
+                        serde_json::json!({
+                            "exchange": exchange,
+                            "symbol": symbol,
+                            "source": "super_admin_api"
+                        })
+                    );
+                    return Ok(data);
+                }
+                Err(e) => {
+                    log_info!(
+                        "Super admin API call failed",
+                        serde_json::json!({
+                            "exchange": exchange,
+                            "symbol": symbol,
+                            "error": e.to_string()
+                        })
+                    );
+                }
+            }
+        }
+
+        Err(ArbitrageError::not_found(format!(
+            "No market data available from any source for {}:{}",
+            exchange, symbol
+        )))
+    }
+
+    /// Store market data to pipeline for historical tracking
+    async fn store_market_data_to_pipeline(
+        &self,
+        exchange: &str,
+        symbol: &str,
+        data: &serde_json::Value,
+    ) -> ArbitrageResult<()> {
+        if let Some(pipelines) = &self.pipelines_service {
+            pipelines.store_market_data(exchange, symbol, data).await?;
+            log_info!(
+                "Stored market data to pipeline",
+                serde_json::json!({
+                    "exchange": exchange,
+                    "symbol": symbol
+                })
+            );
+        }
+        Ok(())
+    }
+
+    /// Fetch real funding rate data from Bybit and Binance APIs
+    async fn fetch_real_funding_rate_data(
+        &self,
+        exchange_id: &ExchangeIdEnum,
+        symbol: &str,
+    ) -> ArbitrageResult<FundingRateInfo> {
+        use worker::{Fetch, Method, Request, RequestInit};
+
+        match exchange_id {
+            ExchangeIdEnum::Bybit => {
+                // Convert symbol to Bybit format (e.g., BTC-USDT -> BTCUSDT)
+                let bybit_symbol = symbol.replace("-", "").to_uppercase();
+
+                // Bybit V5 Funding Rate API
+                let url = format!(
+                    "https://api.bybit.com/v5/market/funding/history?category=linear&symbol={}&limit=1",
+                    bybit_symbol
+                );
+
+                let request =
+                    Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
+
+                let mut response = Fetch::Request(request).send().await?;
+
+                if response.status_code() != 200 {
+                    return Err(ArbitrageError::api_error(format!(
+                        "Bybit funding rate API error: {}",
+                        response.status_code()
+                    )));
+                }
+
+                let response_text = response.text().await?;
+                let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
+
+                // Parse Bybit response
+                if let Some(result) = response_json.get("result") {
+                    if let Some(list) = result.get("list").and_then(|l| l.as_array()) {
+                        if let Some(funding_data) = list.first() {
+                            if let Some(funding_rate_str) =
+                                funding_data.get("fundingRate").and_then(|v| v.as_str())
+                            {
+                                if let Ok(funding_rate) = funding_rate_str.parse::<f64>() {
+                                    let funding_info = FundingRateInfo {
+                                        symbol: symbol.to_string(),
+                                        funding_rate,
+                                        timestamp: Some(Utc::now()),
+                                        datetime: Some(Utc::now().to_rfc3339()),
+                                        next_funding_time: None,
+                                        estimated_rate: None,
+                                    };
+
+                                    // Store to pipeline
+                                    let data = serde_json::to_value(&funding_info)?;
+                                    let _ = self
+                                        .store_market_data_to_pipeline("bybit", symbol, &data)
+                                        .await;
+
+                                    return Ok(funding_info);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Err(ArbitrageError::parse_error(
+                    "Failed to parse Bybit funding rate response",
+                ))
+            }
+            ExchangeIdEnum::Binance => {
+                // Convert symbol to Binance format (e.g., BTC-USDT -> BTCUSDT)
+                let binance_symbol = symbol.replace("-", "").to_uppercase();
+
+                // Binance Premium Index API (closest to funding rate)
+                let url = format!(
+                    "https://fapi.binance.com/fapi/v1/premiumIndex?symbol={}",
+                    binance_symbol
+                );
+
+                let request =
+                    Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
+
+                let mut response = Fetch::Request(request).send().await?;
+
+                if response.status_code() != 200 {
+                    return Err(ArbitrageError::api_error(format!(
+                        "Binance funding rate API error: {}",
+                        response.status_code()
+                    )));
+                }
+
+                let response_text = response.text().await?;
+                let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
+
+                // Parse Binance response
+                if let Some(last_funding_rate_str) = response_json
+                    .get("lastFundingRate")
+                    .and_then(|v| v.as_str())
+                {
+                    if let Ok(funding_rate) = last_funding_rate_str.parse::<f64>() {
+                        let funding_info = FundingRateInfo {
+                            symbol: symbol.to_string(),
+                            funding_rate,
+                            timestamp: Some(Utc::now()),
+                            datetime: Some(Utc::now().to_rfc3339()),
+                            next_funding_time: response_json
+                                .get("nextFundingTime")
+                                .and_then(|v| v.as_u64())
+                                .and_then(|ts| {
+                                    chrono::DateTime::from_timestamp((ts / 1000) as i64, 0)
+                                }),
+                            estimated_rate: response_json
+                                .get("estimatedSettlePrice")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| s.parse::<f64>().ok()),
+                        };
+
+                        // Store to pipeline
+                        let data = serde_json::to_value(&funding_info)?;
+                        let _ = self
+                            .store_market_data_to_pipeline("binance", symbol, &data)
+                            .await;
+
+                        return Ok(funding_info);
+                    }
+                }
+
+                Err(ArbitrageError::parse_error(
+                    "Failed to parse Binance funding rate response",
+                ))
+            }
+            _ => Err(ArbitrageError::not_implemented(format!(
+                "Exchange {:?} not supported for real funding rate data",
+                exchange_id
+            ))),
+        }
     }
 
     /// Initialize super admin API keys from Wrangler secrets
@@ -107,6 +412,7 @@ impl GlobalOpportunityService {
                 let credentials = crate::types::ExchangeCredentials {
                     api_key: api_key.to_string(),
                     secret: secret.to_string(),
+                    passphrase: None,    // Most exchanges don't require passphrase
                     default_leverage: 1, // Read-only APIs don't need leverage
                     exchange_type: "spot".to_string(), // Default to spot for read-only
                 };
@@ -316,9 +622,8 @@ impl GlobalOpportunityService {
             funding_rate_data.insert(pair.clone(), HashMap::new());
         }
 
-        // Collect funding rate fetch tasks - ONLY for exchanges with super admin configuration
-        let mut funding_tasks = Vec::new();
-
+        // **ENHANCED**: Use hybrid data access pattern for funding rate collection
+        // First, try to get data from pipelines for all pairs/exchanges
         for pair in &self.config.monitored_pairs {
             for exchange_id in &self.config.monitored_exchanges {
                 // **SECURITY**: Only use exchanges that have super admin read-only configuration
@@ -337,43 +642,68 @@ impl GlobalOpportunityService {
                         continue;
                     }
 
-                    let exchange_service = Arc::clone(&self.exchange_service);
-                    let pair = pair.clone();
-                    let exchange_id = *exchange_id;
+                    // **ENHANCED**: Use real API calls with hybrid data access pattern
+                    let funding_info =
+                        match self.fetch_real_funding_rate_data(exchange_id, pair).await {
+                            Ok(info) => {
+                                log_info!(
+                                    "Successfully fetched real funding rate data",
+                                    serde_json::json!({
+                                        "exchange": exchange_id.as_str(),
+                                        "pair": pair,
+                                        "funding_rate": info.funding_rate,
+                                        "source": "real_api"
+                                    })
+                                );
+                                Some(info)
+                            }
+                            Err(e) => {
+                                log_info!(
+                                    "Failed to fetch real funding rate, trying pipeline fallback",
+                                    serde_json::json!({
+                                        "exchange": exchange_id.as_str(),
+                                        "pair": pair,
+                                        "error": e.to_string()
+                                    })
+                                );
 
-                    let task = Box::pin(async move {
-                        // **SECURITY**: Use get_global_funding_rates which enforces super admin API usage
-                        let result = exchange_service
-                            .get_global_funding_rates(&exchange_id.to_string(), Some(&pair))
-                            .await;
-
-                        let funding_info = match result {
-                            Ok(rates) => {
-                                if let Some(rate_data) = rates.first() {
-                                    match rate_data["fundingRate"].as_str() {
-                                        Some(rate_str) => match rate_str.parse::<f64>() {
-                                            Ok(funding_rate) => Some(FundingRateInfo {
-                                                symbol: pair.clone(),
-                                                funding_rate,
-                                                timestamp: Some(Utc::now()),
-                                                datetime: Some(Utc::now().to_rfc3339()),
-                                                next_funding_time: None,
-                                                estimated_rate: None,
-                                            }),
-                                            Err(_) => None,
-                                        },
-                                        None => None,
+                                // Fallback to pipeline/cache data
+                                match self
+                                    .get_market_data_from_pipeline(&exchange_id.to_string(), pair)
+                                    .await
+                                {
+                                    Ok(data) => {
+                                        // Parse pipeline/cache data
+                                        if let Some(rate_data) =
+                                            data.as_array().and_then(|arr| arr.first())
+                                        {
+                                            match rate_data["fundingRate"].as_str() {
+                                                Some(rate_str) => match rate_str.parse::<f64>() {
+                                                    Ok(funding_rate) => Some(FundingRateInfo {
+                                                        symbol: pair.clone(),
+                                                        funding_rate,
+                                                        timestamp: Some(Utc::now()),
+                                                        datetime: Some(Utc::now().to_rfc3339()),
+                                                        next_funding_time: None,
+                                                        estimated_rate: None,
+                                                    }),
+                                                    Err(_) => None,
+                                                },
+                                                None => None,
+                                            }
+                                        } else {
+                                            None
+                                        }
                                     }
-                                } else {
-                                    None
+                                    Err(_) => None,
                                 }
                             }
-                            Err(_) => None,
                         };
 
-                        (pair, exchange_id, funding_info)
-                    });
-                    funding_tasks.push(task);
+                    // Store the funding info
+                    if let Some(pair_map) = funding_rate_data.get_mut(pair) {
+                        pair_map.insert(*exchange_id, funding_info);
+                    }
                 } else {
                     log_info!(
                         "Skipping exchange without super admin configuration",
@@ -386,15 +716,7 @@ impl GlobalOpportunityService {
             }
         }
 
-        // Execute all funding rate fetch operations concurrently
-        let funding_results = join_all(funding_tasks).await;
-
-        // Process funding rate results
-        for (pair, exchange_id, funding_info) in funding_results {
-            if let Some(pair_map) = funding_rate_data.get_mut(&pair) {
-                pair_map.insert(exchange_id, funding_info);
-            }
-        }
+        // Data collection completed using hybrid access pattern
 
         // Step 2: Identify arbitrage opportunities using default strategy
         for pair in &self.config.monitored_pairs {
@@ -1298,6 +1620,7 @@ mod tests {
             is_active: true,
             total_trades: 0,
             total_pnl_usdt: 0.0,
+            account_balance_usdt: 10000.0, // Default test balance
             profile_metadata: None,
             beta_expires_at: None,
         }

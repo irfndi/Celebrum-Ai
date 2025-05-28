@@ -6,6 +6,7 @@ use arb_edge::services::core::user::user_trading_preferences::{
     AutomationLevel, AutomationScope, ExperienceLevel, RiskTolerance, TradingFocus,
     UserTradingPreferences,
 };
+use arb_edge::utils::logger::{LogLevel, Logger};
 
 // Helper functions for testing
 
@@ -129,7 +130,8 @@ mod correlation_analysis_service_tests {
     #[test]
     fn test_create_correlation_analysis_service() {
         let config = CorrelationAnalysisConfig::default();
-        let service = CorrelationAnalysisService::new(config);
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(config, logger);
 
         // Test actual service creation - config fields are private, so we test functionality instead
         // The service should be created successfully with default config
@@ -138,7 +140,8 @@ mod correlation_analysis_service_tests {
 
     #[test]
     fn test_calculate_price_correlation_high_correlation() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000; // 2024-01-01 00:00:00 UTC in milliseconds
 
         // Create highly correlated price series
@@ -167,7 +170,8 @@ mod correlation_analysis_service_tests {
 
     #[test]
     fn test_calculate_price_correlation_insufficient_data() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
 
         // Create series with insufficient data points
@@ -184,7 +188,8 @@ mod correlation_analysis_service_tests {
 
     #[test]
     fn test_analyze_exchange_leadership() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
 
         // Create leader and follower series
@@ -215,7 +220,8 @@ mod correlation_analysis_service_tests {
 
     #[test]
     fn test_calculate_technical_correlation() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
 
         // Create two highly correlated price series for technical analysis
@@ -241,9 +247,10 @@ mod correlation_analysis_service_tests {
         assert!(tech_correlation.confidence >= 0.0 && tech_correlation.confidence <= 1.0);
     }
 
-    #[test]
-    fn test_generate_correlation_metrics_arbitrage_focus() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+    #[tokio::test]
+    async fn test_generate_correlation_metrics_arbitrage_focus() {
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
         let user_preferences = create_test_user_preferences(TradingFocus::Arbitrage);
 
@@ -262,8 +269,9 @@ mod correlation_analysis_service_tests {
         exchange_data.insert("bybit".to_string(), bybit_series);
         exchange_data.insert("okx".to_string(), okx_series);
 
-        let result =
-            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+        let result = service
+            .generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences)
+            .await;
 
         assert!(result.is_ok());
         let metrics = result.unwrap();
@@ -275,9 +283,10 @@ mod correlation_analysis_service_tests {
         assert!(metrics.confidence_score >= 0.0 && metrics.confidence_score <= 1.0);
     }
 
-    #[test]
-    fn test_generate_correlation_metrics_hybrid_focus() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+    #[tokio::test]
+    async fn test_generate_correlation_metrics_hybrid_focus() {
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
         let user_preferences = create_test_user_preferences(TradingFocus::Technical);
 
@@ -295,8 +304,9 @@ mod correlation_analysis_service_tests {
         exchange_data.insert("binance".to_string(), binance_series);
         exchange_data.insert("bybit".to_string(), bybit_series);
 
-        let result =
-            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+        let result = service
+            .generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences)
+            .await;
 
         assert!(result.is_ok());
         let metrics = result.unwrap();
@@ -308,9 +318,10 @@ mod correlation_analysis_service_tests {
         assert!(metrics.confidence_score >= 0.0 && metrics.confidence_score <= 1.0);
     }
 
-    #[test]
-    fn test_generate_correlation_metrics_insufficient_exchanges() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+    #[tokio::test]
+    async fn test_generate_correlation_metrics_insufficient_exchanges() {
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let user_preferences = create_test_user_preferences(TradingFocus::Arbitrage);
 
         // Create exchange data with only one exchange
@@ -322,8 +333,9 @@ mod correlation_analysis_service_tests {
         let mut exchange_data = HashMap::new();
         exchange_data.insert("binance".to_string(), binance_series);
 
-        let result =
-            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+        let result = service
+            .generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences)
+            .await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Need at least 2 exchanges"));
@@ -352,7 +364,8 @@ mod correlation_analysis_service_tests {
             confidence_threshold: 0.85,
         };
 
-        let service = CorrelationAnalysisService::new(config);
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(config, logger);
 
         // Service should be created with custom config
         assert!(std::mem::size_of_val(&service) > 0);
@@ -392,7 +405,8 @@ mod correlation_analysis_service_tests {
 
     #[test]
     fn test_correlation_confidence_calculation() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
 
         // Create data with good variance
@@ -416,9 +430,10 @@ mod correlation_analysis_service_tests {
         assert!(correlation_data.confidence_level > 0.5);
     }
 
-    #[test]
-    fn test_multiple_exchange_correlation_analysis() {
-        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default());
+    #[tokio::test]
+    async fn test_multiple_exchange_correlation_analysis() {
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(CorrelationAnalysisConfig::default(), logger);
         let base_time = 1672531200000;
         let user_preferences = create_test_user_preferences(TradingFocus::Technical);
 
@@ -440,8 +455,9 @@ mod correlation_analysis_service_tests {
         exchange_data.insert("okx".to_string(), okx_series);
         exchange_data.insert("bitget".to_string(), bitget_series);
 
-        let result =
-            service.generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences);
+        let result = service
+            .generate_correlation_metrics("BTC/USDT", &exchange_data, &user_preferences)
+            .await;
 
         assert!(result.is_ok());
         let metrics = result.unwrap();
@@ -458,7 +474,8 @@ mod correlation_analysis_service_tests {
     #[test]
     fn test_correlation_analysis_service_functionality() {
         let config = CorrelationAnalysisConfig::default();
-        let service = CorrelationAnalysisService::new(config);
+        let logger = Logger::new(LogLevel::Info);
+        let service = CorrelationAnalysisService::new(config, logger);
 
         // Test actual functionality instead of just size check
         let base_time = 1672531200000; // 2024-01-01 00:00:00 UTC in milliseconds

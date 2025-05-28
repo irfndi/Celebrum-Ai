@@ -2,11 +2,13 @@
 // Task 9.1: Technical Indicators Foundation for Hybrid Trading Platform
 // Supports both arbitrage enhancement and standalone technical trading
 
+use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
 use crate::services::core::user::user_trading_preferences::{TradingFocus, UserTradingPreferences};
 use crate::services::{D1Service, UserTradingPreferencesService};
 use crate::utils::{logger::Logger, ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 // use worker::*; // TODO: Re-enable when implementing worker functionality
 
 // ============= CORE DATA STRUCTURES =============
@@ -214,6 +216,33 @@ pub enum TimeHorizon {
     Long, // > 24 hours
 }
 
+/// Market data event for pipeline ingestion
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketDataEvent {
+    pub timestamp: u64,
+    pub exchange: String,
+    pub symbol: String,
+    pub price: f64,
+    pub volume: f64,
+    pub high_24h: f64,
+    pub low_24h: f64,
+    pub change_24h: f64,
+    pub data_type: String, // "price_data", "technical_indicator", "analysis_result"
+}
+
+/// Analysis result event for pipeline storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalysisResultEvent {
+    pub analysis_id: String,
+    pub analysis_type: String, // "technical_indicators", "correlation", "market_sentiment"
+    pub trading_pair: String,
+    pub exchange: String,
+    pub results: serde_json::Value,
+    pub confidence_score: f64,
+    pub timestamp: u64,
+    pub data_type: String,
+}
+
 // ============= MATHEMATICAL FOUNDATION =============
 
 /// Mathematical utility functions for technical indicators
@@ -223,6 +252,16 @@ impl MathUtils {
     /// Calculate Simple Moving Average
     #[allow(clippy::result_large_err)]
     pub fn simple_moving_average(prices: &[f64], period: usize) -> ArbitrageResult<Vec<f64>> {
+        if prices.is_empty() {
+            return Err(ArbitrageError::validation_error("No price data provided"));
+        }
+
+        if period == 0 {
+            return Err(ArbitrageError::validation_error(
+                "Period must be greater than 0",
+            ));
+        }
+
         if prices.len() < period {
             return Err(ArbitrageError::validation_error(
                 "Insufficient data for SMA calculation",
@@ -232,7 +271,8 @@ impl MathUtils {
         let mut sma_values = Vec::new();
 
         for i in (period - 1)..prices.len() {
-            let sum: f64 = prices[(i + 1 - period)..=i].iter().sum();
+            let start_idx = i + 1 - period; // This is safe because i >= period - 1
+            let sum: f64 = prices[start_idx..=i].iter().sum();
             sma_values.push(sum / period as f64);
         }
 
@@ -394,6 +434,7 @@ impl MathUtils {
 pub struct MarketAnalysisService {
     _d1_service: D1Service,
     preferences_service: UserTradingPreferencesService,
+    pipelines_service: Option<CloudflarePipelinesService>, // For market data ingestion and analysis storage
     logger: Logger,
     price_cache: HashMap<String, PriceSeries>, // In-memory cache for recent price data
     cache_max_size: usize,                     // Maximum number of cached series
@@ -409,11 +450,91 @@ impl MarketAnalysisService {
         Self {
             _d1_service: d1_service,
             preferences_service,
+            pipelines_service: None,
             logger,
             price_cache: HashMap::new(),
             cache_max_size: 1000, // Default: cache up to 1000 price series
             cache_ttl_ms: 24 * 60 * 60 * 1000, // Default: 24 hours TTL
         }
+    }
+
+    /// Set pipelines service for market data ingestion and analysis storage
+    pub fn set_pipelines_service(&mut self, pipelines_service: CloudflarePipelinesService) {
+        self.pipelines_service = Some(pipelines_service);
+    }
+
+    /// Store market data to pipelines for centralized data management
+    #[allow(clippy::too_many_arguments)]
+    pub async fn store_market_data_to_pipeline(
+        &self,
+        exchange: &str,
+        symbol: &str,
+        price: f64,
+        volume: f64,
+        high_24h: f64,
+        low_24h: f64,
+        change_24h: f64,
+    ) -> ArbitrageResult<()> {
+        if let Some(ref pipelines_service) = self.pipelines_service {
+            let market_data = MarketDataEvent {
+                timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                exchange: exchange.to_string(),
+                symbol: symbol.to_string(),
+                price,
+                volume,
+                high_24h,
+                low_24h,
+                change_24h,
+                data_type: "price_data".to_string(),
+            };
+
+            // Store to pipelines for historical data and analytics
+            let market_data_json = serde_json::to_value(&market_data)?;
+            pipelines_service
+                .store_market_data(exchange, symbol, &market_data_json)
+                .await?;
+
+            self.logger.info(&format!(
+                "Stored market data to pipeline: {}/{} at ${}",
+                exchange, symbol, price
+            ));
+        }
+        Ok(())
+    }
+
+    /// Store analysis results to pipelines for historical tracking
+    pub async fn store_analysis_results_to_pipeline(
+        &self,
+        analysis_type: &str,
+        trading_pair: &str,
+        exchange: &str,
+        results: serde_json::Value,
+        confidence_score: f64,
+    ) -> ArbitrageResult<()> {
+        if let Some(ref pipelines_service) = self.pipelines_service {
+            let analysis_result = AnalysisResultEvent {
+                analysis_id: Uuid::new_v4().to_string(),
+                analysis_type: analysis_type.to_string(),
+                trading_pair: trading_pair.to_string(),
+                exchange: exchange.to_string(),
+                results,
+                confidence_score,
+                timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                data_type: "analysis_result".to_string(),
+            };
+
+            // Store to pipelines for historical analysis tracking
+            let analysis_result_json = serde_json::to_value(&analysis_result)?;
+            pipelines_service
+                .store_analysis_results(analysis_type, &analysis_result_json)
+                .await?;
+
+            self.logger.info(&format!(
+                "Stored analysis results to pipeline: {} for {}/{}",
+                analysis_type, exchange, trading_pair
+            ));
+        }
+        Ok(())
     }
 
     /// Store price data for analysis
@@ -1107,72 +1228,12 @@ mod tests {
         assert_eq!(TimeFrame::OneDay.duration_ms(), 24 * 60 * 60 * 1000);
     }
 
-    // Async tests for service functionality with minimal mock dependencies
-    #[tokio::test]
-    #[ignore] // Ignored until proper mock services are implemented
-    async fn test_cache_ttl_expiration() {
-        // TODO: Comprehensive async test implementation requires mock D1Service, UserTradingPreferencesService, and Logger
-        // Current challenge: MarketAnalysisService constructor requires complex dependencies
-        //
-        // Planned test approach:
-        // 1. Create minimal mock services that satisfy the constructor
-        // 2. Configure cache with very short TTL (100ms)
-        // 3. Store price data and verify immediate cache hit
-        // 4. Wait for TTL expiration (150ms)
-        // 5. Verify cache entry is evicted by checking cache stats
-        // 6. Assert cache size decreased and expired_entries count increased
-        //
-        // Mock service requirements:
-        // - D1Service: Basic constructor that doesn't require Env/Database
-        // - UserTradingPreferencesService: Mock constructor with D1Service dependency
-        // - Logger: Simple mock that accepts log messages without external dependencies
-    }
+    // Note: Integration tests that require D1Service and other complex dependencies
+    // are disabled in unit tests. These should be run in proper integration test environment
+    // with proper mocking or actual Cloudflare Workers environment.
 
-    #[tokio::test]
-    #[ignore] // Ignored until proper mock services are implemented
-    async fn test_cache_lru_eviction() {
-        // TODO: Comprehensive async test implementation requires mock services
-        //
-        // Planned test approach:
-        // 1. Create market analysis service with cache_max_size = 3
-        // 2. Store 5 different price series to trigger LRU eviction
-        // 3. Verify cache size stays at max (3 entries)
-        // 4. Verify oldest entries are evicted (LRU behavior)
-        // 5. Test cache access patterns update LRU ordering
-    }
-
-    #[tokio::test]
-    #[ignore] // Ignored until proper mock services are implemented
-    async fn test_concurrent_price_data_storage() {
-        // TODO: Concurrent operations test with minimal mock dependencies
-        //
-        // Planned test approach:
-        // 1. Create service with mock dependencies
-        // 2. Spawn multiple async tasks storing price data simultaneously
-        // 3. Verify all price data is stored correctly without data races
-        // 4. Check cache consistency and proper eviction under concurrent load
-    }
-
-    #[tokio::test]
-    #[ignore] // Ignored until proper mock services are implemented
-    async fn test_opportunity_generation_user_preferences() {
-        // TODO: Integration test for opportunity generation with user preferences
-        //
-        // Planned test approach:
-        // 1. Create service with mock UserTradingPreferencesService
-        // 2. Set up different user preference profiles (Conservative, Balanced, Aggressive)
-        // 3. Generate opportunities for each profile type
-        // 4. Verify opportunity filtering matches user risk tolerance
-        // 5. Test that conservative users get only low-risk arbitrage opportunities
-        // 6. Test that aggressive users get broader opportunity selection
-    }
-
-    #[tokio::test]
-    #[ignore] // Ignored until proper mock services are implemented
-    async fn test_error_handling_invalid_inputs() {
-        // TODO: Implement proper mock services for testing
-        // Currently disabled due to complex service dependencies requiring Env parameter and Logger arguments
-
+    #[test]
+    fn test_error_handling_invalid_inputs() {
         // Test mathematical functions with invalid inputs that don't require service setup
         let empty_prices: Vec<f64> = vec![];
         let sma_result = MathUtils::simple_moving_average(&empty_prices, 5);
@@ -1188,5 +1249,83 @@ mod tests {
 
         let correlation_mismatched = MathUtils::price_correlation(&[1.0, 2.0], &[1.0]);
         assert!(correlation_mismatched.is_err());
+    }
+
+    #[test]
+    fn test_price_series_functionality() {
+        let mut series = PriceSeries::new(
+            "BTC/USDT".to_string(),
+            "binance".to_string(),
+            TimeFrame::OneHour,
+        );
+
+        // Test adding price points
+        let price_point1 = PricePoint {
+            timestamp: 1000,
+            price: 50000.0,
+            volume: Some(1.0),
+            exchange_id: "binance".to_string(),
+            trading_pair: "BTC/USDT".to_string(),
+        };
+
+        let price_point2 = PricePoint {
+            timestamp: 2000,
+            price: 51000.0,
+            volume: Some(1.5),
+            exchange_id: "binance".to_string(),
+            trading_pair: "BTC/USDT".to_string(),
+        };
+
+        series.add_price_point(price_point1);
+        series.add_price_point(price_point2);
+
+        // Test latest price
+        let latest = series.latest_price().unwrap();
+        assert_eq!(latest.price, 51000.0);
+        assert_eq!(latest.timestamp, 2000);
+
+        // Test price values extraction
+        let prices = series.price_values();
+        assert_eq!(prices, vec![50000.0, 51000.0]);
+
+        // Test price range filtering
+        let range = series.price_range(1500, 2500);
+        assert_eq!(range.len(), 1);
+        assert_eq!(range[0].price, 51000.0);
+    }
+
+    #[test]
+    fn test_trading_opportunity_creation() {
+        let opportunity = TradingOpportunity {
+            opportunity_id: "test_123".to_string(),
+            opportunity_type: OpportunityType::Arbitrage,
+            trading_pair: "BTC/USDT".to_string(),
+            exchanges: vec!["binance".to_string(), "bybit".to_string()],
+            entry_price: 50000.0,
+            target_price: Some(51000.0),
+            stop_loss: Some(49000.0),
+            confidence_score: 0.85,
+            risk_level: RiskLevel::Medium,
+            expected_return: 2.0,
+            time_horizon: TimeHorizon::Short,
+            indicators_used: vec!["price_diff".to_string()],
+            analysis_data: serde_json::json!({"spread": 1000.0}),
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            expires_at: None,
+        };
+
+        assert_eq!(opportunity.opportunity_type, OpportunityType::Arbitrage);
+        assert_eq!(opportunity.confidence_score, 0.85);
+        assert_eq!(opportunity.expected_return, 2.0);
+    }
+
+    #[test]
+    fn test_opportunity_type_display() {
+        assert_eq!(OpportunityType::Arbitrage.to_string(), "Arbitrage");
+        assert_eq!(OpportunityType::Technical.to_string(), "Technical");
+        assert_eq!(
+            OpportunityType::ArbitrageTechnical.to_string(),
+            "Arbitrage+Technical"
+        );
     }
 }

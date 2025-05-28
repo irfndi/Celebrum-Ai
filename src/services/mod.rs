@@ -4,11 +4,13 @@
 pub mod core {
     pub mod user {
         pub mod dynamic_config;
+        pub mod session_management;
         pub mod user_access;
         pub mod user_profile;
         pub mod user_trading_preferences;
 
         pub use dynamic_config::DynamicConfigService;
+        pub use session_management::SessionManagementService;
         pub use user_profile::UserProfileService;
         pub use user_trading_preferences::UserTradingPreferencesService;
     }
@@ -29,12 +31,16 @@ pub mod core {
         pub mod global_opportunity;
         pub mod opportunity;
         pub mod opportunity_categorization;
+        pub mod opportunity_distribution;
         pub mod opportunity_enhanced;
         pub mod technical_trading;
 
         pub use global_opportunity::GlobalOpportunityService;
         pub use opportunity::OpportunityService;
         pub use opportunity_categorization::OpportunityCategorizationService;
+        pub use opportunity_distribution::{
+            DistributionConfig, DistributionStats, OpportunityDistributionService,
+        };
         pub use opportunity_enhanced::EnhancedOpportunityService;
         pub use technical_trading::TechnicalTradingService;
     }
@@ -59,31 +65,60 @@ pub mod core {
         pub use ai_intelligence::AiIntelligenceService;
     }
 
-    // TODO: Fix invitation services - multiple compilation errors need to be resolved:
-    // 1. Missing ArbitrageError::unauthorized method
-    // 2. Missing D1Service::query and D1Service::execute methods
-    // 3. Type mismatches with unwrap_or_default() usage
-    // 4. Missing .await on async calls
-    // pub mod invitation {
-    //     pub mod affiliation_service;
-    //     pub mod invitation_service;
-    //     pub mod referral_service;
+    pub mod invitation {
+        pub mod affiliation_service;
+        pub mod invitation_service;
+        pub mod referral_service;
 
-    //     pub use affiliation_service::AffiliationService;
-    //     pub use invitation_service::InvitationService;
-    //     pub use referral_service::ReferralService;
-    // }
+        pub use affiliation_service::AffiliationService;
+        pub use invitation_service::InvitationService;
+        pub use referral_service::ReferralService;
+    }
 
     pub mod infrastructure {
+        pub mod ai_gateway;
+        pub mod analytics_engine;
+        pub mod cloudflare_pipelines;
+        pub mod cloudflare_queues;
         pub mod d1_database;
+        pub mod durable_objects;
         pub mod fund_monitoring;
+        pub mod hybrid_data_access;
+        pub mod kv_service;
         pub mod monitoring_observability;
         pub mod notifications;
+        pub mod service_container;
+        pub mod vectorize_service;
 
+        pub use ai_gateway::{
+            AIGatewayConfig, AIGatewayService, AIModelConfig, AIRequest, AIResponse,
+            ModelRequirements, RoutingDecision,
+        };
+        pub use analytics_engine::{
+            AnalyticsEngineConfig, AnalyticsEngineService, RealTimeMetrics, UserAnalytics,
+        };
+        pub use cloudflare_pipelines::CloudflarePipelinesService;
+        pub use cloudflare_queues::{
+            CloudflareQueuesConfig, CloudflareQueuesService, DistributionStrategy, MessagePriority,
+        };
         pub use d1_database::D1Service;
+        pub use durable_objects::{
+            GlobalRateLimiterDO, MarketDataCoordinatorDO, OpportunityCoordinatorDO,
+            UserOpportunityQueueDO,
+        };
         pub use fund_monitoring::FundMonitoringService;
+        pub use hybrid_data_access::{
+            HybridDataAccessConfig, HybridDataAccessService, MarketDataSnapshot,
+            SuperAdminApiConfig,
+        };
+        pub use kv_service::KVService;
         pub use monitoring_observability::MonitoringObservabilityService;
         pub use notifications::NotificationService;
+        pub use service_container::{ServiceContainer, ServiceHealthStatus};
+        pub use vectorize_service::{
+            OpportunityEmbedding, RankedOpportunity, SimilarityResult, UserPreferenceVector,
+            VectorizeConfig, VectorizeService,
+        };
     }
 }
 
@@ -119,16 +154,22 @@ pub use core::analysis::{
     CorrelationAnalysisService, MarketAnalysisService, TechnicalAnalysisService,
 };
 pub use core::infrastructure::{
-    D1Service, FundMonitoringService, MonitoringObservabilityService, NotificationService,
+    AIGatewayService, AnalyticsEngineService, CloudflarePipelinesService, CloudflareQueuesService,
+    D1Service, DistributionStrategy, FundMonitoringService, GlobalRateLimiterDO,
+    HybridDataAccessService, KVService, MarketDataCoordinatorDO, MessagePriority,
+    MonitoringObservabilityService, NotificationService, OpportunityCoordinatorDO,
+    ServiceContainer, UserOpportunityQueueDO, VectorizeService,
 };
-// TODO: Re-enable when invitation services compilation errors are fixed
-// pub use core::invitation::{AffiliationService, InvitationService, ReferralService};
+pub use core::invitation::{AffiliationService, InvitationService, ReferralService};
 pub use core::opportunities::{
     EnhancedOpportunityService, GlobalOpportunityService, OpportunityCategorizationService,
-    OpportunityService, TechnicalTradingService,
+    OpportunityDistributionService, OpportunityService, TechnicalTradingService,
 };
 pub use core::trading::{
     AiExchangeRouterService, ExchangeAvailabilityService, ExchangeService, PositionsService,
 };
-pub use core::user::{DynamicConfigService, UserProfileService, UserTradingPreferencesService};
+pub use core::user::{
+    DynamicConfigService, SessionManagementService, UserProfileService,
+    UserTradingPreferencesService,
+};
 pub use interfaces::telegram::{InlineKeyboard, InlineKeyboardButton, TelegramService};

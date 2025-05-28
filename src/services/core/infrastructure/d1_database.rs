@@ -4,6 +4,7 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid;
 use worker::{D1Database, Env, Result};
 
@@ -43,15 +44,23 @@ type AiOpportunityAnalysis =
 
 /// D1Service provides database operations using Cloudflare D1 SQL database
 /// This service handles persistent storage for user profiles, invitations, analytics, orders, opporunities, etc.
+#[derive(Clone)]
 pub struct D1Service {
-    db: D1Database,
+    db: Arc<D1Database>,
 }
 
 impl D1Service {
     /// Create a new D1Service instance
     pub fn new(env: &Env) -> Result<Self> {
         let db = env.d1("ArbEdgeD1")?;
-        Ok(D1Service { db })
+        Ok(D1Service { db: Arc::new(db) })
+    }
+
+    /// Get a reference to the underlying D1 database
+    /// WARNING: This method exposes raw database access and should only be used internally
+    /// Consider using high-level methods instead of direct database access
+    pub(crate) fn database(&self) -> &D1Database {
+        &self.db
     }
 
     // ============= USER PROFILE OPERATIONS =============
@@ -88,8 +97,8 @@ impl D1Service {
                 user_id, telegram_id, username, api_keys, 
                 subscription_tier, trading_preferences, 
                 created_at, updated_at, last_login_at, account_status, 
-                beta_expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                beta_expires_at, account_balance_usdt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ",
         );
 
@@ -115,6 +124,7 @@ impl D1Service {
                 .map(|t| t as i64)
                 .unwrap_or(0)
                 .into(),
+            profile.account_balance_usdt.into(),
         ])
         .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
         .run()
@@ -1065,6 +1075,11 @@ impl D1Service {
 
         let total_pnl_usdt = 0.0f64; // Default value since column doesn't exist yet
 
+        let account_balance_usdt = row
+            .get("account_balance_usdt")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+
         // Parse profile_metadata field
         let profile_metadata = row
             .get("profile_metadata")
@@ -1092,6 +1107,7 @@ impl D1Service {
             is_active,
             total_trades,
             total_pnl_usdt,
+            account_balance_usdt,
             profile_metadata,
             beta_expires_at,
         })
@@ -1709,6 +1725,7 @@ impl D1Service {
 
     /// Execute multiple operations within a transaction
     /// If any operation fails, the entire transaction is rolled back
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn execute_transaction<F, T>(&self, operations: F) -> ArbitrageResult<T>
     where
         F: FnOnce(
@@ -1730,7 +1747,43 @@ impl D1Service {
             Err(e) => {
                 // Rollback on failure
                 if let Err(rollback_err) = self.rollback_transaction().await {
-                    log::error!("Failed to rollback transaction: {:?}", rollback_err);
+                    crate::utils::logger::logger().error(&format!(
+                        "Failed to rollback transaction: {:?}",
+                        rollback_err
+                    ));
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Execute multiple operations within a transaction (WASM version without Send bounds)
+    /// If any operation fails, the entire transaction is rolled back
+    #[cfg(target_arch = "wasm32")]
+    pub async fn execute_transaction<F, T>(&self, operations: F) -> ArbitrageResult<T>
+    where
+        F: FnOnce(
+            &Self,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = ArbitrageResult<T>> + '_>>,
+    {
+        // Begin transaction
+        self.begin_transaction().await?;
+
+        // Execute operations
+        match operations(self).await {
+            Ok(result) => {
+                // Commit on success
+                self.commit_transaction().await?;
+                Ok(result)
+            }
+            Err(e) => {
+                // Rollback on failure
+                if let Err(rollback_err) = self.rollback_transaction().await {
+                    crate::utils::logger::logger().error(&format!(
+                        "Failed to rollback transaction: {:?}",
+                        rollback_err
+                    ));
                 }
                 Err(e)
             }

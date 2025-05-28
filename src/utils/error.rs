@@ -119,6 +119,12 @@ impl ArbitrageError {
             .with_code("AUTH_Z_ERROR")
     }
 
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Authorization, message)
+            .with_status(401)
+            .with_code("UNAUTHORIZED")
+    }
+
     pub fn rate_limit_error(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::RateLimit, message)
             .with_status(429)
@@ -182,6 +188,57 @@ impl ArbitrageError {
 
     pub fn storage_error(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::Storage, message)
+    }
+
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Internal, message)
+            .with_status(503)
+            .with_code("SERVICE_UNAVAILABLE")
+    }
+
+    pub fn parsing_error(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::ParseError, message)
+            .with_status(400)
+            .with_code("PARSING_ERROR")
+    }
+
+    pub fn configuration_error(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::ConfigError, message)
+            .with_status(500)
+            .with_code("CONFIGURATION_ERROR")
+    }
+
+    pub fn data_unavailable(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::NotFound, message)
+            .with_status(503)
+            .with_code("DATA_UNAVAILABLE")
+    }
+
+    pub fn session_not_found(identifier: impl Into<String>) -> Self {
+        Self::new(
+            ErrorKind::NotFound,
+            format!("Session not found: {}", identifier.into()),
+        )
+        .with_status(404)
+        .with_code("SESSION_NOT_FOUND")
+    }
+
+    pub fn rate_limit_exceeded(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::RateLimit, message)
+            .with_status(429)
+            .with_code("RATE_LIMIT_EXCEEDED")
+    }
+
+    pub fn quota_exceeded(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::RateLimit, message)
+            .with_status(429)
+            .with_code("QUOTA_EXCEEDED")
+    }
+
+    pub fn cache_error(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Storage, message)
+            .with_status(500)
+            .with_code("CACHE_ERROR")
     }
 }
 

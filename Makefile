@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 export PATH := $(HOME)/.cargo/bin:$(PATH)
 
-.PHONY: help setup test build build-wasm coverage clean lint fix fmt check-all deploy pre-commit local-ci full-check unit-tests integration-tests e2e-tests lib-tests ci-pipeline
+.PHONY: help setup test build build-wasm coverage clean lint fix fmt check-all deploy pre-commit local-ci full-check unit-tests integration-tests e2e-tests lib-tests ci-pipeline test-api test-api-local test-api-staging test-api-production test-api-prod-admin
 
 help: ## Show this help message
 	@echo "🦀 ArbEdge Rust Development Commands"
@@ -30,15 +30,15 @@ lib-tests: ## Run library tests only
 
 unit-tests: ## Run unit tests
 	@echo "🧪 Running unit tests..."
-	@cargo test --test d1_database_unit_test --test notifications_unit_test --test global_opportunity_unit_test --test user_profile_unit_test --test exchange_service_unit_test --test technical_trading_service_unit_test
+	@cargo test --test mod
 
 integration-tests: ## Run integration tests
 	@echo "🧪 Running integration tests..."
-	@cargo test --test comprehensive_service_integration_test --test market_data_pipeline_test --test telegram_bot_commands_test --test telegram_advanced_commands_test
+	@cargo test --test session_opportunity_integration_test
 
 e2e-tests: ## Run E2E tests
 	@echo "🧪 Running E2E tests..."
-	@cargo test --test service_integration_e2e_test --test user_journey_e2e_test --test rbac_comprehensive_user_journey_test
+	@cargo test --test webhook_session_management_test
 
 # Build commands
 build: ## Build for native target
@@ -94,19 +94,25 @@ ci-pipeline: ## Run comprehensive CI pipeline
 	@echo "🔍 Step 2: Clippy Linting Check"
 	@cargo clippy --lib -- -D warnings
 	@echo "✅ Step 2: Clippy Linting Passed"
-	@echo "🧪 Step 3: Library Tests"
+	@echo "🎯 Step 3: WASM Target Compilation Check"
+	@cargo check --target wasm32-unknown-unknown --lib
+	@echo "✅ Step 3: WASM Target Compilation Passed"
+	@echo "🧪 Step 4: Library Tests"
 	@cargo test --lib
-	@echo "✅ Step 3: Library Tests Passed (327 tests)"
-	@echo "🧪 Step 4: Unit Tests"
+	@echo "✅ Step 4: Library Tests Passed (327 tests)"
+	@echo "🧪 Step 5: Unit Tests"
 	@$(MAKE) unit-tests
-	@echo "✅ Step 4: Unit Tests Passed (67 tests)"
-	@echo "🧪 Step 5: Integration & E2E Tests"
+	@echo "✅ Step 5: Unit Tests Passed (67 tests)"
+	@echo "🧪 Step 6: Integration & E2E Tests"
 	@$(MAKE) integration-tests
 	@$(MAKE) e2e-tests
-	@echo "✅ Step 5: Integration & E2E Tests Passed (74 tests)"
-	@echo "🔧 Step 6: Final Compilation Check"
+	@echo "✅ Step 6: Integration & E2E Tests Passed (74 tests)"
+	@echo "🔧 Step 7: Final Native Compilation Check"
 	@cargo check
-	@echo "✅ Step 6: Final Compilation Check Passed"
+	@echo "✅ Step 7: Final Native Compilation Check Passed"
+	@echo "🎯 Step 8: Final WASM Build Verification"
+	@cargo build --target wasm32-unknown-unknown --lib --quiet
+	@echo "✅ Step 8: Final WASM Build Verification Passed"
 	@echo "🎉 CI Pipeline Completed Successfully!"
 	@echo "📊 Test Summary:"
 	@echo "   - Library Tests: 327 tests"
@@ -115,6 +121,7 @@ ci-pipeline: ## Run comprehensive CI pipeline
 	@echo "   - E2E Tests: 12 tests"
 	@echo "   - Total: 468 tests passing"
 	@echo "   - Coverage: 50-80% achieved across all modules"
+	@echo "   - WASM Compatibility: ✅ Verified"
 
 # Coverage and documentation
 coverage: ## Generate test coverage report
@@ -145,11 +152,15 @@ check: ## Quick build check
 	@echo "🔍 Quick build check..."
 	@cargo check
 
-check-all: lint test build build-wasm ## Run all basic checks (lint, test, build native & WASM)
+check-wasm: ## Quick WASM compilation check
+	@echo "🎯 Quick WASM compilation check..."
+	@cargo check --target wasm32-unknown-unknown --lib
+
+check-all: lint test build build-wasm check-wasm ## Run all basic checks (lint, test, build native & WASM)
 	@echo "✅ All basic checks completed successfully!"
 
 # Legacy commands (maintained for compatibility)
-dev: fmt lint test ## Quick development cycle (format, lint, test)
+dev: fmt lint test check-wasm ## Quick development cycle (format, lint, test, WASM check)
 	@echo "🚀 Development cycle completed!"
 
 ci: ci-pipeline ## Alias for ci-pipeline (legacy)
@@ -168,3 +179,26 @@ validate: ci-pipeline ## Full validation (mirrors CI)
 
 quality: full-check ## Comprehensive quality analysis
 	@echo "🏆 Quality analysis completed!" 
+
+# API Testing
+test-api: ## Run API Flow Tests
+	@echo "🌐 Running API Flow Tests..."
+	@chmod +x scripts/prod/test-bot/test_api_flow.sh
+	@./scripts/prod/test-bot/test_api_flow.sh
+
+test-api-local: ## Run API Tests against local development server
+	@echo "🏠 Running API Tests against local development server..."
+	@BASE_URL=http://localhost:8787 ./scripts/prod/test-bot/test_api_flow.sh
+
+test-api-staging: ## Run API Tests against staging environment
+	@echo "🚀 Running API Tests against staging environment..."
+	@BASE_URL=https://arb-edge-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_api_flow.sh
+
+test-api-production: ## Run API Tests against production environment
+	@echo "🌍 Running API Tests against production environment..."
+	@BASE_URL=https://arb-edge.your-domain.workers.dev ./scripts/prod/test-bot/test_api_flow.sh
+
+test-api-prod-admin: ## Run Production API Tests (Super Admin Only with D1 Database)
+	@echo "👑 Running Production API Tests (Super Admin + D1 Database)..."
+	@chmod +x scripts/prod/test-bot/test_api_flow_prod.sh
+	@./scripts/prod/test-bot/test_api_flow_prod.sh

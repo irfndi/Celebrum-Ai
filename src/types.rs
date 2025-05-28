@@ -531,6 +531,22 @@ pub struct Balance {
 
 pub type Balances = HashMap<String, Balance>;
 
+/// Exchange balance information with asset breakdown
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExchangeBalance {
+    pub exchange: String,
+    pub assets: HashMap<String, AssetBalance>,
+    pub timestamp: u64,
+}
+
+/// Individual asset balance information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetBalance {
+    pub available: f64,
+    pub locked: f64,
+    pub total: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Order {
     pub id: String,
@@ -547,6 +563,67 @@ pub struct Order {
     pub timestamp: Option<DateTime<Utc>>,
     pub datetime: Option<String>,
     pub fee: Option<Fee>,
+}
+
+/// Order information for Telegram bot display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderInfo {
+    pub order_id: String,
+    pub symbol: String,
+    pub side: String,
+    pub order_type: String,
+    pub orig_qty: f64,
+    pub executed_qty: f64,
+    pub remaining_qty: f64,
+    pub price: f64,
+    pub remaining_value: f64,
+    pub filled_percentage: f64,
+    pub status: String,
+    pub exchange: String,
+}
+
+/// Position information for Telegram bot display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionInfo {
+    pub position_id: String,
+    pub symbol: String,
+    pub side: String,
+    pub size: f64,
+    pub entry_price: f64,
+    pub mark_price: f64,
+    pub unrealized_pnl: f64,
+    pub realized_pnl: f64,
+    pub margin: f64,
+    pub leverage: f64,
+    pub percentage_pnl: f64,
+    pub exchange: String,
+}
+
+/// AI insights summary for Telegram bot display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiInsightsSummary {
+    pub opportunities_processed: u32,
+    pub average_confidence: f64,
+    pub risk_assessments_completed: u32,
+    pub market_sentiment: String,
+    pub key_insights: Vec<String>,
+    pub performance_score: f64,
+    pub prediction_accuracy: f64,
+    pub risk_score: f64,
+}
+
+/// Risk assessment summary for Telegram bot display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskAssessmentSummary {
+    pub overall_risk_score: f64,
+    pub portfolio_correlation: f64,
+    pub position_concentration: f64,
+    pub market_conditions_risk: f64,
+    pub volatility_risk: f64,
+    pub total_portfolio_value: f64,
+    pub active_positions: u32,
+    pub diversification_score: f64,
+    pub recommendations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -595,6 +672,7 @@ pub struct FundingRateInfo {
 pub struct ExchangeCredentials {
     pub api_key: String,
     pub secret: String,
+    pub passphrase: Option<String>, // Required for OKX, optional for other exchanges
     pub default_leverage: i32,
     pub exchange_type: String,
 }
@@ -944,6 +1022,7 @@ pub struct UserProfile {
     pub is_active: bool,
     pub total_trades: u32,
     pub total_pnl_usdt: f64,
+    pub account_balance_usdt: f64, // Actual account balance for trading
     pub profile_metadata: Option<serde_json::Value>, // Additional profile metadata including role
 }
 
@@ -967,6 +1046,7 @@ impl UserProfile {
             is_active: true,
             total_trades: 0,
             total_pnl_usdt: 0.0,
+            account_balance_usdt: 0.0, // Default balance
             profile_metadata: None,
         }
     }
@@ -1435,8 +1515,10 @@ pub enum SessionState {
 
 impl UserSession {
     pub fn new(user_id: String, telegram_chat_id: i64) -> Self {
-        let now = chrono::Utc::now().timestamp_millis() as u64;
-        let expires_at = now + (24 * 60 * 60 * 1000); // 24 hours
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
 
         Self {
             user_id,
@@ -1445,18 +1527,247 @@ impl UserSession {
             current_state: SessionState::Idle,
             temporary_data: std::collections::HashMap::new(),
             created_at: now,
-            expires_at,
+            expires_at: now + (24 * 60 * 60 * 1000), // 24 hours
         }
     }
 
     pub fn is_expired(&self) -> bool {
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
         now > self.expires_at
     }
 
     pub fn extend_session(&mut self) {
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
         self.expires_at = now + (24 * 60 * 60 * 1000); // Extend by 24 hours
+    }
+}
+
+// ============= ENHANCED SESSION MANAGEMENT TYPES =============
+
+/// Enhanced session management for comprehensive user lifecycle tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnhancedUserSession {
+    pub session_id: String,
+    pub user_id: String,
+    pub telegram_id: i64,
+    pub session_state: EnhancedSessionState,
+    pub started_at: u64,
+    pub last_activity_at: u64,
+    pub expires_at: u64,
+    pub onboarding_completed: bool,
+    pub preferences_set: bool,
+    pub metadata: Option<serde_json::Value>, // JSON for additional session data
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+/// Enhanced session states for comprehensive lifecycle management
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnhancedSessionState {
+    Active,
+    Expired,
+    Terminated,
+}
+
+impl EnhancedSessionState {
+    pub fn to_db_string(&self) -> &'static str {
+        match self {
+            EnhancedSessionState::Active => "active",
+            EnhancedSessionState::Expired => "expired",
+            EnhancedSessionState::Terminated => "terminated",
+        }
+    }
+}
+
+impl EnhancedUserSession {
+    pub fn new(user_id: String, telegram_id: i64) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
+
+        // Use UUID for session ID to prevent collisions
+        let session_id = format!("sess_{}_{}", telegram_id, uuid::Uuid::new_v4());
+
+        Self {
+            session_id,
+            user_id,
+            telegram_id,
+            session_state: EnhancedSessionState::Active,
+            started_at: now,
+            last_activity_at: now,
+            expires_at: now + (7 * 24 * 60 * 60 * 1000), // 7 days default
+            onboarding_completed: false,
+            preferences_set: false,
+            metadata: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    pub fn is_expired(&self) -> bool {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
+        now > self.expires_at || self.session_state == EnhancedSessionState::Expired
+    }
+
+    pub fn is_active(&self) -> bool {
+        !self.is_expired() && self.session_state == EnhancedSessionState::Active
+    }
+
+    pub fn update_activity(&mut self) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
+
+        self.last_activity_at = now;
+        self.updated_at = now;
+
+        // Auto-extend session if it's still active
+        if self.session_state == EnhancedSessionState::Active {
+            self.expires_at = now + (7 * 24 * 60 * 60 * 1000); // Extend by 7 days
+        }
+    }
+
+    pub fn complete_onboarding(&mut self) {
+        self.onboarding_completed = true;
+        self.updated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
+    }
+
+    pub fn set_preferences_configured(&mut self) {
+        self.preferences_set = true;
+        self.updated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
+    }
+
+    pub fn terminate(&mut self) {
+        self.session_state = EnhancedSessionState::Terminated;
+        self.updated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
+    }
+
+    pub fn expire(&mut self) {
+        self.session_state = EnhancedSessionState::Expired;
+        self.updated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
+    }
+
+    pub fn set_metadata(&mut self, metadata: serde_json::Value) {
+        self.metadata = Some(metadata);
+        self.updated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
+    }
+
+    pub fn get_session_duration_hours(&self) -> f64 {
+        let duration_ms = self.last_activity_at - self.started_at;
+        duration_ms as f64 / (60.0 * 60.0 * 1000.0)
+    }
+
+    pub fn needs_onboarding(&self) -> bool {
+        !self.onboarding_completed
+    }
+
+    pub fn needs_preferences_setup(&self) -> bool {
+        !self.preferences_set
+    }
+}
+
+/// Session analytics for tracking user engagement and system performance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionAnalytics {
+    pub session_id: String,
+    pub user_id: String,
+    pub telegram_id: i64,
+    pub session_duration_minutes: f64,
+    pub commands_executed: u32,
+    pub opportunities_viewed: u32,
+    pub onboarding_completed: bool,
+    pub preferences_configured: bool,
+    pub last_command: Option<String>,
+    pub session_outcome: SessionOutcome,
+    pub created_at: u64,
+}
+
+/// Possible outcomes when a session ends
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionOutcome {
+    Completed,  // User completed their intended actions
+    Abandoned,  // User left without completing actions
+    Expired,    // Session expired due to inactivity
+    Terminated, // Session was manually terminated
+    Error,      // Session ended due to an error
+}
+
+impl SessionOutcome {
+    /// Get stable string representation for database storage and API responses
+    pub fn to_stable_string(&self) -> &'static str {
+        match self {
+            SessionOutcome::Completed => "completed",
+            SessionOutcome::Abandoned => "abandoned",
+            SessionOutcome::Expired => "expired",
+            SessionOutcome::Terminated => "terminated",
+            SessionOutcome::Error => "error",
+        }
+    }
+
+    /// Parse from stable string representation
+    pub fn from_stable_string(s: &str) -> Result<Self, String> {
+        match s {
+            "completed" => Ok(SessionOutcome::Completed),
+            "abandoned" => Ok(SessionOutcome::Abandoned),
+            "expired" => Ok(SessionOutcome::Expired),
+            "terminated" => Ok(SessionOutcome::Terminated),
+            "error" => Ok(SessionOutcome::Error),
+            _ => Err(format!("Invalid session outcome: {}", s)),
+        }
+    }
+}
+
+/// Configuration for session management behavior
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionConfig {
+    pub default_session_duration_hours: f64,
+    pub max_session_duration_hours: f64,
+    pub activity_extension_hours: f64,
+    pub cleanup_interval_hours: f64,
+    pub require_onboarding: bool,
+    pub require_preferences_setup: bool,
+    pub analytics_enabled: bool,
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            default_session_duration_hours: 0.25, // 15 minutes - secure for financial platforms
+            max_session_duration_hours: 2.0,      // 2 hours maximum
+            activity_extension_hours: 2.0,        // 2 hours extension on activity
+            cleanup_interval_hours: 0.25,         // 15 minutes cleanup interval
+            require_onboarding: true,
+            require_preferences_setup: false, // Optional during beta
+            analytics_enabled: true,
+        }
     }
 }
 
@@ -1482,6 +1793,29 @@ pub enum DistributionStrategy {
     RoundRobin,          // Fair rotation among active users
     PriorityBased,       // Based on user subscription tier and activity
     Broadcast,           // Send to all eligible users
+}
+
+impl DistributionStrategy {
+    /// Convert to stable string representation for database storage
+    pub fn to_stable_string(&self) -> &'static str {
+        match self {
+            DistributionStrategy::FirstComeFirstServe => "first_come_first_serve",
+            DistributionStrategy::RoundRobin => "round_robin",
+            DistributionStrategy::PriorityBased => "priority_based",
+            DistributionStrategy::Broadcast => "broadcast",
+        }
+    }
+
+    /// Parse from stable string representation
+    pub fn from_stable_string(s: &str) -> Result<Self, String> {
+        match s {
+            "first_come_first_serve" => Ok(DistributionStrategy::FirstComeFirstServe),
+            "round_robin" => Ok(DistributionStrategy::RoundRobin),
+            "priority_based" => Ok(DistributionStrategy::PriorityBased),
+            "broadcast" => Ok(DistributionStrategy::Broadcast),
+            _ => Err(format!("Invalid distribution strategy: {}", s)),
+        }
+    }
 }
 
 /// Source of the opportunity
@@ -2352,11 +2686,11 @@ impl AITemplate {
             is_system_default: true,
             created_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                 .as_millis() as u64,
             updated_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                 .as_millis() as u64,
         }
     }
@@ -2379,11 +2713,11 @@ impl AITemplate {
             is_system_default: false,
             created_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                 .as_millis() as u64,
             updated_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                 .as_millis() as u64,
         }
     }

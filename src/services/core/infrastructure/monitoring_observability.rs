@@ -398,11 +398,13 @@ impl MonitoringObservabilityService {
         let telegram_id = match user_id.parse::<i64>() {
             Ok(id) if id > 0 => id, // Telegram user IDs start from 1
             Ok(_) => {
-                log::warn!("Monitoring access denied: Invalid user ID format (non-positive)");
+                crate::utils::logger::logger()
+                    .warn("Monitoring access denied: Invalid user ID format (non-positive)");
                 return false;
             }
             Err(_) => {
-                log::warn!("Monitoring access denied: Invalid user ID format (parse error)");
+                crate::utils::logger::logger()
+                    .warn("Monitoring access denied: Invalid user ID format (parse error)");
                 return false;
             }
         };
@@ -414,11 +416,13 @@ impl MonitoringObservabilityService {
         {
             Ok(Some(profile)) => profile,
             Ok(None) => {
-                log::warn!("Monitoring access denied: User not found in database");
+                crate::utils::logger::logger()
+                    .warn("Monitoring access denied: User not found in database");
                 return false;
             }
             Err(_) => {
-                log::warn!("Monitoring access denied: Database error during user lookup");
+                crate::utils::logger::logger()
+                    .warn("Monitoring access denied: Database error during user lookup");
                 return false;
             }
         };
@@ -627,7 +631,8 @@ impl MonitoringObservabilityService {
             let mut perf_metrics = match self.performance_metrics.write() {
                 Ok(guard) => guard,
                 Err(_) => {
-                    log::error!("Failed to acquire write lock on performance metrics");
+                    crate::utils::logger::logger()
+                        .error("Failed to acquire write lock on performance metrics");
                     return Ok(());
                 }
             };
@@ -975,8 +980,8 @@ impl MonitoringObservabilityService {
 
         // Note: In WASM environment, we don't spawn background tasks
         // System metrics collection would be triggered by external events or periodic calls
-        log::info!(
-            "Monitoring service initialized - background metrics collection not available in WASM"
+        crate::utils::logger::logger().info(
+            "Monitoring service initialized - background metrics collection not available in WASM",
         );
 
         Ok(())
@@ -988,7 +993,8 @@ impl MonitoringObservabilityService {
             let rules_guard = match self.alert_rules.read() {
                 Ok(guard) => guard,
                 Err(_) => {
-                    log::error!("Failed to acquire read lock on alert rules");
+                    crate::utils::logger::logger()
+                        .error("Failed to acquire read lock on alert rules");
                     return Ok(());
                 }
             };
@@ -1067,7 +1073,8 @@ impl MonitoringObservabilityService {
                     let active_alerts = match self.active_alerts.read() {
                         Ok(guard) => guard,
                         Err(_) => {
-                            log::error!("Failed to acquire read lock on active alerts");
+                            crate::utils::logger::logger()
+                                .error("Failed to acquire read lock on active alerts");
                             return Ok(());
                         }
                     };
@@ -1100,7 +1107,8 @@ impl MonitoringObservabilityService {
             let mut alerts = match self.active_alerts.write() {
                 Ok(guard) => guard,
                 Err(_) => {
-                    log::error!("Failed to acquire write lock on active alerts");
+                    crate::utils::logger::logger()
+                        .error("Failed to acquire write lock on active alerts");
                     return Ok(());
                 }
             };
@@ -1108,12 +1116,10 @@ impl MonitoringObservabilityService {
         }
 
         // TODO: Send notifications through configured channels
-        log::warn!(
+        crate::utils::logger::logger().warn(&format!(
             "Alert triggered: {} - Current value: {}, Threshold: {}",
-            alert.name,
-            current_value,
-            threshold_value
-        );
+            alert.name, current_value, threshold_value
+        ));
 
         Ok(())
     }
@@ -1155,7 +1161,8 @@ impl MonitoringObservabilityService {
         let mut system = match self.system.write() {
             Ok(guard) => guard,
             Err(_) => {
-                log::error!("Failed to acquire write lock on system monitor for CPU");
+                crate::utils::logger::logger()
+                    .error("Failed to acquire write lock on system monitor for CPU");
                 return 0.0;
             }
         };
@@ -1180,7 +1187,8 @@ impl MonitoringObservabilityService {
         let mut system = match self.system.write() {
             Ok(guard) => guard,
             Err(_) => {
-                log::error!("Failed to acquire write lock on system monitor for memory");
+                crate::utils::logger::logger()
+                    .error("Failed to acquire write lock on system monitor for memory");
                 return 0.0;
             }
         };
@@ -1202,7 +1210,8 @@ impl MonitoringObservabilityService {
         let mut system = match self.system.write() {
             Ok(guard) => guard,
             Err(_) => {
-                log::error!("Failed to acquire write lock on system monitor for disk");
+                crate::utils::logger::logger()
+                    .error("Failed to acquire write lock on system monitor for disk");
                 return 50.0; // Return fallback value
             }
         };
@@ -1355,7 +1364,10 @@ impl MonitoringObservabilityService {
                 }
             }
             _ => {
-                log::warn!("Unknown service for health check: {}", service_name);
+                crate::utils::logger::logger().warn(&format!(
+                    "Unknown service for health check: {}",
+                    service_name
+                ));
                 false
             }
         }
@@ -1366,10 +1378,10 @@ impl MonitoringObservabilityService {
         let samples = match self.response_time_samples.read() {
             Ok(samples) => samples,
             Err(_) => {
-                log::warn!(
+                crate::utils::logger::logger().warn(&format!(
                     "Failed to acquire read lock on response time samples for operation: {}",
                     operation
-                );
+                ));
                 return (0.0, 0.0, 0.0);
             }
         };
