@@ -307,7 +307,6 @@ impl CloudflarePipelinesService {
                 #[cfg(target_arch = "wasm32")]
                 {
                     use gloo_timers::future::TimeoutFuture;
-                    use std::time::Duration;
                     TimeoutFuture::new(1000).await; // 1 second delay
                 }
 

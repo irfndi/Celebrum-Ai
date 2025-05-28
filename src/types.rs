@@ -2879,7 +2879,7 @@ impl UpdateUserProfileRequest {
 
         // Validate max leverage
         if let Some(leverage) = self.max_leverage {
-            if leverage == 0 || leverage > 125 {
+            if !(1..=125).contains(&leverage) {
                 return Err("Max leverage must be between 1 and 125".to_string());
             }
         }
@@ -2908,7 +2908,7 @@ impl UpdateUserProfileRequest {
 
         // Validate opportunity threshold
         if let Some(threshold) = self.opportunity_threshold {
-            if threshold < 0.0 || threshold > 1.0 {
+            if !(0.0..=1.0).contains(&threshold) {
                 return Err("Opportunity threshold must be between 0.0 and 1.0".to_string());
             }
         }
@@ -3036,7 +3036,7 @@ impl UpdateUserPreferencesRequest {
 
         // Validate max leverage
         if let Some(max_leverage) = self.max_leverage {
-            if max_leverage == 0 || max_leverage > 100 {
+            if !(1..=100).contains(&max_leverage) {
                 return Err("Max leverage must be between 1 and 100".to_string());
             }
         }
@@ -3066,7 +3066,7 @@ impl UpdateUserPreferencesRequest {
 
         // Validate opportunity threshold
         if let Some(threshold) = self.opportunity_threshold {
-            if threshold < 0.0 || threshold > 1.0 {
+            if !(0.0..=1.0).contains(&threshold) {
                 return Err("Opportunity threshold must be between 0.0 and 1.0".to_string());
             }
         }

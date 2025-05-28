@@ -29,10 +29,10 @@ pub trait NotificationSender: Send + Sync {
     async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()>;
 }
 
-// WASM version without Send + Sync bounds
+// WASM version with Send + Sync bounds for thread safety
 #[async_trait::async_trait(?Send)]
 #[cfg(target_arch = "wasm32")]
-pub trait NotificationSender {
+pub trait NotificationSender: Send + Sync {
     async fn send_opportunity_notification(
         &self,
         chat_id: &str,
@@ -76,10 +76,7 @@ pub struct OpportunityDistributionService {
     d1_service: D1Service,
     kv_service: KVService,
     session_service: SessionManagementService,
-    #[cfg(not(target_arch = "wasm32"))]
     notification_sender: Option<Box<dyn NotificationSender + Send + Sync>>,
-    #[cfg(target_arch = "wasm32")]
-    notification_sender: Option<Box<dyn NotificationSender>>,
     pipelines_service: Option<CloudflarePipelinesService>,
     vectorize_service: Option<VectorizeService>,
     queues_service: Option<CloudflareQueuesService>,
@@ -109,13 +106,7 @@ impl OpportunityDistributionService {
         self
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn set_notification_sender(&mut self, sender: Box<dyn NotificationSender + Send + Sync>) {
-        self.notification_sender = Some(sender);
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn set_notification_sender(&mut self, sender: Box<dyn NotificationSender>) {
         self.notification_sender = Some(sender);
     }
 
@@ -742,7 +733,11 @@ impl OpportunityDistributionService {
         let _today_start = chrono::Utc::now()
             .date_naive()
             .and_hms_opt(0, 0, 0)
-            .unwrap()
+            .ok_or_else(|| {
+                crate::utils::ArbitrageError::validation_error(
+                    "Invalid time values for today start",
+                )
+            })?
             .and_utc()
             .timestamp() as u64;
 

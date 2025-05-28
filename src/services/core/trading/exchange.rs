@@ -996,7 +996,7 @@ impl ExchangeService {
         };
 
         // Ensure minimum delay of 100ms and maximum of 5 minutes
-        std::cmp::max(100, std::cmp::min(base_delay, 300_000))
+        base_delay.clamp(100, 300_000)
     }
 
     /// Cross-platform async delay
@@ -1011,7 +1011,6 @@ impl ExchangeService {
         {
             // Use gloo-timers for non-blocking async delay in WASM
             use gloo_timers::future::TimeoutFuture;
-            use std::time::Duration;
             TimeoutFuture::new(delay_ms as u32).await;
         }
     }

@@ -984,7 +984,7 @@ async fn check_user_permissions(user_id: &str, required_tier: &str, env: &Env) -
         // Additional confirmation required for any production-like environment
         if (environment.to_lowercase().contains("prod")
             || environment.to_lowercase().contains("live"))
-            && !env.var("CONFIRM_FALLBACK_SECURITY_RISK").is_ok()
+            && env.var("CONFIRM_FALLBACK_SECURITY_RISK").is_err()
         {
             console_log!("🚨 SECURITY: Fallback permissions require CONFIRM_FALLBACK_SECURITY_RISK in production-like environment");
             return Ok(false);
@@ -1071,10 +1071,7 @@ async fn handle_api_detailed_health_check(_req: Request, env: Env) -> Result<Res
         match env.kv("ArbEdgeKV") {
             Ok(kv) => {
                 // Try a simple get operation to test connectivity
-                match kv.get("health_check_test").text().await {
-                    Ok(_) => true,
-                    Err(_) => false,
-                }
+                (kv.get("health_check_test").text().await).is_ok()
             }
             Err(_) => false,
         }
@@ -1087,10 +1084,7 @@ async fn handle_api_detailed_health_check(_req: Request, env: Env) -> Result<Res
         match services::core::infrastructure::D1Service::new(&env) {
             Ok(d1_service) => {
                 // Try a simple query to test connectivity
-                match d1_service.health_check().await {
-                    Ok(is_healthy) => is_healthy,
-                    Err(_) => false,
-                }
+                (d1_service.health_check().await).unwrap_or(false)
             }
             Err(_) => false,
         }
