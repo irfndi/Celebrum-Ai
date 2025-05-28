@@ -10,8 +10,8 @@ use worker::console_log;
 
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::{
-    AssetBalance, CommandPermission, ExchangeBalance, ExchangeCredentials, ExchangeIdEnum, Limits, Market, MinMax,
-    OrderBook, Precision, Ticker,
+    AssetBalance, CommandPermission, ExchangeBalance, ExchangeCredentials, ExchangeIdEnum, Limits,
+    Market, MinMax, OrderBook, Precision, Ticker,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 
@@ -917,11 +917,16 @@ impl ExchangeService {
 
                     if attempt < max_retries {
                         let should_retry = self.should_retry_error(&e);
-                        
+
                         if should_retry {
                             let delay = self.calculate_retry_delay(&e, attempt);
-                            console_log!("{} failed (attempt {}), retrying in {}ms: {}", 
-                                operation_name, attempt + 1, delay, e.message);
+                            console_log!(
+                                "{} failed (attempt {}), retrying in {}ms: {}",
+                                operation_name,
+                                attempt + 1,
+                                delay,
+                                e.message
+                            );
 
                             self.async_delay(delay).await;
                         } else {
@@ -950,14 +955,14 @@ impl ExchangeService {
                         || error.message.contains("timeout")
                 }
                 _ => false,
-            }
+            },
         }
     }
 
     /// Calculate retry delay based on error type and attempt number
     fn calculate_retry_delay(&self, error: &ArbitrageError, attempt: u32) -> u64 {
         use rand::Rng;
-        
+
         let base_delay = match error.status {
             Some(429) => {
                 // Rate limit - extract retry-after header if available
@@ -980,16 +985,16 @@ impl ExchangeService {
                 let base_delay = 1000 * (2_u64.pow(capped_attempt));
                 let max_delay = 10000; // 10 seconds max
                 let delay_without_jitter = std::cmp::min(base_delay, max_delay);
-                
+
                 // Add jitter (±25% of the delay)
                 let jitter_range = delay_without_jitter / 4;
                 let jitter = rand::thread_rng().gen_range(0..=jitter_range * 2);
                 let jitter_offset = jitter.saturating_sub(jitter_range); // Can be negative
-                
+
                 delay_without_jitter.saturating_add(jitter_offset)
             }
         };
-        
+
         // Ensure minimum delay of 100ms and maximum of 5 minutes
         std::cmp::max(100, std::cmp::min(base_delay, 300_000))
     }

@@ -50,13 +50,19 @@ async fn get_service_container(env: &Env) -> Result<Arc<ServiceContainer>> {
         container.set_telegram_service(telegram_service);
     }
 
-    // Set up user profile service if encryption key is available
-    if let Ok(encryption_key) = env.var("ENCRYPTION_KEY") {
-        container.set_user_profile_service(encryption_key.to_string());
-    }
+    // Set up user profile service - encryption key is required for security
+    let encryption_key = env
+        .var("ENCRYPTION_KEY")
+        .map(|secret| secret.to_string())
+        .map_err(|_| {
+            worker::Error::RustError(
+                "ENCRYPTION_KEY environment variable is required for security".to_string(),
+            )
+        })?;
+    container.set_user_profile_service(encryption_key);
 
     let container_arc = Arc::new(container);
-    
+
     // Try to set the global container, but if another thread beat us to it, use theirs
     match GLOBAL_SERVICE_CONTAINER.set(container_arc.clone()) {
         Ok(()) => Ok(container_arc),
@@ -650,16 +656,15 @@ async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> 
         Err(e) => return Response::error(format!("D1 database initialization failed: {}", e), 500),
     };
 
-    // Handle missing ENCRYPTION_KEY - fail immediately for security
-    let encryption_key = match env.var("ENCRYPTION_KEY") {
-        Ok(key) => key.to_string(),
-        Err(_) => {
-            return Response::error(
-                "ENCRYPTION_KEY environment variable is required for security. Application cannot start without proper encryption key.",
-                500
-            );
-        }
-    };
+    // Get encryption key from environment
+    let encryption_key = env
+        .var("ENCRYPTION_KEY")
+        .map(|secret| secret.to_string())
+        .map_err(|_| {
+            worker::Error::RustError(
+                "ENCRYPTION_KEY environment variable is required for security".to_string(),
+            )
+        })?;
 
     let user_profile_service = UserProfileService::new(kv.clone(), d1_service, encryption_key);
     let positions_service = ProductionPositionsService::new(kv);
@@ -963,7 +968,35 @@ async fn check_user_permissions(user_id: &str, required_tier: &str, env: &Env) -
     // Fallback to simple pattern matching ONLY in development/testing environments
     // This is a security risk and should never be enabled in production
     let subscription_tier = if env.var("ENABLE_FALLBACK_PERMISSIONS").is_ok() {
+        // Additional production safeguards - require explicit confirmation
+        let environment = env
+            .var("ENVIRONMENT")
+            .map(|secret| secret.to_string())
+            .unwrap_or_else(|_| "production".to_string());
+        let allow_fallback_in_prod = env.var("ALLOW_FALLBACK_IN_PRODUCTION").is_ok();
+
+        // Explicitly deny fallback in production unless explicitly allowed with additional confirmation
+        if environment.to_lowercase() == "production" && !allow_fallback_in_prod {
+            console_log!("🚨 SECURITY: Fallback permissions blocked in production environment");
+            return Ok(false);
+        }
+
+        // Additional confirmation required for any production-like environment
+        if (environment.to_lowercase().contains("prod")
+            || environment.to_lowercase().contains("live"))
+            && !env.var("CONFIRM_FALLBACK_SECURITY_RISK").is_ok()
+        {
+            console_log!("🚨 SECURITY: Fallback permissions require CONFIRM_FALLBACK_SECURITY_RISK in production-like environment");
+            return Ok(false);
+        }
+
         console_log!("⚠️ WARNING: Using fallback permission logic - NOT FOR PRODUCTION");
+        console_log!(
+            "⚠️ Environment: {}, Fallback allowed: {}",
+            environment,
+            allow_fallback_in_prod
+        );
+
         if user_id.contains("admin") {
             types::SubscriptionTier::SuperAdmin
         } else if user_id.contains("enterprise") || user_id.contains("pro") {
@@ -1032,7 +1065,7 @@ async fn handle_api_detailed_health_check(_req: Request, env: Env) -> Result<Res
     // Check service health
     let kv_healthy = env.kv("ArbEdgeKV").is_ok();
     let d1_healthy = env.d1("ArbEdgeD1").is_ok();
-    
+
     // Test KV store with a simple operation
     let kv_operational = if kv_healthy {
         match env.kv("ArbEdgeKV") {
@@ -1048,7 +1081,7 @@ async fn handle_api_detailed_health_check(_req: Request, env: Env) -> Result<Res
     } else {
         false
     };
-    
+
     // Test D1 database with a simple query
     let d1_operational = if d1_healthy {
         match services::core::infrastructure::D1Service::new(&env) {
@@ -1064,18 +1097,20 @@ async fn handle_api_detailed_health_check(_req: Request, env: Env) -> Result<Res
     } else {
         false
     };
-    
+
     // Test Telegram service by checking if bot token is configured
     let telegram_healthy = env.var("TELEGRAM_BOT_TOKEN").is_ok();
-    
+
     // Test Exchange service by checking if API keys are configured
-    let exchange_healthy = env.var("BINANCE_API_KEY").is_ok() && env.var("BINANCE_SECRET_KEY").is_ok();
-    
+    let exchange_healthy =
+        env.var("BINANCE_API_KEY").is_ok() && env.var("BINANCE_SECRET_KEY").is_ok();
+
     // Test AI service by checking if OpenAI API key is configured
     let ai_healthy = env.var("OPENAI_API_KEY").is_ok();
-    
+
     // Determine overall health status
-    let overall_healthy = kv_operational && d1_operational && telegram_healthy && exchange_healthy && ai_healthy;
+    let overall_healthy =
+        kv_operational && d1_operational && telegram_healthy && exchange_healthy && ai_healthy;
 
     let response = ApiResponse::success(serde_json::json!({
         "status": if overall_healthy { "healthy" } else { "degraded" },
@@ -1105,7 +1140,11 @@ async fn handle_api_get_user_profile(req: Request, env: Env) -> Result<Response>
     let encryption_key = env
         .var("ENCRYPTION_KEY")
         .map(|secret| secret.to_string())
-        .unwrap_or_else(|_| "default_key_for_development".to_string());
+        .map_err(|_| {
+            worker::Error::RustError(
+                "ENCRYPTION_KEY environment variable is required for security".to_string(),
+            )
+        })?;
 
     // Initialize services
     let kv_store = env.kv("ArbEdgeKV")?;
@@ -1217,14 +1256,17 @@ async fn handle_api_update_user_profile(mut req: Request, env: Env) -> Result<Re
                             Response::from_json(&response)
                         }
                         Err(e) => {
-                            let response =
-                                ApiResponse::<()>::error(format!("Failed to update user profile: {}", e));
+                            let response = ApiResponse::<()>::error(format!(
+                                "Failed to update user profile: {}",
+                                e
+                            ));
                             Ok(Response::from_json(&response)?.with_status(500))
                         }
                     }
                 }
                 Err(e) => {
-                    let response = ApiResponse::<()>::error(format!("Failed to apply updates: {}", e));
+                    let response =
+                        ApiResponse::<()>::error(format!("Failed to apply updates: {}", e));
                     Ok(Response::from_json(&response)?.with_status(400))
                 }
             }
@@ -1349,7 +1391,8 @@ async fn handle_api_update_user_preferences(mut req: Request, env: Env) -> Resul
                     }
                 }
                 Err(e) => {
-                    let response = ApiResponse::<()>::error(format!("Failed to apply updates: {}", e));
+                    let response =
+                        ApiResponse::<()>::error(format!("Failed to apply updates: {}", e));
                     Ok(Response::from_json(&response)?.with_status(400))
                 }
             }
@@ -1492,9 +1535,9 @@ async fn handle_api_execute_opportunity(mut req: Request, env: Env) -> Result<Re
         // 4. Executing trades on the required exchanges
         // 5. Monitoring execution status
         // 6. Recording results in database
-        
+
         let response = ApiResponse::<()>::error(
-            "Real trading execution not yet implemented. Please use simulation mode.".to_string()
+            "Real trading execution not yet implemented. Please use simulation mode.".to_string(),
         );
         Ok(Response::from_json(&response)?.with_status(501)) // 501 Not Implemented
     }

@@ -163,7 +163,10 @@ impl CloudflarePipelinesService {
     }
 
     /// Set KV service for fallback data persistence
-    pub fn set_kv_service(&mut self, kv_service: crate::services::core::infrastructure::kv_service::KVService) {
+    pub fn set_kv_service(
+        &mut self,
+        kv_service: crate::services::core::infrastructure::kv_service::KVService,
+    ) {
         self.kv_service = Some(kv_service);
     }
 
@@ -300,10 +303,17 @@ impl CloudflarePipelinesService {
 
             // Wait before retry using worker-compatible delay
             if attempts < MAX_ATTEMPTS {
-                // Use a simple delay mechanism compatible with WASM
-                let start = worker::Date::now().as_millis();
-                while worker::Date::now().as_millis() - start < 1000 {
-                    // Simple busy wait for 1 second - not ideal but WASM compatible
+                // Use non-blocking async delay for WASM compatibility
+                #[cfg(target_arch = "wasm32")]
+                {
+                    use gloo_timers::future::TimeoutFuture;
+                    use std::time::Duration;
+                    TimeoutFuture::new(1000).await; // 1 second delay
+                }
+
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                 }
             }
         }
@@ -457,8 +467,11 @@ impl CloudflarePipelinesService {
         if let Some(ref kv_service) = self.kv_service {
             // Store with 24 hour TTL for fallback processing
             let ttl_seconds = 24 * 60 * 60; // 24 hours
-            
-            match kv_service.put(&kv_key, &event_json, Some(ttl_seconds)).await {
+
+            match kv_service
+                .put(&kv_key, &event_json, Some(ttl_seconds))
+                .await
+            {
                 Ok(_) => {
                     self.logger.info(&format!(
                         "Analytics fallback: Successfully stored to KV - event_type={}, user_id={}, opportunity_id={:?}",
@@ -495,8 +508,11 @@ impl CloudflarePipelinesService {
         if let Some(ref kv_service) = self.kv_service {
             // Store with 24 hour TTL for fallback processing
             let ttl_seconds = 24 * 60 * 60; // 24 hours
-            
-            match kv_service.put(&kv_key, &event_json, Some(ttl_seconds)).await {
+
+            match kv_service
+                .put(&kv_key, &event_json, Some(ttl_seconds))
+                .await
+            {
                 Ok(_) => {
                     self.logger.info(&format!(
                         "Audit fallback: Successfully stored to KV - action_type={}, user_id={}, success={}",

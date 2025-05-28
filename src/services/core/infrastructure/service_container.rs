@@ -104,32 +104,14 @@ impl ServiceContainer {
 
         match VectorizeService::new(env, vectorize_config.clone()) {
             Ok(service) => {
-                let arc_service = Arc::new(service);
-
-                // Try to unwrap the original Arc to set in distribution service
-                // If successful, we'll create a new Arc for self.vectorize_service
-                match Arc::try_unwrap(arc_service) {
-                    Ok(vectorize_service) => {
-                        // Successfully unwrapped - set in distribution service and create new Arc
-                        self.distribution_service
-                            .set_vectorize_service(vectorize_service);
-                        
-                        // Create a new instance for our Arc storage
-                        if let Ok(new_service) = VectorizeService::new(env, vectorize_config) {
-                            self.vectorize_service = Some(Arc::new(new_service));
-                        } else {
-                            self.vectorize_service = None;
-                        }
-                    }
-                    Err(arc_service) => {
-                        // Couldn't unwrap (shouldn't happen with new Arc), store the Arc and create separate instance
-                        if let Ok(dist_service) = VectorizeService::new(env, vectorize_config) {
-                            self.distribution_service
-                                .set_vectorize_service(dist_service);
-                        }
-                        self.vectorize_service = Some(arc_service);
-                    }
+                // Create a separate instance for distribution service since it needs ownership
+                if let Ok(dist_service) = VectorizeService::new(env, vectorize_config) {
+                    self.distribution_service
+                        .set_vectorize_service(dist_service);
                 }
+
+                // Store the Arc for container access
+                self.vectorize_service = Some(Arc::new(service));
             }
             Err(e) => {
                 worker::console_log!(
@@ -149,7 +131,7 @@ impl ServiceContainer {
             Ok(mut service) => {
                 // Set KV service for fallback data persistence
                 service.set_kv_service(self.kv_service.clone());
-                
+
                 self.pipelines_service = Some(Arc::new(service));
                 worker::console_log!(
                     "Pipelines service initialized successfully with fallback support and KV persistence"
@@ -255,7 +237,7 @@ impl ServiceContainer {
         let supported_exchanges = ["binance", "bybit"];
         let mut exchange_healthy = false;
         let mut exchange_errors = Vec::new();
-        
+
         for exchange in &supported_exchanges {
             match self.exchange_service.get_markets(exchange).await {
                 Ok(_) => {
@@ -267,11 +249,11 @@ impl ServiceContainer {
                 }
             }
         }
-        
+
         status.exchange_service_healthy = exchange_healthy;
         if !exchange_healthy {
             status.errors.push(format!(
-                "Exchange service error - all exchanges failed: [{}]", 
+                "Exchange service error - all exchanges failed: [{}]",
                 exchange_errors.join(", ")
             ));
         }

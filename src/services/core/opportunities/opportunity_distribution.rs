@@ -785,7 +785,9 @@ impl OpportunityDistributionService {
     }
 
     /// Helper function to parse database row into ArbitrageOpportunity
-    fn parse_opportunity_row(row: std::collections::HashMap<String, String>) -> Option<ArbitrageOpportunity> {
+    fn parse_opportunity_row(
+        row: std::collections::HashMap<String, String>,
+    ) -> Option<ArbitrageOpportunity> {
         // Convert database row to ArbitrageOpportunity - row is HashMap<String, String>
         let opportunity_id = row.get("opportunity_id")?.clone();
         let pair = row.get("pair")?.clone();

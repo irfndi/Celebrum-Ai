@@ -2898,7 +2898,9 @@ impl UpdateUserProfileRequest {
         }
 
         // Validate min <= max if both provided
-        if let (Some(min_size), Some(max_size)) = (self.min_entry_size_usdt, self.max_entry_size_usdt) {
+        if let (Some(min_size), Some(max_size)) =
+            (self.min_entry_size_usdt, self.max_entry_size_usdt)
+        {
             if min_size > max_size {
                 return Err("Min entry size cannot be greater than max entry size".to_string());
             }
@@ -2916,12 +2918,12 @@ impl UpdateUserProfileRequest {
             if pairs.is_empty() {
                 return Err("Trading pairs list cannot be empty".to_string());
             }
-            
+
             for pair in pairs {
                 if pair.trim().is_empty() {
                     return Err("Trading pair cannot be empty".to_string());
                 }
-                
+
                 // Basic format validation (should contain '/' or be a valid symbol)
                 if !pair.contains('/') && !pair.chars().all(|c| c.is_ascii_alphanumeric()) {
                     return Err(format!("Invalid trading pair format: {}", pair));
@@ -2937,10 +2939,16 @@ impl UpdateUserProfileRequest {
                 if clean_username.is_empty() || clean_username.len() > 32 {
                     return Err("Telegram username must be 1-32 characters".to_string());
                 }
-                
+
                 // Basic username validation (alphanumeric + underscore)
-                if !clean_username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-                    return Err("Telegram username can only contain letters, numbers, and underscores".to_string());
+                if !clean_username
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
+                    return Err(
+                        "Telegram username can only contain letters, numbers, and underscores"
+                            .to_string(),
+                    );
                 }
             }
         }
@@ -3048,7 +3056,9 @@ impl UpdateUserPreferencesRequest {
         }
 
         // Validate that min entry size is not greater than max entry size
-        if let (Some(min_size), Some(max_size)) = (self.min_entry_size_usdt, self.max_entry_size_usdt) {
+        if let (Some(min_size), Some(max_size)) =
+            (self.min_entry_size_usdt, self.max_entry_size_usdt)
+        {
             if min_size > max_size {
                 return Err("Min entry size cannot be greater than max entry size".to_string());
             }
@@ -3066,7 +3076,7 @@ impl UpdateUserPreferencesRequest {
             if trading_pairs.is_empty() {
                 return Err("Trading pairs list cannot be empty".to_string());
             }
-            
+
             for pair in trading_pairs {
                 if pair.trim().is_empty() {
                     return Err("Trading pair cannot be empty".to_string());
@@ -3083,7 +3093,9 @@ impl UpdateUserPreferencesRequest {
             if notif_prefs.min_profit_threshold_usdt < 0.0 {
                 return Err("Min profit threshold must be non-negative".to_string());
             }
-            if notif_prefs.max_notifications_per_hour == 0 || notif_prefs.max_notifications_per_hour > 100 {
+            if notif_prefs.max_notifications_per_hour == 0
+                || notif_prefs.max_notifications_per_hour > 100
+            {
                 return Err("Max notifications per hour must be between 1 and 100".to_string());
             }
         }
