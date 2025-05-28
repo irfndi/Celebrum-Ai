@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 export PATH := $(HOME)/.cargo/bin:$(PATH)
 
-.PHONY: help setup test build build-wasm coverage clean lint fix fmt check-all deploy pre-commit local-ci full-check unit-tests integration-tests e2e-tests lib-tests ci-pipeline test-api test-api-local test-api-staging test-api-production test-api-prod-admin
+.PHONY: help setup test build build-wasm coverage clean lint fix fmt check-all deploy pre-commit local-ci full-check unit-tests integration-tests e2e-tests lib-tests ci-pipeline test-api test-api-local test-api-staging test-api-production test-api-prod-admin test-api-v1 test-api-v1-local test-api-v1-staging test-api-v1-production
 
 help: ## Show this help message
 	@echo "🦀 ArbEdge Rust Development Commands"
@@ -197,6 +197,24 @@ test-api-staging: ## Run API Tests against staging environment
 test-api-production: ## Run API Tests against production environment
 	@echo "🌍 Running API Tests against production environment..."
 	@BASE_URL=https://arb-edge.your-domain.workers.dev ./scripts/prod/test-bot/test_api_flow.sh
+
+# API v1 Direct Testing (No Telegram required)
+test-api-v1: ## Run comprehensive API v1 tests with RBAC validation
+	@echo "🔗 Running API v1 Comprehensive Tests..."
+	@chmod +x scripts/prod/test-bot/test_api_v1_comprehensive.sh
+	@./scripts/prod/test-bot/test_api_v1_comprehensive.sh
+
+test-api-v1-local: ## Run API v1 tests against local development server
+	@echo "🏠 Running API v1 Tests against local development server..."
+	@BASE_URL=http://localhost:8787 ./scripts/prod/test-bot/test_api_v1_comprehensive.sh
+
+test-api-v1-staging: ## Run API v1 tests against staging environment
+	@echo "🚀 Running API v1 Tests against staging environment..."
+	@BASE_URL=https://arb-edge-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_api_v1_comprehensive.sh
+
+test-api-v1-production: ## Run API v1 tests against production environment
+	@echo "🌍 Running API v1 Tests against production environment..."
+	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_api_v1_comprehensive.sh
 
 test-api-prod-admin: ## Run Production API Tests (Super Admin Only with D1 Database)
 	@echo "👑 Running Production API Tests (Super Admin + D1 Database)..."
