@@ -1,5 +1,5 @@
+use crate::utils::ArbitrageError;
 use crate::utils::ArbitrageResult;
-use crate::ArbitrageError;
 use chrono;
 use serde_json::json;
 use uuid::Uuid;

@@ -1,7 +1,7 @@
 use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
 use crate::types::{ExchangeIdEnum, FundingRateInfo};
 use crate::utils::logger::Logger;
-use crate::{ArbitrageError, ArbitrageResult};
+use crate::{utils::ArbitrageError, utils::ArbitrageResult};
 // Remove circular dependency - define MarketDataSnapshot locally
 // use crate::services::core::market_data::market_data_ingestion::{MarketDataSnapshot, MarketDataIngestionService};
 use chrono::Utc;

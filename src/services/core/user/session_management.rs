@@ -438,7 +438,7 @@ impl SessionManagementService {
     /// Get session analytics for a user
     pub async fn get_session_analytics(
         &self,
-        user_id: &str,
+        _user_id: &str,
     ) -> ArbitrageResult<Vec<SessionAnalytics>> {
         let mut analytics = Vec::new();
 
@@ -455,17 +455,11 @@ impl SessionManagementService {
             if let Ok(Some(count_str)) = self.kv_service.get(&count_key).await {
                 if let Ok(_count) = count_str.parse::<u32>() {
                     analytics.push(SessionAnalytics {
-                        session_id: format!("analytics_{}", date),
-                        user_id: user_id.to_string(),
-                        telegram_id: 0, // Would be filled from actual session data
-                        session_duration_minutes: 0.0, // Would be calculated from individual session data
                         commands_executed: 0,
                         opportunities_viewed: 0,
-                        onboarding_completed: false,
-                        preferences_configured: false,
-                        last_command: None,
-                        session_outcome: SessionOutcome::Completed,
-                        created_at: chrono::Utc::now().timestamp() as u64,
+                        trades_executed: 0,
+                        session_duration_ms: 0,
+                        last_activity: chrono::Utc::now().timestamp() as u64,
                     });
                 }
             }
@@ -506,10 +500,7 @@ impl SessionManagementService {
         "#,
         );
 
-        let metadata_json = match &session.metadata {
-            Some(metadata) => serde_json::to_string(metadata)?,
-            None => "null".to_string(),
-        };
+        let metadata_json = serde_json::to_string(&session.metadata)?;
 
         stmt.bind(&[
             session.session_id.clone().into(),
@@ -544,10 +535,7 @@ impl SessionManagementService {
         "#,
         );
 
-        let metadata_json = match &session.metadata {
-            Some(metadata) => serde_json::to_string(metadata)?,
-            None => "null".to_string(),
-        };
+        let metadata_json = serde_json::to_string(&session.metadata)?;
 
         stmt.bind(&[
             session.session_state.to_db_string().into(),
@@ -649,13 +637,17 @@ impl SessionManagementService {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let metadata = row.get("metadata").and_then(|v| v.as_str()).and_then(|s| {
-            if s == "null" {
-                None
-            } else {
-                serde_json::from_str(s).ok()
-            }
-        });
+        let metadata = row
+            .get("metadata")
+            .and_then(|v| v.as_str())
+            .and_then(|s| {
+                if s == "null" {
+                    Some(serde_json::Value::Null)
+                } else {
+                    serde_json::from_str(s).ok()
+                }
+            })
+            .unwrap_or(serde_json::Value::Null);
 
         let created_at = row
             .get("created_at")
@@ -672,8 +664,12 @@ impl SessionManagementService {
         Ok(EnhancedUserSession {
             session_id,
             user_id,
+            telegram_chat_id: telegram_id,
             telegram_id,
+            last_command: None,
+            current_state: session_state.clone(),
             session_state,
+            temporary_data: std::collections::HashMap::new(),
             started_at,
             last_activity_at,
             expires_at,
@@ -682,6 +678,14 @@ impl SessionManagementService {
             metadata,
             created_at,
             updated_at,
+            session_analytics: SessionAnalytics {
+                commands_executed: 0,
+                opportunities_viewed: 0,
+                trades_executed: 0,
+                session_duration_ms: 0,
+                last_activity: last_activity_at,
+            },
+            config: SessionConfig::default(),
         })
     }
 
@@ -940,16 +944,28 @@ mod tests {
         EnhancedUserSession {
             session_id: format!("session_{}", telegram_id),
             user_id,
+            telegram_chat_id: telegram_id,
             telegram_id,
+            last_command: None,
+            current_state: EnhancedSessionState::Active,
             session_state: EnhancedSessionState::Active,
+            temporary_data: std::collections::HashMap::new(),
             started_at: now,
             last_activity_at: now,
             expires_at: now + (7 * 24 * 60 * 60 * 1000), // 7 days
             onboarding_completed: true,
             preferences_set: true,
-            metadata: None,
+            metadata: serde_json::Value::Null,
             created_at: now,
             updated_at: now,
+            session_analytics: SessionAnalytics {
+                commands_executed: 0,
+                opportunities_viewed: 0,
+                trades_executed: 0,
+                session_duration_ms: 0,
+                last_activity: now,
+            },
+            config: SessionConfig::default(),
         }
     }
 

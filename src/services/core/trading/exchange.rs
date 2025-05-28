@@ -1003,8 +1003,7 @@ impl ExchangeService {
     async fn async_delay(&self, delay_ms: u64) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            use tokio::time::{sleep, Duration};
-            sleep(Duration::from_millis(delay_ms)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
         }
 
         #[cfg(target_arch = "wasm32")]

@@ -29,10 +29,10 @@ pub trait NotificationSender: Send + Sync {
     async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()>;
 }
 
-// WASM version with Send + Sync bounds for thread safety
+// WASM version without Send + Sync bounds since WASM is single-threaded
 #[async_trait::async_trait(?Send)]
 #[cfg(target_arch = "wasm32")]
-pub trait NotificationSender: Send + Sync {
+pub trait NotificationSender {
     async fn send_opportunity_notification(
         &self,
         chat_id: &str,
@@ -76,6 +76,9 @@ pub struct OpportunityDistributionService {
     d1_service: D1Service,
     kv_service: KVService,
     session_service: SessionManagementService,
+    #[cfg(not(target_arch = "wasm32"))]
+    notification_sender: Option<Box<dyn NotificationSender>>,
+    #[cfg(target_arch = "wasm32")]
     notification_sender: Option<Box<dyn NotificationSender + Send + Sync>>,
     pipelines_service: Option<CloudflarePipelinesService>,
     vectorize_service: Option<VectorizeService>,
@@ -106,6 +109,12 @@ impl OpportunityDistributionService {
         self
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_notification_sender(&mut self, sender: Box<dyn NotificationSender>) {
+        self.notification_sender = Some(sender);
+    }
+
+    #[cfg(target_arch = "wasm32")]
     pub fn set_notification_sender(&mut self, sender: Box<dyn NotificationSender + Send + Sync>) {
         self.notification_sender = Some(sender);
     }
@@ -128,17 +137,30 @@ impl OpportunityDistributionService {
         &self,
         opportunity: ArbitrageOpportunity,
     ) -> ArbitrageResult<u32> {
+        let start_time = chrono::Utc::now().timestamp_millis() as u64;
+
         // Create global opportunity with metadata
         let global_opportunity = GlobalOpportunity {
+            id: format!("global_opp_{}", opportunity.id),
+            opportunity_type: "arbitrage".to_string(),
             opportunity: opportunity.clone(),
-            detection_timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            expiry_timestamp: chrono::Utc::now().timestamp_millis() as u64 + (10 * 60 * 1000), // 10 minutes
+            arbitrage_opportunity: Some(opportunity.clone()),
+            technical_opportunity: None,
+            source: OpportunitySource::SystemGenerated,
+            created_at: start_time,
+            detection_timestamp: start_time,
+            expires_at: Some(start_time + (10 * 60 * 1000)), // 10 minutes
+            expiry_timestamp: Some(start_time + (10 * 60 * 1000)), // 10 minutes
+            priority: 8,                                     // High priority (1-10 scale)
             priority_score: self.calculate_priority_score(&opportunity).await?,
+            ai_enhanced: false,
+            ai_confidence_score: None,
+            ai_insights: None,
+            // Additional fields for distribution tracking
             distributed_to: Vec::new(),
             max_participants: self.config.max_participants_per_opportunity,
             current_participants: 0,
             distribution_strategy: DistributionStrategy::RoundRobin,
-            source: OpportunitySource::SystemGenerated,
         };
 
         // Get eligible users
@@ -166,6 +188,14 @@ impl OpportunityDistributionService {
 
         // Store distribution analytics
         self.record_distribution_analytics(&global_opportunity, distributed_count)
+            .await?;
+
+        // Update KV cache with distribution statistics
+        self.update_distribution_stats_cache(distributed_count, start_time)
+            .await?;
+
+        // Update active users count in KV cache
+        self.update_active_users_count(selected_users.len() as u32)
             .await?;
 
         Ok(distributed_count)
@@ -219,6 +249,49 @@ impl OpportunityDistributionService {
             .max_opportunities_per_user_per_hour;
 
         match opportunity.distribution_strategy {
+            DistributionStrategy::Immediate => {
+                // Send immediately to all eligible users
+                selected_users.extend_from_slice(
+                    &eligible_users[..std::cmp::min(eligible_users.len(), max_users as usize)],
+                );
+            }
+            DistributionStrategy::Batched => {
+                // Batch selection with size limits
+                selected_users.extend_from_slice(
+                    &eligible_users
+                        [..std::cmp::min(eligible_users.len(), self.config.batch_size as usize)],
+                );
+            }
+            DistributionStrategy::Prioritized => {
+                // Priority-based selection (subscription tier, activity, etc.)
+                let mut user_scores = HashMap::new();
+
+                for user_id in eligible_users {
+                    let score = self.calculate_user_priority_score(user_id).await?;
+                    user_scores.insert(user_id.clone(), score);
+                }
+
+                // Sort by priority score (highest first)
+                let mut sorted_users: Vec<_> = user_scores.into_iter().collect();
+                sorted_users.sort_by(|(_, a), (_, b)| {
+                    b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                for (user_id, _) in sorted_users.into_iter().take(max_users as usize) {
+                    selected_users.push(user_id);
+                }
+            }
+            DistributionStrategy::RateLimited => {
+                // Respect individual user rate limits
+                for user_id in eligible_users {
+                    if self.check_user_rate_limit(user_id).await? {
+                        selected_users.push(user_id.clone());
+                        if selected_users.len() >= max_users as usize {
+                            break;
+                        }
+                    }
+                }
+            }
             DistributionStrategy::FirstComeFirstServe => {
                 // Simple FIFO selection
                 selected_users.extend_from_slice(
@@ -338,6 +411,10 @@ impl OpportunityDistributionService {
 
         // Convert distribution strategy to queue distribution strategy
         let queue_strategy = match opportunity.distribution_strategy {
+            DistributionStrategy::Immediate => QueueDistributionStrategy::Broadcast,
+            DistributionStrategy::Batched => QueueDistributionStrategy::Broadcast,
+            DistributionStrategy::Prioritized => QueueDistributionStrategy::PriorityBased,
+            DistributionStrategy::RateLimited => QueueDistributionStrategy::Broadcast,
             DistributionStrategy::RoundRobin => QueueDistributionStrategy::RoundRobin,
             DistributionStrategy::FirstComeFirstServe => QueueDistributionStrategy::Broadcast,
             DistributionStrategy::PriorityBased => QueueDistributionStrategy::PriorityBased,
@@ -361,6 +438,9 @@ impl OpportunityDistributionService {
                     self.update_user_distribution_tracking(user_id, opportunity)
                         .await?;
                 }
+                // Update active users count in cache
+                self.update_active_users_count(selected_users.len() as u32)
+                    .await?;
                 Ok(selected_users.len() as u32)
             }
             Err(e) => {
@@ -393,6 +473,9 @@ impl OpportunityDistributionService {
                 }
             }
         }
+
+        // Update active users count in cache
+        self.update_active_users_count(distributed_count).await?;
 
         Ok(distributed_count)
     }
@@ -653,7 +736,10 @@ impl OpportunityDistributionService {
 
         self.d1_service.execute(insert_query, &params).await?;
 
-        // Record high-volume analytics via Cloudflare Pipelines for scalable data ingestion
+        // Update distribution statistics in KV cache for fast access
+        self.update_distribution_stats_cache(distributed_count, opportunity.detection_timestamp)
+            .await?;
+
         // Record high-volume analytics via Cloudflare Pipelines for scalable data ingestion
         if let Some(ref pipelines_service) = self.pipelines_service {
             let distribution_latency =
@@ -972,6 +1058,77 @@ impl OpportunityDistributionService {
         self.get_opportunities_with_cache(cache_key, query, &params, Some(120))
             .await
     }
+
+    /// Update distribution statistics in KV cache for fast access
+    async fn update_distribution_stats_cache(
+        &self,
+        distributed_count: u32,
+        detection_timestamp: u64,
+    ) -> ArbitrageResult<()> {
+        // Update opportunities distributed today
+        let today_key = "distribution_stats:opportunities_today";
+        let today_count = self
+            .kv_service
+            .get(today_key)
+            .await
+            .unwrap_or_default()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        self.kv_service
+            .put(
+                today_key,
+                &(today_count + distributed_count).to_string(),
+                Some(3600),
+            )
+            .await?;
+
+        // Update active users count
+        let active_users_key = "distribution_stats:active_users";
+        let active_users = self
+            .kv_service
+            .get(active_users_key)
+            .await
+            .unwrap_or_default()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        self.kv_service
+            .put(active_users_key, &active_users.to_string(), Some(3600))
+            .await?;
+
+        // Update average distribution time
+        let avg_time_key = "distribution_stats:avg_time_ms";
+        let current_distribution_time =
+            chrono::Utc::now().timestamp_millis() as u64 - detection_timestamp;
+        let existing_avg_time = self
+            .kv_service
+            .get(avg_time_key)
+            .await
+            .unwrap_or_default()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+
+        // Simple moving average calculation
+        let new_avg_time = if existing_avg_time == 0 {
+            current_distribution_time
+        } else {
+            (existing_avg_time + current_distribution_time) / 2
+        };
+
+        self.kv_service
+            .put(avg_time_key, &new_avg_time.to_string(), Some(3600))
+            .await?;
+
+        Ok(())
+    }
+
+    /// Update active users count in KV cache
+    async fn update_active_users_count(&self, user_count: u32) -> ArbitrageResult<()> {
+        let active_users_key = "distribution_stats:active_users";
+        self.kv_service
+            .put(active_users_key, &user_count.to_string(), Some(24 * 3600)) // 24 hour TTL
+            .await?;
+        Ok(())
+    }
 }
 
 /// Distribution statistics
@@ -1017,15 +1174,25 @@ mod tests {
 
         // Test opportunity message formatting
         let global_opp = GlobalOpportunity {
+            id: "test_global_opp_001".to_string(),
+            opportunity_type: "arbitrage".to_string(),
             opportunity: opportunity.clone(),
+            arbitrage_opportunity: Some(opportunity.clone()),
+            technical_opportunity: None,
+            source: OpportunitySource::SystemGenerated,
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
             detection_timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            expiry_timestamp: chrono::Utc::now().timestamp_millis() as u64 + (10 * 60 * 1000),
+            expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + (10 * 60 * 1000)),
+            expiry_timestamp: Some(chrono::Utc::now().timestamp_millis() as u64 + (10 * 60 * 1000)),
+            priority: 8,
             priority_score: 75.0,
+            ai_enhanced: false,
+            ai_confidence_score: None,
+            ai_insights: None,
             distributed_to: Vec::new(),
             max_participants: Some(100),
             current_participants: 0,
             distribution_strategy: DistributionStrategy::RoundRobin,
-            source: OpportunitySource::SystemGenerated,
         };
 
         // Test message formatting
