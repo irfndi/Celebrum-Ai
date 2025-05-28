@@ -6,8 +6,8 @@
 echo "🧪 Testing Telegram Bot Service Injection Fix"
 echo "=============================================="
 
-# Local development server URL
-LOCAL_URL="http://localhost:8787/telegram/webhook"
+# Local development server URL - CORRECTED PATH
+LOCAL_URL="http://localhost:8787/webhook"
 
 # Test 1: /status command
 echo ""
@@ -36,10 +36,12 @@ STATUS_PAYLOAD='{
 }'
 
 echo "Sending /status command..."
-curl -X POST "$LOCAL_URL" \
+RESPONSE=$(curl -X POST "$LOCAL_URL" \
   -H "Content-Type: application/json" \
   -d "$STATUS_PAYLOAD" \
-  --silent --show-error | jq '.' || echo "Response received (not JSON)"
+  --silent --show-error)
+
+echo "Response: $RESPONSE"
 
 echo ""
 echo "🔍 Test 2: Testing /opportunities command (should show real data)"
@@ -67,10 +69,12 @@ OPPORTUNITIES_PAYLOAD='{
 }'
 
 echo "Sending /opportunities command..."
-curl -X POST "$LOCAL_URL" \
+RESPONSE=$(curl -X POST "$LOCAL_URL" \
   -H "Content-Type: application/json" \
   -d "$OPPORTUNITIES_PAYLOAD" \
-  --silent --show-error | jq '.' || echo "Response received (not JSON)"
+  --silent --show-error)
+
+echo "Response: $RESPONSE"
 
 echo ""
 echo "🤖 Test 3: Testing /ai_insights command (should show real AI analysis)"
@@ -98,10 +102,12 @@ AI_INSIGHTS_PAYLOAD='{
 }'
 
 echo "Sending /ai_insights command..."
-curl -X POST "$LOCAL_URL" \
+RESPONSE=$(curl -X POST "$LOCAL_URL" \
   -H "Content-Type: application/json" \
   -d "$AI_INSIGHTS_PAYLOAD" \
-  --silent --show-error | jq '.' || echo "Response received (not JSON)"
+  --silent --show-error)
+
+echo "Response: $RESPONSE"
 
 echo ""
 echo "✅ Testing completed!"
@@ -112,4 +118,5 @@ echo "- /status should show services as '🟢 Online' instead of '🔴 Offline'"
 echo "- /opportunities should show real opportunity data instead of mock examples"
 echo "- /ai_insights should show real AI analysis instead of fallback messages"
 echo ""
+echo "Note: If you see 'Telegram bot token not found', set TELEGRAM_BOT_TOKEN environment variable"
 echo "If services still show as offline, check environment variables and service initialization." 
