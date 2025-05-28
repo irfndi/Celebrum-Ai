@@ -1118,13 +1118,28 @@ async fn handle_api_update_user_profile(mut req: Request, env: Env) -> Result<Re
         }
     };
 
-    let update_data: serde_json::Value = req.json().await?;
+    // Parse and validate the update request
+    let update_request: types::UpdateUserProfileRequest = match req.json().await {
+        Ok(data) => data,
+        Err(e) => {
+            let response = ApiResponse::<()>::error(format!("Invalid JSON format: {}", e));
+            return Ok(Response::from_json(&response)?.with_status(400));
+        }
+    };
+
+    // Validate the request
+    if let Err(validation_error) = update_request.validate() {
+        let response = ApiResponse::<()>::error(format!("Validation error: {}", validation_error));
+        return Ok(Response::from_json(&response)?.with_status(400));
+    }
 
     // Get encryption key from environment
     let encryption_key = env
         .var("ENCRYPTION_KEY")
         .map(|secret| secret.to_string())
-        .unwrap_or_else(|_| "default_key_for_development".to_string());
+        .map_err(|_| {
+            worker::Error::RustError("ENCRYPTION_KEY environment variable is required for security. Application cannot start without proper encryption key.".to_string())
+        })?;
 
     // Initialize services
     let kv_store = env.kv("ArbEdgeKV")?;
@@ -1138,60 +1153,35 @@ async fn handle_api_update_user_profile(mut req: Request, env: Env) -> Result<Re
     // Update user profile in database
     match user_profile_service.get_user_profile(&user_id).await {
         Ok(Some(mut profile)) => {
-            // Update the profile with new data
-            if let Some(telegram_username) = update_data
-                .get("telegram_username")
-                .and_then(|v| v.as_str())
-            {
-                profile.telegram_username = Some(telegram_username.to_string());
-            }
-            if let Some(risk_tolerance) = update_data.get("risk_tolerance").and_then(|v| v.as_f64())
-            {
-                profile.configuration.risk_tolerance_percentage = risk_tolerance;
-            }
-            if let Some(trading_pairs) = update_data.get("trading_pairs").and_then(|v| v.as_array())
-            {
-                profile.configuration.trading_pairs = trading_pairs
-                    .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect();
-            }
-            if let Some(auto_trading) = update_data
-                .get("auto_trading_enabled")
-                .and_then(|v| v.as_bool())
-            {
-                profile.configuration.auto_trading_enabled = auto_trading;
-            }
-            if let Some(max_leverage) = update_data.get("max_leverage").and_then(|v| v.as_u64()) {
-                profile.configuration.max_leverage = max_leverage as u32;
-            }
-            if let Some(max_entry_size) = update_data
-                .get("max_entry_size_usdt")
-                .and_then(|v| v.as_f64())
-            {
-                profile.configuration.max_entry_size_usdt = max_entry_size;
-            }
-
-            // Update the profile in database
-            match user_profile_service.update_user_profile(&profile).await {
+            // Apply validated updates to the profile
+            match update_request.apply_to_profile(&mut profile) {
                 Ok(_) => {
-                    let response = ApiResponse::success(serde_json::json!({
-                        "user_id": user_id,
-                        "updated": true,
-                        "profile": {
-                            "user_id": profile.user_id,
-                            "telegram_username": profile.telegram_username,
-                            "configuration": profile.configuration,
-                            "updated_at": profile.updated_at
-                        },
-                        "timestamp": chrono::Utc::now().timestamp()
-                    }));
-                    Response::from_json(&response)
+                    // Update the profile in database
+                    match user_profile_service.update_user_profile(&profile).await {
+                        Ok(_) => {
+                            let response = ApiResponse::success(serde_json::json!({
+                                "user_id": user_id,
+                                "updated": true,
+                                "profile": {
+                                    "user_id": profile.user_id,
+                                    "telegram_username": profile.telegram_username,
+                                    "configuration": profile.configuration,
+                                    "updated_at": profile.updated_at
+                                },
+                                "timestamp": chrono::Utc::now().timestamp()
+                            }));
+                            Response::from_json(&response)
+                        }
+                        Err(e) => {
+                            let response =
+                                ApiResponse::<()>::error(format!("Failed to update user profile: {}", e));
+                            Ok(Response::from_json(&response)?.with_status(500))
+                        }
+                    }
                 }
                 Err(e) => {
-                    let response =
-                        ApiResponse::<()>::error(format!("Failed to update user profile: {}", e));
-                    Ok(Response::from_json(&response)?.with_status(500))
+                    let response = ApiResponse::<()>::error(format!("Failed to apply updates: {}", e));
+                    Ok(Response::from_json(&response)?.with_status(400))
                 }
             }
         }
@@ -1423,16 +1413,41 @@ async fn handle_api_execute_opportunity(mut req: Request, env: Env) -> Result<Re
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
-    // For now, return execution confirmation - real implementation would integrate with exchange APIs
-    let response = ApiResponse::success(serde_json::json!({
-        "execution_id": uuid::Uuid::new_v4().to_string(),
-        "opportunity_id": opportunity_id,
-        "status": "executed",
-        "user_id": user_id,
-        "timestamp": chrono::Utc::now().timestamp(),
-        "message": "Opportunity execution initiated"
-    }));
-    Response::from_json(&response)
+    // Check if this is a simulation/demo mode
+    let simulation_mode = env
+        .var("TRADING_SIMULATION_MODE")
+        .map(|v| v.to_string().to_lowercase() == "true")
+        .unwrap_or(true); // Default to simulation mode for safety
+
+    if simulation_mode {
+        // Simulation mode - clearly indicate this is not real execution
+        let response = ApiResponse::success(serde_json::json!({
+            "execution_id": uuid::Uuid::new_v4().to_string(),
+            "opportunity_id": opportunity_id,
+            "status": "simulated",
+            "mode": "simulation",
+            "user_id": user_id,
+            "timestamp": chrono::Utc::now().timestamp(),
+            "message": "SIMULATION: Opportunity execution simulated successfully. No real trades were executed.",
+            "warning": "This is a simulation. To enable real trading, set TRADING_SIMULATION_MODE=false and ensure proper API keys are configured."
+        }));
+        Response::from_json(&response)
+    } else {
+        // Real execution mode - implement actual trading logic
+        // TODO: Implement real execution logic here
+        // This would involve:
+        // 1. Validating the opportunity is still valid
+        // 2. Checking user's API keys and permissions
+        // 3. Calculating position sizes based on risk management
+        // 4. Executing trades on the required exchanges
+        // 5. Monitoring execution status
+        // 6. Recording results in database
+        
+        let response = ApiResponse::<()>::error(
+            "Real trading execution not yet implemented. Please use simulation mode.".to_string()
+        );
+        Ok(Response::from_json(&response)?.with_status(501)) // 501 Not Implemented
+    }
 }
 
 // Analytics API handlers

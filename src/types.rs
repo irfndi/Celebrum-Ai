@@ -2852,3 +2852,154 @@ impl AIUsageTracker {
         self.ai_calls_limit.saturating_sub(self.ai_calls_used)
     }
 }
+
+/// Request structure for updating user profile with validation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateUserProfileRequest {
+    pub telegram_username: Option<String>,
+    pub risk_tolerance: Option<f64>,
+    pub trading_pairs: Option<Vec<String>>,
+    pub auto_trading_enabled: Option<bool>,
+    pub max_leverage: Option<u32>,
+    pub max_entry_size_usdt: Option<f64>,
+    pub min_entry_size_usdt: Option<f64>,
+    pub opportunity_threshold: Option<f64>,
+    pub notification_preferences: Option<NotificationPreferences>,
+}
+
+impl UpdateUserProfileRequest {
+    /// Validate the update request
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate risk tolerance
+        if let Some(risk) = self.risk_tolerance {
+            if !(0.0..=1.0).contains(&risk) {
+                return Err("Risk tolerance must be between 0.0 and 1.0".to_string());
+            }
+        }
+
+        // Validate max leverage
+        if let Some(leverage) = self.max_leverage {
+            if leverage == 0 || leverage > 125 {
+                return Err("Max leverage must be between 1 and 125".to_string());
+            }
+        }
+
+        // Validate entry sizes
+        if let Some(max_size) = self.max_entry_size_usdt {
+            if max_size <= 0.0 {
+                return Err("Max entry size must be positive".to_string());
+            }
+        }
+
+        if let Some(min_size) = self.min_entry_size_usdt {
+            if min_size <= 0.0 {
+                return Err("Min entry size must be positive".to_string());
+            }
+        }
+
+        // Validate min <= max if both provided
+        if let (Some(min_size), Some(max_size)) = (self.min_entry_size_usdt, self.max_entry_size_usdt) {
+            if min_size > max_size {
+                return Err("Min entry size cannot be greater than max entry size".to_string());
+            }
+        }
+
+        // Validate opportunity threshold
+        if let Some(threshold) = self.opportunity_threshold {
+            if threshold < 0.0 || threshold > 1.0 {
+                return Err("Opportunity threshold must be between 0.0 and 1.0".to_string());
+            }
+        }
+
+        // Validate trading pairs
+        if let Some(ref pairs) = self.trading_pairs {
+            if pairs.is_empty() {
+                return Err("Trading pairs list cannot be empty".to_string());
+            }
+            
+            for pair in pairs {
+                if pair.trim().is_empty() {
+                    return Err("Trading pair cannot be empty".to_string());
+                }
+                
+                // Basic format validation (should contain '/' or be a valid symbol)
+                if !pair.contains('/') && !pair.chars().all(|c| c.is_ascii_alphanumeric()) {
+                    return Err(format!("Invalid trading pair format: {}", pair));
+                }
+            }
+        }
+
+        // Validate telegram username format
+        if let Some(ref username) = self.telegram_username {
+            if !username.trim().is_empty() {
+                // Remove @ if present and validate
+                let clean_username = username.trim_start_matches('@');
+                if clean_username.is_empty() || clean_username.len() > 32 {
+                    return Err("Telegram username must be 1-32 characters".to_string());
+                }
+                
+                // Basic username validation (alphanumeric + underscore)
+                if !clean_username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    return Err("Telegram username can only contain letters, numbers, and underscores".to_string());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Apply validated updates to a user profile
+    pub fn apply_to_profile(&self, profile: &mut UserProfile) -> Result<(), String> {
+        // Validate first
+        self.validate()?;
+
+        // Apply updates
+        if let Some(ref username) = self.telegram_username {
+            if username.trim().is_empty() {
+                profile.telegram_username = None;
+            } else {
+                profile.telegram_username = Some(username.trim_start_matches('@').to_string());
+            }
+        }
+
+        if let Some(risk) = self.risk_tolerance {
+            profile.configuration.risk_tolerance_percentage = risk;
+        }
+
+        if let Some(ref pairs) = self.trading_pairs {
+            profile.configuration.trading_pairs = pairs.clone();
+        }
+
+        if let Some(auto_trading) = self.auto_trading_enabled {
+            profile.configuration.auto_trading_enabled = auto_trading;
+        }
+
+        if let Some(leverage) = self.max_leverage {
+            profile.configuration.max_leverage = leverage;
+        }
+
+        if let Some(max_size) = self.max_entry_size_usdt {
+            profile.configuration.max_entry_size_usdt = max_size;
+        }
+
+        if let Some(min_size) = self.min_entry_size_usdt {
+            profile.configuration.min_entry_size_usdt = min_size;
+        }
+
+        if let Some(threshold) = self.opportunity_threshold {
+            profile.configuration.opportunity_threshold = threshold;
+        }
+
+        if let Some(ref prefs) = self.notification_preferences {
+            profile.configuration.notification_preferences = prefs.clone();
+        }
+
+        // Update timestamp
+        profile.updated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        Ok(())
+    }
+}

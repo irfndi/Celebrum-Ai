@@ -112,6 +112,7 @@ pub struct CloudflarePipelinesService {
     service_available: std::sync::Arc<std::sync::Mutex<bool>>,
     last_health_check: std::sync::Arc<std::sync::Mutex<Option<u64>>>,
     logger: crate::utils::logger::Logger,
+    kv_service: Option<crate::services::core::infrastructure::kv_service::KVService>,
 }
 
 impl CloudflarePipelinesService {
@@ -157,7 +158,13 @@ impl CloudflarePipelinesService {
             service_available: std::sync::Arc::new(std::sync::Mutex::new(service_available)),
             last_health_check: std::sync::Arc::new(std::sync::Mutex::new(None)),
             logger,
+            kv_service: None,
         })
+    }
+
+    /// Set KV service for fallback data persistence
+    pub fn set_kv_service(&mut self, kv_service: crate::services::core::infrastructure::kv_service::KVService) {
+        self.kv_service = Some(kv_service);
     }
 
     /// Check if Pipelines service is currently available
@@ -441,19 +448,37 @@ impl CloudflarePipelinesService {
     /// Fallback method to store analytics data when Pipelines is unavailable
     async fn store_analytics_fallback(&self, event: &AnalyticsEvent) -> ArbitrageResult<()> {
         // Store to KV with TTL for later batch processing when Pipelines recovers
-        let _kv_key = format!("analytics_fallback:{}:{}", event.event_type, event.event_id);
-        let _event_json = serde_json::to_string(event).map_err(|e| {
+        let kv_key = format!("analytics_fallback:{}:{}", event.event_type, event.event_id);
+        let event_json = serde_json::to_string(event).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize analytics event: {}", e))
         })?;
 
-        self.logger.info(&format!(
-            "Analytics fallback: Storing to KV - event_type={}, user_id={}, opportunity_id={:?}",
-            event.event_type, event.user_id, event.opportunity_id
-        ));
-
-        // Note: In a real implementation, this would integrate with the service container
-        // to access KV and D1 services. For now, we log the fallback action.
-        // The service container pattern ensures proper service access.
+        // Actually persist to KV if service is available
+        if let Some(ref kv_service) = self.kv_service {
+            // Store with 24 hour TTL for fallback processing
+            let ttl_seconds = 24 * 60 * 60; // 24 hours
+            
+            match kv_service.put(&kv_key, &event_json, Some(ttl_seconds)).await {
+                Ok(_) => {
+                    self.logger.info(&format!(
+                        "Analytics fallback: Successfully stored to KV - event_type={}, user_id={}, opportunity_id={:?}",
+                        event.event_type, event.user_id, event.opportunity_id
+                    ));
+                }
+                Err(e) => {
+                    self.logger.error(&format!(
+                        "Analytics fallback: Failed to store to KV - event_type={}, error={}",
+                        event.event_type, e
+                    ));
+                    return Err(e);
+                }
+            }
+        } else {
+            self.logger.warn(&format!(
+                "Analytics fallback: KV service not available - event_type={}, user_id={}, opportunity_id={:?}",
+                event.event_type, event.user_id, event.opportunity_id
+            ));
+        }
 
         Ok(())
     }
@@ -461,19 +486,37 @@ impl CloudflarePipelinesService {
     /// Fallback method to store audit data when Pipelines is unavailable
     async fn store_audit_fallback(&self, event: &AuditEvent) -> ArbitrageResult<()> {
         // Store to KV with TTL for later batch processing
-        let _kv_key = format!("audit_fallback:{}:{}", event.action_type, event.audit_id);
-        let _event_json = serde_json::to_string(event).map_err(|e| {
+        let kv_key = format!("audit_fallback:{}:{}", event.action_type, event.audit_id);
+        let event_json = serde_json::to_string(event).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize audit event: {}", e))
         })?;
 
-        self.logger.info(&format!(
-            "Audit fallback: Storing critical audit log - action_type={}, user_id={}, success={}",
-            event.action_type, event.user_id, event.success
-        ));
-
-        // Note: In a real implementation, this would integrate with the service container
-        // to access KV and D1 services. Audit logs are critical and would be stored
-        // persistently through the D1Service with proper error handling.
+        // Actually persist to KV if service is available
+        if let Some(ref kv_service) = self.kv_service {
+            // Store with 24 hour TTL for fallback processing
+            let ttl_seconds = 24 * 60 * 60; // 24 hours
+            
+            match kv_service.put(&kv_key, &event_json, Some(ttl_seconds)).await {
+                Ok(_) => {
+                    self.logger.info(&format!(
+                        "Audit fallback: Successfully stored to KV - action_type={}, user_id={}, success={}",
+                        event.action_type, event.user_id, event.success
+                    ));
+                }
+                Err(e) => {
+                    self.logger.error(&format!(
+                        "Audit fallback: Failed to store to KV - action_type={}, error={}",
+                        event.action_type, e
+                    ));
+                    return Err(e);
+                }
+            }
+        } else {
+            self.logger.warn(&format!(
+                "Audit fallback: KV service not available - action_type={}, user_id={}, success={}",
+                event.action_type, event.user_id, event.success
+            ));
+        }
 
         Ok(())
     }

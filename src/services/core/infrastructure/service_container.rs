@@ -146,10 +146,13 @@ impl ServiceContainer {
         let pipelines_config = config.unwrap_or_default();
 
         match CloudflarePipelinesService::new(env, pipelines_config) {
-            Ok(service) => {
+            Ok(mut service) => {
+                // Set KV service for fallback data persistence
+                service.set_kv_service(self.kv_service.clone());
+                
                 self.pipelines_service = Some(Arc::new(service));
                 worker::console_log!(
-                    "Pipelines service initialized successfully with fallback support"
+                    "Pipelines service initialized successfully with fallback support and KV persistence"
                 );
             }
             Err(e) => {
