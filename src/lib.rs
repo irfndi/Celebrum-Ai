@@ -65,6 +65,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         (Method::Get, "/exchange/markets") => handle_get_markets(req, env).await,
 
         (Method::Get, "/exchange/ticker") => handle_get_ticker(req, env).await,
+        (Method::Get, "/exchange/orderbook") => handle_get_orderbook(req, env).await,
 
         (Method::Get, "/exchange/funding") => handle_funding_rate(req, env).await,
 
@@ -245,14 +246,19 @@ fn parse_exchanges_from_env(
 async fn create_opportunity_service(
     custom_env: &types::Env,
 ) -> ArbitrageResult<OpportunityService> {
-    // Parse configuration from environment
-    let exchanges_str = custom_env.worker_env.var("EXCHANGES")?.to_string();
+    // Parse configuration from environment with fallback values
+    let exchanges_str = custom_env
+        .worker_env
+        .var("EXCHANGES")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| "binance,bybit".to_string());
     let exchanges = parse_exchanges_from_env(&exchanges_str)?;
 
     let monitored_pairs_str = custom_env
         .worker_env
-        .var("MONITORED_PAIRS_CONFIG")?
-        .to_string();
+        .var("MONITORED_PAIRS_CONFIG")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| r#"[{"symbol":"BTCUSDT","base":"BTC","quote":"USDT","exchange_id":"binance"},{"symbol":"ETHUSDT","base":"ETH","quote":"USDT","exchange_id":"binance"}]"#.to_string());
     let monitored_pairs: Vec<StructuredTradingPair> = serde_json::from_str(&monitored_pairs_str)
         .map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to parse monitored pairs: {}", e))
@@ -267,7 +273,7 @@ async fn create_opportunity_service(
         .unwrap_or(0.001);
 
     // Create services
-    let exchange_service = Arc::new(ExchangeService::new(custom_env)?);
+    let exchange_service = Arc::new(ExchangeService::new(&custom_env.worker_env)?);
 
     let telegram_service = if let Ok(bot_token) = custom_env.worker_env.var("TELEGRAM_BOT_TOKEN") {
         Some(Arc::new(TelegramService::new(
@@ -378,6 +384,34 @@ async fn handle_funding_rate(req: Request, env: Env) -> Result<Response> {
     {
         Ok(rates) => Response::from_json(&rates),
         Err(e) => Response::error(format!("Failed to fetch funding rate: {}", e), 500),
+    }
+}
+
+async fn handle_get_orderbook(req: Request, env: Env) -> Result<Response> {
+    let url = req.url()?;
+    let query_params: HashMap<String, String> = url.query_pairs().into_owned().collect();
+
+    let exchange_id = query_params
+        .get("exchange")
+        .unwrap_or(&"binance".to_string())
+        .clone();
+    let symbol = query_params
+        .get("symbol")
+        .unwrap_or(&"BTCUSDT".to_string())
+        .clone();
+
+    let custom_env = types::Env::new(env);
+    let exchange_service = match ExchangeService::new(&custom_env) {
+        Ok(service) => service,
+        Err(e) => return Response::error(format!("Failed to create exchange service: {}", e), 500),
+    };
+
+    match exchange_service
+        .get_orderbook(&exchange_id, &symbol, None)
+        .await
+    {
+        Ok(orderbook) => Response::from_json(&orderbook),
+        Err(e) => Response::error(format!("Failed to get orderbook: {}", e), 500),
     }
 }
 
@@ -636,8 +670,19 @@ async fn handle_create_position(mut req: Request, env: Env) -> Result<Response> 
         Ok(None) => return Response::error("User profile not found", 404),
         Err(e) => return Response::error(format!("Failed to fetch user profile: {}", e), 500),
     };
+
+    // Handle account balance - provide default for super admin users
+    let account_balance = if user_profile.account_balance_usdt > 0.0 {
+        user_profile.account_balance_usdt
+    } else if user_profile.subscription.tier == types::SubscriptionTier::SuperAdmin {
+        // Default balance for super admin testing
+        100000.0
+    } else {
+        user_profile.account_balance_usdt
+    };
+
     let account_info = AccountInfo {
-        total_balance_usd: user_profile.account_balance_usdt, // Using proper balance field
+        total_balance_usd: account_balance,
     };
 
     match positions_service

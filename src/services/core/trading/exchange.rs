@@ -3,6 +3,7 @@
 use chrono::Utc;
 use reqwest::{Client, Method};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::*;
@@ -12,6 +13,10 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use hex;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+
+// For async sleep functionality
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::time::{sleep, Duration};
 
 pub trait ExchangeInterface {
     #[allow(async_fn_in_trait)]
@@ -198,11 +203,16 @@ pub struct ExchangeService {
 impl ExchangeService {
     #[allow(clippy::result_large_err)]
     pub fn new(env: &Env) -> ArbitrageResult<Self> {
-        let kv = env.get_kv_store("ARBITRAGE_KV").ok_or_else(|| {
-            ArbitrageError::internal_error(
-                "Failed to get KV store: ARBITRAGE_KV binding not found".to_string(),
-            )
-        })?;
+        // Try ARBITRAGE_KV first, then fallback to ArbEdgeKV
+        let kv = env
+            .get_kv_store("ARBITRAGE_KV")
+            .or_else(|| env.get_kv_store("ArbEdgeKV"))
+            .ok_or_else(|| {
+                ArbitrageError::internal_error(
+                    "Failed to get KV store: Neither ARBITRAGE_KV nor ArbEdgeKV binding found"
+                        .to_string(),
+                )
+            })?;
 
         let client = Client::new();
 
@@ -445,6 +455,135 @@ impl ExchangeService {
         params: Option<Value>,
         auth: Option<&ExchangeCredentials>,
     ) -> ArbitrageResult<Value> {
+        self.binance_request_with_retry(endpoint, method, params, auth, 3)
+            .await
+    }
+
+    async fn binance_request_with_retry(
+        &self,
+        endpoint: &str,
+        method: Method,
+        params: Option<Value>,
+        auth: Option<&ExchangeCredentials>,
+        max_retries: u32,
+    ) -> ArbitrageResult<Value> {
+        let mut retry_count = 0;
+
+        loop {
+            match self
+                .binance_request_single(endpoint, method.clone(), params.clone(), auth)
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    // Check if this is a rate limit or IP ban error
+                    let should_retry = match e.status {
+                        Some(429) => {
+                            // Rate limit - extract retry-after header if available
+                            let retry_after = self.extract_retry_after_from_error(&e).unwrap_or(60);
+                            if retry_count < max_retries {
+                                log::warn!("Binance rate limit hit (429), retrying in {} seconds. Attempt {}/{}", retry_after, retry_count + 1, max_retries);
+                                #[cfg(not(target_arch = "wasm32"))]
+                                sleep(Duration::from_secs(retry_after)).await;
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    // For WASM, use a simple delay mechanism
+                                    let start =
+                                        web_sys::window().unwrap().performance().unwrap().now();
+                                    while web_sys::window().unwrap().performance().unwrap().now()
+                                        - start
+                                        < (retry_after * 1000) as f64
+                                    {
+                                        // Busy wait - not ideal but works for WASM
+                                    }
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        Some(418) => {
+                            // IP ban - longer wait time
+                            let retry_after =
+                                self.extract_retry_after_from_error(&e).unwrap_or(300); // Default 5 minutes
+                            if retry_count < max_retries {
+                                log::warn!("Binance IP ban detected (418), retrying in {} seconds. Attempt {}/{}", retry_after, retry_count + 1, max_retries);
+                                #[cfg(not(target_arch = "wasm32"))]
+                                sleep(Duration::from_secs(retry_after)).await;
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    // For WASM, use a simple delay mechanism
+                                    let start =
+                                        web_sys::window().unwrap().performance().unwrap().now();
+                                    while web_sys::window().unwrap().performance().unwrap().now()
+                                        - start
+                                        < (retry_after * 1000) as f64
+                                    {
+                                        // Busy wait - not ideal but works for WASM
+                                    }
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        Some(403) => {
+                            // WAF limit - moderate wait time
+                            if retry_count < max_retries {
+                                let wait_time = 30 * (retry_count + 1) as u64; // Exponential backoff
+                                log::warn!("Binance WAF limit hit (403), retrying in {} seconds. Attempt {}/{}", wait_time, retry_count + 1, max_retries);
+                                #[cfg(not(target_arch = "wasm32"))]
+                                sleep(Duration::from_secs(wait_time)).await;
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    // For WASM, use a simple delay mechanism
+                                    let start =
+                                        web_sys::window().unwrap().performance().unwrap().now();
+                                    while web_sys::window().unwrap().performance().unwrap().now()
+                                        - start
+                                        < (wait_time * 1000) as f64
+                                    {
+                                        // Busy wait - not ideal but works for WASM
+                                    }
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        _ => false,
+                    };
+
+                    if should_retry {
+                        retry_count += 1;
+                        continue;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    }
+
+    fn extract_retry_after_from_error(&self, error: &ArbitrageError) -> Option<u64> {
+        // Try to extract Retry-After value from error details
+        if let Some(details) = &error.details {
+            if let Some(retry_after) = details.get("retry_after") {
+                if let Some(seconds) = retry_after.as_u64() {
+                    return Some(seconds);
+                }
+            }
+        }
+        None
+    }
+
+    async fn binance_request_single(
+        &self,
+        endpoint: &str,
+        method: Method,
+        params: Option<Value>,
+        auth: Option<&ExchangeCredentials>,
+    ) -> ArbitrageResult<Value> {
         let base_url = "https://api.binance.com";
         let url = format!("{}{}", base_url, endpoint);
 
@@ -506,12 +645,51 @@ impl ExchangeService {
             .await
             .map_err(|e| ArbitrageError::network_error(format!("HTTP request failed: {}", e)))?;
 
+        let status_code = response.status().as_u16();
+        let headers = response.headers().clone();
+
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(ArbitrageError::api_error(format!(
-                "Binance API error: {}",
-                error_text
-            )));
+
+            // Extract Retry-After header if present
+            let mut error_details = HashMap::new();
+            if let Some(retry_after) = headers.get("retry-after") {
+                if let Ok(retry_str) = retry_after.to_str() {
+                    if let Ok(retry_seconds) = retry_str.parse::<u64>() {
+                        error_details.insert(
+                            "retry_after".to_string(),
+                            serde_json::Value::Number(serde_json::Number::from(retry_seconds)),
+                        );
+                    }
+                }
+            }
+
+            // Check if response is HTML (indicating rate limiting/IP ban)
+            let is_html_response = error_text.trim_start().starts_with("<");
+
+            let error_message = if is_html_response {
+                match status_code {
+                    429 => "Binance API rate limit exceeded - HTML response received".to_string(),
+                    418 => "Binance API IP ban detected - HTML response received".to_string(),
+                    403 => "Binance API WAF limit exceeded - HTML response received".to_string(),
+                    _ => format!("Binance API returned HTML error (status {})", status_code),
+                }
+            } else {
+                format!("Binance API error: {}", error_text)
+            };
+
+            let mut error = match status_code {
+                429 => ArbitrageError::rate_limit_error(error_message),
+                418 => ArbitrageError::rate_limit_error(format!("IP banned: {}", error_message)),
+                403 => ArbitrageError::rate_limit_error(format!("WAF limit: {}", error_message)),
+                _ => ArbitrageError::api_error(error_message),
+            };
+
+            if !error_details.is_empty() {
+                error = error.with_details(error_details);
+            }
+
+            return Err(error.with_status(status_code));
         }
 
         let json: Value = response

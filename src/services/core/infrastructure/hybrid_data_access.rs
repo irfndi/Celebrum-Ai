@@ -215,9 +215,13 @@ impl HybridDataAccessService {
 
     /// Constructor for compatibility with services expecting new(env)
     pub fn new_from_env(env: &worker::Env) -> ArbitrageResult<Self> {
-        let kv_store = env.kv("MARKET_DATA_KV").map_err(|e| {
-            ArbitrageError::configuration_error(format!("Failed to get KV store: {}", e))
-        })?;
+        // Try MARKET_DATA_KV first, then fallback to ArbEdgeKV
+        let kv_store = env
+            .kv("MARKET_DATA_KV")
+            .or_else(|_| env.kv("ArbEdgeKV"))
+            .map_err(|e| {
+                ArbitrageError::configuration_error(format!("Failed to get KV store: {}", e))
+            })?;
         let logger = Logger::new(crate::utils::logger::LogLevel::Info);
         let config = HybridDataAccessConfig::default();
 
@@ -247,9 +251,13 @@ impl HybridDataAccessService {
         config: HybridDataAccessConfig,
     ) -> ArbitrageResult<Self> {
         config.validate()?;
-        let kv_store = env.kv("MARKET_DATA_KV").map_err(|e| {
-            ArbitrageError::configuration_error(format!("Failed to get KV store: {}", e))
-        })?;
+        // Try MARKET_DATA_KV first, then fallback to ArbEdgeKV
+        let kv_store = env
+            .kv("MARKET_DATA_KV")
+            .or_else(|_| env.kv("ArbEdgeKV"))
+            .map_err(|e| {
+                ArbitrageError::configuration_error(format!("Failed to get KV store: {}", e))
+            })?;
         let logger = Logger::new(crate::utils::logger::LogLevel::Info);
 
         Ok(Self {

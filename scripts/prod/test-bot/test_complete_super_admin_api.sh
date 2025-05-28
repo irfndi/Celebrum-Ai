@@ -312,6 +312,10 @@ run_test "Exchange - Get Funding Rate" "200" \
     "" \
     -X GET "$BASE_URL/exchange/funding?exchange=binance&symbol=BTCUSDT"
 
+run_test "Exchange - Get Order Book" "200" \
+    "" \
+    -X GET "$BASE_URL/exchange/orderbook?exchange=binance&symbol=BTCUSDT"
+
 # 10. POSITION MANAGEMENT ENDPOINTS
 log "${CYAN}📈 POSITION MANAGEMENT ENDPOINTS${NC}"
 
@@ -322,12 +326,12 @@ run_test "Positions - Create Position" "200" \
     -H "Content-Type: application/json" \
     -d '{
         "user_id": "'"$SUPER_ADMIN_USER_ID"'",
-        "exchange_long": "binance",
-        "exchange_short": "bybit", 
+        "exchange": "binance",
         "pair": "BTC/USDT",
-        "amount_long": 1000,
-        "amount_short": 1000,
-        "expected_profit": 50
+        "side": "long",
+        "size_usd": 1000.0,
+        "entry_price": 45000.0,
+        "risk_percentage": 0.02
     }'
 
 run_test "Positions - Get All Positions" "200" \
@@ -426,4 +430,4 @@ if [ $FAILED_TESTS -eq 0 ]; then
     exit 0
 else
     exit 1
-fi 
+fi
