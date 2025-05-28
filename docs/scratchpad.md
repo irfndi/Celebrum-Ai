@@ -195,4 +195,10 @@
 - **Issue**: Services may require environment variables that might not be available
 - **Solution**: Implement proper fallback handling and graceful degradation
 - **Lesson**: Always handle missing environment variables gracefully
-- **Applied**: Implemented fallbacks for ENCRYPTION_KEY and other optional variables 
+- **Applied**: Implemented fallbacks for ENCRYPTION_KEY and other optional variables
+
+### [2025-01-27] CI/CD Branch Strategy Update
+- **Issue**: CI was only running on specific branches (development, main, feature/refactor-to-rust)
+- **Solution**: Updated CI to run on ALL branches while keeping deployment restricted to main
+- **Lesson**: Run tests and security analysis on all branches for better code quality
+- **Applied**: Updated .github/workflows/ci.yml to use branches: ["**"] for comprehensive testing 
