@@ -1,7 +1,5 @@
 # Super Admin API Robustness & Performance Fix
 
-Use same Branch as @telegram-bot-distribution-fix
-
 ## Background and Motivation
 
 After comprehensive analysis of the production system, we've identified critical issues preventing 100% API functionality and causing performance limitations at 500 concurrent users. While the system architecture is fundamentally sound, there are specific configuration mismatches, service injection inconsistencies, missing performance optimizations, and **strategic limitations in opportunity discovery** that need to be addressed.
