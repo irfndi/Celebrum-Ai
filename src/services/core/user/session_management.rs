@@ -380,31 +380,59 @@ impl SessionManagementService {
         Ok(cleanup_count)
     }
 
-    /// Get active session count for monitoring
+    /// Get active session count
     pub async fn get_active_session_count(&self) -> ArbitrageResult<u32> {
-        let stmt = self
-            .d1_service
-            .database()
-            .prepare("SELECT COUNT(*) as count FROM user_sessions WHERE session_state = 'active'");
+        let stmt = self.d1_service.database().prepare(
+            "SELECT COUNT(*) as count FROM user_sessions WHERE session_state = 'active' AND expires_at > datetime('now')"
+        );
 
         let result = stmt
-            .bind(&[])
-            .map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
-            })?
             .first::<std::collections::HashMap<String, serde_json::Value>>(None)
             .await
             .map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to execute query: {}", e))
+                ArbitrageError::database_error(format!("Failed to get session count: {}", e))
             })?;
 
         match result {
             Some(row) => {
-                let count = row.get("count").and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
+                let count = row
+                    .get("count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32;
                 Ok(count)
             }
             None => Ok(0),
         }
+    }
+
+    /// Get all active sessions for admin monitoring
+    pub async fn get_all_active_sessions(&self) -> ArbitrageResult<Vec<serde_json::Value>> {
+        let query = r#"
+            SELECT 
+                user_id, telegram_id, session_state, created_at, 
+                last_activity, expires_at, activity_count, context
+            FROM user_sessions 
+            WHERE session_state = 'active' 
+            AND expires_at > datetime('now')
+            ORDER BY last_activity DESC 
+            LIMIT 500"#;
+
+        let rows = self.d1_service.query(query, &[]).await.unwrap_or_default();
+
+        let sessions: Vec<serde_json::Value> = rows.into_iter().map(|row| {
+            serde_json::json!({
+                "user_id": row.get("user_id").unwrap_or(&"".to_string()),
+                "telegram_id": row.get("telegram_id").unwrap_or(&"0".to_string()),
+                "session_state": row.get("session_state").unwrap_or(&"unknown".to_string()),
+                "created_at": row.get("created_at").unwrap_or(&"".to_string()),
+                "last_activity": row.get("last_activity").unwrap_or(&"".to_string()),
+                "expires_at": row.get("expires_at").unwrap_or(&"".to_string()),
+                "activity_count": row.get("activity_count").unwrap_or(&"0".to_string()),
+                "context": row.get("context").unwrap_or(&"{}".to_string())
+            })
+        }).collect();
+
+        Ok(sessions)
     }
 
     /// Get session analytics for a user

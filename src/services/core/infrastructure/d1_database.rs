@@ -98,7 +98,7 @@ impl D1Service {
                 subscription_tier, trading_preferences, 
                 created_at, updated_at, last_login_at, account_status, 
                 beta_expires_at, account_balance_usdt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ",
         );
 
@@ -3264,6 +3264,149 @@ impl D1Service {
         }
 
         Ok(insights_list)
+    }
+
+    /// Get user analytics data
+    pub async fn get_user_analytics(&self, user_id: &str) -> ArbitrageResult<serde_json::Value> {
+        let query = r#"
+            SELECT 
+                COUNT(DISTINCT ta.id) as total_trades,
+                COALESCE(SUM(ta.pnl_usdt), 0.0) as total_pnl,
+                COALESCE(AVG(ta.pnl_usdt), 0.0) as avg_pnl,
+                COUNT(CASE WHEN ta.pnl_usdt > 0 THEN 1 END) * 100.0 / COUNT(*) as win_rate,
+                COALESCE(AVG(ta.entry_size_usdt), 0.0) as avg_trade_size
+            FROM trading_analytics ta 
+            WHERE ta.user_id = ?1
+        "#;
+
+        let rows = self.query(query, &[serde_json::Value::String(user_id.to_string())]).await?;
+        
+        if let Some(row) = rows.first() {
+            Ok(serde_json::json!({
+                "total_trades": row.get("total_trades").unwrap_or(&"0".to_string()).parse::<i64>().unwrap_or(0),
+                "total_pnl": row.get("total_pnl").unwrap_or(&"0.0".to_string()).parse::<f64>().unwrap_or(0.0),
+                "avg_pnl": row.get("avg_pnl").unwrap_or(&"0.0".to_string()).parse::<f64>().unwrap_or(0.0),
+                "win_rate": row.get("win_rate").unwrap_or(&"0.0".to_string()).parse::<f64>().unwrap_or(0.0),
+                "avg_trade_size": row.get("avg_trade_size").unwrap_or(&"0.0".to_string()).parse::<f64>().unwrap_or(0.0),
+                "user_id": user_id
+            }))
+        } else {
+            Ok(serde_json::json!({
+                "total_trades": 0,
+                "total_pnl": 0.0,
+                "avg_pnl": 0.0,
+                "win_rate": 0.0,
+                "avg_trade_size": 0.0,
+                "user_id": user_id
+            }))
+        }
+    }
+
+    /// Get aggregated analytics for all users
+    pub async fn get_all_user_analytics(&self) -> ArbitrageResult<serde_json::Value> {
+        let query = r#"
+            SELECT 
+                COUNT(DISTINCT up.user_id) as total_users,
+                COUNT(DISTINCT CASE WHEN up.is_active = 1 THEN up.user_id END) as active_users,
+                COUNT(DISTINCT CASE WHEN up.subscription_tier IN ('Premium', 'Enterprise', 'SuperAdmin') THEN up.user_id END) as premium_users,
+                COALESCE(SUM(ta.pnl_usdt), 0.0) as total_system_pnl,
+                COUNT(DISTINCT ta.id) as total_system_trades
+            FROM user_profiles up 
+            LEFT JOIN trading_analytics ta ON up.user_id = ta.user_id
+        "#;
+
+        let rows = self.query(query, &[]).await?;
+        
+        if let Some(row) = rows.first() {
+            Ok(serde_json::json!({
+                "total_users": row.get("total_users").unwrap_or(&"0".to_string()).parse::<i64>().unwrap_or(0),
+                "active_users": row.get("active_users").unwrap_or(&"0".to_string()).parse::<i64>().unwrap_or(0),
+                "premium_users": row.get("premium_users").unwrap_or(&"0".to_string()).parse::<i64>().unwrap_or(0),
+                "total_system_pnl": row.get("total_system_pnl").unwrap_or(&"0.0".to_string()).parse::<f64>().unwrap_or(0.0),
+                "total_system_trades": row.get("total_system_trades").unwrap_or(&"0".to_string()).parse::<i64>().unwrap_or(0),
+                "timestamp": chrono::Utc::now().timestamp()
+            }))
+        } else {
+            Ok(serde_json::json!({
+                "total_users": 0,
+                "active_users": 0,
+                "premium_users": 0,
+                "total_system_pnl": 0.0,
+                "total_system_trades": 0,
+                "timestamp": chrono::Utc::now().timestamp()
+            }))
+        }
+    }
+
+    /// Get all users (admin function)
+    pub async fn get_all_users(&self) -> ArbitrageResult<Vec<serde_json::Value>> {
+        let query = r#"
+            SELECT 
+                user_id,
+                telegram_user_id,
+                telegram_username,
+                subscription_tier,
+                is_active,
+                created_at,
+                last_active,
+                total_trades,
+                account_balance_usdt
+            FROM user_profiles 
+            ORDER BY created_at DESC 
+            LIMIT 1000
+        "#;
+
+        let rows = self.query(query, &[]).await?;
+        
+        let users: Vec<serde_json::Value> = rows.into_iter().map(|row| {
+            serde_json::json!({
+                "user_id": row.get("user_id").unwrap_or(&"".to_string()),
+                "telegram_user_id": row.get("telegram_user_id").unwrap_or(&"0".to_string()).parse::<i64>().unwrap_or(0),
+                "subscription_tier": row.get("subscription_tier").unwrap_or(&"Free".to_string()),
+                "is_active": row.get("is_active").unwrap_or(&"0".to_string()).parse::<i32>().unwrap_or(0) == 1,
+                "created_at": row.get("created_at").unwrap_or(&"".to_string()),
+                "last_active": row.get("last_active").unwrap_or(&"".to_string()),
+                "total_trades": row.get("total_trades").unwrap_or(&"0".to_string()).parse::<i64>().unwrap_or(0),
+                "account_balance_usdt": row.get("account_balance_usdt").unwrap_or(&"0.0".to_string()).parse::<f64>().unwrap_or(0.0)
+            })
+        }).collect();
+
+        Ok(users)
+    }
+
+    /// Get all invitations (admin function)
+    pub async fn get_all_invitations(&self) -> ArbitrageResult<Vec<serde_json::Value>> {
+        let query = r#"
+            SELECT 
+                code,
+                created_by,
+                subscription_tier,
+                max_uses,
+                current_uses,
+                expires_at,
+                is_active,
+                created_at
+            FROM invitation_codes 
+            ORDER BY created_at DESC 
+            LIMIT 1000
+        "#;
+
+        let rows = self.query(query, &[]).await?;
+        
+        let invitations: Vec<serde_json::Value> = rows.into_iter().map(|row| {
+            serde_json::json!({
+                "code": row.get("code").unwrap_or(&"".to_string()),
+                "created_by": row.get("created_by").unwrap_or(&"".to_string()),
+                "subscription_tier": row.get("subscription_tier").unwrap_or(&"Free".to_string()),
+                "max_uses": row.get("max_uses").unwrap_or(&"1".to_string()).parse::<i32>().unwrap_or(1),
+                "current_uses": row.get("current_uses").unwrap_or(&"0".to_string()).parse::<i32>().unwrap_or(0),
+                "created_at": row.get("created_at").unwrap_or(&"".to_string()),
+                "is_active": row.get("is_active").unwrap_or(&"0".to_string()).parse::<i32>().unwrap_or(0) == 1,
+                "expires_at": row.get("expires_at").unwrap_or(&"".to_string())
+            })
+        }).collect();
+
+        Ok(invitations)
     }
 }
 
