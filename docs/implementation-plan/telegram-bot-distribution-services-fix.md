@@ -203,6 +203,11 @@ The foundation is now complete. All services are properly injected and the syste
 - **Solution**: Implemented professional load testing framework using wrk and hey with automatic safety stops, gradual ramp-up, and comprehensive monitoring
 - **Lesson**: High-scale production testing requires professional tools, safety mechanisms, and comprehensive monitoring. Bash scripts alone are insufficient for 10K+ concurrent users
 
+### [2025-05-28] Test Results Organization in @logs Folder
+- **Issue**: Performance testing results cluttering project root directory
+- **Solution**: Organized all performance test results in @logs folder with timestamped subdirectories and added to .gitignore
+- **Lesson**: Organizing test results in dedicated folders improves project cleanliness and prevents accidental commits of large test data
+
 ### ✅ **PHASE 2: COMPLETED** - Service Injection Validation
 **Status**: ✅ **VALIDATION SUCCESSFUL**
 
@@ -229,11 +234,10 @@ The foundation is now complete. All services are properly injected and the syste
 - ✅ **Makefile Integration**: Performance testing commands integrated into build system
 
 **Technical Achievements**:
-- ✅ **Bash Compatibility**: Fixed bash 4.0+ associative array requirements
-- ✅ **Background Process Issues**: Resolved `set -e` conflicts with background processes
-- ✅ **Concurrent Testing**: Proper concurrent user simulation and result aggregation
-- ✅ **Detailed Metrics**: Response time, throughput, success rate, and error tracking
-- ✅ **Performance Benchmarks**: Defined performance thresholds and recommendations
+- ✅ **Professional Tooling**: wrk (high-performance) and hey (alternative) load testing
+- ✅ **Lua Scripting**: Custom user simulation with different subscription tiers
+- ✅ **Result Aggregation**: Comprehensive reporting and analysis in @logs folder
+- ✅ **Safety Engineering**: Multiple layers of protection and monitoring
 
 **Performance Test Results** (Local Development):
 - ✅ **Health Check Endpoints**: 80-200ms average response time, 100% success rate
@@ -934,7 +938,7 @@ The comprehensive performance testing framework has been successfully executed a
 **Technical Achievements**:
 - ✅ **Professional Tooling**: wrk (high-performance) and hey (alternative) load testing
 - ✅ **Lua Scripting**: Custom user simulation with different subscription tiers
-- ✅ **Result Aggregation**: Comprehensive reporting and analysis
+- ✅ **Result Aggregation**: Comprehensive reporting and analysis in @logs folder
 - ✅ **Safety Engineering**: Multiple layers of protection and monitoring
 
 **Next Step**: Ready for production 10K user testing with comprehensive safety measures and monitoring in place. 

@@ -25,6 +25,53 @@
 - [ ] **Escalation Plan**: Clear escalation procedures defined
 - [ ] **Monitoring Dashboard**: Real-time metrics visible to team
 
+## 📁 Test Results Organization
+
+### @logs Folder Structure
+
+All performance testing results are organized in the `@logs` folder to keep the project root clean:
+
+```
+@logs/
+├── performance_results_10k_20250528_095621/
+│   ├── test_execution.log                    # Main execution log
+│   ├── performance_report.md                 # Comprehensive report
+│   ├── test_script.lua                       # Lua script for user simulation
+│   ├── wrk_ramp_health_100users.txt         # Ramp-up test results
+│   ├── wrk_ramp_health_500users.txt
+│   ├── wrk_ramp_health_1000users.txt
+│   ├── wrk_sustained_health_10000users.txt  # Sustained load results
+│   ├── wrk_sustained_user_5000users.txt
+│   ├── wrk_sustained_opportunities_2500users.txt
+│   └── wrk_sustained_analytics_1000users.txt
+└── performance_results_10k_20250528_101234/  # Next test run
+    └── ...
+```
+
+### Result Files Explanation
+
+- **`test_execution.log`**: Timestamped log of all test activities
+- **`performance_report.md`**: Comprehensive markdown report with analysis
+- **`test_script.lua`**: Lua script used for user simulation and headers
+- **`wrk_*.txt`**: Individual test results from wrk load testing tool
+- **Folder naming**: `performance_results_10k_YYYYMMDD_HHMMSS`
+
+### Accessing Results
+
+```bash
+# List all test runs
+ls -la @logs/
+
+# View latest test results
+ls -la @logs/performance_results_10k_*/
+
+# Read latest comprehensive report
+cat @logs/performance_results_10k_*/performance_report.md | head -50
+
+# Monitor live test execution
+tail -f @logs/performance_results_10k_*/test_execution.log
+```
+
 ## 🛠️ Testing Tools and Commands
 
 ### Available Testing Commands
@@ -111,7 +158,7 @@ The testing framework includes multiple safety mechanisms:
 # The script handles graceful shutdown
 
 # Monitor during test
-tail -f performance_results_10k_*/test_execution.log
+tail -f @logs/performance_results_10k_*/test_execution.log
 
 # Check system resources
 htop  # Monitor CPU/Memory usage
@@ -220,10 +267,10 @@ Monitor these Cloudflare-specific metrics:
 1. **Review Test Results**
    ```bash
    # Check results directory
-   ls -la performance_results_10k_*/
+   ls -la @logs/performance_results_10k_*/
    
    # Review comprehensive report
-   cat performance_results_10k_*/performance_report.md
+   cat @logs/performance_results_10k_*/performance_report.md
    ```
 
 2. **Analyze Key Metrics**

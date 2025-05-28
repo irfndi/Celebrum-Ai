@@ -3,6 +3,8 @@
 use chrono::Utc;
 use reqwest::{Client, Method};
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use worker::console_log;
 
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::*;
@@ -12,6 +14,10 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use hex;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+
+// For async sleep functionality
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::time::{sleep, Duration};
 
 pub trait ExchangeInterface {
     #[allow(async_fn_in_trait)]
@@ -198,11 +204,17 @@ pub struct ExchangeService {
 impl ExchangeService {
     #[allow(clippy::result_large_err)]
     pub fn new(env: &Env) -> ArbitrageResult<Self> {
-        let kv = env.get_kv_store("ARBITRAGE_KV").ok_or_else(|| {
-            ArbitrageError::internal_error(
-                "Failed to get KV store: ARBITRAGE_KV binding not found".to_string(),
-            )
-        })?;
+        // Try ARBITRAGE_KV first, then fallback to ArbEdgeKV
+        let kv = env
+            .worker_env
+            .kv("ARBITRAGE_KV")
+            .or_else(|_| env.worker_env.kv("ArbEdgeKV"))
+            .map_err(|e| {
+                ArbitrageError::internal_error(format!(
+                    "Failed to get KV store: Neither ARBITRAGE_KV nor ArbEdgeKV binding found: {}",
+                    e
+                ))
+            })?;
 
         let client = Client::new();
 
@@ -314,35 +326,46 @@ impl ExchangeService {
         &self,
         symbol: &str,
     ) -> ArbitrageResult<crate::types::FundingRateInfo> {
-        // Binance Premium Index API for funding rates
-        let endpoint = "/fapi/v1/premiumIndex";
+        // Binance Funding Rate History API - get the latest funding rate
+        let endpoint = "/fapi/v1/fundingRate";
         let params = json!({
-            "symbol": symbol
+            "symbol": symbol,
+            "limit": 1
         });
 
         let response = self
-            .binance_request(endpoint, Method::GET, Some(params), None)
+            .binance_futures_request(endpoint, Method::GET, Some(params), None)
             .await?;
 
-        let funding_rate = response["lastFundingRate"]
-            .as_str()
-            .and_then(|s| s.parse::<f64>().ok())
-            .unwrap_or(0.0);
-
-        let next_funding_time = response["nextFundingTime"]
-            .as_u64()
-            .and_then(|ts| chrono::DateTime::from_timestamp((ts / 1000) as i64, 0));
-
-        Ok(crate::types::FundingRateInfo {
-            symbol: symbol.to_string(),
-            funding_rate,
-            timestamp: Some(chrono::Utc::now()),
-            datetime: Some(chrono::Utc::now().to_rfc3339()),
-            next_funding_time,
-            estimated_rate: response["markPrice"]
+        // Response is an array, get the first (latest) entry
+        if let Some(rate_data) = response.as_array().and_then(|arr| arr.first()) {
+            let funding_rate = rate_data["fundingRate"]
                 .as_str()
-                .and_then(|s| s.parse::<f64>().ok()),
-        })
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+
+            let funding_time = rate_data["fundingTime"]
+                .as_u64()
+                .and_then(|ts| chrono::DateTime::from_timestamp((ts / 1000) as i64, 0));
+
+            let mark_price = rate_data["markPrice"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok());
+
+            Ok(crate::types::FundingRateInfo {
+                symbol: symbol.to_string(),
+                funding_rate,
+                timestamp: Some(chrono::Utc::now()),
+                datetime: Some(chrono::Utc::now().to_rfc3339()),
+                next_funding_time: funding_time,
+                estimated_rate: mark_price,
+            })
+        } else {
+            Err(ArbitrageError::not_found(format!(
+                "No funding rate data found for Binance:{}",
+                symbol
+            )))
+        }
     }
 
     /// Get Bybit funding rate using real API
@@ -445,6 +468,182 @@ impl ExchangeService {
         params: Option<Value>,
         auth: Option<&ExchangeCredentials>,
     ) -> ArbitrageResult<Value> {
+        self.binance_request_with_retry(endpoint, method, params, auth, 3)
+            .await
+    }
+
+    async fn binance_futures_request(
+        &self,
+        endpoint: &str,
+        method: Method,
+        params: Option<Value>,
+        auth: Option<&ExchangeCredentials>,
+    ) -> ArbitrageResult<Value> {
+        self.binance_futures_request_with_retry(endpoint, method, params, auth, 3)
+            .await
+    }
+
+    async fn binance_futures_request_with_retry(
+        &self,
+        endpoint: &str,
+        method: Method,
+        params: Option<Value>,
+        auth: Option<&ExchangeCredentials>,
+        max_retries: u32,
+    ) -> ArbitrageResult<Value> {
+        let mut last_error = None;
+
+        for attempt in 0..=max_retries {
+            match self
+                .binance_futures_request_single(endpoint, method.clone(), params.clone(), auth)
+                .await
+            {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    last_error = Some(e.clone());
+
+                    if attempt < max_retries {
+                        // Check if we should retry based on error type
+                        let should_retry = match &e.kind {
+                            crate::utils::error::ErrorKind::NetworkError => true,
+                            crate::utils::error::ErrorKind::ExchangeError => {
+                                // Retry on rate limits and temporary server errors
+                                e.message.contains("rate limit")
+                                    || e.message.contains("503")
+                                    || e.message.contains("502")
+                                    || e.message.contains("timeout")
+                            }
+                            _ => false,
+                        };
+
+                        if should_retry {
+                            let delay = std::cmp::min(1000 * (2_u64.pow(attempt)), 10000); // Exponential backoff, max 10s
+                            console_log!("Binance Futures API request failed (attempt {}), retrying in {}ms: {}", attempt + 1, delay, e.message);
+
+                            #[cfg(not(target_arch = "wasm32"))]
+                            sleep(Duration::from_millis(delay)).await;
+
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                // For WASM, we can't sleep, so just continue
+                                console_log!("WASM environment: skipping sleep, immediate retry");
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            ArbitrageError::network_error(
+                "All Binance Futures API retry attempts failed".to_string(),
+            )
+        }))
+    }
+
+    async fn binance_futures_request_single(
+        &self,
+        endpoint: &str,
+        method: Method,
+        params: Option<Value>,
+        auth: Option<&ExchangeCredentials>,
+    ) -> ArbitrageResult<Value> {
+        // Use Binance Futures API base URL
+        let base_url = "https://fapi.binance.com";
+        let mut url = format!("{}{}", base_url, endpoint);
+
+        let mut query_params = Vec::new();
+
+        // Add query parameters
+        if let Some(params) = &params {
+            if let Some(obj) = params.as_object() {
+                for (key, value) in obj {
+                    let value_str = match value {
+                        Value::String(s) => s.clone(),
+                        Value::Number(n) => n.to_string(),
+                        Value::Bool(b) => b.to_string(),
+                        _ => value.to_string().trim_matches('"').to_string(),
+                    };
+                    query_params.push(format!("{}={}", key, value_str));
+                }
+            }
+        }
+
+        // Add authentication if provided
+        if let Some(credentials) = auth {
+            let timestamp = chrono::Utc::now().timestamp_millis();
+            query_params.push(format!("timestamp={}", timestamp));
+
+            // Create query string for signature
+            let query_string = query_params.join("&");
+
+            // Create signature
+            let signature = self.create_hmac_signature(&query_string, &credentials.secret)?;
+            query_params.push(format!("signature={}", signature));
+        }
+
+        // Add query parameters to URL
+        if !query_params.is_empty() {
+            url.push('?');
+            url.push_str(&query_params.join("&"));
+        }
+
+        // Build request
+        let mut request_builder = self.client.request(method, &url);
+
+        // Add headers
+        if let Some(credentials) = auth {
+            request_builder = request_builder.header("X-MBX-APIKEY", &credentials.api_key);
+        }
+        request_builder = request_builder.header("Content-Type", "application/json");
+
+        // Send request
+        let response = request_builder.send().await.map_err(|e| {
+            ArbitrageError::network_error(format!("Binance Futures API request failed: {}", e))
+        })?;
+
+        let status = response.status();
+        let response_text = response.text().await.map_err(|e| {
+            ArbitrageError::network_error(format!("Failed to read Binance Futures response: {}", e))
+        })?;
+
+        if !status.is_success() {
+            return Err(ArbitrageError::exchange_error(
+                "binance_futures",
+                format!("Binance Futures API error ({}): {}", status, response_text),
+            ));
+        }
+
+        // Parse JSON response
+        serde_json::from_str(&response_text).map_err(|e| {
+            ArbitrageError::parse_error(format!(
+                "Failed to parse Binance Futures response: {} - Response: {}",
+                e, response_text
+            ))
+        })
+    }
+
+    fn extract_retry_after_from_error(&self, error: &ArbitrageError) -> Option<u64> {
+        // Try to extract Retry-After value from error details
+        if let Some(details) = &error.details {
+            if let Some(retry_after) = details.get("retry_after") {
+                if let Some(seconds) = retry_after.as_u64() {
+                    return Some(seconds);
+                }
+            }
+        }
+        None
+    }
+
+    async fn binance_request_single(
+        &self,
+        endpoint: &str,
+        method: Method,
+        params: Option<Value>,
+        auth: Option<&ExchangeCredentials>,
+    ) -> ArbitrageResult<Value> {
         let base_url = "https://api.binance.com";
         let url = format!("{}{}", base_url, endpoint);
 
@@ -506,12 +705,51 @@ impl ExchangeService {
             .await
             .map_err(|e| ArbitrageError::network_error(format!("HTTP request failed: {}", e)))?;
 
+        let status_code = response.status().as_u16();
+        let headers = response.headers().clone();
+
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(ArbitrageError::api_error(format!(
-                "Binance API error: {}",
-                error_text
-            )));
+
+            // Extract Retry-After header if present
+            let mut error_details = HashMap::new();
+            if let Some(retry_after) = headers.get("retry-after") {
+                if let Ok(retry_str) = retry_after.to_str() {
+                    if let Ok(retry_seconds) = retry_str.parse::<u64>() {
+                        error_details.insert(
+                            "retry_after".to_string(),
+                            serde_json::Value::Number(serde_json::Number::from(retry_seconds)),
+                        );
+                    }
+                }
+            }
+
+            // Check if response is HTML (indicating rate limiting/IP ban)
+            let is_html_response = error_text.trim_start().starts_with("<");
+
+            let error_message = if is_html_response {
+                match status_code {
+                    429 => "Binance API rate limit exceeded - HTML response received".to_string(),
+                    418 => "Binance API IP ban detected - HTML response received".to_string(),
+                    403 => "Binance API WAF limit exceeded - HTML response received".to_string(),
+                    _ => format!("Binance API returned HTML error (status {})", status_code),
+                }
+            } else {
+                format!("Binance API error: {}", error_text)
+            };
+
+            let mut error = match status_code {
+                429 => ArbitrageError::rate_limit_error(error_message),
+                418 => ArbitrageError::rate_limit_error(format!("IP banned: {}", error_message)),
+                403 => ArbitrageError::rate_limit_error(format!("WAF limit: {}", error_message)),
+                _ => ArbitrageError::api_error(error_message),
+            };
+
+            if !error_details.is_empty() {
+                error = error.with_details(error_details);
+            }
+
+            return Err(error.with_status(status_code));
         }
 
         let json: Value = response
@@ -709,6 +947,112 @@ impl ExchangeService {
         };
 
         Ok(signature)
+    }
+
+    async fn binance_request_with_retry(
+        &self,
+        endpoint: &str,
+        method: Method,
+        params: Option<Value>,
+        auth: Option<&ExchangeCredentials>,
+        max_retries: u32,
+    ) -> ArbitrageResult<Value> {
+        let mut retry_count = 0;
+
+        loop {
+            match self
+                .binance_request_single(endpoint, method.clone(), params.clone(), auth)
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    // Check if this is a rate limit or IP ban error
+                    let should_retry = match e.status {
+                        Some(429) => {
+                            // Rate limit - extract retry-after header if available
+                            let retry_after = self.extract_retry_after_from_error(&e).unwrap_or(60);
+                            if retry_count < max_retries {
+                                console_log!("Binance rate limit hit (429), retrying in {} seconds. Attempt {}/{}", retry_after, retry_count + 1, max_retries);
+                                #[cfg(not(target_arch = "wasm32"))]
+                                sleep(Duration::from_secs(retry_after)).await;
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    // For WASM, use a simple delay mechanism
+                                    let start =
+                                        web_sys::window().unwrap().performance().unwrap().now();
+                                    while web_sys::window().unwrap().performance().unwrap().now()
+                                        - start
+                                        < (retry_after * 1000) as f64
+                                    {
+                                        // Busy wait - not ideal but works for WASM
+                                    }
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        Some(418) => {
+                            // IP ban - longer wait time
+                            let retry_after =
+                                self.extract_retry_after_from_error(&e).unwrap_or(300); // Default 5 minutes
+                            if retry_count < max_retries {
+                                console_log!("Binance IP ban detected (418), retrying in {} seconds. Attempt {}/{}", retry_after, retry_count + 1, max_retries);
+                                #[cfg(not(target_arch = "wasm32"))]
+                                sleep(Duration::from_secs(retry_after)).await;
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    // For WASM, use a simple delay mechanism
+                                    let start =
+                                        web_sys::window().unwrap().performance().unwrap().now();
+                                    while web_sys::window().unwrap().performance().unwrap().now()
+                                        - start
+                                        < (retry_after * 1000) as f64
+                                    {
+                                        // Busy wait - not ideal but works for WASM
+                                    }
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        Some(403) => {
+                            // WAF limit - moderate wait time
+                            if retry_count < max_retries {
+                                let wait_time = 30 * (retry_count + 1) as u64; // Exponential backoff
+                                console_log!("Binance WAF limit hit (403), retrying in {} seconds. Attempt {}/{}", wait_time, retry_count + 1, max_retries);
+                                #[cfg(not(target_arch = "wasm32"))]
+                                sleep(Duration::from_secs(wait_time)).await;
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    // For WASM, use a simple delay mechanism
+                                    let start =
+                                        web_sys::window().unwrap().performance().unwrap().now();
+                                    while web_sys::window().unwrap().performance().unwrap().now()
+                                        - start
+                                        < (wait_time * 1000) as f64
+                                    {
+                                        // Busy wait - not ideal but works for WASM
+                                    }
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        _ => false,
+                    };
+
+                    if should_retry {
+                        retry_count += 1;
+                        continue;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -933,8 +1277,14 @@ impl ExchangeInterface for ExchangeService {
                     params["symbol"] = json!(s);
                 }
 
+                // Use Binance Futures API for funding rates
                 let response = self
-                    .binance_request("/fapi/v1/premiumIndex", Method::GET, Some(params), None)
+                    .binance_futures_request(
+                        "/fapi/v1/premiumIndex",
+                        Method::GET,
+                        Some(params),
+                        None,
+                    )
                     .await?;
 
                 if response.is_array() {

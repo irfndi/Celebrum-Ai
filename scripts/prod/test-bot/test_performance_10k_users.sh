@@ -33,7 +33,7 @@ OPPORTUNITIES_ENDPOINT="/api/v1/opportunities"
 ANALYTICS_ENDPOINT="/api/v1/analytics/dashboard"
 
 # Results directory
-RESULTS_DIR="performance_results_10k_$(date +%Y%m%d_%H%M%S)"
+RESULTS_DIR="@logs/performance_results_10k_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RESULTS_DIR"
 
 # Log file

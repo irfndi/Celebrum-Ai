@@ -6,6 +6,7 @@ yarn-error.log*
 
 # Logs
 logs/
+@logs/
 *.log
 *.log.*
 
@@ -46,3 +47,7 @@ target/
 tarpaulin-report.html
 
 *.env
+.env.example
+.env.*
+
+test_results/

@@ -272,3 +272,17 @@ test-performance-extreme: ## Run extreme load test (20K users, 30min duration)
 test-performance-quick-10k: ## Run quick 10K users test (5min duration)
 	@echo "⚡ Running Quick 10K Users Test..."
 	@MAX_USERS=10000 TEST_DURATION=300 RAMP_UP_DURATION=120 ./scripts/prod/test-bot/test_performance_10k_users.sh
+
+# Complete API Testing (All Functionality)
+test-complete-super-admin: ## Run comprehensive test of ALL functionality with super admin access
+	@echo "🚀 Running Complete Super Admin API Test (ALL Functionality)..."
+	@chmod +x scripts/prod/test-bot/test_complete_super_admin_api.sh
+	@./scripts/prod/test-bot/test_complete_super_admin_api.sh
+
+test-complete-super-admin-production: ## Run complete super admin test against production environment
+	@echo "🌍 Running Complete Super Admin Test against production environment..."
+	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_complete_super_admin_api.sh
+
+test-complete-super-admin-local: ## Run complete super admin test against local development server
+	@echo "🏠 Running Complete Super Admin Test against local development server..."
+	@BASE_URL=http://localhost:8787 ./scripts/prod/test-bot/test_complete_super_admin_api.sh
