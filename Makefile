@@ -220,3 +220,55 @@ test-api-prod-admin: ## Run Production API Tests (Super Admin Only with D1 Datab
 	@echo "👑 Running Production API Tests (Super Admin + D1 Database)..."
 	@chmod +x scripts/prod/test-bot/test_api_flow_prod.sh
 	@./scripts/prod/test-bot/test_api_flow_prod.sh
+
+# Performance Testing
+test-performance: ## Run comprehensive performance tests
+	@echo "⚡ Running Comprehensive Performance Tests..."
+	@chmod +x scripts/prod/test-bot/test_performance_comprehensive.sh
+	@./scripts/prod/test-bot/test_performance_comprehensive.sh
+
+test-performance-local: ## Run performance tests against local development server
+	@echo "🏠 Running Performance Tests against local development server..."
+	@BASE_URL=http://localhost:8787 ./scripts/prod/test-bot/test_performance_comprehensive.sh
+
+test-performance-staging: ## Run performance tests against staging environment
+	@echo "🚀 Running Performance Tests against staging environment..."
+	@BASE_URL=https://arb-edge-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_performance_comprehensive.sh
+
+test-performance-production: ## Run performance tests against production environment
+	@echo "🌍 Running Performance Tests against production environment..."
+	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_performance_comprehensive.sh
+
+test-performance-stress: ## Run high-stress performance tests (100 concurrent users)
+	@echo "💥 Running High-Stress Performance Tests..."
+	@CONCURRENT_USERS=100 REQUESTS_PER_USER=20 STRESS_DURATION=60 ./scripts/prod/test-bot/test_performance_comprehensive.sh
+
+test-webhook-local: ## Run webhook tests against local development server
+	@echo "🔗 Running Webhook Tests against local development server..."
+	@./test_telegram_webhook.sh
+
+# High-Scale Performance Testing (10K Users)
+test-performance-10k: ## Run 10K concurrent users performance test (PRODUCTION ONLY)
+	@echo "🚀 Running 10K Users Performance Test..."
+	@chmod +x scripts/prod/test-bot/test_performance_10k_users.sh
+	@./scripts/prod/test-bot/test_performance_10k_users.sh
+
+test-performance-10k-production: ## Run 10K users test against production environment
+	@echo "🌍 Running 10K Users Test against production environment..."
+	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_performance_10k_users.sh
+
+test-performance-10k-staging: ## Run 10K users test against staging environment
+	@echo "🚀 Running 10K Users Test against staging environment..."
+	@BASE_URL=https://arb-edge-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_performance_10k_users.sh
+
+test-performance-ramp: ## Run gradual ramp-up test (100->10K users)
+	@echo "📈 Running Gradual Ramp-up Test..."
+	@MAX_USERS=10000 RAMP_UP_DURATION=600 ./scripts/prod/test-bot/test_performance_10k_users.sh
+
+test-performance-extreme: ## Run extreme load test (20K users, 30min duration)
+	@echo "💥 Running Extreme Load Test..."
+	@MAX_USERS=20000 TEST_DURATION=1800 RAMP_UP_DURATION=900 ./scripts/prod/test-bot/test_performance_10k_users.sh
+
+test-performance-quick-10k: ## Run quick 10K users test (5min duration)
+	@echo "⚡ Running Quick 10K Users Test..."
+	@MAX_USERS=10000 TEST_DURATION=300 RAMP_UP_DURATION=120 ./scripts/prod/test-bot/test_performance_10k_users.sh

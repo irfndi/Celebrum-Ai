@@ -19,7 +19,6 @@ use std::sync::Arc;
 use types::{AccountInfo, ExchangeIdEnum, StructuredTradingPair};
 use utils::{ArbitrageError, ArbitrageResult};
 use uuid::Uuid;
-use chrono;
 
 // ===== TEMPORARY DURABLE OBJECT FOR MIGRATION =====
 // This PositionsManager class is temporarily added to satisfy existing Durable Object instances
@@ -51,9 +50,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
     match (req.method(), path) {
         // Health check
-        (Method::Get, "/health") => {
-            Response::ok("ArbEdge Rust Worker is running!")
-        }
+        (Method::Get, "/health") => Response::ok("ArbEdge Rust Worker is running!"),
 
         // KV test endpoint
         (Method::Get, "/kv-test") => {
@@ -65,46 +62,30 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
 
         // Exchange API endpoints
-        (Method::Get, "/exchange/markets") => {
-            handle_get_markets(req, env).await
-        }
+        (Method::Get, "/exchange/markets") => handle_get_markets(req, env).await,
 
-        (Method::Get, "/exchange/ticker") => {
-            handle_get_ticker(req, env).await
-        }
+        (Method::Get, "/exchange/ticker") => handle_get_ticker(req, env).await,
 
-        (Method::Get, "/exchange/funding") => {
-            handle_funding_rate(req, env).await
-        }
+        (Method::Get, "/exchange/funding") => handle_funding_rate(req, env).await,
 
         // Opportunity finding endpoint
-        (Method::Post, "/find-opportunities") => {
-            handle_find_opportunities(req, env).await
-        }
+        (Method::Post, "/find-opportunities") => handle_find_opportunities(req, env).await,
 
         // Telegram webhook endpoint
-        (Method::Post, "/webhook") => {
-            handle_telegram_webhook(req, env).await
-        }
+        (Method::Post, "/webhook") => handle_telegram_webhook(req, env).await,
 
         // API v1 endpoints for direct access (no Telegram required)
         // Health and system endpoints
-        (Method::Get, "/api/v1/health") => {
-            handle_api_health_check(req, env).await
-        }
+        (Method::Get, "/api/v1/health") => handle_api_health_check(req, env).await,
 
         (Method::Get, "/api/v1/health/detailed") => {
             handle_api_detailed_health_check(req, env).await
         }
 
         // User management endpoints
-        (Method::Get, "/api/v1/users/profile") => {
-            handle_api_get_user_profile(req, env).await
-        }
+        (Method::Get, "/api/v1/users/profile") => handle_api_get_user_profile(req, env).await,
 
-        (Method::Put, "/api/v1/users/profile") => {
-            handle_api_update_user_profile(req, env).await
-        }
+        (Method::Put, "/api/v1/users/profile") => handle_api_update_user_profile(req, env).await,
 
         (Method::Get, "/api/v1/users/preferences") => {
             handle_api_get_user_preferences(req, env).await
@@ -115,9 +96,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
 
         // Opportunity endpoints with RBAC
-        (Method::Get, "/api/v1/opportunities") => {
-            handle_api_get_opportunities(req, env).await
-        }
+        (Method::Get, "/api/v1/opportunities") => handle_api_get_opportunities(req, env).await,
 
         (Method::Post, "/api/v1/opportunities/execute") => {
             handle_api_execute_opportunity(req, env).await
@@ -132,9 +111,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             handle_api_get_system_analytics(req, env).await
         }
 
-        (Method::Get, "/api/v1/analytics/users") => {
-            handle_api_get_user_analytics(req, env).await
-        }
+        (Method::Get, "/api/v1/analytics/users") => handle_api_get_user_analytics(req, env).await,
 
         (Method::Get, "/api/v1/analytics/performance") => {
             handle_api_get_performance_analytics(req, env).await
@@ -145,13 +122,9 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
 
         // Admin endpoints (Admin only)
-        (Method::Get, "/api/v1/admin/users") => {
-            handle_api_admin_get_users(req, env).await
-        }
+        (Method::Get, "/api/v1/admin/users") => handle_api_admin_get_users(req, env).await,
 
-        (Method::Get, "/api/v1/admin/sessions") => {
-            handle_api_admin_get_sessions(req, env).await
-        }
+        (Method::Get, "/api/v1/admin/sessions") => handle_api_admin_get_sessions(req, env).await,
 
         (Method::Get, "/api/v1/admin/opportunities") => {
             handle_api_admin_get_opportunities(req, env).await
@@ -169,40 +142,28 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             handle_api_admin_system_config(req, env).await
         }
 
-        (Method::Get, "/api/v1/admin/invitations") => {
-            handle_api_admin_invitations(req, env).await
-        }
+        (Method::Get, "/api/v1/admin/invitations") => handle_api_admin_invitations(req, env).await,
 
         // Trading endpoints (Premium+ only)
-        (Method::Get, "/api/v1/trading/balance") => {
-            handle_api_get_trading_balance(req, env).await
-        }
+        (Method::Get, "/api/v1/trading/balance") => handle_api_get_trading_balance(req, env).await,
 
-        (Method::Get, "/api/v1/trading/markets") => {
-            handle_api_get_trading_markets(req, env).await
-        }
+        (Method::Get, "/api/v1/trading/markets") => handle_api_get_trading_markets(req, env).await,
 
         (Method::Get, "/api/v1/trading/opportunities") => {
             handle_api_get_trading_opportunities(req, env).await
         }
 
         // AI endpoints (Premium+ only)
-        (Method::Post, "/api/v1/ai/analyze") => {
-            handle_api_ai_analyze(req, env).await
-        }
+        (Method::Post, "/api/v1/ai/analyze") => handle_api_ai_analyze(req, env).await,
 
         (Method::Post, "/api/v1/ai/risk-assessment") => {
             handle_api_ai_risk_assessment(req, env).await
         }
 
         // Position management endpoints
-        (Method::Post, "/positions") => {
-            handle_create_position(req, env).await
-        }
+        (Method::Post, "/positions") => handle_create_position(req, env).await,
 
-        (Method::Get, "/positions") => {
-            handle_get_all_positions(req, env).await
-        }
+        (Method::Get, "/positions") => handle_get_all_positions(req, env).await,
 
         (Method::Get, path) if path.starts_with("/positions/") => {
             let id = path.strip_prefix("/positions/").unwrap();
@@ -231,8 +192,8 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             handle_close_position(req, env, id).await
         }
 
-        // Default response
-        _ => Response::ok("Hello, ArbEdge in Rust! Available endpoints: /health, /kv-test, /exchange/*, /find-opportunities, /webhook, /positions"),
+        // Default response for unknown endpoints
+        _ => Response::error("Endpoint not found", 404),
     }
 }
 
@@ -877,9 +838,8 @@ async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
 /// Extract user ID from X-User-ID header
 fn extract_user_id_from_headers(req: &Request) -> Result<String> {
     req.headers()
-        .get("X-User-ID")
-        .ok_or_else(|| worker::Error::RustError("Missing X-User-ID header".to_string()))?
-        .ok_or_else(|| worker::Error::RustError("Invalid X-User-ID header".to_string()))
+        .get("X-User-ID")?
+        .ok_or_else(|| worker::Error::RustError("Missing X-User-ID header".to_string()))
 }
 
 /// Standard API response format
@@ -911,19 +871,83 @@ impl<T> ApiResponse<T> {
     }
 }
 
-/// Check user subscription tier and permissions
-async fn check_user_permissions(
-    user_id: &str,
+/// Check user subscription tier and permissions using proper RBAC
+async fn check_user_permissions(user_id: &str, required_tier: &str, env: &Env) -> Result<bool> {
+    // Try to get user profile from D1 database for proper RBAC
+    if let Ok(d1_service) = services::core::infrastructure::d1_database::D1Service::new(env) {
+        if let Ok(kv_store) = env.kv("ArbEdgeKV") {
+            if let Ok(encryption_key) = env.var("ENCRYPTION_KEY") {
+                let user_profile_service =
+                    services::core::user::user_profile::UserProfileService::new(
+                        kv_store,
+                        d1_service,
+                        encryption_key.to_string(),
+                    );
+
+                // Try to parse user_id as telegram_id for database lookup
+                if let Ok(telegram_id) = user_id.parse::<i64>() {
+                    if let Ok(Some(user_profile)) = user_profile_service
+                        .get_user_by_telegram_id(telegram_id)
+                        .await
+                    {
+                        return Ok(check_subscription_tier_permission(
+                            &user_profile.subscription.tier,
+                            required_tier,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback to simple pattern matching for testing/development
+    let subscription_tier = if user_id.contains("admin") {
+        types::SubscriptionTier::SuperAdmin
+    } else if user_id.contains("enterprise") || user_id.contains("pro") {
+        types::SubscriptionTier::Enterprise // Map both "enterprise" and "pro" to Enterprise
+    } else if user_id.contains("premium") {
+        types::SubscriptionTier::Premium
+    } else if user_id.contains("basic") {
+        types::SubscriptionTier::Basic
+    } else {
+        types::SubscriptionTier::Free
+    };
+
+    Ok(check_subscription_tier_permission(
+        &subscription_tier,
+        required_tier,
+    ))
+}
+
+/// Check if subscription tier has permission for required tier
+fn check_subscription_tier_permission(
+    user_tier: &types::SubscriptionTier,
     required_tier: &str,
-    env: &Env,
-) -> Result<bool> {
-    // For now, implement basic tier checking
-    // In production, this would query the D1 database
-    match user_id {
-        id if id.contains("admin") => Ok(true), // Admin users have all permissions
-        id if id.contains("pro") => Ok(required_tier != "admin"), // Pro users can't access admin
-        id if id.contains("premium") => Ok(matches!(required_tier, "free" | "premium")),
-        _ => Ok(required_tier == "free"), // Free users only have free access
+) -> bool {
+    use types::SubscriptionTier;
+
+    match required_tier {
+        "free" => true, // Everyone can access free tier
+        "basic" => matches!(
+            user_tier,
+            SubscriptionTier::Basic
+                | SubscriptionTier::Premium
+                | SubscriptionTier::Enterprise
+                | SubscriptionTier::SuperAdmin
+        ),
+        "premium" => matches!(
+            user_tier,
+            SubscriptionTier::Basic  // Basic users should have premium access
+                | SubscriptionTier::Premium
+                | SubscriptionTier::Enterprise
+                | SubscriptionTier::SuperAdmin
+        ),
+        "enterprise" | "pro" => matches!(
+            user_tier,
+            SubscriptionTier::Enterprise | SubscriptionTier::SuperAdmin
+        ),
+        "admin" | "superadmin" => matches!(user_tier, SubscriptionTier::SuperAdmin),
+        _ => false, // Unknown tier, deny access
     }
 }
 
@@ -941,7 +965,7 @@ async fn handle_api_detailed_health_check(_req: Request, env: Env) -> Result<Res
     // Check service health
     let kv_healthy = env.kv("ArbEdgeKV").is_ok();
     let d1_healthy = env.d1("ArbEdgeD1").is_ok();
-    
+
     let response = ApiResponse::success(serde_json::json!({
         "status": "healthy",
         "services": {
@@ -957,27 +981,43 @@ async fn handle_api_detailed_health_check(_req: Request, env: Env) -> Result<Res
 }
 
 // User management endpoints
-async fn handle_api_get_user_profile(req: Request, env: Env) -> Result<Response> {
+async fn handle_api_get_user_profile(req: Request, _env: Env) -> Result<Response> {
     let user_id = match extract_user_id_from_headers(&req) {
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     // Mock user profile data - in production, fetch from D1
+    let subscription_tier = if user_id.contains("admin") {
+        "superadmin"
+    } else if user_id.contains("enterprise") || user_id.contains("pro") {
+        "enterprise" // Map both "enterprise" and "pro" to enterprise
+    } else if user_id.contains("premium") {
+        "premium"
+    } else if user_id.contains("basic") {
+        "basic"
+    } else {
+        "free"
+    };
+
     let profile_data = serde_json::json!({
         "user_id": user_id,
-        "subscription_tier": if user_id.contains("admin") { "admin" } 
-                           else if user_id.contains("pro") { "pro" }
-                           else if user_id.contains("premium") { "premium" }
-                           else { "free" },
+        "subscription_tier": subscription_tier,
+        "user_role": if subscription_tier == "superadmin" { "superadmin" } else { "user" },
         "created_at": chrono::Utc::now().timestamp() - 86400,
         "last_active": chrono::Utc::now().timestamp(),
         "preferences": {
             "risk_tolerance": 0.5,
             "preferred_pairs": ["BTC/USDT", "ETH/USDT"]
+        },
+        "access_level": match subscription_tier {
+            "free" => "free_without_api",
+            "basic" => "free_with_api",
+            "premium" | "enterprise" | "superadmin" => "subscription_with_api",
+            _ => "free_without_api"
         }
     });
 
@@ -985,17 +1025,17 @@ async fn handle_api_get_user_profile(req: Request, env: Env) -> Result<Response>
     Response::from_json(&response)
 }
 
-async fn handle_api_update_user_profile(mut req: Request, env: Env) -> Result<Response> {
+async fn handle_api_update_user_profile(mut req: Request, _env: Env) -> Result<Response> {
     let user_id = match extract_user_id_from_headers(&req) {
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     let _update_data: serde_json::Value = req.json().await?;
-    
+
     // Mock successful update
     let response = ApiResponse::success(serde_json::json!({
         "user_id": user_id,
@@ -1005,12 +1045,12 @@ async fn handle_api_update_user_profile(mut req: Request, env: Env) -> Result<Re
     Response::from_json(&response)
 }
 
-async fn handle_api_get_user_preferences(req: Request, env: Env) -> Result<Response> {
+async fn handle_api_get_user_preferences(req: Request, _env: Env) -> Result<Response> {
     let user_id = match extract_user_id_from_headers(&req) {
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
@@ -1029,17 +1069,17 @@ async fn handle_api_get_user_preferences(req: Request, env: Env) -> Result<Respo
     Response::from_json(&response)
 }
 
-async fn handle_api_update_user_preferences(mut req: Request, env: Env) -> Result<Response> {
+async fn handle_api_update_user_preferences(mut req: Request, _env: Env) -> Result<Response> {
     let user_id = match extract_user_id_from_headers(&req) {
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     let _preferences: serde_json::Value = req.json().await?;
-    
+
     let response = ApiResponse::success(serde_json::json!({
         "user_id": user_id,
         "preferences_updated": true,
@@ -1054,53 +1094,72 @@ async fn handle_api_get_opportunities(req: Request, env: Env) -> Result<Response
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     let url = req.url()?;
-    let query_params: std::collections::HashMap<String, String> = url.query_pairs().into_owned().collect();
-    let is_premium = query_params.get("premium").map(|v| v == "true").unwrap_or(false);
+    let query_params: std::collections::HashMap<String, String> =
+        url.query_pairs().into_owned().collect();
+    let is_premium = query_params
+        .get("premium")
+        .map(|v| v == "true")
+        .unwrap_or(false);
 
     // Check permissions for premium features
     if is_premium && !check_user_permissions(&user_id, "premium", &env).await? {
         let response = ApiResponse::<()>::error("Upgrade subscription for access".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     // Mock opportunities based on subscription tier
-    let limit = if user_id.contains("admin") { 100 }
-               else if user_id.contains("pro") { 50 }
-               else if user_id.contains("premium") { 20 }
-               else { 5 };
+    let limit = if user_id.contains("admin") {
+        100 // SuperAdmin: unlimited (capped at 100 for demo)
+    } else if user_id.contains("enterprise") || user_id.contains("pro") {
+        50 // Enterprise: high limit
+    } else if user_id.contains("premium") {
+        20 // Premium: moderate limit
+    } else if user_id.contains("basic") {
+        10 // Basic: low limit
+    } else {
+        5 // Free: very limited
+    };
 
-    let opportunities = (0..limit.min(10)).map(|i| {
-        serde_json::json!({
-            "id": format!("opp_{}", i),
-            "pair": "BTC/USDT",
-            "exchange_long": "binance",
-            "exchange_short": "bybit",
-            "profit_percentage": 0.5 + (i as f64 * 0.1),
-            "volume": 1000.0,
-            "is_premium": is_premium
+    let opportunities = (0..limit.min(10))
+        .map(|i| {
+            serde_json::json!({
+                "id": format!("opp_{}", i),
+                "pair": "BTC/USDT",
+                "exchange_long": "binance",
+                "exchange_short": "bybit",
+                "profit_percentage": 0.5 + (i as f64 * 0.1),
+                "volume": 1000.0,
+                "is_premium": is_premium
+            })
         })
-    }).collect::<Vec<_>>();
+        .collect::<Vec<_>>();
 
     let response = ApiResponse::success(opportunities);
     Response::from_json(&response)
 }
 
-async fn handle_api_execute_opportunity(mut req: Request, env: Env) -> Result<Response> {
+async fn handle_api_execute_opportunity(mut req: Request, _env: Env) -> Result<Response> {
     let user_id = match extract_user_id_from_headers(&req) {
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
-    let execution_data: serde_json::Value = req.json().await?;
-    
+    let execution_data: serde_json::Value = match req.json().await {
+        Ok(data) => data,
+        Err(_) => {
+            let response = ApiResponse::<()>::error("Invalid JSON payload".to_string());
+            return Ok(Response::from_json(&response)?.with_status(400));
+        }
+    };
+
     let response = ApiResponse::success(serde_json::json!({
         "execution_id": format!("exec_{}", chrono::Utc::now().timestamp()),
         "user_id": user_id,
@@ -1117,13 +1176,13 @@ async fn handle_api_get_dashboard_analytics(req: Request, env: Env) -> Result<Re
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
-    if !check_user_permissions(&user_id, "pro", &env).await? {
+    if !check_user_permissions(&user_id, "enterprise", &env).await? {
         let response = ApiResponse::<()>::error("Upgrade subscription for access".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let analytics = serde_json::json!({
@@ -1143,13 +1202,13 @@ async fn handle_api_get_system_analytics(req: Request, env: Env) -> Result<Respo
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "admin", &env).await? {
         let response = ApiResponse::<()>::error("Admin access required".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let analytics = serde_json::json!({
@@ -1168,13 +1227,13 @@ async fn handle_api_get_user_analytics(req: Request, env: Env) -> Result<Respons
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
-    if !check_user_permissions(&user_id, "pro", &env).await? {
+    if !check_user_permissions(&user_id, "enterprise", &env).await? {
         let response = ApiResponse::<()>::error("Upgrade subscription for access".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let analytics = serde_json::json!({
@@ -1198,13 +1257,13 @@ async fn handle_api_get_performance_analytics(req: Request, env: Env) -> Result<
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
-    if !check_user_permissions(&user_id, "pro", &env).await? {
+    if !check_user_permissions(&user_id, "enterprise", &env).await? {
         let response = ApiResponse::<()>::error("Upgrade subscription for access".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let analytics = serde_json::json!({
@@ -1218,12 +1277,12 @@ async fn handle_api_get_performance_analytics(req: Request, env: Env) -> Result<
     Response::from_json(&response)
 }
 
-async fn handle_api_get_user_specific_analytics(req: Request, env: Env) -> Result<Response> {
+async fn handle_api_get_user_specific_analytics(req: Request, _env: Env) -> Result<Response> {
     let user_id = match extract_user_id_from_headers(&req) {
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
@@ -1245,13 +1304,13 @@ async fn handle_api_admin_get_users(req: Request, env: Env) -> Result<Response> 
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "admin", &env).await? {
         let response = ApiResponse::<()>::error("Admin access required".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let users = vec![
@@ -1262,11 +1321,11 @@ async fn handle_api_admin_get_users(req: Request, env: Env) -> Result<Response> 
             "last_active": chrono::Utc::now().timestamp() - 3600
         }),
         serde_json::json!({
-            "user_id": "user_2", 
+            "user_id": "user_2",
             "subscription_tier": "free",
             "created_at": chrono::Utc::now().timestamp() - 172800,
             "last_active": chrono::Utc::now().timestamp() - 7200
-        })
+        }),
     ];
 
     let response = ApiResponse::success(users);
@@ -1278,24 +1337,22 @@ async fn handle_api_admin_get_sessions(req: Request, env: Env) -> Result<Respons
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "admin", &env).await? {
         let response = ApiResponse::<()>::error("Admin access required".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
-    let sessions = vec![
-        serde_json::json!({
-            "session_id": "sess_1",
-            "user_id": "user_1",
-            "created_at": chrono::Utc::now().timestamp() - 3600,
-            "expires_at": chrono::Utc::now().timestamp() + 3600,
-            "is_active": true
-        })
-    ];
+    let sessions = vec![serde_json::json!({
+        "session_id": "sess_1",
+        "user_id": "user_1",
+        "created_at": chrono::Utc::now().timestamp() - 3600,
+        "expires_at": chrono::Utc::now().timestamp() + 3600,
+        "is_active": true
+    })];
 
     let response = ApiResponse::success(sessions);
     Response::from_json(&response)
@@ -1306,25 +1363,23 @@ async fn handle_api_admin_get_opportunities(req: Request, env: Env) -> Result<Re
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "admin", &env).await? {
         let response = ApiResponse::<()>::error("Admin access required".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
-    let opportunities = vec![
-        serde_json::json!({
-            "opportunity_id": "opp_admin_1",
-            "pair": "BTC/USDT",
-            "exchange_long": "binance",
-            "exchange_short": "bybit", 
-            "profit_percentage": 1.2,
-            "created_at": chrono::Utc::now().timestamp()
-        })
-    ];
+    let opportunities = vec![serde_json::json!({
+        "opportunity_id": "opp_admin_1",
+        "pair": "BTC/USDT",
+        "exchange_long": "binance",
+        "exchange_short": "bybit",
+        "profit_percentage": 1.2,
+        "created_at": chrono::Utc::now().timestamp()
+    })];
 
     let response = ApiResponse::success(opportunities);
     Response::from_json(&response)
@@ -1335,23 +1390,21 @@ async fn handle_api_admin_get_user_profiles(req: Request, env: Env) -> Result<Re
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "admin", &env).await? {
         let response = ApiResponse::<()>::error("Admin access required".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
-    let profiles = vec![
-        serde_json::json!({
-            "user_id": "user_1",
-            "risk_tolerance": 0.7,
-            "preferred_pairs": ["BTC/USDT"],
-            "api_keys_encrypted": true
-        })
-    ];
+    let profiles = vec![serde_json::json!({
+        "user_id": "user_1",
+        "risk_tolerance": 0.7,
+        "preferred_pairs": ["BTC/USDT"],
+        "api_keys_encrypted": true
+    })];
 
     let response = ApiResponse::success(profiles);
     Response::from_json(&response)
@@ -1362,13 +1415,13 @@ async fn handle_api_admin_manage_users(req: Request, env: Env) -> Result<Respons
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "admin", &env).await? {
         let response = ApiResponse::<()>::error("Admin access required".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let management_data = serde_json::json!({
@@ -1389,13 +1442,13 @@ async fn handle_api_admin_system_config(req: Request, env: Env) -> Result<Respon
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "admin", &env).await? {
         let response = ApiResponse::<()>::error("Admin access required".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let config = serde_json::json!({
@@ -1421,23 +1474,21 @@ async fn handle_api_admin_invitations(req: Request, env: Env) -> Result<Response
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "admin", &env).await? {
         let response = ApiResponse::<()>::error("Admin access required".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
-    let invitations = vec![
-        serde_json::json!({
-            "code": "INV123",
-            "created_by": user_id,
-            "uses_remaining": 5,
-            "expires_at": chrono::Utc::now().timestamp() + 86400
-        })
-    ];
+    let invitations = vec![serde_json::json!({
+        "code": "INV123",
+        "created_by": user_id,
+        "uses_remaining": 5,
+        "expires_at": chrono::Utc::now().timestamp() + 86400
+    })];
 
     let response = ApiResponse::success(invitations);
     Response::from_json(&response)
@@ -1449,13 +1500,13 @@ async fn handle_api_get_trading_balance(req: Request, env: Env) -> Result<Respon
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "premium", &env).await? {
         let response = ApiResponse::<()>::error("Upgrade subscription for access".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let balance = serde_json::json!({
@@ -1477,13 +1528,13 @@ async fn handle_api_get_trading_markets(req: Request, env: Env) -> Result<Respon
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "premium", &env).await? {
         let response = ApiResponse::<()>::error("Upgrade subscription for access".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
     let markets = vec![
@@ -1494,11 +1545,11 @@ async fn handle_api_get_trading_markets(req: Request, env: Env) -> Result<Respon
             "change_24h": 2.5
         }),
         serde_json::json!({
-            "symbol": "ETH/USDT", 
+            "symbol": "ETH/USDT",
             "price": 3000.0,
             "volume_24h": 500000.0,
             "change_24h": 1.8
-        })
+        }),
     ];
 
     let response = ApiResponse::success(markets);
@@ -1510,24 +1561,22 @@ async fn handle_api_get_trading_opportunities(req: Request, env: Env) -> Result<
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "premium", &env).await? {
         let response = ApiResponse::<()>::error("Upgrade subscription for access".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
-    let opportunities = vec![
-        serde_json::json!({
-            "id": "trade_opp_1",
-            "pair": "BTC/USDT",
-            "type": "arbitrage",
-            "profit_potential": 1.5,
-            "risk_level": "medium"
-        })
-    ];
+    let opportunities = vec![serde_json::json!({
+        "id": "trade_opp_1",
+        "pair": "BTC/USDT",
+        "type": "arbitrage",
+        "profit_potential": 1.5,
+        "risk_level": "medium"
+    })];
 
     let response = ApiResponse::success(opportunities);
     Response::from_json(&response)
@@ -1539,17 +1588,23 @@ async fn handle_api_ai_analyze(mut req: Request, env: Env) -> Result<Response> {
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "premium", &env).await? {
         let response = ApiResponse::<()>::error("Upgrade subscription for access".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
-    let analysis_request: serde_json::Value = req.json().await?;
-    
+    let analysis_request: serde_json::Value = match req.json().await {
+        Ok(data) => data,
+        Err(_) => {
+            let response = ApiResponse::<()>::error("Invalid JSON payload".to_string());
+            return Ok(Response::from_json(&response)?.with_status(400));
+        }
+    };
+
     let analysis = serde_json::json!({
         "analysis_id": format!("ai_analysis_{}", chrono::Utc::now().timestamp()),
         "pair": analysis_request.get("pair"),
@@ -1568,17 +1623,23 @@ async fn handle_api_ai_risk_assessment(mut req: Request, env: Env) -> Result<Res
         Ok(id) => id,
         Err(_) => {
             let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Response::from_json(&response)?.with_status(401);
+            return Ok(Response::from_json(&response)?.with_status(401));
         }
     };
 
     if !check_user_permissions(&user_id, "premium", &env).await? {
         let response = ApiResponse::<()>::error("Upgrade subscription for access".to_string());
-        return Response::from_json(&response)?.with_status(403);
+        return Ok(Response::from_json(&response)?.with_status(403));
     }
 
-    let risk_request: serde_json::Value = req.json().await?;
-    
+    let risk_request: serde_json::Value = match req.json().await {
+        Ok(data) => data,
+        Err(_) => {
+            let response = ApiResponse::<()>::error("Invalid JSON payload".to_string());
+            return Ok(Response::from_json(&response)?.with_status(400));
+        }
+    };
+
     let assessment = serde_json::json!({
         "assessment_id": format!("risk_assessment_{}", chrono::Utc::now().timestamp()),
         "portfolio": risk_request.get("portfolio"),

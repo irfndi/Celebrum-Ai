@@ -119,8 +119,10 @@ validate_analytics_data() {
 
 # Test users for different subscription tiers
 FREE_USER="user_free_123"
+BASIC_USER="user_basic_234"
 PREMIUM_USER="user_premium_456"
-PRO_USER="user_pro_789"
+ENTERPRISE_USER="user_enterprise_678"
+PRO_USER="user_pro_789"  # Backward compatibility - maps to enterprise
 ADMIN_USER="user_admin_000"
 
 # Start testing
@@ -155,7 +157,7 @@ run_test "No Authentication - Opportunities" "401" \
 # 3. User Profile Tests (All Tiers)
 log "${YELLOW}👤 USER PROFILE TESTS${NC}"
 
-for tier_info in "free_user:$FREE_USER" "premium_user:$PREMIUM_USER" "pro_user:$PRO_USER" "admin_user:$ADMIN_USER"; do
+for tier_info in "free_user:$FREE_USER" "basic_user:$BASIC_USER" "premium_user:$PREMIUM_USER" "enterprise_user:$ENTERPRISE_USER" "pro_user:$PRO_USER" "admin_user:$ADMIN_USER"; do
     tier=$(echo "$tier_info" | cut -d: -f1)
     user_id=$(echo "$tier_info" | cut -d: -f2)
     
@@ -185,7 +187,7 @@ done
 # 4. Opportunity Access Tests (RBAC Validation)
 log "${YELLOW}💰 OPPORTUNITY ACCESS TESTS${NC}"
 
-for tier_info in "free_user:$FREE_USER" "premium_user:$PREMIUM_USER" "pro_user:$PRO_USER" "admin_user:$ADMIN_USER"; do
+for tier_info in "free_user:$FREE_USER" "basic_user:$BASIC_USER" "premium_user:$PREMIUM_USER" "enterprise_user:$ENTERPRISE_USER" "pro_user:$PRO_USER" "admin_user:$ADMIN_USER"; do
     tier=$(echo "$tier_info" | cut -d: -f1)
     user_id=$(echo "$tier_info" | cut -d: -f2)
     
