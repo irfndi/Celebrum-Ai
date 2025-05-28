@@ -2878,8 +2878,8 @@ impl UpdateUserProfileRequest {
         }
 
         // Validate max leverage
-        if let Some(leverage) = self.max_leverage {
-            if !(1..=125).contains(&leverage) {
+        if let Some(max_leverage) = self.max_leverage {
+            if !(1..=125).contains(&max_leverage) {
                 return Err("Max leverage must be between 1 and 125".to_string());
             }
         }
@@ -3036,8 +3036,8 @@ impl UpdateUserPreferencesRequest {
 
         // Validate max leverage
         if let Some(max_leverage) = self.max_leverage {
-            if !(1..=100).contains(&max_leverage) {
-                return Err("Max leverage must be between 1 and 100".to_string());
+            if !(1..=125).contains(&max_leverage) {
+                return Err("Max leverage must be between 1 and 125".to_string());
             }
         }
 
@@ -3105,6 +3105,9 @@ impl UpdateUserPreferencesRequest {
 
     /// Apply the validated preferences to a user profile
     pub fn apply_to_profile(&self, profile: &mut UserProfile) -> Result<(), String> {
+        // Validate first
+        self.validate()?;
+
         // Apply risk tolerance
         if let Some(risk_tolerance) = self.risk_tolerance {
             profile.configuration.risk_tolerance_percentage = risk_tolerance;
