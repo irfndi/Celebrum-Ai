@@ -1,8 +1,0 @@
-Running 1m test @ https://arb-edge.irfandimarsya.workers.dev/api/v1/health
-  100 threads and 100 connections
-  Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   146.56ms  176.94ms 949.92ms   87.14%
-    Req/Sec    13.97      8.14    30.00     71.92%
-  10405 requests in 10.88s, 8.77MB read
-Requests/sec:    956.58
-Transfer/sec:    825.57KB
