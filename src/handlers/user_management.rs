@@ -26,7 +26,11 @@ pub async fn handle_api_get_user_profile(req: Request, env: Env) -> Result<Respo
 
     // Initialize services
     let kv_store = env.kv("ArbEdgeKV")?;
-    let d1_service = services::core::infrastructure::D1Service::new(&env)?;
+    let d1_database = env.d1("ArbEdgeDB")?;
+    let d1_service = services::core::infrastructure::DatabaseManager::new(
+        std::sync::Arc::new(d1_database),
+        services::core::infrastructure::database_repositories::DatabaseManagerConfig::default(),
+    );
     let user_profile_service = services::core::user::user_profile::UserProfileService::new(
         kv_store,
         d1_service,
@@ -105,7 +109,11 @@ pub async fn handle_api_update_user_profile(mut req: Request, env: Env) -> Resul
 
     // Initialize services
     let kv_store = env.kv("ArbEdgeKV")?;
-    let d1_service = services::core::infrastructure::D1Service::new(&env)?;
+    let d1_database = env.d1("ArbEdgeDB")?;
+    let d1_service = services::core::infrastructure::DatabaseManager::new(
+        std::sync::Arc::new(d1_database),
+        services::core::infrastructure::database_repositories::DatabaseManagerConfig::default(),
+    );
     let user_profile_service = services::core::user::user_profile::UserProfileService::new(
         kv_store,
         d1_service,
@@ -181,7 +189,11 @@ pub async fn handle_api_get_user_preferences(req: Request, env: Env) -> Result<R
 
     // Initialize services
     let kv_store = env.kv("ArbEdgeKV")?;
-    let d1_service = services::core::infrastructure::D1Service::new(&env)?;
+    let d1_database = env.d1("ArbEdgeDB")?;
+    let d1_service = services::core::infrastructure::DatabaseManager::new(
+        std::sync::Arc::new(d1_database),
+        services::core::infrastructure::database_repositories::DatabaseManagerConfig::default(),
+    );
     let user_profile_service = services::core::user::user_profile::UserProfileService::new(
         kv_store,
         d1_service,
@@ -255,7 +267,11 @@ pub async fn handle_api_update_user_preferences(mut req: Request, env: Env) -> R
 
     // Initialize services
     let kv_store = env.kv("ArbEdgeKV")?;
-    let d1_service = services::core::infrastructure::D1Service::new(&env)?;
+    let d1_database = env.d1("ArbEdgeDB")?;
+    let d1_service = services::core::infrastructure::DatabaseManager::new(
+        std::sync::Arc::new(d1_database),
+        services::core::infrastructure::database_repositories::DatabaseManagerConfig::default(),
+    );
     let user_profile_service = services::core::user::user_profile::UserProfileService::new(
         kv_store,
         d1_service,

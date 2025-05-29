@@ -457,21 +457,41 @@ pub fn format_opportunity_message(opportunity: &ArbitrageOpportunity) -> String 
                 diff_escaped
             ));
         }
-        _ => {
-            // Generic message for other types or if specific fields are missing
-            let type_str = match opportunity.r#type {
-                ArbitrageType::FundingRate => "Funding Rate",
-                ArbitrageType::SpotFutures => "Spot Futures",
-                ArbitrageType::CrossExchange => "Cross Exchange",
-            };
+        ArbitrageType::SpotFutures => {
             message.push_str(&format!(
-                "\nℹ️ *Type:* {}\n💰 *Gross Metric:* `{}%`",
-                escape_markdown_v2(type_str),
+                "\n↔️ *Action:* LONG `{}` / SHORT `{}`\n\n*Rates \\(Spot-Futures\\):*\n   \\- Long \\({}\\): `{}%`\n   \\- Short \\({}\\): `{}%`\n💰 *Gross Difference:* `{}%`",
+                long_exchange_escaped,
+                short_exchange_escaped,
+                long_exchange_escaped,
+                long_rate_escaped,
+                short_exchange_escaped,
+                short_rate_escaped,
                 diff_escaped
             ));
-
-            message.push_str(&format!("\n➡️ *Exchange 1:* `{}`", long_exchange_escaped));
-            message.push_str(&format!("\n⬅️ *Exchange 2:* `{}`", short_exchange_escaped));
+        }
+        ArbitrageType::CrossExchange => {
+            message.push_str(&format!(
+                "\n↔️ *Action:* LONG `{}` / SHORT `{}`\n\n*Rates \\(Cross Exchange\\):*\n   \\- Long \\({}\\): `{}%`\n   \\- Short \\({}\\): `{}%`\n💰 *Gross Difference:* `{}%`",
+                long_exchange_escaped,
+                short_exchange_escaped,
+                long_exchange_escaped,
+                long_rate_escaped,
+                short_exchange_escaped,
+                short_rate_escaped,
+                diff_escaped
+            ));
+        }
+        ArbitrageType::Price => {
+            message.push_str(&format!(
+                "\n↔️ *Action:* LONG `{}` / SHORT `{}`\n\n*Rates \\(Price Arbitrage\\):*\n   \\- Long \\({}\\): `{}%`\n   \\- Short \\({}\\): `{}%`\n💰 *Gross Difference:* `{}%`",
+                long_exchange_escaped,
+                short_exchange_escaped,
+                long_exchange_escaped,
+                long_rate_escaped,
+                short_exchange_escaped,
+                short_rate_escaped,
+                diff_escaped
+            ));
         }
     }
 

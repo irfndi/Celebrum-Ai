@@ -1,6 +1,6 @@
 // src/services/dynamic_config.rs
 
-use crate::services::D1Service;
+use crate::services::core::infrastructure::DatabaseManager;
 use crate::types::SubscriptionTier;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::Utc;
@@ -13,7 +13,7 @@ use worker::kv::KvStore;
 /// Dynamic Configuration Service for Task 7
 /// Implements user-customizable trading parameters with templates, presets, validation, and versioning
 pub struct DynamicConfigService {
-    d1_service: D1Service,
+    database_manager: DatabaseManager,
     kv_store: KvStore,
 }
 
@@ -170,9 +170,9 @@ pub struct ComplianceResult {
 }
 
 impl DynamicConfigService {
-    pub fn new(d1_service: D1Service, kv_store: KvStore) -> Self {
+    pub fn new(database_manager: DatabaseManager, kv_store: KvStore) -> Self {
         Self {
-            d1_service,
+            database_manager,
             kv_store,
         }
     }
@@ -183,7 +183,12 @@ impl DynamicConfigService {
         self.validate_template(template)?;
 
         // Store in D1
-        self.d1_service.store_config_template(template).await?;
+        let template_value = serde_json::to_value(template).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize template: {}", e))
+        })?;
+        self.database_manager
+            .store_config_template(&template_value)
+            .await?;
 
         // Cache in KV for quick access
         let template_json = serde_json::to_string(template).map_err(|e| {
@@ -215,7 +220,10 @@ impl DynamicConfigService {
         }
 
         // Query D1 if not in cache
-        let result = self.d1_service.get_config_template(template_id).await?;
+        let result = self
+            .database_manager
+            .get_config_template(template_id)
+            .await?;
 
         if let Some(row) = result {
             if let Some(parameters_json) = row.get("parameters") {
@@ -252,7 +260,7 @@ impl DynamicConfigService {
         }
 
         // Store preset
-        self.d1_service.store_config_preset(preset).await?;
+        self.database_manager.store_config_preset(preset).await?;
 
         Ok(())
     }
@@ -307,13 +315,13 @@ impl DynamicConfigService {
 
         // Deactivate previous config
         if has_current_config {
-            self.d1_service
+            self.database_manager
                 .deactivate_user_config(user_id, template_id)
                 .await?;
         }
 
         // Store new config
-        self.d1_service
+        self.database_manager
             .store_user_config_instance(&instance)
             .await?;
 
@@ -348,99 +356,11 @@ impl DynamicConfigService {
 
         // Query D1
         let result = self
-            .d1_service
+            .database_manager
             .get_user_config_instance(user_id, template_id)
             .await?;
 
-        if let Some(row) = result {
-            let config = UserConfigInstance {
-                instance_id: row
-                    .get("instance_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        ArbitrageError::parse_error("Missing or invalid instance_id field")
-                    })?
-                    .to_string(),
-                user_id: row
-                    .get("user_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| ArbitrageError::parse_error("Missing or invalid user_id field"))?
-                    .to_string(),
-                template_id: row
-                    .get("template_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        ArbitrageError::parse_error("Missing or invalid template_id field")
-                    })?
-                    .to_string(),
-                preset_id: row
-                    .get("preset_id")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string()),
-                parameter_values: {
-                    let param_str = row
-                        .get("parameter_values")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| {
-                            ArbitrageError::parse_error("Missing or invalid parameter_values field")
-                        })?;
-                    serde_json::from_str(param_str).map_err(|e| {
-                        ArbitrageError::parse_error(format!(
-                            "Failed to parse parameter_values JSON: {}",
-                            e
-                        ))
-                    })?
-                },
-                version: {
-                    let version_str =
-                        row.get("version").and_then(|v| v.as_str()).ok_or_else(|| {
-                            ArbitrageError::parse_error("Missing or invalid version field")
-                        })?;
-                    version_str.parse().map_err(|e| {
-                        ArbitrageError::parse_error(format!("Failed to parse version: {}", e))
-                    })?
-                },
-                is_active: {
-                    let active_str =
-                        row.get("is_active")
-                            .and_then(|v| v.as_str())
-                            .ok_or_else(|| {
-                                ArbitrageError::parse_error("Missing or invalid is_active field")
-                            })?;
-                    active_str.parse().map_err(|e| {
-                        ArbitrageError::parse_error(format!("Failed to parse is_active: {}", e))
-                    })?
-                },
-                created_at: {
-                    let created_str =
-                        row.get("created_at")
-                            .and_then(|v| v.as_str())
-                            .ok_or_else(|| {
-                                ArbitrageError::parse_error("Missing or invalid created_at field")
-                            })?;
-                    created_str.parse().map_err(|e| {
-                        ArbitrageError::parse_error(format!("Failed to parse created_at: {}", e))
-                    })?
-                },
-                updated_at: {
-                    let updated_str =
-                        row.get("updated_at")
-                            .and_then(|v| v.as_str())
-                            .ok_or_else(|| {
-                                ArbitrageError::parse_error("Missing or invalid updated_at field")
-                            })?;
-                    updated_str.parse().map_err(|e| {
-                        ArbitrageError::parse_error(format!("Failed to parse updated_at: {}", e))
-                    })?
-                },
-                rollback_data: row
-                    .get("rollback_data")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string()),
-            };
-
+        if let Some(config) = result {
             // Cache for future requests
             let config_json = serde_json::to_string(&config)?;
             let _ = self
@@ -860,7 +780,7 @@ impl DynamicConfigService {
 
     /// Check user subscription status via D1 database
     async fn check_user_subscription_status(&self, user_id: &str) -> ArbitrageResult<bool> {
-        match self.d1_service.get_user_profile(user_id).await? {
+        match self.database_manager.get_user_profile(user_id).await? {
             Some(profile) => {
                 // Check if user has premium tier subscription
                 Ok(matches!(

@@ -9,10 +9,10 @@ pub mod types;
 pub mod utils;
 
 use once_cell::sync::OnceCell;
-use services::core::infrastructure::d1_database::D1Service;
+use services::core::infrastructure::database_repositories::DatabaseManager;
 use services::core::infrastructure::service_container::ServiceContainer;
-use services::core::opportunities::opportunity::OpportunityServiceConfig;
-use services::core::opportunities::OpportunityService;
+// use services::core::opportunities::opportunity::OpportunityServiceConfig; // Removed - using modular architecture
+// use services::core::opportunities::OpportunityService; // Removed - using modular architecture
 use services::core::trading::exchange::{ExchangeInterface, ExchangeService};
 use services::core::trading::positions::{
     CreatePositionData, ProductionPositionsService, UpdatePositionData,
@@ -44,15 +44,21 @@ async fn get_service_container(env: &Env) -> Result<Arc<ServiceContainer>> {
         return Ok(container.clone());
     }
 
-    let d1_service = D1Service::new(env)?;
     let kv_store = env.kv("ArbEdgeKV")?;
     let encryption_key = env
         .var("ENCRYPTION_KEY")
         .map_err(|_| worker::Error::RustError("Missing ENCRYPTION_KEY".to_string()))?
         .to_string();
 
+    // Create database manager with proper configuration
+    let d1_database = env.d1("ArbEdgeDB")?;
+    let database_manager = DatabaseManager::new(
+        std::sync::Arc::new(d1_database),
+        services::core::infrastructure::database_repositories::DatabaseManagerConfig::default(),
+    );
+
     let _user_profile_service =
-        UserProfileService::new(kv_store.clone(), d1_service, encryption_key);
+        UserProfileService::new(kv_store.clone(), database_manager, encryption_key);
 
     let _telegram_service = TelegramService::new(TelegramConfig {
         bot_token: env
@@ -73,7 +79,7 @@ async fn get_service_container(env: &Env) -> Result<Arc<ServiceContainer>> {
     let _exchange_service = ExchangeService::new(&types::Env::new(env.clone()))?;
     let _positions_service = ProductionPositionsService::new(kv_store.clone());
 
-    let container = Arc::new(ServiceContainer::new(env, kv_store.clone())?);
+    let container = Arc::new(ServiceContainer::new(env, kv_store.clone()).await?);
 
     SERVICE_CONTAINER
         .set(container.clone())
@@ -208,6 +214,7 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     }
 }
 
+#[allow(dead_code)]
 fn parse_exchanges_from_env(
     exchanges_str: &str,
 ) -> std::result::Result<Vec<ExchangeIdEnum>, ArbitrageError> {
@@ -228,23 +235,23 @@ fn parse_exchanges_from_env(
         .collect()
 }
 
-async fn create_opportunity_service(
-    custom_env: &types::Env,
-) -> ArbitrageResult<OpportunityService> {
-    let config = OpportunityServiceConfig {
-        exchanges: parse_exchanges_from_env("binance,bybit")?,
-        monitored_pairs: vec![], // Empty for now, will be populated as needed
-        threshold: 0.01,
-    };
-
-    let exchange_service = Arc::new(ExchangeService::new(custom_env)?);
-
-    Ok(OpportunityService::new(
-        config,
-        exchange_service,
-        None, // No telegram service for now
-    ))
-}
+// async fn create_opportunity_service(
+//     custom_env: &types::Env,
+// ) -> ArbitrageResult<OpportunityService> {
+//     let config = OpportunityServiceConfig {
+//         exchanges: parse_exchanges_from_env("binance,bybit")?,
+//         monitored_pairs: vec![], // Empty for now, will be populated as needed
+//         threshold: 0.01,
+//     };
+//
+//     let exchange_service = Arc::new(ExchangeService::new(custom_env)?);
+//
+//     Ok(OpportunityService::new(
+//         config,
+//         exchange_service,
+//         None, // No telegram service for now
+//     ))
+// }
 
 // Legacy handlers (keep for backward compatibility)
 async fn handle_get_markets(req: Request, env: Env) -> Result<Response> {
@@ -377,29 +384,35 @@ async fn handle_get_orderbook(req: Request, env: Env) -> Result<Response> {
 
 async fn handle_find_opportunities(mut req: Request, env: Env) -> Result<Response> {
     let body: serde_json::Value = req.json().await?;
-    let pairs = body["pairs"]
+    let _pairs = body["pairs"]
         .as_array()
         .map(|arr| {
             arr.iter()
                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
                 .collect::<Vec<String>>()
         })
-        .unwrap_or_else(|| vec!["BTCUSDT".to_string()]);
+        .unwrap_or_else(|| vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()]);
 
-    let custom_env = types::Env::new(env);
-    let opportunity_service = create_opportunity_service(&custom_env).await?;
+    // Create custom environment for opportunity service
+    let _custom_env = types::Env::new(env.clone());
 
-    // Default exchanges and threshold
-    let exchanges = vec![ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit];
-    let threshold = 0.01;
+    // Mock data for testing
+    let _exchanges = [ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit];
+    let _threshold = 0.01;
 
-    match opportunity_service
-        .find_opportunities(&exchanges, &pairs, threshold)
-        .await
-    {
-        Ok(opportunities) => Response::from_json(&opportunities),
-        Err(e) => Response::error(format!("Failed to find opportunities: {:?}", e), 500),
-    }
+    // TODO: Replace with new modular opportunity engine
+    // match opportunity_service
+    //     .find_opportunities(&exchanges, &pairs, threshold)
+    //     .await
+    // {
+    //     Ok(opportunities) => Response::from_json(&opportunities),
+    //     Err(e) => Response::error(format!("Failed to find opportunities: {:?}", e), 500),
+    // }
+
+    Response::error(
+        "Opportunity service temporarily disabled during refactoring",
+        503,
+    )
 }
 
 async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Response> {
@@ -458,7 +471,7 @@ async fn handle_close_position(_req: Request, _env: Env, _id: &str) -> Result<Re
 
 async fn run_five_minute_maintenance(
     env: &Env,
-    _opportunity_service: &OpportunityService,
+    // _opportunity_service: &OpportunityService,
 ) -> ArbitrageResult<()> {
     console_log!("🔧 Running 5-minute maintenance tasks...");
 
@@ -476,10 +489,14 @@ async fn run_five_minute_maintenance(
 
     // 5. Cleanup inactive user sessions
     if let Ok(kv_store) = env.kv("ArbEdgeKV") {
-        if let Ok(d1_service) = D1Service::new(env) {
+        if let Ok(d1_database) = env.d1("ArbEdgeDB") {
             if let Ok(encryption_key) = env.var("ENCRYPTION_KEY") {
+                let database_manager = DatabaseManager::new(
+                    std::sync::Arc::new(d1_database),
+                    services::core::infrastructure::database_repositories::DatabaseManagerConfig::default()
+                );
                 let user_profile_service =
-                    UserProfileService::new(kv_store, d1_service, encryption_key.to_string());
+                    UserProfileService::new(kv_store, database_manager, encryption_key.to_string());
 
                 console_log!("🧹 Cleanup expired sessions - not implemented yet");
                 // Note: cleanup_expired_sessions method doesn't exist yet
@@ -496,13 +513,13 @@ async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
     console_log!("🔄 Starting scheduled opportunity monitoring...");
 
     // Create custom environment for opportunity service
-    let custom_env = types::Env::new(env.clone());
+    let _custom_env = types::Env::new(env.clone());
 
     // Create opportunity service
-    let opportunity_service = create_opportunity_service(&custom_env).await?;
+    // let opportunity_service = create_opportunity_service(&custom_env).await?;
 
     // Run maintenance
-    run_five_minute_maintenance(&env, &opportunity_service).await?;
+    run_five_minute_maintenance(&env).await?;
 
     console_log!("✅ Scheduled opportunity monitoring completed successfully");
     Ok(())

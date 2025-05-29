@@ -1,13 +1,14 @@
-use crate::services::core::analysis::market_analysis::OpportunityType;
-use crate::services::{D1Service, UserProfileService};
-use crate::types::*;
+use crate::services::core::infrastructure::DatabaseManager;
+use crate::services::core::opportunities::opportunity_core::OpportunityType;
+use crate::services::UserProfileService;
+use crate::types::{ChatContext, ExchangeIdEnum, UserAccessLevel, UserOpportunityLimits};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use worker::kv::KvStore;
 
 /// Service for managing user access levels and opportunity distribution limits
 #[allow(dead_code)]
 pub struct UserAccessService {
-    d1_service: D1Service,
+    database_manager: DatabaseManager,
     user_profile_service: UserProfileService,
     kv_store: KvStore,
     cache_ttl_seconds: u64,
@@ -15,21 +16,21 @@ pub struct UserAccessService {
 
 impl UserAccessService {
     pub fn new(
-        d1_service: D1Service,
+        database_manager: DatabaseManager,
         user_profile_service: UserProfileService,
         kv_store: KvStore,
     ) -> Self {
-        Self::with_cache_ttl(d1_service, user_profile_service, kv_store, 3600)
+        Self::with_cache_ttl(database_manager, user_profile_service, kv_store, 3600)
     }
 
     pub fn with_cache_ttl(
-        d1_service: D1Service,
+        database_manager: DatabaseManager,
         user_profile_service: UserProfileService,
         kv_store: KvStore,
         cache_ttl_seconds: u64,
     ) -> Self {
         Self {
-            d1_service,
+            database_manager,
             user_profile_service,
             kv_store,
             cache_ttl_seconds,
@@ -297,7 +298,7 @@ impl UserAccessService {
         ";
 
         let result = self
-            .d1_service
+            .database_manager
             .query_first(query, &[user_id.into(), date.into(), context_id.into()])
             .await?;
 
@@ -394,7 +395,7 @@ impl UserAccessService {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ";
 
-        self.d1_service
+        self.database_manager
             .execute_query(
                 query,
                 &[
@@ -427,7 +428,7 @@ impl UserAccessService {
             WHERE user_id = ? AND date = ?
         ";
 
-        self.d1_service
+        self.database_manager
             .execute_query(
                 query,
                 &[

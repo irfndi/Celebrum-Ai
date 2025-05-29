@@ -3,14 +3,18 @@
 
 use crate::services::core::analysis::correlation_analysis::CorrelationMetrics;
 use crate::services::core::analysis::market_analysis::{RiskLevel, TradingOpportunity};
+use crate::services::core::infrastructure::database_repositories::DatabaseManager;
 use crate::services::core::opportunities::opportunity_categorization::CategorizedOpportunity;
 use crate::services::core::user::dynamic_config::UserConfigInstance;
 use crate::services::core::user::user_trading_preferences::{TradingFocus, UserTradingPreferences};
 use crate::services::{
-    AiExchangeRouterService, CorrelationAnalysisService, D1Service, DynamicConfigService,
+    AiExchangeRouterService, CorrelationAnalysisService, DynamicConfigService,
     OpportunityCategorizationService, PositionsService, UserTradingPreferencesService,
 };
-use crate::types::{ArbitragePosition, ExchangeIdEnum, GlobalOpportunity};
+use crate::types::{
+    ArbitrageOpportunity, ArbitragePosition, ArbitrageType, DistributionStrategy, ExchangeIdEnum,
+    GlobalOpportunity, OpportunityData, OpportunitySource,
+};
 use crate::utils::{
     logger::{LogLevel, Logger},
     ArbitrageError, ArbitrageResult,
@@ -136,11 +140,10 @@ pub struct AiIntelligenceService {
     config_service: DynamicConfigService,
     preferences_service: UserTradingPreferencesService,
     correlation_service: CorrelationAnalysisService,
-    d1_service: D1Service,
+    d1_service: DatabaseManager,
     kv_store: KvStore,
-    pipelines_service: Option<
-        crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService,
-    >,
+    pipelines_service:
+        Option<crate::services::core::infrastructure::data_ingestion_module::PipelineManager>,
     logger: Logger,
 }
 
@@ -155,10 +158,10 @@ impl AiIntelligenceService {
         config_service: DynamicConfigService,
         preferences_service: UserTradingPreferencesService,
         correlation_service: CorrelationAnalysisService,
-        d1_service: D1Service,
+        d1_service: DatabaseManager,
         kv_store: KvStore,
         pipelines_service: Option<
-            crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService,
+            crate::services::core::infrastructure::data_ingestion_module::PipelineManager,
         >,
     ) -> Self {
         Self {
@@ -928,18 +931,28 @@ impl AiIntelligenceService {
         let total_trades = analytics.len() as u32;
         let profitable_trades = analytics
             .iter()
-            .filter(|a| a.metric_type == "trade_executed" && a.metric_value > 0.0)
-            .count() as u32;
+            .filter(|a| {
+                a.get("metric_type").and_then(|v| v.as_str()) == Some("trade_executed")
+                    && a.get("metric_value")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0)
+                        > 0.0
+            })
+            .count() as f64;
         let win_rate = if total_trades > 0 {
-            profitable_trades as f64 / total_trades as f64
+            profitable_trades / total_trades as f64
         } else {
             0.0
         };
 
         let total_pnl = analytics
             .iter()
-            .filter(|a| a.metric_type == "profit_loss")
-            .map(|a| a.metric_value)
+            .filter(|a| a.get("metric_type").and_then(|v| v.as_str()) == Some("profit_loss"))
+            .map(|a| {
+                a.get("metric_value")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+            })
             .sum::<f64>();
 
         let average_pnl = if total_trades > 0 {
@@ -1233,17 +1246,29 @@ impl AiIntelligenceService {
     /// Get position data from pipeline service
     async fn get_position_data_from_pipeline(
         &self,
-        pipelines: &crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService,
+        pipelines: &crate::services::core::infrastructure::data_ingestion_module::PipelineManager,
         position: &ArbitragePosition,
     ) -> ArbitrageResult<crate::services::core::analysis::market_analysis::PriceSeries> {
         // Try to get market data from pipelines
         let market_data_key = format!("market_data:{}:{}", position.exchange, position.pair);
 
         match pipelines.get_latest_data(&market_data_key).await {
-            Ok(data) => {
-                // Parse pipeline data into PriceSeries
-                self.parse_pipeline_data_to_price_series(&data, &position.pair)
+            Ok(Some(data_str)) => {
+                // Parse the JSON string into a Value first
+                match serde_json::from_str::<serde_json::Value>(&data_str) {
+                    Ok(data) => {
+                        // Parse pipeline data into PriceSeries
+                        self.parse_pipeline_data_to_price_series(&data, &position.pair)
+                    }
+                    Err(e) => Err(ArbitrageError::parse_error(format!(
+                        "Failed to parse pipeline data JSON: {}",
+                        e
+                    ))),
+                }
             }
+            Ok(None) => Err(ArbitrageError::not_found(
+                "No pipeline data available".to_string(),
+            )),
             Err(e) => Err(ArbitrageError::not_found(format!(
                 "Pipeline data not available: {}",
                 e
@@ -1832,17 +1857,12 @@ impl AiIntelligenceService {
         Ok(())
     }
 
-    /// Convert TradingOpportunity to GlobalOpportunity for AI router
+    /// Convert TradingOpportunity to GlobalOpportunity for system-wide distribution
     fn convert_to_global_opportunity(&self, trading_opp: TradingOpportunity) -> GlobalOpportunity {
-        use crate::types::{
-            ArbitrageOpportunity, ArbitrageType, DistributionStrategy, GlobalOpportunity,
-            OpportunitySource,
-        };
-
-        // Create an ArbitrageOpportunity from TradingOpportunity
-        // Use dynamic exchange selection based on trading opportunity data
+        // Select appropriate exchanges for the opportunity
         let (long_exchange, short_exchange) = self.select_exchanges_for_opportunity(&trading_opp);
 
+        // Create ArbitrageOpportunity from TradingOpportunity
         let arb_opp = match ArbitrageOpportunity::new(
             trading_opp.trading_pair.clone(),
             long_exchange,
@@ -1854,8 +1874,9 @@ impl AiIntelligenceService {
         ) {
             Ok(opp) => opp,
             Err(_) => {
-                // Fallback to a valid opportunity if creation fails
+                // Fallback to default values if creation fails
                 ArbitrageOpportunity {
+                    id: Uuid::new_v4().to_string(),
                     pair: trading_opp.trading_pair.clone(),
                     long_exchange,
                     short_exchange,
@@ -1868,30 +1889,74 @@ impl AiIntelligenceService {
             }
         };
 
-        GlobalOpportunity {
-            id: Uuid::new_v4().to_string(),            // ADDED
-            opportunity_type: "arbitrage".to_string(), // ADDED
-            opportunity: arb_opp.clone(),              // Cloned arb_opp for the main field
-            arbitrage_opportunity: Some(arb_opp),      // ADDED
-            technical_opportunity: None,               // ADDED
-            source: OpportunitySource::SystemGenerated,
-            created_at: trading_opp.created_at, // ADDED
-            detection_timestamp: trading_opp.created_at,
-            expires_at: trading_opp.expires_at, // ADDED
-            expiry_timestamp: Some(
-                trading_opp
-                    .expires_at
-                    .unwrap_or(trading_opp.created_at + 3600000), // 1 hour default
-            ),
-            priority: 5, // ADDED - default priority
-            priority_score: trading_opp.confidence_score,
-            ai_enhanced: false,        // ADDED
-            ai_confidence_score: None, // ADDED
-            ai_insights: None,         // ADDED
-            distributed_to: Vec::new(),
-            max_participants: Some(1),
-            current_participants: 0,
-            distribution_strategy: DistributionStrategy::FirstComeFirstServe,
+        // Calculate expiration time with configurable default
+        let expires_at = trading_opp
+            .expires_at
+            .unwrap_or(trading_opp.created_at + self.get_default_expiry_duration(&trading_opp));
+
+        // Create GlobalOpportunity using the new structure
+        match GlobalOpportunity::from_arbitrage(
+            arb_opp,
+            OpportunitySource::SystemGenerated,
+            expires_at,
+        ) {
+            Ok(mut global_opp) => {
+                // Set additional fields
+                global_opp.priority_score = trading_opp.confidence_score;
+                global_opp.detection_timestamp = trading_opp.created_at;
+                global_opp
+            }
+            Err(_) => {
+                // Fallback to manual construction if from_arbitrage fails
+                let arb_opp = ArbitrageOpportunity {
+                    id: Uuid::new_v4().to_string(),
+                    pair: trading_opp.trading_pair.clone(),
+                    long_exchange,
+                    short_exchange,
+                    long_rate: Some(trading_opp.entry_price),
+                    short_rate: trading_opp.target_price,
+                    rate_difference: trading_opp.expected_return,
+                    r#type: ArbitrageType::CrossExchange,
+                    ..Default::default()
+                };
+
+                GlobalOpportunity {
+                    id: format!("global_arb_{}", arb_opp.id),
+                    opportunity_data: OpportunityData::Arbitrage(arb_opp),
+                    source: OpportunitySource::SystemGenerated,
+                    created_at: trading_opp.created_at,
+                    detection_timestamp: trading_opp.created_at,
+                    expires_at,
+                    priority: 5,
+                    priority_score: trading_opp.confidence_score,
+                    ai_enhanced: false,
+                    ai_confidence_score: None,
+                    ai_insights: None,
+                    distributed_to: Vec::new(),
+                    max_participants: Some(1),
+                    current_participants: 0,
+                    distribution_strategy: DistributionStrategy::FirstComeFirstServe,
+                }
+            }
+        }
+    }
+
+    /// Get default expiry duration based on opportunity characteristics
+    fn get_default_expiry_duration(&self, trading_opp: &TradingOpportunity) -> u64 {
+        // Make expiry duration configurable based on opportunity type and risk level
+        match trading_opp.risk_level {
+            crate::services::core::analysis::market_analysis::RiskLevel::Low => {
+                // Low risk opportunities can have longer expiry (4 hours)
+                4 * 60 * 60 * 1000
+            }
+            crate::services::core::analysis::market_analysis::RiskLevel::Medium => {
+                // Medium risk opportunities have moderate expiry (2 hours)
+                2 * 60 * 60 * 1000
+            }
+            crate::services::core::analysis::market_analysis::RiskLevel::High => {
+                // High risk opportunities have shorter expiry (30 minutes)
+                30 * 60 * 1000
+            }
         }
     }
 

@@ -40,6 +40,7 @@ pub enum ErrorKind {
     Serialization,
     Internal,
     Storage,
+    AccessDenied,
 }
 
 impl fmt::Display for ArbitrageError {
@@ -190,6 +191,12 @@ impl ArbitrageError {
         Self::new(ErrorKind::Storage, message)
     }
 
+    pub fn kv_error(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Storage, message)
+            .with_status(500)
+            .with_code("KV_ERROR")
+    }
+
     pub fn service_unavailable(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::Internal, message)
             .with_status(503)
@@ -239,6 +246,17 @@ impl ArbitrageError {
         Self::new(ErrorKind::Storage, message)
             .with_status(500)
             .with_code("CACHE_ERROR")
+    }
+
+    pub fn processing_error(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Internal, message)
+            .with_status(500)
+            .with_code("PROCESSING_ERROR")
+    }
+
+    /// Create an access denied error
+    pub fn access_denied(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::AccessDenied, message)
     }
 }
 

@@ -6,10 +6,10 @@ use crate::services::core::ai::ai_intelligence::{
 };
 use crate::services::core::analysis::market_analysis::MarketAnalysisService;
 use crate::services::core::analysis::technical_analysis::TechnicalAnalysisService;
-use crate::services::core::infrastructure::d1_database::D1Service;
-use crate::services::core::opportunities::global_opportunity::GlobalOpportunityService;
+use crate::services::core::infrastructure::DatabaseManager;
 use crate::services::core::opportunities::opportunity_categorization::CategorizedOpportunity;
 use crate::services::core::opportunities::opportunity_distribution::OpportunityDistributionService;
+use crate::services::core::opportunities::opportunity_engine::OpportunityEngine;
 use crate::services::core::trading::exchange::ExchangeService;
 use crate::services::core::trading::positions::PositionsService;
 use crate::services::core::user::session_management::SessionManagementService;
@@ -19,8 +19,8 @@ use crate::services::interfaces::telegram::telegram_keyboard::{
     InlineKeyboard, InlineKeyboardButton,
 };
 use crate::types::{
-    AiInsightsSummary, ArbitrageOpportunity, CommandPermission, GroupRateLimitConfig,
-    GroupRegistration, MessageAnalytics, UserProfile, UserRole,
+    AiInsightsSummary, CommandPermission, GroupRateLimitConfig, GroupRegistration,
+    MessageAnalytics, UserProfile, UserRole,
 };
 use crate::utils::formatter::{
     escape_markdown_v2, format_ai_enhancement_message, format_categorized_opportunity_message,
@@ -436,9 +436,9 @@ pub struct TelegramService {
     session_management_service: Option<SessionManagementService>,
     user_trading_preferences_service: Option<UserTradingPreferencesService>,
     // Infrastructure services
-    d1_service: Option<D1Service>,
+    d1_service: Option<DatabaseManager>,
     // Opportunity services
-    global_opportunity_service: Option<GlobalOpportunityService>,
+    global_opportunity_service: Option<OpportunityEngine>,
     opportunity_distribution_service: Option<OpportunityDistributionService>,
     // Analysis services
     #[allow(dead_code)]
@@ -515,14 +515,14 @@ impl TelegramService {
     }
 
     /// Set the D1 database service for database operations
-    pub fn set_d1_service(&mut self, d1_service: D1Service) {
+    pub fn set_d1_service(&mut self, d1_service: DatabaseManager) {
         self.d1_service = Some(d1_service);
     }
 
     /// Set the GlobalOpportunity service for opportunity management
     pub fn set_global_opportunity_service(
         &mut self,
-        global_opportunity_service: GlobalOpportunityService,
+        global_opportunity_service: OpportunityEngine,
     ) {
         self.global_opportunity_service = Some(global_opportunity_service);
     }
@@ -1303,10 +1303,15 @@ impl TelegramService {
     /// Send basic arbitrage opportunity notification (legacy support) - PRIVATE ONLY
     pub async fn send_opportunity_notification(
         &self,
-        opportunity: &ArbitrageOpportunity,
+        opportunity: &crate::types::OpportunityData,
     ) -> ArbitrageResult<()> {
         // Legacy method - assume private chat context
-        let message = format_opportunity_message(opportunity);
+        let message = match opportunity {
+            crate::types::OpportunityData::Arbitrage(arb_opp) => {
+                format_opportunity_message(arb_opp)
+            }
+            crate::types::OpportunityData::Technical(_) => "Technical Signal".to_string(),
+        };
         let chat_context = ChatContext::new(self.config.chat_id.clone(), ChatType::Private, None);
         self.send_secure_notification(&message, &chat_context, true)
             .await?;
@@ -2645,7 +2650,7 @@ impl TelegramService {
             ));
         }
 
-        // Fetch actual opportunities from GlobalOpportunityService if available
+        // Fetch actual opportunities from OpportunityEngine if available
         if let Some(ref _global_opportunity_service) = self.global_opportunity_service {
             // Service is connected - show service-aware opportunities
             message.push_str("📊 **Live Opportunities** (Service Connected ✅)\n\n");
@@ -3621,7 +3626,7 @@ impl TelegramService {
         // Show real opportunities if available, otherwise fallback to examples
         message.push_str("🌍 *Global Arbitrage Opportunities*\n");
 
-        // Integrate with GlobalOpportunityService to show service status
+        // Integrate with OpportunityEngine to show service status
         if let Some(ref _global_opportunity_service) = self.global_opportunity_service {
             message.push_str("📊 **Live Opportunities:** Service Connected ✅\n\n");
         } else {
@@ -7166,171 +7171,10 @@ impl TelegramService {
     }
 }
 
-// Implementation of NotificationSender trait for TelegramService (non-WASM)
-#[cfg(not(target_arch = "wasm32"))]
-#[async_trait::async_trait]
-impl crate::services::core::opportunities::opportunity_distribution::NotificationSender
-    for TelegramService
-{
-    async fn send_opportunity_notification(
-        &self,
-        chat_id: &str,
-        opportunity: &ArbitrageOpportunity,
-        _is_private: bool,
-    ) -> ArbitrageResult<bool> {
-        // Format the opportunity message
-        let message = format!(
-            "🚀 *New Arbitrage Opportunity* 💰\n\n\
-            **Trading Pair:** `{}`\n\
-            **Profit Potential:** {:.2}%\n\
-            **Buy Exchange:** {}\n\
-            **Sell Exchange:** {}\n\
-            **Volume:** ${:.2}\n\n\
-            💡 *Act fast!* This opportunity may not last long\\.",
-            escape_markdown_v2(&opportunity.pair),
-            opportunity.rate_difference,
-            escape_markdown_v2(&opportunity.long_exchange.to_string()),
-            escape_markdown_v2(&opportunity.short_exchange.to_string()),
-            opportunity.potential_profit_value.unwrap_or(0.0)
-        );
-
-        // Send the message to the specified chat
-        match self.send_message_to_chat(chat_id, &message).await {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false), // Return false instead of propagating error for notification failures
-        }
-    }
-
-    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
-        self.send_message_to_chat(chat_id, message).await
-    }
-}
-
-// Implementation of NotificationSender trait for TelegramService (WASM)
-#[cfg(target_arch = "wasm32")]
-#[async_trait::async_trait(?Send)]
-impl crate::services::core::opportunities::opportunity_distribution::NotificationSender
-    for TelegramService
-{
-    async fn send_opportunity_notification(
-        &self,
-        chat_id: &str,
-        opportunity: &ArbitrageOpportunity,
-        _is_private: bool,
-    ) -> ArbitrageResult<bool> {
-        // Format the opportunity message
-        let message = format!(
-            "🚀 *New Arbitrage Opportunity* 💰\n\n\
-            **Trading Pair:** `{}`\n\
-            **Profit Potential:** {:.2}%\n\
-            **Buy Exchange:** {}\n\
-            **Sell Exchange:** {}\n\
-            **Volume:** ${:.2}\n\n\
-            💡 *Act fast!* This opportunity may not last long\\.",
-            escape_markdown_v2(&opportunity.pair),
-            opportunity.rate_difference,
-            escape_markdown_v2(&opportunity.long_exchange.to_string()),
-            escape_markdown_v2(&opportunity.short_exchange.to_string()),
-            opportunity.potential_profit_value.unwrap_or(0.0)
-        );
-
-        // Send the message to the specified chat
-        match self.send_message_to_chat(chat_id, &message).await {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false), // Return false instead of propagating error for notification failures
-        }
-    }
-
-    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
-        self.send_message_to_chat(chat_id, message).await
-    }
-}
-
-// Implementation for Arc<TelegramService> to support shared ownership
-#[cfg(target_arch = "wasm32")]
-#[async_trait::async_trait(?Send)]
-impl crate::services::core::opportunities::opportunity_distribution::NotificationSender
-    for Arc<TelegramService>
-{
-    async fn send_opportunity_notification(
-        &self,
-        chat_id: &str,
-        opportunity: &ArbitrageOpportunity,
-        _is_private: bool,
-    ) -> ArbitrageResult<bool> {
-        // Format the opportunity message
-        let message = format!(
-            "🚀 *New Arbitrage Opportunity* 💰\n\n\
-            **Trading Pair:** `{}`\n\
-            **Profit Potential:** {:.2}%\n\
-            **Buy Exchange:** {}\n\
-            **Sell Exchange:** {}\n\
-            **Volume:** ${:.2}\n\n\
-            💡 *Act fast!* This opportunity may not last long\\.",
-            escape_markdown_v2(&opportunity.pair),
-            opportunity.rate_difference,
-            escape_markdown_v2(&opportunity.long_exchange.to_string()),
-            escape_markdown_v2(&opportunity.short_exchange.to_string()),
-            opportunity.potential_profit_value.unwrap_or(0.0)
-        );
-
-        // Send the message to the specified chat
-        match self.as_ref().send_message_to_chat(chat_id, &message).await {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false), // Return false instead of propagating error for notification failures
-        }
-    }
-
-    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
-        // Delegate to the inner TelegramService
-        self.as_ref().send_message_to_chat(chat_id, message).await
-    }
-}
-
-// Implementation for Arc<TelegramService> to support shared ownership (non-WASM)
-#[cfg(not(target_arch = "wasm32"))]
-#[async_trait::async_trait]
-impl crate::services::core::opportunities::opportunity_distribution::NotificationSender
-    for Arc<TelegramService>
-{
-    async fn send_opportunity_notification(
-        &self,
-        chat_id: &str,
-        opportunity: &ArbitrageOpportunity,
-        _is_private: bool,
-    ) -> ArbitrageResult<bool> {
-        // Format the opportunity message
-        let message = format!(
-            "🚀 *New Arbitrage Opportunity* 💰\n\n\
-            **Trading Pair:** `{}`\n\
-            **Profit Potential:** {:.2}%\n\
-            **Buy Exchange:** {}\n\
-            **Sell Exchange:** {}\n\
-            **Volume:** ${:.2}\n\n\
-            💡 *Act fast!* This opportunity may not last long\\.",
-            escape_markdown_v2(&opportunity.pair),
-            opportunity.rate_difference,
-            escape_markdown_v2(&opportunity.long_exchange.to_string()),
-            escape_markdown_v2(&opportunity.short_exchange.to_string()),
-            opportunity.potential_profit_value.unwrap_or(0.0)
-        );
-
-        // Send the message to the specified chat
-        match self.as_ref().send_message_to_chat(chat_id, &message).await {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false), // Return false instead of propagating error for notification failures
-        }
-    }
-
-    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
-        // Delegate to the inner TelegramService
-        self.as_ref().send_message_to_chat(chat_id, message).await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, Instant};
 
     fn create_test_config() -> TelegramConfig {
         TelegramConfig {

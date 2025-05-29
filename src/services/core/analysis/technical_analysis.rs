@@ -1,4 +1,4 @@
-use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
+use crate::services::core::infrastructure::data_ingestion_module::DataIngestionModule;
 use crate::types::{ArbitrageOpportunity, CommandPermission, ExchangeIdEnum};
 use crate::utils::{logger::Logger, ArbitrageResult};
 
@@ -287,7 +287,7 @@ pub struct TechnicalAnalysisService {
     config: TechnicalAnalysisConfig,
     active_signals: HashMap<String, TechnicalSignal>,
     signal_history: Vec<TechnicalSignal>,
-    pipelines_service: Option<CloudflarePipelinesService>, // For market data consumption and results storage
+    pipelines_service: Option<DataIngestionModule>, // For market data consumption and results storage
     logger: Logger,
 }
 
@@ -303,7 +303,7 @@ impl TechnicalAnalysisService {
     }
 
     /// Set pipelines service for market data consumption and results storage
-    pub fn set_pipelines_service(&mut self, pipelines_service: CloudflarePipelinesService) {
+    pub fn set_pipelines_service(&mut self, pipelines_service: DataIngestionModule) {
         self.pipelines_service = Some(pipelines_service);
     }
 
@@ -329,37 +329,50 @@ impl TechnicalAnalysisService {
             );
 
             match pipelines_service.get_latest_data(&data_key).await {
-                Ok(pipeline_data) => {
-                    // Parse the pipeline data into TechnicalAnalysisMarketData
-                    let market_data = TechnicalAnalysisMarketData {
-                        timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                        exchange: exchange.to_string(),
-                        symbol: symbol.to_string(),
-                        price: pipeline_data
-                            .get("price")
-                            .and_then(|p| p.as_f64())
-                            .unwrap_or_else(|| self.get_mock_current_price(symbol)),
-                        volume: pipeline_data
-                            .get("volume")
-                            .and_then(|v| v.as_f64())
-                            .unwrap_or(1000.0),
-                        rsi: pipeline_data.get("rsi").and_then(|r| r.as_f64()),
-                        sma_20: pipeline_data.get("sma_20").and_then(|s| s.as_f64()),
-                        bollinger_upper: pipeline_data
-                            .get("bollinger_upper")
-                            .and_then(|b| b.as_f64()),
-                        bollinger_lower: pipeline_data
-                            .get("bollinger_lower")
-                            .and_then(|b| b.as_f64()),
-                        data_type: "technical_market_data".to_string(),
-                    };
+                Ok(Some(pipeline_data_str)) => {
+                    // Parse the JSON string into a Value
+                    if let Ok(pipeline_data) =
+                        serde_json::from_str::<serde_json::Value>(&pipeline_data_str)
+                    {
+                        // Parse the pipeline data into TechnicalAnalysisMarketData
+                        let market_data = TechnicalAnalysisMarketData {
+                            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                            exchange: exchange.to_string(),
+                            symbol: symbol.to_string(),
+                            price: pipeline_data
+                                .get("price")
+                                .and_then(|p| p.as_f64())
+                                .unwrap_or_else(|| self.get_mock_current_price(symbol)),
+                            volume: pipeline_data
+                                .get("volume")
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(1000.0),
+                            rsi: pipeline_data.get("rsi").and_then(|r| r.as_f64()),
+                            sma_20: pipeline_data.get("sma_20").and_then(|s| s.as_f64()),
+                            bollinger_upper: pipeline_data
+                                .get("bollinger_upper")
+                                .and_then(|b| b.as_f64()),
+                            bollinger_lower: pipeline_data
+                                .get("bollinger_lower")
+                                .and_then(|b| b.as_f64()),
+                            data_type: "technical_market_data".to_string(),
+                        };
 
-                    self.logger.info(&format!(
-                        "Successfully fetched market data from pipeline for {}/{}",
-                        exchange, symbol
-                    ));
+                        self.logger.info(&format!(
+                            "Successfully fetched market data from pipeline for {}/{}",
+                            exchange, symbol
+                        ));
 
-                    Ok(Some(market_data))
+                        Ok(Some(market_data))
+                    } else {
+                        self.logger.warn("Failed to parse pipeline data as JSON. Falling back to direct API calls");
+                        Ok(None)
+                    }
+                }
+                Ok(None) => {
+                    self.logger
+                        .warn("No pipeline data available, falling back to direct API calls");
+                    Ok(None)
                 }
                 Err(e) => {
                     self.logger.warn(&format!(
@@ -408,7 +421,7 @@ impl TechnicalAnalysisService {
             match pipelines_service
                 .store_analysis_results(
                     "technical_analysis",
-                    &serde_json::to_value(&analysis_result)?,
+                    &serde_json::to_string(&analysis_result)?,
                 )
                 .await
             {

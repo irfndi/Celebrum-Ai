@@ -226,6 +226,26 @@ impl ExchangeService {
         })
     }
 
+    /// Create a mock ExchangeService for testing
+    pub fn new_mock() -> ArbitrageResult<Self> {
+        use std::collections::HashMap;
+
+        // Create a mock KV store for testing
+        let mock_kv = worker::kv::KvStore::from_this(&worker::js_sys::Object::new(), "mock_kv")
+            .map_err(|e| {
+                ArbitrageError::internal_error(format!("Failed to create mock KV: {}", e))
+            })?;
+
+        let client = Client::new();
+
+        Ok(Self {
+            client,
+            kv: mock_kv,
+            super_admin_configs: HashMap::new(),
+            user_profile_service: None,
+        })
+    }
+
     /// Set the UserProfile service for database-based RBAC
     pub fn set_user_profile_service(&mut self, user_profile_service: UserProfileService) {
         self.user_profile_service = Some(user_profile_service);

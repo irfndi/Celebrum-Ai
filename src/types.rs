@@ -18,6 +18,12 @@ pub enum ExchangeIdEnum {
     Bybit,
     OKX,
     Bitget,
+    Kucoin,
+    Gate,
+    Mexc,
+    Huobi,
+    Kraken,
+    Coinbase,
     // Add other exchanges as needed
 }
 
@@ -28,6 +34,12 @@ impl ExchangeIdEnum {
             ExchangeIdEnum::Bybit => "bybit",
             ExchangeIdEnum::OKX => "okx",
             ExchangeIdEnum::Bitget => "bitget",
+            ExchangeIdEnum::Kucoin => "kucoin",
+            ExchangeIdEnum::Gate => "gate",
+            ExchangeIdEnum::Mexc => "mexc",
+            ExchangeIdEnum::Huobi => "huobi",
+            ExchangeIdEnum::Kraken => "kraken",
+            ExchangeIdEnum::Coinbase => "coinbase",
         }
     }
 
@@ -38,6 +50,12 @@ impl ExchangeIdEnum {
             ExchangeIdEnum::Bybit,
             ExchangeIdEnum::OKX,
             ExchangeIdEnum::Bitget,
+            ExchangeIdEnum::Kucoin,
+            ExchangeIdEnum::Gate,
+            ExchangeIdEnum::Mexc,
+            ExchangeIdEnum::Huobi,
+            ExchangeIdEnum::Kraken,
+            ExchangeIdEnum::Coinbase,
         ]
     }
 }
@@ -57,6 +75,12 @@ impl std::str::FromStr for ExchangeIdEnum {
             "bybit" => Ok(ExchangeIdEnum::Bybit),
             "okx" => Ok(ExchangeIdEnum::OKX),
             "bitget" => Ok(ExchangeIdEnum::Bitget),
+            "kucoin" => Ok(ExchangeIdEnum::Kucoin),
+            "gate" => Ok(ExchangeIdEnum::Gate),
+            "mexc" => Ok(ExchangeIdEnum::Mexc),
+            "huobi" => Ok(ExchangeIdEnum::Huobi),
+            "kraken" => Ok(ExchangeIdEnum::Kraken),
+            "coinbase" => Ok(ExchangeIdEnum::Coinbase),
             _ => Err(format!("Unknown exchange: {}", s)),
         }
     }
@@ -94,6 +118,7 @@ pub enum ArbitrageType {
     FundingRate,
     SpotFutures,
     CrossExchange,
+    Price, // Price arbitrage between exchanges
 }
 
 /// Core arbitrage opportunity structure
@@ -110,7 +135,11 @@ pub struct ArbitrageOpportunity {
     pub rate_difference: f64,
     pub net_rate_difference: Option<f64>,
     pub potential_profit_value: Option<f64>,
-    pub timestamp: u64, // Unix timestamp in milliseconds
+    pub confidence: f64,  // Added missing field
+    pub volume: f64,      // Added missing field
+    pub timestamp: u64,   // Unix timestamp in milliseconds
+    pub detected_at: u64, // Added missing field
+    pub expires_at: u64,  // Added missing field
     pub r#type: ArbitrageType,
     pub details: Option<String>,
     pub min_exchanges_required: u8, // **ALWAYS 2** for arbitrage
@@ -128,10 +157,14 @@ impl Default for ArbitrageOpportunity {
             rate_difference: 0.0,
             net_rate_difference: None,
             potential_profit_value: None,
+            confidence: 0.0, // Added missing field
+            volume: 0.0,     // Added missing field
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_millis() as u64,
+            detected_at: 0, // Added missing field
+            expires_at: 0,  // Added missing field
             r#type: ArbitrageType::CrossExchange,
             details: None,
             min_exchanges_required: 2,
@@ -164,10 +197,14 @@ impl ArbitrageOpportunity {
             rate_difference,
             net_rate_difference: None,
             potential_profit_value: None,
+            confidence: 0.0, // Added missing field
+            volume: 0.0,     // Added missing field
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_millis() as u64,
+            detected_at: 0, // Added missing field
+            expires_at: 0,  // Added missing field
             r#type,
             details: None,
             min_exchanges_required: 2, // **ALWAYS 2** for arbitrage
@@ -239,6 +276,16 @@ pub enum TechnicalSignalType {
     Buy,
     Sell,
     Hold,
+}
+
+impl TechnicalSignalType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TechnicalSignalType::Buy => "buy",
+            TechnicalSignalType::Sell => "sell",
+            TechnicalSignalType::Hold => "hold",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -895,7 +942,14 @@ impl Default for UserConfiguration {
             risk_tolerance_percentage: 0.02, // 2%
             opportunity_threshold: 0.001,    // 0.1%
             auto_trading_enabled: false,
-            notification_preferences: NotificationPreferences::default(),
+            notification_preferences: NotificationPreferences {
+                push_opportunities: true,
+                push_executions: true,
+                push_risk_alerts: true,
+                push_system_status: true,
+                min_profit_threshold_usdt: 0.0005, // 0.05%
+                max_notifications_per_hour: 10,
+            },
             trading_pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
             excluded_pairs: vec![],
         }
@@ -908,8 +962,8 @@ impl Default for NotificationPreferences {
             push_opportunities: true,
             push_executions: true,
             push_risk_alerts: true,
-            push_system_status: false,
-            min_profit_threshold_usdt: 1.0,
+            push_system_status: true,
+            min_profit_threshold_usdt: 0.0005, // 0.05%
             max_notifications_per_hour: 10,
         }
     }
@@ -991,6 +1045,34 @@ impl UserApiKey {
 
     pub fn update_last_used(&mut self) {
         self.last_used = Some(chrono::Utc::now().timestamp_millis() as u64);
+    }
+
+    // Add missing methods for field access
+    pub fn get_exchange(&self) -> Option<ExchangeIdEnum> {
+        match &self.provider {
+            ApiKeyProvider::Exchange(exchange) => Some(*exchange),
+            _ => None,
+        }
+    }
+
+    pub fn api_key_encrypted(&self) -> &str {
+        &self.encrypted_key
+    }
+
+    pub fn secret_encrypted(&self) -> Option<&str> {
+        self.encrypted_secret.as_deref()
+    }
+
+    pub fn get_permissions(&self) -> &[String] {
+        &self.permissions
+    }
+
+    pub fn get_created_at(&self) -> u64 {
+        self.created_at
+    }
+
+    pub fn get_last_validated(&self) -> Option<u64> {
+        self.last_used
     }
 }
 
@@ -1581,6 +1663,7 @@ pub enum UserAccessLevel {
     /// Free user with exchange API keys - limited opportunities + trading
     FreeWithAPI,
     /// Subscription user with exchange API keys - unlimited opportunities + advanced features
+    /// (covers Basic, Premium, Enterprise, Admin, SuperAdmin tiers)
     SubscriptionWithAPI,
 }
 
@@ -1627,6 +1710,24 @@ impl UserAccessLevel {
             UserAccessLevel::FreeWithoutAPI => false,
             UserAccessLevel::FreeWithAPI => false,
             UserAccessLevel::SubscriptionWithAPI => true,
+        }
+    }
+
+    /// Check if user can use AI analysis features
+    pub fn can_use_ai_analysis(&self) -> bool {
+        match self {
+            UserAccessLevel::FreeWithoutAPI => false,
+            UserAccessLevel::FreeWithAPI => false,
+            UserAccessLevel::SubscriptionWithAPI => true,
+        }
+    }
+
+    /// Get the maximum number of AI requests per hour for this access level
+    pub fn ai_requests_per_hour(&self) -> u32 {
+        match self {
+            UserAccessLevel::FreeWithoutAPI => 0,
+            UserAccessLevel::FreeWithAPI => 0,
+            UserAccessLevel::SubscriptionWithAPI => 10,
         }
     }
 }
@@ -1721,10 +1822,9 @@ pub enum PositionAction {
     Rebalance,          // Rebalance across exchanges
 }
 
-/// Update user profile request structure
+/// Shared user preferences update structure containing common fields
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateUserProfileRequest {
-    pub telegram_username: Option<String>,
+pub struct UserPreferencesUpdate {
     pub risk_tolerance: Option<f64>,
     pub trading_pairs: Option<Vec<String>>,
     pub auto_trading_enabled: Option<bool>,
@@ -1735,165 +1835,7 @@ pub struct UpdateUserProfileRequest {
     pub notification_preferences: Option<NotificationPreferences>,
 }
 
-impl UpdateUserProfileRequest {
-    /// Validate the update request
-    pub fn validate(&self) -> Result<(), String> {
-        // Validate risk tolerance
-        if let Some(risk) = self.risk_tolerance {
-            if !(0.0..=1.0).contains(&risk) {
-                return Err("Risk tolerance must be between 0.0 and 1.0".to_string());
-            }
-        }
-
-        // Validate max leverage
-        if let Some(max_leverage) = self.max_leverage {
-            if !(1..=125).contains(&max_leverage) {
-                return Err("Max leverage must be between 1 and 125".to_string());
-            }
-        }
-
-        // Validate entry sizes
-        if let Some(max_size) = self.max_entry_size_usdt {
-            if max_size <= 0.0 {
-                return Err("Max entry size must be positive".to_string());
-            }
-        }
-
-        if let Some(min_size) = self.min_entry_size_usdt {
-            if min_size <= 0.0 {
-                return Err("Min entry size must be positive".to_string());
-            }
-        }
-
-        // Validate min <= max if both provided
-        if let (Some(min_size), Some(max_size)) =
-            (self.min_entry_size_usdt, self.max_entry_size_usdt)
-        {
-            if min_size > max_size {
-                return Err("Min entry size cannot be greater than max entry size".to_string());
-            }
-        }
-
-        // Validate opportunity threshold
-        if let Some(threshold) = self.opportunity_threshold {
-            if !(0.0..=1.0).contains(&threshold) {
-                return Err("Opportunity threshold must be between 0.0 and 1.0".to_string());
-            }
-        }
-
-        // Validate trading pairs
-        if let Some(ref pairs) = self.trading_pairs {
-            if pairs.is_empty() {
-                return Err("Trading pairs list cannot be empty".to_string());
-            }
-
-            for pair in pairs {
-                if pair.trim().is_empty() {
-                    return Err("Trading pair cannot be empty".to_string());
-                }
-
-                // Basic format validation (should contain '/' or be a valid symbol)
-                if !pair.contains('/') && !pair.chars().all(|c| c.is_ascii_alphanumeric()) {
-                    return Err(format!("Invalid trading pair format: {}", pair));
-                }
-            }
-        }
-
-        // Validate telegram username format
-        if let Some(ref username) = self.telegram_username {
-            if !username.trim().is_empty() {
-                // Remove @ if present and validate
-                let clean_username = username.trim_start_matches('@');
-                if clean_username.is_empty() || clean_username.len() > 32 {
-                    return Err("Telegram username must be 1-32 characters".to_string());
-                }
-
-                // Basic username validation (alphanumeric + underscore)
-                if !clean_username
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
-                {
-                    return Err(
-                        "Telegram username can only contain letters, numbers, and underscores"
-                            .to_string(),
-                    );
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Apply validated updates to a user profile
-    pub fn apply_to_profile(&self, profile: &mut UserProfile) -> Result<(), String> {
-        // Validate first
-        self.validate()?;
-
-        // Apply updates
-        if let Some(ref username) = self.telegram_username {
-            if username.trim().is_empty() {
-                profile.telegram_username = None;
-            } else {
-                profile.telegram_username = Some(username.trim_start_matches('@').to_string());
-            }
-        }
-
-        if let Some(risk) = self.risk_tolerance {
-            profile.configuration.risk_tolerance_percentage = risk;
-        }
-
-        if let Some(ref pairs) = self.trading_pairs {
-            profile.configuration.trading_pairs = pairs.clone();
-        }
-
-        if let Some(auto_trading) = self.auto_trading_enabled {
-            profile.configuration.auto_trading_enabled = auto_trading;
-        }
-
-        if let Some(leverage) = self.max_leverage {
-            profile.configuration.max_leverage = leverage;
-        }
-
-        if let Some(max_size) = self.max_entry_size_usdt {
-            profile.configuration.max_entry_size_usdt = max_size;
-        }
-
-        if let Some(min_size) = self.min_entry_size_usdt {
-            profile.configuration.min_entry_size_usdt = min_size;
-        }
-
-        if let Some(threshold) = self.opportunity_threshold {
-            profile.configuration.opportunity_threshold = threshold;
-        }
-
-        if let Some(ref prefs) = self.notification_preferences {
-            profile.configuration.notification_preferences = prefs.clone();
-        }
-
-        // Update timestamp
-        profile.updated_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-
-        Ok(())
-    }
-}
-
-/// Update user preferences request structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateUserPreferencesRequest {
-    pub risk_tolerance: Option<f64>,
-    pub trading_pairs: Option<Vec<String>>,
-    pub auto_trading_enabled: Option<bool>,
-    pub max_leverage: Option<u32>,
-    pub max_entry_size_usdt: Option<f64>,
-    pub min_entry_size_usdt: Option<f64>,
-    pub opportunity_threshold: Option<f64>,
-    pub notification_preferences: Option<NotificationPreferences>,
-}
-
-impl UpdateUserPreferencesRequest {
+impl UserPreferencesUpdate {
     /// Validate the user preferences update request
     pub fn validate(&self) -> Result<(), String> {
         // Validate risk tolerance
@@ -2027,20 +1969,158 @@ impl UpdateUserPreferencesRequest {
     }
 }
 
-/// Global opportunity structure for system-wide opportunities
+/// Update user profile request structure (includes telegram_username + shared preferences)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateUserProfileRequest {
+    pub telegram_username: Option<String>,
+    #[serde(flatten)]
+    pub preferences: UserPreferencesUpdate,
+}
+
+impl UpdateUserProfileRequest {
+    /// Validate the update request
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate telegram username format
+        if let Some(ref username) = self.telegram_username {
+            if !username.trim().is_empty() {
+                // Remove @ if present and validate
+                let clean_username = username.trim_start_matches('@');
+                if clean_username.is_empty() || clean_username.len() > 32 {
+                    return Err("Telegram username must be 1-32 characters".to_string());
+                }
+
+                // Basic username validation (alphanumeric + underscore)
+                if !clean_username
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
+                    return Err(
+                        "Telegram username can only contain letters, numbers, and underscores"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+
+        // Validate shared preferences
+        self.preferences.validate()
+    }
+
+    /// Apply validated updates to a user profile
+    pub fn apply_to_profile(&self, profile: &mut UserProfile) -> Result<(), String> {
+        // Validate first
+        self.validate()?;
+
+        // Apply telegram username
+        if let Some(ref username) = self.telegram_username {
+            if username.trim().is_empty() {
+                profile.telegram_username = None;
+            } else {
+                profile.telegram_username = Some(username.trim_start_matches('@').to_string());
+            }
+        }
+
+        // Apply shared preferences
+        self.preferences.apply_to_profile(profile)
+    }
+}
+
+/// Update user preferences request structure (type alias for shared preferences)
+pub type UpdateUserPreferencesRequest = UserPreferencesUpdate;
+
+/// Enum to represent either ArbitrageOpportunity or TechnicalOpportunity
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum OpportunityData {
+    #[serde(rename = "arbitrage")]
+    Arbitrage(ArbitrageOpportunity),
+    #[serde(rename = "technical")]
+    Technical(TechnicalOpportunity),
+}
+
+impl OpportunityData {
+    /// Get the type of opportunity as a string
+    pub fn get_type(&self) -> &'static str {
+        match self {
+            OpportunityData::Arbitrage(_) => "arbitrage",
+            OpportunityData::Technical(_) => "technical",
+        }
+    }
+
+    /// Get the opportunity ID
+    pub fn get_id(&self) -> &str {
+        match self {
+            OpportunityData::Arbitrage(arb) => &arb.id,
+            OpportunityData::Technical(tech) => &tech.id,
+        }
+    }
+
+    /// Get the trading pair
+    pub fn get_pair(&self) -> &str {
+        match self {
+            OpportunityData::Arbitrage(arb) => &arb.pair,
+            OpportunityData::Technical(tech) => &tech.pair,
+        }
+    }
+
+    /// Get the timestamp
+    pub fn get_timestamp(&self) -> u64 {
+        match self {
+            OpportunityData::Arbitrage(arb) => arb.timestamp,
+            OpportunityData::Technical(tech) => tech.timestamp,
+        }
+    }
+
+    /// Validate the opportunity data
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            OpportunityData::Arbitrage(arb) => arb.validate_position_structure(),
+            OpportunityData::Technical(tech) => tech.validate_position_structure(),
+        }
+    }
+
+    // Add missing field access methods for compilation fixes
+    pub fn id(&self) -> &str {
+        self.get_id()
+    }
+
+    pub fn pair(&self) -> &str {
+        self.get_pair()
+    }
+
+    pub fn rate_difference(&self) -> f64 {
+        match self {
+            OpportunityData::Arbitrage(arb) => arb.rate_difference,
+            OpportunityData::Technical(_) => 0.0, // Technical opportunities don't have rate difference
+        }
+    }
+
+    /// Get the underlying arbitrage opportunity if this is an arbitrage type
+    pub fn as_arbitrage(&self) -> Option<&ArbitrageOpportunity> {
+        match self {
+            OpportunityData::Arbitrage(arb) => Some(arb),
+            OpportunityData::Technical(_) => None,
+        }
+    }
+
+    /// Get the underlying technical opportunity if this is a technical type
+    pub fn as_technical(&self) -> Option<&TechnicalOpportunity> {
+        match self {
+            OpportunityData::Arbitrage(_) => None,
+            OpportunityData::Technical(tech) => Some(tech),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalOpportunity {
     pub id: String,
-    pub opportunity_type: String,          // "arbitrage" or "technical"
-    pub opportunity: ArbitrageOpportunity, // The actual opportunity data
-    pub arbitrage_opportunity: Option<ArbitrageOpportunity>,
-    pub technical_opportunity: Option<TechnicalOpportunity>,
+    pub opportunity_data: OpportunityData, // Unified opportunity data using enum
     pub source: OpportunitySource,
     pub created_at: u64,
     pub detection_timestamp: u64,
-    pub expires_at: Option<u64>,
-    pub expiry_timestamp: Option<u64>,
-    pub priority: u8, // 1-10, higher is more urgent
+    pub expires_at: u64, // Single expiration timestamp field (removed expiry_timestamp duplicate)
+    pub priority: u8,    // 1-10, higher is more urgent
     pub priority_score: f64,
     pub ai_enhanced: bool,
     pub ai_confidence_score: Option<f64>,
@@ -2050,6 +2130,144 @@ pub struct GlobalOpportunity {
     pub max_participants: Option<u32>,
     pub current_participants: u32,
     pub distribution_strategy: DistributionStrategy,
+}
+
+impl GlobalOpportunity {
+    /// Create a new GlobalOpportunity from ArbitrageOpportunity
+    pub fn from_arbitrage(
+        arbitrage_opp: ArbitrageOpportunity,
+        source: OpportunitySource,
+        expires_at: u64,
+    ) -> Result<Self, String> {
+        // Validate the arbitrage opportunity
+        arbitrage_opp.validate_position_structure()?;
+
+        let id = format!("global_arb_{}", arbitrage_opp.id);
+        let created_at = arbitrage_opp.timestamp;
+
+        Ok(Self {
+            id,
+            opportunity_data: OpportunityData::Arbitrage(arbitrage_opp),
+            source,
+            created_at,
+            detection_timestamp: created_at,
+            expires_at,
+            priority: 5,         // Default priority
+            priority_score: 0.5, // Default priority score
+            ai_enhanced: false,
+            ai_confidence_score: None,
+            ai_insights: None,
+            distributed_to: Vec::new(),
+            max_participants: Some(10), // Default max participants
+            current_participants: 0,
+            distribution_strategy: DistributionStrategy::FirstComeFirstServe,
+        })
+    }
+
+    /// Create a new GlobalOpportunity from TechnicalOpportunity
+    pub fn from_technical(
+        technical_opp: TechnicalOpportunity,
+        source: OpportunitySource,
+        expires_at: Option<u64>,
+    ) -> Result<Self, String> {
+        // Validate the technical opportunity
+        technical_opp.validate_position_structure()?;
+
+        let id = format!("global_tech_{}", technical_opp.id);
+        let created_at = technical_opp.timestamp;
+        let expires_at = expires_at.unwrap_or(technical_opp.expires_at);
+
+        Ok(Self {
+            id,
+            opportunity_data: OpportunityData::Technical(technical_opp),
+            source,
+            created_at,
+            detection_timestamp: created_at,
+            expires_at,
+            priority: 5,         // Default priority
+            priority_score: 0.5, // Default priority score
+            ai_enhanced: false,
+            ai_confidence_score: None,
+            ai_insights: None,
+            distributed_to: Vec::new(),
+            max_participants: Some(1), // Technical opportunities typically for single user
+            current_participants: 0,
+            distribution_strategy: DistributionStrategy::FirstComeFirstServe,
+        })
+    }
+
+    /// Get the opportunity type as a string
+    pub fn get_opportunity_type(&self) -> &'static str {
+        self.opportunity_data.get_type()
+    }
+
+    /// Get the trading pair
+    pub fn get_pair(&self) -> &str {
+        self.opportunity_data.get_pair()
+    }
+
+    /// Check if the opportunity has expired
+    pub fn is_expired(&self) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        now > self.expires_at
+    }
+
+    /// Validate the global opportunity structure
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate the underlying opportunity data
+        self.opportunity_data.validate()?;
+
+        // Validate priority
+        if self.priority == 0 || self.priority > 10 {
+            return Err("Priority must be between 1 and 10".to_string());
+        }
+
+        // Validate priority score
+        if !(0.0..=1.0).contains(&self.priority_score) {
+            return Err("Priority score must be between 0.0 and 1.0".to_string());
+        }
+
+        // Validate AI confidence score if present
+        if let Some(confidence) = self.ai_confidence_score {
+            if !(0.0..=1.0).contains(&confidence) {
+                return Err("AI confidence score must be between 0.0 and 1.0".to_string());
+            }
+        }
+
+        // Validate expiration
+        if self.expires_at <= self.created_at {
+            return Err("Expiration time must be after creation time".to_string());
+        }
+
+        // Validate participants
+        if let Some(max_participants) = self.max_participants {
+            if self.current_participants > max_participants {
+                return Err("Current participants cannot exceed max participants".to_string());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get required exchanges for this opportunity
+    pub fn get_required_exchanges(&self) -> Vec<crate::types::ExchangeIdEnum> {
+        match &self.opportunity_data {
+            OpportunityData::Arbitrage(arb) => arb.get_required_exchanges(),
+            OpportunityData::Technical(tech) => tech.get_required_exchanges(),
+        }
+    }
+
+    /// Check if the opportunity is compatible with user's exchanges
+    pub fn is_compatible_with_exchanges(
+        &self,
+        user_exchanges: &[crate::types::ExchangeIdEnum],
+    ) -> bool {
+        let required = self.get_required_exchanges();
+        required.iter().all(|req| user_exchanges.contains(req))
+    }
 }
 
 /// Source of an opportunity
@@ -2102,6 +2320,7 @@ pub enum ChatContext {
 }
 
 impl ChatContext {
+    /// Check if this is a group context (Group or Channel)
     pub fn is_group_context(&self) -> bool {
         matches!(
             self,
@@ -2109,6 +2328,17 @@ impl ChatContext {
         )
     }
 
+    /// Get group ID if this is a group context (returns a default ID since enum has no fields)
+    pub fn get_group_id(&self) -> Option<&str> {
+        match self {
+            ChatContext::Group => Some("group"),
+            ChatContext::Supergroup => Some("supergroup"),
+            ChatContext::Channel => Some("channel"),
+            ChatContext::Private => None,
+        }
+    }
+
+    /// Get context ID as string
     pub fn get_context_id(&self) -> String {
         match self {
             ChatContext::Private => "private".to_string(),
@@ -2116,121 +2346,6 @@ impl ChatContext {
             ChatContext::Supergroup => "supergroup".to_string(),
             ChatContext::Channel => "channel".to_string(),
         }
-    }
-}
-
-/// Detailed chat context for Telegram interactions
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DetailedChatContext {
-    pub chat_id: i64,
-    pub chat_type: String, // "private", "group", "supergroup", "channel"
-    pub user_id: Option<String>,
-    pub username: Option<String>,
-    pub is_group: bool,
-    pub member_count: Option<u32>,
-}
-
-/// User opportunity limits and tracking
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserOpportunityLimits {
-    pub user_id: String,
-    pub access_level: UserAccessLevel,
-    pub is_group_context: bool,
-    pub daily_arbitrage_limit: u32,
-    pub daily_technical_limit: u32,
-    pub current_arbitrage_count: u32,
-    pub current_technical_count: u32,
-    pub last_reset_date: String, // YYYY-MM-DD format
-    pub rate_limit_window_minutes: u32,
-    pub opportunities_in_window: u32,
-    pub window_start_time: u64,
-}
-
-impl UserOpportunityLimits {
-    pub fn new(user_id: String, access_level: UserAccessLevel, is_group_context: bool) -> Self {
-        let (daily_arbitrage_limit, daily_technical_limit) =
-            access_level.get_daily_opportunity_limits();
-
-        Self {
-            user_id,
-            access_level,
-            is_group_context,
-            daily_arbitrage_limit,
-            daily_technical_limit,
-            current_arbitrage_count: 0,
-            current_technical_count: 0,
-            last_reset_date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
-            rate_limit_window_minutes: if is_group_context { 60 } else { 15 },
-            opportunities_in_window: 0,
-            window_start_time: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
-        }
-    }
-
-    pub fn can_receive_arbitrage(&self) -> bool {
-        self.current_arbitrage_count < self.daily_arbitrage_limit
-    }
-
-    pub fn can_receive_technical(&self) -> bool {
-        self.current_technical_count < self.daily_technical_limit
-    }
-
-    pub fn increment_arbitrage(&mut self) {
-        self.current_arbitrage_count += 1;
-    }
-
-    pub fn increment_technical(&mut self) {
-        self.current_technical_count += 1;
-    }
-
-    pub fn reset_if_needed(&mut self) {
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        if self.last_reset_date != today {
-            self.current_arbitrage_count = 0;
-            self.current_technical_count = 0;
-            self.last_reset_date = today;
-        }
-    }
-
-    pub fn needs_daily_reset(&self) -> bool {
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        self.last_reset_date != today
-    }
-
-    pub fn reset_daily_counters(&mut self) {
-        self.current_arbitrage_count = 0;
-        self.current_technical_count = 0;
-        self.last_reset_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
-    }
-
-    pub fn record_arbitrage_received(&mut self) -> bool {
-        if self.can_receive_arbitrage() {
-            self.increment_arbitrage();
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn record_technical_received(&mut self) -> bool {
-        if self.can_receive_technical() {
-            self.increment_technical();
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn get_remaining_opportunities(&self) -> (u32, u32) {
-        let remaining_arbitrage = self
-            .daily_arbitrage_limit
-            .saturating_sub(self.current_arbitrage_count);
-        let remaining_technical = self
-            .daily_technical_limit
-            .saturating_sub(self.current_technical_count);
-        (remaining_arbitrage, remaining_technical)
     }
 }
 
@@ -2355,253 +2470,6 @@ impl SessionOutcome {
     }
 }
 
-/// Trading analytics for user performance tracking
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TradingAnalytics {
-    pub user_id: String,
-    pub total_trades: u32,
-    pub successful_trades: u32,
-    pub total_pnl_usdt: f64,
-    pub best_trade_pnl: f64,
-    pub worst_trade_pnl: f64,
-    pub average_trade_size: f64,
-    pub total_volume_traded: f64,
-    pub win_rate_percentage: f64,
-    pub average_holding_time_hours: f64,
-    pub risk_score: f64,
-    pub last_updated: u64,
-    // Missing fields that need to be added
-    pub analytics_id: String,
-    pub metric_type: String,
-    pub metric_value: f64,
-    pub metric_data: serde_json::Value,
-    pub exchange_id: Option<String>,
-    pub trading_pair: Option<String>,
-    pub opportunity_type: Option<String>,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub session_id: Option<String>,
-    pub analytics_metadata: serde_json::Value,
-}
-
-/// User invitation structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserInvitation {
-    pub invitation_code: String,
-    pub invited_user_id: String,
-    pub invited_by: Option<String>,
-    pub used_at: u64,
-    pub invitation_metadata: Option<serde_json::Value>,
-    // Missing fields that need to be added
-    pub invitation_id: String,
-    pub inviter_user_id: String,
-    pub invitee_identifier: String,
-    pub invitation_type: String,
-    pub status: String,
-    pub message: Option<String>,
-    pub invitation_data: serde_json::Value,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub accepted_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// Global opportunity configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GlobalOpportunityConfig {
-    pub enabled: bool,
-    pub max_opportunities_per_batch: u32,
-    pub batch_interval_seconds: u32,
-    pub min_rate_difference: f64,
-    pub max_age_minutes: u32,
-    pub ai_enhancement_enabled: bool,
-    pub distribution_strategy: DistributionStrategy,
-    // Missing fields that need to be added
-    pub min_threshold: f64,
-    pub max_threshold: f64,
-    pub monitored_exchanges: Vec<ExchangeIdEnum>,
-    pub monitored_pairs: Vec<String>,
-    pub fairness_config: FairnessConfig,
-    pub max_queue_size: u32,
-    pub opportunity_ttl_minutes: u32,
-}
-
-/// Opportunity queue for managing distribution
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OpportunityQueue {
-    pub id: String,
-    pub opportunities: Vec<GlobalOpportunity>,
-    pub created_at: u64,
-    pub scheduled_for: u64,
-    pub status: QueueStatus,
-    pub target_users: Vec<String>,
-    pub distribution_strategy: DistributionStrategy,
-    // Missing fields that need to be added
-    pub updated_at: u64,
-    pub total_distributed: u32,
-    pub active_users: u32,
-}
-
-/// Queue status
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QueueStatus {
-    Pending,
-    Processing,
-    Completed,
-    Failed,
-    Cancelled,
-}
-
-/// User opportunity distribution tracking
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserOpportunityDistribution {
-    pub user_id: String,
-    pub opportunity_id: String,
-    pub distributed_at: u64,
-    pub delivery_status: DeliveryStatus,
-    pub delay_applied_seconds: u64,
-    pub access_level: UserAccessLevel,
-    // Missing fields that need to be added
-    pub last_opportunity_received: Option<u64>,
-    pub total_opportunities_received: u32,
-    pub opportunities_today: u32,
-    pub last_daily_reset: u64,
-    pub priority_weight: f64,
-    pub is_eligible: bool,
-}
-
-/// Delivery status for opportunity distribution
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DeliveryStatus {
-    Pending,
-    Sent,
-    Delivered,
-    Failed,
-    RateLimited,
-    UserInactive,
-}
-
-/// Fairness configuration for opportunity distribution
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FairnessConfig {
-    pub enable_delay_for_free_users: bool,
-    pub free_user_delay_seconds: u64,
-    pub max_opportunities_per_user_per_hour: u32,
-    pub prioritize_subscription_users: bool,
-    pub enable_round_robin: bool,
-}
-
-impl Default for FairnessConfig {
-    fn default() -> Self {
-        Self {
-            enable_delay_for_free_users: true,
-            free_user_delay_seconds: 300, // 5 minutes
-            max_opportunities_per_user_per_hour: 2,
-            prioritize_subscription_users: true,
-            enable_round_robin: true,
-        }
-    }
-}
-
-/// Risk assessment structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RiskAssessment {
-    pub overall_risk_score: f64,
-    pub market_risk: f64,
-    pub liquidity_risk: f64,
-    pub volatility_risk: f64,
-    pub correlation_risk: f64,
-    pub recommendations: Vec<String>,
-    pub max_position_size: f64,
-    pub stop_loss_recommendation: Option<f64>,
-    pub take_profit_recommendation: Option<f64>,
-    pub risk_level: RiskLevel,
-    pub concentration_risk: f64,
-}
-
-/// Risk level enumeration
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RiskLevel {
-    VeryLow,
-    Low,
-    Medium,
-    High,
-    VeryHigh,
-    Critical,
-}
-
-/// Risk management configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RiskManagementConfig {
-    pub max_portfolio_risk_percentage: f64,
-    pub max_single_position_risk_percentage: f64,
-    pub enable_stop_loss: bool,
-    pub enable_take_profit: bool,
-    pub enable_trailing_stop: bool,
-    pub correlation_limit: f64,
-    pub volatility_threshold: f64,
-    pub max_position_size_usd: f64,
-    pub min_risk_reward_ratio: f64,
-    pub default_stop_loss_percentage: f64,
-    pub default_take_profit_percentage: f64,
-    pub max_total_exposure_usd: f64,
-    pub max_positions_per_exchange: u32,
-    pub max_positions_per_pair: u32,
-}
-
-/// Position optimization result
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PositionOptimizationResult {
-    pub position_id: String,
-    pub current_score: f64,
-    pub optimized_score: f64,
-    pub recommended_actions: Vec<PositionAction>,
-    pub risk_assessment: RiskAssessment,
-    pub expected_improvement: f64,
-    pub confidence_level: f64,
-    pub recommended_action: PositionAction,
-    pub reasoning: String,
-    pub suggested_stop_loss: Option<f64>,
-    pub suggested_take_profit: Option<f64>,
-    pub timestamp: u64,
-}
-
-impl AIAccessLevel {
-    /// Check if user can use AI analysis features
-    pub fn can_use_ai_analysis(&self) -> bool {
-        match self {
-            AIAccessLevel::FreeWithoutAI { ai_analysis, .. } => *ai_analysis,
-            AIAccessLevel::FreeWithAI { ai_analysis, .. } => *ai_analysis,
-            AIAccessLevel::SubscriptionWithAI { ai_analysis, .. } => *ai_analysis,
-        }
-    }
-
-    /// Get daily AI usage limit
-    pub fn get_daily_ai_limit(&self) -> u32 {
-        match self {
-            AIAccessLevel::FreeWithoutAI { daily_ai_limit, .. } => *daily_ai_limit,
-            AIAccessLevel::FreeWithAI { daily_ai_limit, .. } => *daily_ai_limit,
-            AIAccessLevel::SubscriptionWithAI { daily_ai_limit, .. } => *daily_ai_limit,
-        }
-    }
-
-    /// Check if user can generate personal opportunities
-    pub fn can_generate_personal_opportunities(&self) -> bool {
-        match self {
-            AIAccessLevel::FreeWithoutAI { .. } => false,
-            AIAccessLevel::FreeWithAI {
-                personal_ai_generation,
-                ..
-            } => *personal_ai_generation,
-            AIAccessLevel::SubscriptionWithAI {
-                personal_ai_generation,
-                ..
-            } => *personal_ai_generation,
-        }
-    }
-}
-
 impl EnhancedUserSession {
     pub fn new(user_id: String, telegram_id: i64) -> Self {
         let now = SystemTime::now()
@@ -2670,4 +2538,331 @@ impl EnhancedUserSession {
         self.session_state = EnhancedSessionState::Expired;
         self.update_activity();
     }
+}
+
+/// User opportunity limits and tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserOpportunityLimits {
+    pub user_id: String,
+    pub access_level: UserAccessLevel,
+    pub is_group_context: bool,
+    pub daily_arbitrage_limit: u32,
+    pub daily_technical_limit: u32,
+    pub current_arbitrage_count: u32,
+    pub current_technical_count: u32,
+    pub last_reset_date: String, // YYYY-MM-DD format
+    pub rate_limit_window_minutes: u32,
+    pub opportunities_in_window: u32,
+    pub window_start_time: u64,
+}
+
+impl UserOpportunityLimits {
+    pub fn new(user_id: String, access_level: UserAccessLevel, is_group_context: bool) -> Self {
+        let (daily_arbitrage_limit, daily_technical_limit) =
+            access_level.get_daily_opportunity_limits();
+
+        Self {
+            user_id,
+            access_level,
+            is_group_context,
+            daily_arbitrage_limit,
+            daily_technical_limit,
+            current_arbitrage_count: 0,
+            current_technical_count: 0,
+            last_reset_date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
+            rate_limit_window_minutes: if is_group_context { 60 } else { 15 },
+            opportunities_in_window: 0,
+            window_start_time: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+        }
+    }
+
+    pub fn can_receive_arbitrage(&self) -> bool {
+        self.current_arbitrage_count < self.daily_arbitrage_limit
+    }
+
+    pub fn can_receive_technical(&self) -> bool {
+        self.current_technical_count < self.daily_technical_limit
+    }
+
+    pub fn increment_arbitrage(&mut self) {
+        self.current_arbitrage_count += 1;
+    }
+
+    pub fn increment_technical(&mut self) {
+        self.current_technical_count += 1;
+    }
+
+    pub fn reset_if_needed(&mut self) {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        if self.last_reset_date != today {
+            self.current_arbitrage_count = 0;
+            self.current_technical_count = 0;
+            self.last_reset_date = today;
+        }
+    }
+
+    pub fn needs_daily_reset(&self) -> bool {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        self.last_reset_date != today
+    }
+
+    pub fn reset_daily_counters(&mut self) {
+        self.current_arbitrage_count = 0;
+        self.current_technical_count = 0;
+        self.last_reset_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    }
+
+    pub fn record_arbitrage_received(&mut self) -> bool {
+        if self.can_receive_arbitrage() {
+            self.increment_arbitrage();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn record_technical_received(&mut self) -> bool {
+        if self.can_receive_technical() {
+            self.increment_technical();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn get_remaining_opportunities(&self) -> (u32, u32) {
+        let remaining_arbitrage = self
+            .daily_arbitrage_limit
+            .saturating_sub(self.current_arbitrage_count);
+        let remaining_technical = self
+            .daily_technical_limit
+            .saturating_sub(self.current_technical_count);
+        (remaining_arbitrage, remaining_technical)
+    }
+}
+
+/// Risk assessment structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskAssessment {
+    pub overall_risk_score: f64,
+    pub market_risk: f64,
+    pub liquidity_risk: f64,
+    pub volatility_risk: f64,
+    pub correlation_risk: f64,
+    pub recommendations: Vec<String>,
+    pub max_position_size: f64,
+    pub stop_loss_recommendation: Option<f64>,
+    pub take_profit_recommendation: Option<f64>,
+    pub risk_level: RiskLevel,
+    pub concentration_risk: f64,
+}
+
+/// Risk level enumeration
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RiskLevel {
+    VeryLow,
+    Low,
+    Medium,
+    High,
+    VeryHigh,
+    Critical,
+}
+
+/// Risk management configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskManagementConfig {
+    pub max_portfolio_risk_percentage: f64,
+    pub max_single_position_risk_percentage: f64,
+    pub enable_stop_loss: bool,
+    pub enable_take_profit: bool,
+    pub enable_trailing_stop: bool,
+    pub correlation_limit: f64,
+    pub volatility_threshold: f64,
+    pub max_position_size_usd: f64,
+    pub min_risk_reward_ratio: f64,
+    pub default_stop_loss_percentage: f64,
+    pub default_take_profit_percentage: f64,
+    pub max_total_exposure_usd: f64,
+    pub max_positions_per_exchange: u32,
+    pub max_positions_per_pair: u32,
+}
+
+/// Position optimization result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionOptimizationResult {
+    pub position_id: String,
+    pub current_score: f64,
+    pub optimized_score: f64,
+    pub recommended_actions: Vec<PositionAction>,
+    pub risk_assessment: RiskAssessment,
+    pub expected_improvement: f64,
+    pub confidence_level: f64,
+    pub recommended_action: PositionAction,
+    pub reasoning: String,
+    pub suggested_stop_loss: Option<f64>,
+    pub suggested_take_profit: Option<f64>,
+    pub timestamp: u64,
+}
+
+/// Detailed chat context for Telegram interactions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetailedChatContext {
+    pub chat_id: i64,
+    pub chat_type: String, // "private", "group", "supergroup", "channel"
+    pub user_id: Option<String>,
+    pub username: Option<String>,
+    pub is_group: bool,
+    pub member_count: Option<u32>,
+}
+
+/// Delivery status for opportunity distribution
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryStatus {
+    Pending,
+    Sent,
+    Delivered,
+    Failed,
+    RateLimited,
+    UserInactive,
+}
+
+/// User opportunity distribution tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserOpportunityDistribution {
+    pub user_id: String,
+    pub opportunity_id: String,
+    pub distributed_at: u64,
+    pub delivery_status: DeliveryStatus,
+    pub delay_applied_seconds: u64,
+    pub access_level: UserAccessLevel,
+    // Missing fields that need to be added
+    pub last_opportunity_received: Option<u64>,
+    pub total_opportunities_received: u32,
+    pub opportunities_today: u32,
+    pub last_daily_reset: u64,
+    pub priority_weight: f64,
+    pub is_eligible: bool,
+}
+
+/// Fairness configuration for opportunity distribution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FairnessConfig {
+    pub enable_delay_for_free_users: bool,
+    pub free_user_delay_seconds: u64,
+    pub max_opportunities_per_user_per_hour: u32,
+    pub prioritize_subscription_users: bool,
+    pub enable_round_robin: bool,
+}
+
+impl Default for FairnessConfig {
+    fn default() -> Self {
+        Self {
+            enable_delay_for_free_users: true,
+            free_user_delay_seconds: 300, // 5 minutes
+            max_opportunities_per_user_per_hour: 2,
+            prioritize_subscription_users: true,
+            enable_round_robin: true,
+        }
+    }
+}
+
+/// Global opportunity configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalOpportunityConfig {
+    pub enabled: bool,
+    pub max_opportunities_per_batch: u32,
+    pub batch_interval_seconds: u32,
+    pub min_rate_difference: f64,
+    pub max_age_minutes: u32,
+    pub ai_enhancement_enabled: bool,
+    pub distribution_strategy: DistributionStrategy,
+    // Missing fields that need to be added
+    pub min_threshold: f64,
+    pub max_threshold: f64,
+    pub monitored_exchanges: Vec<ExchangeIdEnum>,
+    pub monitored_pairs: Vec<String>,
+    pub fairness_config: FairnessConfig,
+    pub max_queue_size: u32,
+    pub opportunity_ttl_minutes: u32,
+}
+
+/// Queue status
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueStatus {
+    Pending,
+    Processing,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// Opportunity queue for managing distribution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpportunityQueue {
+    pub id: String,
+    pub opportunities: Vec<GlobalOpportunity>,
+    pub created_at: u64,
+    pub scheduled_for: u64,
+    pub status: QueueStatus,
+    pub target_users: Vec<String>,
+    pub distribution_strategy: DistributionStrategy,
+    // Missing fields that need to be added
+    pub updated_at: u64,
+    pub total_distributed: u32,
+    pub active_users: u32,
+}
+
+/// Trading analytics for user performance tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TradingAnalytics {
+    pub user_id: String,
+    pub total_trades: u32,
+    pub successful_trades: u32,
+    pub total_pnl_usdt: f64,
+    pub best_trade_pnl: f64,
+    pub worst_trade_pnl: f64,
+    pub average_trade_size: f64,
+    pub total_volume_traded: f64,
+    pub win_rate_percentage: f64,
+    pub average_holding_time_hours: f64,
+    pub risk_score: f64,
+    pub last_updated: u64,
+    // Missing fields that need to be added
+    pub analytics_id: String,
+    pub metric_type: String,
+    pub metric_value: f64,
+    pub metric_data: serde_json::Value,
+    pub exchange_id: Option<String>,
+    pub trading_pair: Option<String>,
+    pub opportunity_type: Option<String>,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub session_id: Option<String>,
+    pub analytics_metadata: serde_json::Value,
+}
+
+/// User invitation structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInvitation {
+    pub invitation_code: String,
+    pub invited_user_id: String,
+    pub invited_by: Option<String>,
+    pub used_at: u64,
+    pub invitation_metadata: Option<serde_json::Value>,
+    // Missing fields that need to be added
+    pub invitation_id: String,
+    pub inviter_user_id: String,
+    pub invitee_identifier: String,
+    pub invitation_type: String,
+    pub status: String,
+    pub message: Option<String>,
+    pub invitation_data: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub accepted_at: Option<chrono::DateTime<chrono::Utc>>,
 }

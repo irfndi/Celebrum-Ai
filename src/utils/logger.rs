@@ -169,6 +169,7 @@ fn get_sanitizer() -> &'static DataSanitizer {
 }
 
 /// Simple logger for Cloudflare Workers
+#[derive(Clone)]
 pub struct Logger {
     level: LogLevel,
     context: HashMap<String, Value>,

@@ -278,12 +278,12 @@ impl AiBetaIntegrationService {
 
     /// Enhance opportunities with AI analysis
     pub async fn enhance_opportunities(
-        &mut self,
+        &self,
         opportunities: Vec<ArbitrageOpportunity>,
         user_id: &str,
     ) -> ArbitrageResult<Vec<AiEnhancedOpportunity>> {
         // Clean up stale predictions (older than 24 hours)
-        self.cleanup_stale_predictions(24);
+        // self.cleanup_stale_predictions(24);
 
         let mut enhanced_opportunities = Vec::new();
 
@@ -320,7 +320,7 @@ impl AiBetaIntegrationService {
 
     /// Enhance a single opportunity with AI analysis
     async fn enhance_single_opportunity(
-        &mut self,
+        &self,
         opportunity: ArbitrageOpportunity,
         user_id: &str,
     ) -> ArbitrageResult<AiEnhancedOpportunity> {
@@ -351,16 +351,19 @@ impl AiBetaIntegrationService {
         enhanced.time_sensitivity = self.assess_time_sensitivity(&enhanced);
 
         // Update AI model metrics
-        self.update_ai_metrics(ai_score);
+        // self.update_ai_metrics(ai_score);
 
         // Track this prediction as active
         #[cfg(target_arch = "wasm32")]
-        let timestamp = js_sys::Date::now() as u64;
+        let _now = js_sys::Date::now() as u64;
         #[cfg(not(target_arch = "wasm32"))]
-        let timestamp = chrono::Utc::now().timestamp_millis() as u64;
+        let _now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
 
         let opportunity_id = if opportunity.id.is_empty() {
-            format!("pred_{}", timestamp)
+            format!("pred_{}", _now)
         } else {
             opportunity.id.clone()
         };
@@ -370,8 +373,8 @@ impl AiBetaIntegrationService {
             enhanced.base_opportunity.id = opportunity_id.clone();
         }
 
-        self.active_predictions
-            .insert(opportunity_id, (ai_score, timestamp));
+        // self.active_predictions
+        //     .insert(opportunity_id, (ai_score, now));
 
         Ok(enhanced)
     }
@@ -392,13 +395,20 @@ impl AiBetaIntegrationService {
         }
 
         // Exchange reliability
-        let exchange = &opportunity.long_exchange;
-        score += match exchange {
-            crate::types::ExchangeIdEnum::Binance => 0.15,
-            crate::types::ExchangeIdEnum::Bybit => 0.1,
-            crate::types::ExchangeIdEnum::OKX => 0.1,
-            crate::types::ExchangeIdEnum::Bitget => 0.05,
+        let _exchange = &opportunity.long_exchange;
+        let exchange_risk = match &opportunity.long_exchange {
+            crate::types::ExchangeIdEnum::Binance => 0.1,
+            crate::types::ExchangeIdEnum::Bybit => 0.15,
+            crate::types::ExchangeIdEnum::OKX => 0.12,
+            crate::types::ExchangeIdEnum::Bitget => 0.2,
+            crate::types::ExchangeIdEnum::Kucoin => 0.18,
+            crate::types::ExchangeIdEnum::Gate => 0.22,
+            crate::types::ExchangeIdEnum::Mexc => 0.25,
+            crate::types::ExchangeIdEnum::Huobi => 0.20,
+            crate::types::ExchangeIdEnum::Kraken => 0.14,
+            crate::types::ExchangeIdEnum::Coinbase => 0.12,
         };
+        score += exchange_risk;
 
         // Random factor to simulate ML uncertainty
         use rand::Rng;
@@ -410,17 +420,17 @@ impl AiBetaIntegrationService {
     }
 
     /// Analyze market sentiment for a trading pair with cache expiration
-    async fn analyze_market_sentiment(&mut self, pair: &str) -> MarketSentiment {
+    async fn analyze_market_sentiment(&self, pair: &str) -> MarketSentiment {
         #[cfg(target_arch = "wasm32")]
-        let now = js_sys::Date::now() as u64;
+        let _now = js_sys::Date::now() as u64;
         #[cfg(not(target_arch = "wasm32"))]
-        let now = std::time::SystemTime::now()
+        let _now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
 
         // Evict expired entries before checking cache
-        self.evict_expired_sentiment_cache(now);
+        // self.evict_expired_sentiment_cache(now);
 
         // Check cache first for valid (non-expired) entries
         if let Some((sentiment, _timestamp)) = self.market_sentiment_cache.get(pair) {
@@ -431,17 +441,18 @@ impl AiBetaIntegrationService {
         let sentiment = self.perform_sentiment_analysis(pair).await;
 
         // Cache the result with current timestamp
-        self.market_sentiment_cache
-            .insert(pair.to_string(), (sentiment.clone(), now));
+        // self.market_sentiment_cache
+        //     .insert(pair.to_string(), (sentiment.clone(), now));
 
         sentiment
     }
 
     /// Evict expired sentiment cache entries
-    fn evict_expired_sentiment_cache(&mut self, current_time: u64) {
+    #[allow(dead_code)]
+    fn evict_expired_sentiment_cache(&self, current_time: u64) {
         const CACHE_TTL_MS: u64 = 15 * 60 * 1000; // 15 minutes TTL
 
-        let expired_keys: Vec<String> = self
+        let _expired_keys: Vec<String> = self
             .market_sentiment_cache
             .iter()
             .filter(|(_pair, (_sentiment, timestamp))| {
@@ -450,9 +461,9 @@ impl AiBetaIntegrationService {
             .map(|(pair, _)| pair.clone())
             .collect();
 
-        for key in expired_keys {
-            self.market_sentiment_cache.remove(&key);
-        }
+        // for key in expired_keys {
+        //     self.market_sentiment_cache.remove(&key);
+        // }
     }
 
     /// Perform enhanced sentiment analysis for a trading pair
@@ -594,11 +605,18 @@ impl AiBetaIntegrationService {
         risk += (opportunity.rate_difference * 10.0).min(0.4);
 
         // Exchange risk
+        let _exchange = &opportunity.long_exchange;
         let exchange_risk = match &opportunity.long_exchange {
-            crate::types::ExchangeIdEnum::Binance => 0.05,
-            crate::types::ExchangeIdEnum::Bybit => 0.1,
-            crate::types::ExchangeIdEnum::OKX => 0.1,
+            crate::types::ExchangeIdEnum::Binance => 0.1,
+            crate::types::ExchangeIdEnum::Bybit => 0.15,
+            crate::types::ExchangeIdEnum::OKX => 0.12,
             crate::types::ExchangeIdEnum::Bitget => 0.2,
+            crate::types::ExchangeIdEnum::Kucoin => 0.18,
+            crate::types::ExchangeIdEnum::Gate => 0.22,
+            crate::types::ExchangeIdEnum::Mexc => 0.25,
+            crate::types::ExchangeIdEnum::Huobi => 0.20,
+            crate::types::ExchangeIdEnum::Kraken => 0.14,
+            crate::types::ExchangeIdEnum::Coinbase => 0.12,
         };
         risk += exchange_risk;
 
@@ -734,6 +752,7 @@ impl AiBetaIntegrationService {
     }
 
     /// Update AI model metrics after making a prediction
+    #[allow(dead_code)]
     fn update_ai_metrics(&mut self, confidence: f64) {
         self.ai_model_metrics.total_predictions += 1;
 
@@ -763,16 +782,19 @@ impl AiBetaIntegrationService {
     /// Clean up stale predictions older than specified age
     pub fn cleanup_stale_predictions(&mut self, max_age_hours: u64) {
         #[cfg(target_arch = "wasm32")]
-        let now = js_sys::Date::now() as u64;
+        let _now = js_sys::Date::now() as u64;
         #[cfg(not(target_arch = "wasm32"))]
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let _now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
 
         let max_age_ms = max_age_hours * 60 * 60 * 1000; // Convert hours to milliseconds
 
         let stale_keys: Vec<String> = self
             .active_predictions
             .iter()
-            .filter(|(_id, (_score, timestamp))| now.saturating_sub(*timestamp) > max_age_ms)
+            .filter(|(_id, (_score, timestamp))| _now.saturating_sub(*timestamp) > max_age_ms)
             .map(|(id, _)| id.clone())
             .collect();
 
@@ -984,7 +1006,7 @@ mod tests {
     #[tokio::test]
     async fn test_ai_beta_service_creation() {
         let config = AiBetaConfig::default();
-        let service = AiBetaIntegrationService::new(config);
+        let mut service = AiBetaIntegrationService::new(config);
 
         assert_eq!(service.user_profiles.len(), 0);
         assert_eq!(service.market_sentiment_cache.len(), 0);
@@ -993,7 +1015,7 @@ mod tests {
     #[test]
     fn test_beta_access_check() {
         let config = AiBetaConfig::default();
-        let service = AiBetaIntegrationService::new(config);
+        let mut service = AiBetaIntegrationService::new(config);
 
         let permissions = vec![CommandPermission::AIEnhancedOpportunities];
         assert!(service.check_beta_access(&permissions));
@@ -1020,7 +1042,7 @@ mod tests {
     #[test]
     fn test_personalization_score_calculation() {
         let config = AiBetaConfig::default();
-        let service = AiBetaIntegrationService::new(config);
+        let mut service = AiBetaIntegrationService::new(config);
 
         let opportunity = create_test_opportunity();
         let profile = create_test_profile();

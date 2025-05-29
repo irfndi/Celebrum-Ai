@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::services::core::analysis::market_analysis::{MathUtils, PriceSeries};
-use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
+use crate::services::core::infrastructure::data_ingestion_module::DataIngestionModule;
 use crate::services::core::user::user_trading_preferences::{TradingFocus, UserTradingPreferences};
 use crate::utils::{logger::Logger, ArbitrageResult};
 
@@ -103,7 +103,7 @@ pub struct LeadershipAnalysisEvent {
 
 pub struct CorrelationAnalysisService {
     config: CorrelationAnalysisConfig,
-    pipelines_service: Option<CloudflarePipelinesService>, // For historical data consumption and results storage
+    pipelines_service: Option<DataIngestionModule>, // For historical data consumption and results storage
     logger: Logger,
 }
 
@@ -117,7 +117,7 @@ impl CorrelationAnalysisService {
     }
 
     /// Set pipelines service for historical data consumption and results storage
-    pub fn set_pipelines_service(&mut self, pipelines_service: CloudflarePipelinesService) {
+    pub fn set_pipelines_service(&mut self, pipelines_service: DataIngestionModule) {
         self.pipelines_service = Some(pipelines_service);
     }
 

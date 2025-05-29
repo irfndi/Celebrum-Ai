@@ -5,10 +5,11 @@ use crate::services::{
     core::analysis::market_analysis::{
         OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,
     },
+    core::infrastructure::DatabaseManager,
     core::user::user_trading_preferences::{
         ExperienceLevel, RiskTolerance, TradingFocus, UserTradingPreferences,
     },
-    D1Service, UserTradingPreferencesService,
+    UserTradingPreferencesService,
 };
 use crate::utils::{logger::Logger, ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
@@ -253,6 +254,30 @@ pub struct UserOpportunityPreferences {
     pub updated_at: u64,
 }
 
+impl UserOpportunityPreferences {
+    /// Create default preferences for a user
+    pub fn default_for_user(user_id: String) -> Self {
+        Self {
+            user_id,
+            enabled_categories: vec![
+                OpportunityCategory::LowRiskArbitrage,
+                OpportunityCategory::HighConfidenceArbitrage,
+            ],
+            alert_configs: vec![],
+            global_alert_settings: GlobalAlertSettings::default(),
+            personalization_settings: PersonalizationSettings::default(),
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            updated_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }
+    }
+}
+
 /// Global alert settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalAlertSettings {
@@ -309,7 +334,7 @@ impl Default for PersonalizationSettings {
 
 /// Main opportunity categorization service
 pub struct OpportunityCategorizationService {
-    d1_service: D1Service,
+    d1_service: DatabaseManager,
     preferences_service: UserTradingPreferencesService,
     logger: Logger,
     // Cache for user preferences to avoid repeated DB calls (using Arc<Mutex<>> for thread safety)
@@ -318,7 +343,7 @@ pub struct OpportunityCategorizationService {
 
 impl OpportunityCategorizationService {
     pub fn new(
-        d1_service: D1Service,
+        d1_service: DatabaseManager,
         preferences_service: UserTradingPreferencesService,
         logger: Logger,
     ) -> Self {
@@ -466,18 +491,24 @@ impl OpportunityCategorizationService {
             .get_user_opportunity_preferences(user_id)
             .await?
         {
-            Some(prefs) => prefs,
+            Some(prefs) => {
+                // Convert serde_json::Value to UserOpportunityPreferences
+                serde_json::from_value::<UserOpportunityPreferences>(prefs).map_err(|e| {
+                    ArbitrageError::parse_error(format!("Failed to parse user preferences: {}", e))
+                })?
+            }
             None => {
-                // Create default preferences based on user's trading preferences if not found
-                let user_prefs = self
-                    .preferences_service
-                    .get_or_create_preferences(user_id)
-                    .await?;
+                // Create default preferences
                 let default_prefs =
-                    self.create_default_opportunity_preferences(user_id, &user_prefs);
+                    UserOpportunityPreferences::default_for_user(user_id.to_string());
 
-                // Store default preferences in database for future use
-                self.update_user_opportunity_preferences(&default_prefs)
+                // Store default preferences in database
+                let preferences_value = serde_json::to_value(&default_prefs).map_err(|e| {
+                    ArbitrageError::parse_error(format!("Failed to serialize preferences: {}", e))
+                })?;
+
+                self.d1_service
+                    .store_user_opportunity_preferences(&default_prefs.user_id, &preferences_value)
                     .await?;
 
                 default_prefs
@@ -545,8 +576,8 @@ impl OpportunityCategorizationService {
         &self,
         preferences: &UserOpportunityPreferences,
     ) -> ArbitrageResult<()> {
-        // Store preferences in D1 database
-        let preferences_json = serde_json::to_string(preferences).map_err(|e| {
+        // Serialize preferences to JSON
+        let preferences_value = serde_json::to_value(preferences).map_err(|e| {
             ArbitrageError::parse_error(format!(
                 "Failed to serialize opportunity preferences: {}",
                 e
@@ -555,7 +586,7 @@ impl OpportunityCategorizationService {
 
         // Store in database using D1Service
         self.d1_service
-            .store_user_opportunity_preferences(&preferences.user_id, &preferences_json)
+            .store_user_opportunity_preferences(&preferences.user_id, &preferences_value)
             .await?;
 
         // Update cache with new preferences

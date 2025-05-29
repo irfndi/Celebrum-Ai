@@ -1,6 +1,6 @@
 // src/services/user_profile.rs
 
-use crate::services::D1Service;
+use crate::services::core::infrastructure::DatabaseManager;
 use crate::types::{ExchangeIdEnum, InvitationCode, UserApiKey, UserProfile, UserSession};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use worker::console_log;
@@ -9,12 +9,12 @@ use worker::kv::KvStore;
 
 pub struct UserProfileService {
     kv_store: KvStore,
-    d1_service: D1Service,
+    d1_service: DatabaseManager,
     encryption_key: String, // For encrypting API keys
 }
 
 impl UserProfileService {
-    pub fn new(kv_store: KvStore, d1_service: D1Service, encryption_key: String) -> Self {
+    pub fn new(kv_store: KvStore, d1_service: DatabaseManager, encryption_key: String) -> Self {
         Self {
             kv_store,
             d1_service,
@@ -103,8 +103,12 @@ impl UserProfileService {
         updated_profile.updated_at = chrono::Utc::now().timestamp_millis() as u64;
 
         // Update in D1 (persistent storage)
+        let profile_data = serde_json::to_value(&updated_profile).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize profile: {}", e))
+        })?;
+
         self.d1_service
-            .update_user_profile(&updated_profile)
+            .update_user_profile(&updated_profile.user_id, &profile_data)
             .await?;
 
         // Invalidate cache
@@ -224,7 +228,27 @@ impl UserProfileService {
             }
         }
 
-        self.d1_service.execute(query, params).await
+        let params: Vec<worker::wasm_bindgen::JsValue> = params
+            .iter()
+            .map(|v| match v {
+                serde_json::Value::String(s) => worker::wasm_bindgen::JsValue::from(s.as_str()),
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        worker::wasm_bindgen::JsValue::from(i as f64)
+                    } else if let Some(f) = n.as_f64() {
+                        worker::wasm_bindgen::JsValue::from(f)
+                    } else {
+                        worker::wasm_bindgen::JsValue::from(0.0)
+                    }
+                }
+                serde_json::Value::Bool(b) => worker::wasm_bindgen::JsValue::from(*b),
+                serde_json::Value::Null => worker::wasm_bindgen::JsValue::NULL,
+                _ => worker::wasm_bindgen::JsValue::from(v.to_string().as_str()),
+            })
+            .collect();
+
+        self.d1_service.execute(query, &params).await?;
+        Ok(())
     }
 
     /// Execute a write operation (INSERT, UPDATE, DELETE) on the D1 database
@@ -260,7 +284,27 @@ impl UserProfileService {
             }
         }
 
-        self.d1_service.execute(query, params).await
+        let params: Vec<worker::wasm_bindgen::JsValue> = params
+            .iter()
+            .map(|v| match v {
+                serde_json::Value::String(s) => worker::wasm_bindgen::JsValue::from(s.as_str()),
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        worker::wasm_bindgen::JsValue::from(i as f64)
+                    } else if let Some(f) = n.as_f64() {
+                        worker::wasm_bindgen::JsValue::from(f)
+                    } else {
+                        worker::wasm_bindgen::JsValue::from(0.0)
+                    }
+                }
+                serde_json::Value::Bool(b) => worker::wasm_bindgen::JsValue::from(*b),
+                serde_json::Value::Null => worker::wasm_bindgen::JsValue::NULL,
+                _ => worker::wasm_bindgen::JsValue::from(v.to_string().as_str()),
+            })
+            .collect();
+
+        self.d1_service.execute(query, &params).await?;
+        Ok(())
     }
 
     // Session Management (KV only for fast access)
