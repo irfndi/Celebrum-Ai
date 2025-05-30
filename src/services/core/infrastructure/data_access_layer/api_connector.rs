@@ -116,8 +116,10 @@ pub struct ExchangeConfig {
 
 impl ExchangeConfig {
     pub fn new(exchange_type: ExchangeType) -> Self {
-        let mut rate_limit = RateLimitConfig::default();
-        rate_limit.requests_per_minute = exchange_type.default_rate_limit_per_minute();
+        let rate_limit = RateLimitConfig {
+            requests_per_minute: exchange_type.default_rate_limit_per_minute(),
+            ..Default::default()
+        };
 
         Self {
             base_url: exchange_type.base_url().to_string(),
@@ -336,8 +338,9 @@ impl RateLimiter {
         }
 
         // Check rate limit
-        let max_requests_in_window =
-            self.config.requests_per_minute * (self.config.window_size_seconds as u32) / 60;
+        let max_requests_in_window = (((self.config.requests_per_minute as f64)
+            * (self.config.window_size_seconds as f64 / 60.0))
+            .ceil()) as u32;
         if requests_in_window >= max_requests_in_window {
             return false;
         }
@@ -488,7 +491,7 @@ pub struct APIConnector {
 
 impl APIConnector {
     /// Create new APIConnector instance
-    pub fn new(mut config: APIConnectorConfig) -> ArbitrageResult<Self> {
+    pub fn new(config: APIConnectorConfig) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
         // Validate configuration
@@ -536,15 +539,19 @@ impl APIConnector {
 
         // Initialize health status
         if let Ok(mut health) = self.health_status.lock() {
-            let mut status = APIHealth::default();
-            status.exchange = exchange_type.clone();
+            let status = APIHealth {
+                exchange: exchange_type.clone(),
+                ..Default::default()
+            };
             health.insert(exchange_type.clone(), status);
         }
 
         // Initialize metrics
         if let Ok(mut metrics) = self.metrics.lock() {
-            let mut metric = APIMetrics::default();
-            metric.exchange = exchange_type.clone();
+            let metric = APIMetrics {
+                exchange: exchange_type.clone(),
+                ..Default::default()
+            };
             metrics.insert(exchange_type, metric);
         }
 
@@ -588,6 +595,7 @@ impl APIConnector {
 
                     // For now, we'll return an error instead of actually waiting
                     // In a real implementation, you might want to implement async waiting
+                    self.decrement_active_requests().await;
                     return Err(ArbitrageError::parse_error(format!(
                         "Rate limited, wait {} seconds",
                         wait_time
@@ -620,8 +628,7 @@ impl APIConnector {
                         ));
 
                         // Exponential backoff
-                        let _backoff_ms = (2_u64.pow(attempt as u32) * 1000).min(30000); // Max 30 seconds
-                                                                                         // In a real implementation, you would implement async sleep here
+                        let _backoff_seconds = (2.0_f64.powf(attempt as f64)).clamp(1.0, 60.0);
                         continue;
                     } else {
                         self.record_failure(&request.exchange, start_time, &e).await;
@@ -869,15 +876,13 @@ impl APIConnector {
                         metric.successful_requests as f32 / metric.total_requests as f32 * 100.0;
 
                     // Update specific error counters
-                    match error {
-                        ArbitrageError {
-                            kind: crate::utils::error::ErrorKind::NetworkError,
-                            ..
-                        } => metric.timeout_requests += 1,
-                        _ => {}
+                    if let ArbitrageError {
+                        kind: crate::utils::error::ErrorKind::NetworkError,
+                        ..
+                    } = error
+                    {
+                        metric.timeout_requests += 1
                     }
-
-                    metric.last_updated = end_time;
                 }
             }
         }

@@ -3,7 +3,9 @@
 
 use super::{utils::*, Repository, RepositoryConfig, RepositoryHealth, RepositoryMetrics};
 use crate::services::core::user::user_trading_preferences::UserTradingPreferences;
-use crate::types::{UserApiKey, UserProfile};
+use crate::types::{
+    RiskProfile, SubscriptionTier, UserAccessLevel, UserApiKey, UserPreferences, UserProfile,
+};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -497,11 +499,11 @@ impl UserRepository {
             JsValue::from_f64(profile.telegram_user_id.unwrap_or(0) as f64),
             profile.telegram_username.clone().unwrap_or_default().into(),
             api_keys_json.into(),
-            subscription_json.into(),
-            configuration_json.into(),
+            configuration_json.into(), // write to configuration
+            subscription_json.into(),  // write to trading_preferences
             (profile.created_at as i64).into(),
             (profile.updated_at as i64).into(),
-            (profile.last_active as i64).into(),
+            (profile.last_active.unwrap_or(0) as i64).into(),
             if profile.is_active {
                 "active"
             } else {
@@ -582,21 +584,29 @@ impl UserRepository {
         Ok(UserProfile {
             user_id,
             telegram_user_id: Some(telegram_user_id),
-            telegram_username,
-            subscription: serde_json::from_value(subscription).unwrap_or_default(),
+            username: telegram_username.clone(),
+            email: None, // Email not stored in this table
+            subscription_tier: serde_json::from_value(subscription.clone())
+                .unwrap_or(SubscriptionTier::Free),
+            access_level: UserAccessLevel::Free, // Default access level
+            is_active,
+            created_at,
+            last_login: Some(last_active),
+            preferences: UserPreferences::default(),
+            risk_profile: RiskProfile::default(),
             configuration: serde_json::from_value(configuration).unwrap_or_default(),
             api_keys: Vec::new(), // Will be populated separately
             invitation_code: get_optional_string_field(&row, "invitation_code"),
             beta_expires_at,
-            created_at,
             updated_at,
-            last_active,
-            is_active,
+            last_active: Some(last_active),
             total_trades: get_i64_field(&row, "total_trades", 0) as u32,
             total_pnl_usdt: get_f64_field(&row, "total_pnl_usdt", 0.0),
             account_balance_usdt,
-            profile_metadata: get_optional_string_field(&row, "profile_metadata")
-                .map(|s| serde_json::from_str(&s).unwrap_or_default()),
+            profile_metadata: get_optional_string_field(&row, "profile_metadata"),
+            telegram_username,
+            subscription: serde_json::from_value(subscription).unwrap_or_default(),
+            group_admin_roles: Vec::new(), // Will be populated separately
         })
     }
 
@@ -660,9 +670,16 @@ impl UserRepository {
                 ArbitrageError::parse_error(format!("Failed to serialize profile for cache: {}", e))
             })?;
 
-            cache.put(&cache_key, &profile_json).map_err(|e| {
-                ArbitrageError::cache_error(format!("Failed to cache profile: {}", e))
-            })?;
+            cache
+                .put(&cache_key, &profile_json)
+                .map_err(|e| {
+                    ArbitrageError::cache_error(format!("Failed to cache profile: {}", e))
+                })?
+                .execute()
+                .await
+                .map_err(|e| {
+                    ArbitrageError::cache_error(format!("Failed to execute cache put: {}", e))
+                })?;
         }
         Ok(())
     }
@@ -875,22 +892,30 @@ mod tests {
         let repo = UserRepository::new(db, config);
 
         let mut profile = UserProfile {
-            user_id: "test_user".to_string(),
-            telegram_user_id: Some(123456),
-            telegram_username: Some("test_user".to_string()),
-            subscription: serde_json::Value::Null,
-            configuration: serde_json::Value::Null,
+            user_id: "test_user_123".to_string(),
+            telegram_user_id: Some(123456789),
+            username: Some("testuser".to_string()),
+            email: Some("test@example.com".to_string()),
+            subscription_tier: SubscriptionTier::Free,
+            access_level: UserAccessLevel::Registered,
+            is_active: true,
+            created_at: current_timestamp_ms(),
+            last_login: None,
+            preferences: UserPreferences::default(),
+            risk_profile: RiskProfile::default(),
+            subscription: UserSubscription::default(),
+            configuration: UserConfiguration::default(),
             api_keys: Vec::new(),
             invitation_code: None,
             beta_expires_at: None,
-            created_at: current_timestamp_ms(),
             updated_at: current_timestamp_ms(),
-            last_active: current_timestamp_ms(),
-            is_active: true,
+            last_active: Some(current_timestamp_ms()),
             total_trades: 0,
             total_pnl_usdt: 0.0,
-            account_balance_usdt: 100.0,
+            account_balance_usdt: 0.0,
             profile_metadata: None,
+            telegram_username: Some("testuser".to_string()),
+            group_admin_roles: Vec::new(),
         };
 
         assert!(repo.validate_user_profile(&profile).is_ok());
@@ -898,7 +923,7 @@ mod tests {
         profile.user_id = "".to_string();
         assert!(repo.validate_user_profile(&profile).is_err());
 
-        profile.user_id = "test_user".to_string();
+        profile.user_id = "test_user_123".to_string();
         profile.account_balance_usdt = -10.0;
         assert!(repo.validate_user_profile(&profile).is_err());
     }

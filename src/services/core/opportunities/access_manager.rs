@@ -191,10 +191,13 @@ impl AccessManager {
                 };
 
                 let credentials = ExchangeCredentials {
+                    exchange: exchange_id,
                     api_key: api_key.encrypted_key.clone(),
+                    api_secret: api_key.encrypted_secret.clone().unwrap_or_default(),
                     secret: api_key.encrypted_secret.clone().unwrap_or_default(),
-                    passphrase: None,    // Extract from metadata if needed
-                    default_leverage: 1, // Default value
+                    passphrase: api_key.passphrase.clone(),
+                    sandbox: api_key.is_testnet,
+                    default_leverage: 1,               // Default value
                     exchange_type: "spot".to_string(), // Default to spot
                 };
                 exchanges.push((exchange_id, credentials));
@@ -202,7 +205,7 @@ impl AccessManager {
         }
 
         // Cache the result
-        let _ = self.cache_exchanges(&cache_key, &exchanges).await;
+        self.cache_exchanges(&cache_key, &exchanges).await;
 
         log_info!(
             "Retrieved user exchange APIs",
@@ -232,7 +235,7 @@ impl AccessManager {
         let exchanges = self.get_user_exchange_apis(group_admin_id).await?;
 
         // Cache the result
-        let _ = self.cache_exchanges(&cache_key, &exchanges).await;
+        self.cache_exchanges(&cache_key, &exchanges).await;
 
         log_info!(
             "Retrieved group admin exchange APIs",
@@ -262,15 +265,24 @@ impl AccessManager {
             SubscriptionTier::Free => {
                 opportunities.truncate(2); // Free users get limited opportunities
             }
-            SubscriptionTier::Basic => {
-                opportunities.truncate(5); // Basic users get more opportunities
+            SubscriptionTier::Paid => {
+                // Paid tier - enhanced opportunities with BYOK
+                opportunities.truncate(7); // More opportunities for paid users
             }
-            SubscriptionTier::Pro
-            | SubscriptionTier::Admin
-            | SubscriptionTier::Premium
-            | SubscriptionTier::Enterprise
-            | SubscriptionTier::SuperAdmin => {
-                // Premium+ users get all opportunities (no filtering)
+            SubscriptionTier::Admin | SubscriptionTier::SuperAdmin => {
+                // Admin tiers - full access (no truncation)
+            }
+            SubscriptionTier::Basic => {
+                opportunities.truncate(2); // Basic tier gets limited opportunities
+            }
+            SubscriptionTier::Premium => {
+                opportunities.truncate(5); // Premium tier gets more opportunities
+            }
+            SubscriptionTier::Pro => {
+                opportunities.truncate(8); // Pro tier gets many opportunities
+            }
+            SubscriptionTier::Enterprise => {
+                // Enterprise tier - full access (no truncation)
             }
         }
 
@@ -334,13 +346,13 @@ impl AccessManager {
                 // Convert AIAccessLevel to UserAccessLevel
                 let ai_level = profile.get_ai_access_level();
                 let user_level = match ai_level {
-                    crate::types::AIAccessLevel::FreeWithoutAI { .. } => {
-                        UserAccessLevel::FreeWithoutAPI
-                    }
-                    crate::types::AIAccessLevel::FreeWithAI { .. } => UserAccessLevel::FreeWithAPI,
-                    crate::types::AIAccessLevel::SubscriptionWithAI { .. } => {
+                    crate::types::AIAccessLevel::FreeWithoutAI => UserAccessLevel::FreeWithoutAPI,
+                    crate::types::AIAccessLevel::FreeWithAI => UserAccessLevel::FreeWithAPI,
+                    crate::types::AIAccessLevel::SubscriptionWithAI => {
                         UserAccessLevel::SubscriptionWithAPI
                     }
+                    crate::types::AIAccessLevel::PremiumAI => UserAccessLevel::Premium,
+                    crate::types::AIAccessLevel::EnterpriseAI => UserAccessLevel::Admin,
                 };
                 Ok(user_level)
             }
@@ -357,15 +369,13 @@ impl AccessManager {
     ) -> ArbitrageResult<()> {
         match opportunity_type {
             "arbitrage" => {
-                let _ = self
-                    .user_access_service
+                self.user_access_service
                     .record_arbitrage_opportunity_received(user_id, chat_context)
                     .await?;
                 Ok(())
             }
             "technical" => {
-                let _ = self
-                    .user_access_service
+                self.user_access_service
                     .record_technical_opportunity_received(user_id, chat_context)
                     .await?;
                 Ok(())
@@ -439,47 +449,40 @@ impl ExchangeIdEnum {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{SubscriptionInfo, UserApiKey, UserConfiguration, UserProfile};
-    use chrono::Utc;
+    use crate::types::{UserApiKey, UserConfiguration, UserProfile, UserSubscription};
 
     fn create_test_user_profile(user_id: &str, tier: SubscriptionTier) -> UserProfile {
         UserProfile {
             user_id: user_id.to_string(),
-            telegram_user_id: Some(12345),
-            telegram_username: Some("testuser".to_string()),
-            subscription: SubscriptionInfo {
+            telegram_user_id: Some(123456789),
+            username: Some("testuser".to_string()),
+            email: Some("test@example.com".to_string()),
+            subscription_tier: tier.clone(),
+            access_level: UserAccessLevel::Registered,
+            is_active: true,
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            last_login: None,
+            preferences: crate::types::UserPreferences::default(),
+            risk_profile: crate::types::RiskProfile::default(),
+            subscription: UserSubscription {
                 tier,
                 is_active: true,
-                expires_at: None,
-                created_at: Utc::now().timestamp_millis() as u64,
                 features: vec!["basic_features".to_string()],
+                expires_at: None,
+                auto_renew: false,
             },
             configuration: UserConfiguration::default(),
-            api_keys: vec![UserApiKey {
-                id: "test_key_1".to_string(),
-                user_id: user_id.to_string(),
-                provider: crate::types::ApiKeyProvider::Exchange(
-                    crate::types::ExchangeIdEnum::Binance,
-                ),
-                encrypted_key: "test_api_key".to_string(),
-                encrypted_secret: Some("test_secret".to_string()),
-                metadata: serde_json::json!({}),
-                is_active: true,
-                is_read_only: false,
-                created_at: Utc::now().timestamp_millis() as u64,
-                last_used: None,
-                permissions: vec!["read".to_string(), "trade".to_string()],
-            }],
+            api_keys: Vec::new(),
             invitation_code: None,
-            created_at: Utc::now().timestamp_millis() as u64,
-            updated_at: Utc::now().timestamp_millis() as u64,
-            last_active: Utc::now().timestamp_millis() as u64,
-            is_active: true,
+            beta_expires_at: None,
+            updated_at: chrono::Utc::now().timestamp_millis() as u64,
+            last_active: Some(chrono::Utc::now().timestamp_millis() as u64),
             total_trades: 0,
             total_pnl_usdt: 0.0,
-            account_balance_usdt: 10000.0,
+            account_balance_usdt: 0.0,
             profile_metadata: None,
-            beta_expires_at: None,
+            telegram_username: Some("testuser".to_string()),
+            group_admin_roles: Vec::new(),
         }
     }
 

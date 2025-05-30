@@ -418,11 +418,9 @@ impl TechnicalAnalysisService {
             ));
 
             // Real implementation: Send to actual pipelines for storage
+            let data_json = serde_json::to_string(&analysis_result)?;
             match pipelines_service
-                .store_analysis_results(
-                    "technical_analysis",
-                    &serde_json::to_string(&analysis_result)?,
-                )
+                .store_analysis_results("technical_analysis", &data_json)
                 .await
             {
                 Ok(_) => {
@@ -1223,39 +1221,20 @@ impl TechnicalAnalysisService {
 
         // For technical signals, we use the same exchange for both long and short
         // This is a temporary compatibility method - should use TechnicalOpportunity instead
-        match ArbitrageOpportunity::new(
+        let mut opportunity = ArbitrageOpportunity::new(
             signal.pair.clone(),
-            signal.exchange, // Use same exchange for long
-            signal.exchange, // Use same exchange for short (pseudo-arbitrage)
-            Some(signal.current_price),
-            signal.target_price,
-            profit_potential,
-            crate::types::ArbitrageType::CrossExchange, // Closest type for TA signals
-        ) {
-            Ok(opp) => opp.with_details(format!("Technical Analysis: {}", signal.description)),
-            Err(_) => {
-                // Fallback to a valid opportunity if creation fails
-                ArbitrageOpportunity::new(
-                    "BTCUSDT".to_string(), // Fallback pair
-                    signal.exchange,
-                    signal.exchange,
-                    Some(signal.current_price),
-                    signal.target_price,
-                    profit_potential,
-                    crate::types::ArbitrageType::CrossExchange,
-                )
-                .unwrap_or_else(|_| {
-                    // Last resort fallback
-                    ArbitrageOpportunity {
-                        pair: signal.pair.clone(),
-                        long_exchange: signal.exchange,
-                        short_exchange: signal.exchange,
-                        ..Default::default()
-                    }
-                })
-                .with_details(format!("Technical Analysis: {}", signal.description))
-            }
-        }
+            signal.exchange,   // Use same exchange for long
+            signal.exchange,   // Use same exchange for short (pseudo-arbitrage)
+            profit_potential,  // rate_difference
+            1000.0,            // volume (default)
+            signal.confidence, // confidence
+        );
+
+        // Set additional fields
+        opportunity.r#type = crate::types::ArbitrageType::CrossExchange;
+        opportunity.details = Some(format!("Technical Analysis: {}", signal.description));
+
+        opportunity
     }
 
     /// Get technical analysis statistics

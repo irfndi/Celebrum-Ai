@@ -445,7 +445,7 @@ impl UserTradingPreferencesService {
         ));
 
         // Delete from D1 (persistent storage)
-        let _result = self.d1_service.delete_trading_preferences(user_id).await?;
+        self.d1_service.delete_trading_preferences(user_id).await?;
 
         // Invalidate in-memory cache
         self.invalidate_cache(user_id);

@@ -1066,11 +1066,18 @@ impl DeliveryManager {
                 metrics.max_delivery_time_ms = metrics.max_delivery_time_ms.max(duration_f64);
 
                 // Update channel-specific metrics
+                let deliveries_for_channel = metrics
+                    .deliveries_by_channel
+                    .get(&request.channel)
+                    .copied()
+                    .unwrap_or(1);
                 let channel_duration = metrics
                     .avg_delivery_time_by_channel
                     .entry(request.channel.clone())
                     .or_insert(0.0);
-                *channel_duration = (*channel_duration + duration_f64) / 2.0;
+                *channel_duration = (*channel_duration * (deliveries_for_channel as f64 - 1.0)
+                    + duration_f64)
+                    / deliveries_for_channel as f64;
             }
 
             // Update channel metrics

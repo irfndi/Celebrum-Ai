@@ -4,7 +4,7 @@ use crate::types::{
     SessionConfig, SessionOutcome,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use serde_json;
+use serde_json::{self, Value};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use worker::wasm_bindgen::JsValue;
@@ -271,7 +271,7 @@ impl SessionManagementService {
 
         // Update counters
         self.kv_service
-            .put(&hour_key, &(hourly_count + 1).to_string())
+            .put(&hour_key, (hourly_count + 1).to_string())
             .map_err(|e| {
                 ArbitrageError::storage_error(format!("Failed to update hourly count: {}", e))
             })?
@@ -286,7 +286,7 @@ impl SessionManagementService {
             })?;
 
         self.kv_service
-            .put(&day_key, &(daily_count + 1).to_string())
+            .put(&day_key, (daily_count + 1).to_string())
             .map_err(|e| {
                 ArbitrageError::storage_error(format!("Failed to update daily count: {}", e))
             })?
@@ -388,7 +388,8 @@ impl SessionManagementService {
 
         for row in results {
             if let Ok(mut session) = self.row_to_session(row) {
-                session.expire();
+                session.current_state = EnhancedSessionState::Expired;
+                session.update_activity();
                 self.update_session(&session).await?;
                 self.invalidate_session_cache(session.telegram_id).await?;
 
@@ -482,6 +483,7 @@ impl SessionManagementService {
                         commands_executed: 0,
                         opportunities_viewed: 0,
                         trades_executed: 0,
+                        session_duration_seconds: 0,
                         session_duration_ms: 0,
                         last_activity: chrono::Utc::now().timestamp() as u64,
                     });
@@ -713,11 +715,36 @@ impl SessionManagementService {
             created_at,
             updated_at,
             session_analytics: SessionAnalytics {
-                commands_executed: 0,
-                opportunities_viewed: 0,
-                trades_executed: 0,
-                session_duration_ms: 0,
-                last_activity: last_activity_at,
+                commands_executed: row
+                    .get("commands_executed")
+                    .unwrap_or(&Value::Number(0.into()))
+                    .as_f64()
+                    .unwrap_or(0.0) as u32,
+                opportunities_viewed: row
+                    .get("opportunities_viewed")
+                    .unwrap_or(&Value::Number(0.into()))
+                    .as_f64()
+                    .unwrap_or(0.0) as u32,
+                trades_executed: row
+                    .get("trades_executed")
+                    .unwrap_or(&Value::Number(0.into()))
+                    .as_f64()
+                    .unwrap_or(0.0) as u32,
+                session_duration_seconds: row
+                    .get("session_duration_seconds")
+                    .unwrap_or(&Value::Number(0.into()))
+                    .as_f64()
+                    .unwrap_or(0.0) as u64,
+                session_duration_ms: row
+                    .get("session_duration_ms")
+                    .unwrap_or(&Value::Number(0.into()))
+                    .as_f64()
+                    .unwrap_or(0.0) as u64,
+                last_activity: row
+                    .get("last_activity")
+                    .unwrap_or(&Value::Number(0.into()))
+                    .as_f64()
+                    .unwrap_or(0.0) as u64,
             },
             config: SessionConfig::default(),
         })
@@ -738,7 +765,7 @@ impl SessionManagementService {
 
         // Store analytics data with 30-day TTL
         self.kv_service
-            .put(&analytics_key, &analytics_data.to_string())
+            .put(&analytics_key, analytics_data.to_string())
             .map_err(|e| {
                 ArbitrageError::storage_error(format!("Failed to create analytics put: {}", e))
             })?
@@ -757,7 +784,7 @@ impl SessionManagementService {
         };
 
         self.kv_service
-            .put(&date_key, &(current_count + 1).to_string())
+            .put(&date_key, (current_count + 1).to_string())
             .map_err(|e| {
                 ArbitrageError::storage_error(format!("Failed to create count put: {}", e))
             })?
@@ -795,7 +822,7 @@ impl SessionManagementService {
 
         // Store analytics data with 30-day TTL
         self.kv_service
-            .put(&analytics_key, &analytics_data.to_string())
+            .put(&analytics_key, analytics_data.to_string())
             .map_err(|e| {
                 ArbitrageError::storage_error(format!("Failed to create analytics put: {}", e))
             })?
@@ -818,7 +845,7 @@ impl SessionManagementService {
         };
 
         self.kv_service
-            .put(&outcome_key, &(current_count + 1).to_string())
+            .put(&outcome_key, (current_count + 1).to_string())
             .map_err(|e| {
                 ArbitrageError::storage_error(format!("Failed to create outcome put: {}", e))
             })?
@@ -1006,6 +1033,7 @@ mod tests {
                 commands_executed: 0,
                 opportunities_viewed: 0,
                 trades_executed: 0,
+                session_duration_seconds: 0,
                 session_duration_ms: 0,
                 last_activity: now,
             },

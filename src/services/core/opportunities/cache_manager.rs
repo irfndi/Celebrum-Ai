@@ -589,41 +589,49 @@ mod tests {
 
     fn create_test_arbitrage_opportunity() -> ArbitrageOpportunity {
         ArbitrageOpportunity {
-            id: Uuid::new_v4().to_string(),
+            id: "test_arb_1".to_string(),
             pair: "BTCUSDT".to_string(),
             long_exchange: ExchangeIdEnum::Binance,
             short_exchange: ExchangeIdEnum::Bybit,
-            long_rate: Some(0.0005),
-            short_rate: Some(0.0015),
-            rate_difference: 0.001,
-            net_rate_difference: Some(0.001),
+            long_rate: Some(0.0001),
+            short_rate: Some(0.0002),
+            rate_difference: 0.0001,
+            net_rate_difference: Some(0.0001),
             potential_profit_value: Some(10.0),
-            timestamp: Utc::now().timestamp_millis() as u64,
-            r#type: ArbitrageType::FundingRate,
-            details: Some("Test opportunity".to_string()),
+            confidence: 0.85,
+            volume: 1000.0,
+            timestamp: 1234567890,
+            created_at: 1234567890,
+            detected_at: 1234567890,
+            expires_at: 1234567890 + 60000,
+            r#type: ArbitrageType::CrossExchange,
+            details: Some("Test arbitrage opportunity".to_string()),
             min_exchanges_required: 2,
         }
     }
 
     fn create_test_technical_opportunity() -> TechnicalOpportunity {
         TechnicalOpportunity {
-            id: Uuid::new_v4().to_string(),
-            pair: "ETHUSDT".to_string(),
+            id: "test_tech_1".to_string(),
+            symbol: "ETHUSDT".to_string(),
             exchange: ExchangeIdEnum::Binance,
             signal_type: TechnicalSignalType::Buy,
             signal_strength: TechnicalSignalStrength::Strong,
-            confidence_score: 0.85,
-            entry_price: 3400.0,
-            target_price: Some(3500.0),
-            stop_loss_price: Some(3200.0),
-            technical_indicators: vec!["RSI".to_string(), "MACD".to_string()],
-            timeframe: "1h".to_string(),
-            expected_return_percentage: 0.05,
             risk_level: TechnicalRiskLevel::Medium,
-            expires_at: Utc::now().timestamp_millis() as u64 + (4 * 60 * 60 * 1000),
-            timestamp: Utc::now().timestamp_millis() as u64,
+            entry_price: 3000.0,
+            target_price: 3150.0,
+            stop_loss: 2950.0,
+            confidence: 0.85,
+            timeframe: "1h".to_string(),
+            indicators: serde_json::json!({"RSI": 70, "MACD": "bullish"}),
+            created_at: 1234567890,
+            expires_at: 1234567890 + 60000,
+            metadata: serde_json::json!({"signal_strength": "strong"}),
+            pair: "ETHUSDT".to_string(),
+            expected_return_percentage: 0.05,
             details: Some("Strong buy signal".to_string()),
-            min_exchanges_required: 1,
+            confidence_score: 0.85,
+            timestamp: 1234567890,
         }
     }
 
@@ -670,10 +678,10 @@ mod tests {
         // Test arbitrage opportunity
         assert_eq!(arb_opp.pair, "BTCUSDT");
         assert_eq!(arb_opp.min_exchanges_required, 2);
-        assert!(matches!(arb_opp.r#type, ArbitrageType::FundingRate));
+        assert!(matches!(arb_opp.r#type, ArbitrageType::CrossExchange));
 
         // Test technical opportunity
-        assert_eq!(tech_opp.pair, "ETHUSDT");
+        assert_eq!(tech_opp.symbol, "ETHUSDT");
         assert_eq!(tech_opp.confidence_score, 0.85);
         assert!(matches!(tech_opp.signal_type, TechnicalSignalType::Buy));
         assert!(matches!(tech_opp.risk_level, TechnicalRiskLevel::Medium));

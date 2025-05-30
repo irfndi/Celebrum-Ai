@@ -274,7 +274,7 @@ pub enum ReportStatus {
 }
 
 /// Report Generator for automated reporting
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ReportGenerator {
     config: ReportGeneratorConfig,
     kv_store: Option<KvStore>,
@@ -756,7 +756,7 @@ impl ReportGenerator {
     /// Generate cache key for report request
     fn generate_cache_key(&self, request: &ReportRequest) -> String {
         format!(
-            "report_cache:{}:{}:{}:{}",
+            "report:{}:{}:{}:{}",
             request.template_id,
             request.format,
             request.date_range.start_date,

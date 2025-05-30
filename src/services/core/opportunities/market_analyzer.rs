@@ -185,8 +185,8 @@ impl MarketAnalyzer {
                                 |funding_rate| FundingRateInfo {
                                     symbol: symbol_name.clone(),
                                     funding_rate,
-                                    timestamp: Some(Utc::now()),
-                                    datetime: Some(Utc::now().to_rfc3339()),
+                                    timestamp: Utc::now().timestamp_millis() as u64,
+                                    datetime: Utc::now().to_rfc3339(),
                                     next_funding_time: rate_data
                                         .get("fundingTime")
                                         .and_then(|v| v.as_u64())
@@ -194,6 +194,18 @@ impl MarketAnalyzer {
                                     estimated_rate: rate_data
                                         .get("markPrice")
                                         .and_then(|v| v.as_f64()),
+                                    estimated_settle_price: rate_data
+                                        .get("settlePrice")
+                                        .and_then(|v| v.as_f64()),
+                                    exchange: exchange_id,
+                                    funding_interval_hours: 8, // Default 8 hours for most exchanges
+                                    mark_price: rate_data.get("markPrice").and_then(|v| v.as_f64()),
+                                    index_price: rate_data
+                                        .get("indexPrice")
+                                        .and_then(|v| v.as_f64()),
+                                    funding_countdown: rate_data
+                                        .get("fundingCountdown")
+                                        .and_then(|v| v.as_u64()),
                                 },
                             )
                         } else {
@@ -744,9 +756,12 @@ impl MarketAnalyzer {
                 let stop_loss = entry_price * (1.0 + stop_loss_percentage);
                 (Some(target), Some(stop_loss))
             }
-            TechnicalSignalType::Hold => {
-                // For hold signals, no specific targets
-                (None, None)
+            TechnicalSignalType::Hold => (None, None),
+            // Handle all other technical signal types with default behavior
+            _ => {
+                let target = entry_price * (1.0 + target_percentage);
+                let stop_loss = entry_price * (1.0 - stop_loss_percentage);
+                (Some(target), Some(stop_loss))
             }
         }
     }
@@ -933,29 +948,37 @@ impl MarketAnalyzer {
                     ) {
                         if analysis.price_difference_percent >= config.min_rate_difference {
                             let opportunity = ArbitrageOpportunity {
-                                id: format!(
-                                    "arb_{}_{}",
-                                    pair,
-                                    chrono::Utc::now().timestamp_millis()
-                                ),
-                                pair: pair.to_string(),
-                                long_exchange: analysis.buy_exchange,
-                                short_exchange: analysis.sell_exchange,
+                                id: uuid::Uuid::new_v4().to_string(),
+                                trading_pair: pair.clone(),
+                                exchanges: vec![exchange_a.to_string(), exchange_b.to_string()],
+                                profit_percentage: analysis.price_difference_percent,
+                                confidence_score: 0.8, // High confidence for market analyzer
+                                risk_level: "medium".to_string(),
+                                buy_exchange: exchange_a.to_string(),
+                                sell_exchange: exchange_b.to_string(),
+                                buy_price: ticker_a.last.unwrap_or(0.0),
+                                sell_price: ticker_b.last.unwrap_or(0.0),
+                                volume: 1000.0, // Default volume
+                                created_at: chrono::Utc::now().timestamp_millis() as u64,
+                                expires_at: Some(
+                                    chrono::Utc::now().timestamp_millis() as u64 + 300_000,
+                                ), // 5 minutes
+                                // Additional fields
+                                pair: pair.clone(),
+                                long_exchange: exchange_a,
+                                short_exchange: exchange_b,
                                 long_rate: Some(analysis.price_difference_percent),
                                 short_rate: Some(analysis.price_difference_percent),
                                 rate_difference: analysis.price_difference_percent,
                                 net_rate_difference: Some(analysis.price_difference_percent),
-                                potential_profit_value: Some(analysis.price_difference * 1000.0), // Scale for profit calculation
-                                confidence: 0.8, // Default confidence score
-                                volume: 1000.0,  // Default volume
+                                potential_profit_value: Some(analysis.price_difference * 1000.0),
+                                confidence: 0.8,
                                 timestamp: chrono::Utc::now().timestamp_millis() as u64,
                                 detected_at: chrono::Utc::now().timestamp_millis() as u64,
-                                expires_at: chrono::Utc::now().timestamp_millis() as u64
-                                    + (15 * 60 * 1000), // 15 minutes
                                 r#type: ArbitrageType::CrossExchange,
                                 details: Some(format!(
-                                    "Cross-exchange arbitrage between {} and {}",
-                                    analysis.buy_exchange, analysis.sell_exchange
+                                    "Market analyzer detected arbitrage between {} and {}",
+                                    exchange_a, exchange_b
                                 )),
                                 min_exchanges_required: 2,
                             };
@@ -991,18 +1014,30 @@ impl MarketAnalyzer {
             _ => 0.003,
         };
 
-        let adjusted_price = base_price * (1.0 + price_variance);
+        let _adjusted_price = base_price * (1.0 + price_variance);
 
         Ok(Ticker {
             symbol: pair.to_string(),
-            bid: Some(adjusted_price * 0.999),
-            ask: Some(adjusted_price * 1.001),
-            last: Some(adjusted_price),
-            high: Some(adjusted_price * 1.02),
-            low: Some(adjusted_price * 0.98),
-            volume: Some(1000000.0),
-            timestamp: Some(chrono::Utc::now()),
-            datetime: Some(chrono::Utc::now().to_rfc3339()),
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            datetime: chrono::Utc::now().to_rfc3339(),
+            high: Some(50000.0),
+            low: Some(49000.0),
+            bid: Some(49500.0),
+            bid_volume: Some(10.0),
+            ask: Some(49600.0),
+            ask_volume: Some(10.0),
+            vwap: Some(49550.0),
+            open: Some(49400.0),
+            close: Some(49550.0),
+            last: Some(49550.0),
+            previous_close: Some(49400.0),
+            change: Some(150.0),
+            percentage: Some(0.3),
+            average: Some(49500.0),
+            base_volume: Some(1000.0),
+            quote_volume: Some(49550000.0),
+            volume: Some(1000.0),
+            info: serde_json::json!({}),
         })
     }
 

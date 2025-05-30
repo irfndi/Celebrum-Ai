@@ -95,6 +95,12 @@ pub struct RepositoryRegistry {
     metrics: HashMap<String, RepositoryMetrics>,
 }
 
+impl Default for RepositoryRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RepositoryRegistry {
     pub fn new() -> Self {
         Self {
@@ -720,10 +726,10 @@ impl DatabaseManager {
                     .unwrap_or(0);
 
                 let used_at = chrono::DateTime::from_timestamp_millis(used_at_ms)
-                    .unwrap_or_else(|| chrono::Utc::now());
+                    .unwrap_or(chrono::Utc::now());
 
                 let beta_expires_at = chrono::DateTime::from_timestamp_millis(beta_expires_at_ms)
-                    .unwrap_or_else(|| chrono::Utc::now());
+                    .unwrap_or(chrono::Utc::now());
 
                 Ok(Some(
                     crate::services::core::invitation::invitation_service::InvitationUsage {
@@ -1382,15 +1388,12 @@ impl DatabaseManager {
     /// Health check method for database connectivity
     pub async fn health_check(&self) -> bool {
         // Try a simple query to test database connectivity
-        match self
+        (self
             .db
             .prepare("SELECT 1")
             .first::<serde_json::Value>(None)
-            .await
-        {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+            .await)
+            .is_ok()
     }
 
     /// Store configuration preset (Dynamic Config Service compatibility)

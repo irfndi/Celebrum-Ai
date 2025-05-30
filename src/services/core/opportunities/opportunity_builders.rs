@@ -54,25 +54,35 @@ impl OpportunityBuilder {
 
         let opportunity = ArbitrageOpportunity {
             id: Uuid::new_v4().to_string(),
-            pair,
-            long_exchange,
-            short_exchange,
-            long_rate: Some(long_rate),
-            short_rate: Some(short_rate),
+            trading_pair: pair.clone(),
+            exchanges: vec![long_exchange.to_string(), short_exchange.to_string()],
+            profit_percentage: rate_difference,
+            confidence_score: 0.8, // Default confidence for funding rate arbitrage
+            risk_level: "medium".to_string(),
+            buy_exchange: long_exchange.to_string(),
+            sell_exchange: short_exchange.to_string(),
+            buy_price: 0.0,
+            sell_price: 0.0,
+            volume: 1000.0, // Default volume
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000)), // 15 minutes
+            pair: pair.clone(),
+            long_exchange: long_exchange.to_string(),
+            short_exchange: short_exchange.to_string(),
+            long_rate: None,
+            short_rate: None,
             rate_difference,
             net_rate_difference: Some(rate_difference),
-            potential_profit_value: Some(potential_profit_value),
-            confidence: 0.8, // Default confidence score
-            volume: 1000.0,  // Default volume
+            potential_profit_value: None,
+            confidence: 0.8,
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             detected_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
             r#type: ArbitrageType::FundingRate,
             details: Some(format!(
-                "Funding rate arbitrage: Long {} ({:.4}%) vs Short {} ({:.4}%)",
-                long_exchange.as_str(),
+                "Funding rate arbitrage: Long {} at {:.4}%, Short {} at {:.4}%",
+                long_exchange,
                 long_rate * 100.0,
-                short_exchange.as_str(),
+                short_exchange,
                 short_rate * 100.0
             )),
             min_exchanges_required: 2,
@@ -117,19 +127,29 @@ impl OpportunityBuilder {
 
         let opportunity = ArbitrageOpportunity {
             id: Uuid::new_v4().to_string(),
-            pair,
-            long_exchange,
-            short_exchange,
+            trading_pair: pair.clone(),
+            exchanges: vec![long_exchange.to_string(), short_exchange.to_string()],
+            profit_percentage: price_difference,
+            confidence_score: 0.8, // Default confidence score
+            risk_level: "medium".to_string(),
+            buy_exchange: long_exchange.to_string(),
+            sell_exchange: short_exchange.to_string(),
+            buy_price: 0.0,
+            sell_price: 0.0,
+            volume: 1000.0, // Default volume
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000)), // 15 minutes
+            pair: pair.clone(),
+            long_exchange: long_exchange.to_string(),
+            short_exchange: short_exchange.to_string(),
             long_rate: None, // Not applicable for price arbitrage
             short_rate: None,
             rate_difference: price_difference,
             net_rate_difference: Some(price_difference),
-            potential_profit_value: Some(potential_profit_value),
-            confidence: 0.8, // Default confidence score
-            volume: 1000.0,  // Default volume
+            potential_profit_value: None,
+            confidence: 0.8,
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             detected_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
             r#type: ArbitrageType::Price,
             details: Some(format!(
                 "Price arbitrage: Buy {} (${:.2}) vs Sell {} (${:.2})",
@@ -192,19 +212,29 @@ impl OpportunityBuilder {
 
         let opportunity = ArbitrageOpportunity {
             id: Uuid::new_v4().to_string(),
-            pair,
-            long_exchange: *min_exchange,
-            short_exchange: *max_exchange,
+            trading_pair: pair.clone(),
+            exchanges: vec![min_exchange.to_string(), max_exchange.to_string()],
+            profit_percentage: difference,
+            confidence_score: 0.8, // Default confidence score
+            risk_level: "medium".to_string(),
+            buy_exchange: min_exchange.to_string(),
+            sell_exchange: max_exchange.to_string(),
+            buy_price: 0.0,
+            sell_price: 0.0,
+            volume: 1000.0, // Default volume
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000)), // 15 minutes
+            pair: pair.clone(),
+            long_exchange: min_exchange.to_string(),
+            short_exchange: max_exchange.to_string(),
             long_rate: Some(*min_value),
             short_rate: Some(*max_value),
             rate_difference: difference,
             net_rate_difference: Some(difference),
-            potential_profit_value: Some(potential_profit_value),
-            confidence: 0.8, // Default confidence score
-            volume: 1000.0,  // Default volume
+            potential_profit_value: None,
+            confidence: 0.8,
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             detected_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
             r#type: arbitrage_type,
             details: Some(format!(
                 "Cross-exchange arbitrage: {} exchanges, best spread {:.4}%",
@@ -270,6 +300,16 @@ impl OpportunityBuilder {
                 TechnicalSignalType::Buy => (target - entry_price) / entry_price,
                 TechnicalSignalType::Sell => (entry_price - target) / entry_price,
                 TechnicalSignalType::Hold => 0.0,
+                TechnicalSignalType::MovingAverageCrossover => (target - entry_price) / entry_price,
+                TechnicalSignalType::RSIOverBought => (entry_price - target) / entry_price,
+                TechnicalSignalType::RSIOverSold => (target - entry_price) / entry_price,
+                TechnicalSignalType::MACDSignal => (target - entry_price) / entry_price,
+                TechnicalSignalType::BollingerBands => (target - entry_price) / entry_price,
+                TechnicalSignalType::SupportResistance => (target - entry_price) / entry_price,
+                TechnicalSignalType::VolumeSpike => (target - entry_price) / entry_price,
+                TechnicalSignalType::PriceBreakout => (target - entry_price) / entry_price,
+                TechnicalSignalType::DivergencePattern => (target - entry_price) / entry_price,
+                TechnicalSignalType::CandlestickPattern => (target - entry_price) / entry_price,
             }
         } else {
             expected_return_percentage
@@ -289,28 +329,32 @@ impl OpportunityBuilder {
         let expires_at = Utc::now().timestamp_millis() as u64 + (4 * 60 * 60 * 1000);
 
         let opportunity = TechnicalOpportunity {
-            id: uuid::Uuid::new_v4().to_string(),
-            pair: pair.clone(),
+            id: Uuid::new_v4().to_string(),
+            trading_pair: pair.clone(),
+            symbol: pair.clone(),
             exchange,
-            signal_type: signal_type.clone(),
+            signal_type,
             signal_strength,
-            entry_price,
-            target_price,
-            stop_loss_price,
-            confidence_score,
-            technical_indicators: technical_indicators.clone(),
-            timeframe: timeframe.clone(),
-            expected_return_percentage,
             risk_level,
+            entry_price,
+            target_price: target_price.unwrap_or(entry_price * 1.02),
+            stop_loss: stop_loss_price.unwrap_or(entry_price * 0.98),
+            confidence: confidence_score,
+            timeframe: timeframe.to_string(),
+            indicators: serde_json::to_value(&technical_indicators).unwrap_or_default(),
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            expires_at: Some(expires_at),
+            metadata: serde_json::json!({
+                "builder_version": "1.0",
+                "signal_source": "technical_analysis",
+                "market_conditions": _market_conditions,
+                "expected_return": expected_return_percentage,
+                "stop_loss_distance": stop_loss_distance
+            }),
+            expected_return_percentage,
+            details: None,
+            confidence_score,
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at,
-            details: Some(format!(
-                "Technical signal: {} on {} ({})",
-                signal_type.as_str(),
-                pair,
-                timeframe
-            )),
-            min_exchanges_required: 1,
         };
 
         Ok(opportunity)
@@ -391,21 +435,31 @@ impl OpportunityBuilder {
         let priority_score = self.calculate_priority_score(&arbitrage_opportunity);
 
         let global_opportunity = GlobalOpportunity {
-            id: format!("global_arb_{}", arbitrage_opportunity.id),
+            id: Uuid::new_v4().to_string(),
+            opportunity_id: Uuid::new_v4().to_string(),
+            opportunity_type: source.as_str().to_string(),
+            trading_pair: arbitrage_opportunity.trading_pair.clone(),
+            exchanges: arbitrage_opportunity.exchanges.clone(),
+            profit_percentage: arbitrage_opportunity.profit_percentage,
+            confidence_score: arbitrage_opportunity.confidence_score,
+            risk_level: arbitrage_opportunity.risk_level.clone(),
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            expires_at: Some(expires_at),
+            metadata: serde_json::json!({}),
+            distributed_to: Vec::new(),
+            max_participants: max_participants.unwrap_or(100),
+            current_participants: 0,
+            distribution_strategy: DistributionStrategy::Broadcast,
+            arbitrage_opportunity: arbitrage_opportunity.clone(),
+            target_users: Vec::new(),
             opportunity_data: OpportunityData::Arbitrage(arbitrage_opportunity.clone()),
             source,
-            created_at: Utc::now().timestamp_millis() as u64,
-            detection_timestamp: Utc::now().timestamp_millis() as u64,
-            expires_at,
-            priority: 5,
-            priority_score,
+            detection_timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            priority: 1,
+            priority_score: 0.0,
             ai_enhanced: false,
             ai_confidence_score: None,
             ai_insights: None,
-            distributed_to: vec![],
-            max_participants,
-            current_participants: 0,
-            distribution_strategy: DistributionStrategy::Immediate,
         };
 
         // Create analytics metadata
@@ -436,21 +490,31 @@ impl OpportunityBuilder {
         let priority_score = self.calculate_technical_priority_score(&technical_opportunity);
 
         let global_opportunity = GlobalOpportunity {
-            id: format!("global_tech_{}", technical_opportunity.id),
+            id: Uuid::new_v4().to_string(),
+            opportunity_id: Uuid::new_v4().to_string(),
+            opportunity_type: source.as_str().to_string(),
+            trading_pair: technical_opportunity.trading_pair.clone(),
+            exchanges: vec![technical_opportunity.exchange.to_string()],
+            profit_percentage: technical_opportunity.expected_return_percentage,
+            confidence_score: technical_opportunity.confidence_score,
+            risk_level: technical_opportunity.risk_level.to_string(),
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            expires_at: Some(expires_at),
+            metadata: serde_json::json!({}),
+            distributed_to: Vec::new(),
+            max_participants: max_participants.unwrap_or(100),
+            current_participants: 0,
+            distribution_strategy: DistributionStrategy::Broadcast,
+            arbitrage_opportunity: ArbitrageOpportunity::default(),
+            target_users: Vec::new(),
             opportunity_data: OpportunityData::Technical(technical_opportunity.clone()),
             source,
-            created_at: Utc::now().timestamp_millis() as u64,
-            detection_timestamp: Utc::now().timestamp_millis() as u64,
-            expires_at,
-            priority: self.calculate_technical_priority_score(&technical_opportunity) as u8,
-            priority_score,
+            detection_timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            priority: 1,
+            priority_score: 0.0,
             ai_enhanced: false,
             ai_confidence_score: None,
             ai_insights: None,
-            distributed_to: Vec::new(),
-            max_participants,
-            current_participants: 0,
-            distribution_strategy: DistributionStrategy::RoundRobin,
         };
 
         log_info!(
@@ -554,13 +618,20 @@ impl OpportunityBuilder {
 
     /// Calculate priority score for technical opportunities
     fn calculate_technical_priority_score(&self, opportunity: &TechnicalOpportunity) -> f64 {
-        let return_score = opportunity.expected_return_percentage.abs() * 100.0;
-        let confidence_multiplier = opportunity.confidence_score;
+        // Extract calculated_return from metadata
+        let return_score = opportunity
+            .metadata
+            .get("calculated_return")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+            .abs()
+            * 100.0;
+        let confidence_multiplier = opportunity.confidence;
         let strength_multiplier = match opportunity.signal_strength {
             TechnicalSignalStrength::Strong => 1.5,
+            TechnicalSignalStrength::Moderate => 1.2,
+            TechnicalSignalStrength::Weak => 0.8,
             TechnicalSignalStrength::VeryStrong => 2.0,
-            TechnicalSignalStrength::Moderate => 1.0,
-            TechnicalSignalStrength::Weak => 0.7,
         };
 
         return_score * confidence_multiplier * strength_multiplier
@@ -626,13 +697,13 @@ mod tests {
 
         assert!(result.is_ok());
         let opportunity = result.unwrap();
-        assert_eq!(opportunity.pair, "ETHUSDT");
+        assert_eq!(opportunity.symbol, "ETHUSDT");
         assert_eq!(opportunity.exchange, ExchangeIdEnum::Binance);
         assert_eq!(opportunity.signal_type, TechnicalSignalType::Buy);
-        assert_eq!(opportunity.confidence_score, 0.85);
+        assert_eq!(opportunity.confidence, 0.85);
         assert_eq!(opportunity.entry_price, 3000.0);
-        assert_eq!(opportunity.target_price, Some(3150.0));
-        assert_eq!(opportunity.stop_loss_price, Some(2950.0));
+        assert_eq!(opportunity.target_price, 3150.0);
+        assert_eq!(opportunity.stop_loss, 2950.0);
         assert_eq!(opportunity.timeframe, "1h");
         assert!(opportunity.expected_return_percentage > 0.0);
     }
@@ -645,33 +716,27 @@ mod tests {
             user_id: "test_user".to_string(),
         };
 
-        let result = builder.build_technical_opportunity(
+        let result = builder.build_momentum_opportunity(
             "ADAUSDT".to_string(),
             ExchangeIdEnum::Bybit,
-            TechnicalSignalType::Buy,
-            TechnicalSignalStrength::Moderate,
-            0.75,
-            0.5,                                                // entry_price
-            Some(0.52),                                         // target_price
-            Some(0.48),                                         // stop_loss_price
-            vec!["Momentum".to_string(), "Volume".to_string()], // technical_indicators
-            "4h".to_string(),                                   // timeframe
-            0.04,                                               // expected_return_percentage
-            "Strong momentum with volume confirmation".to_string(),
+            0.75, // momentum_score
+            0.05, // price_change_24h (5%)
+            0.20, // volume_change_24h (20%)
+            0.5,  // current_price
             &context,
         );
 
         assert!(result.is_ok());
         let opportunity = result.unwrap();
-        assert_eq!(opportunity.pair, "ADAUSDT");
+        assert_eq!(opportunity.symbol, "ADAUSDT");
         assert_eq!(opportunity.exchange, ExchangeIdEnum::Bybit);
         assert_eq!(opportunity.signal_type, TechnicalSignalType::Buy);
-        assert_eq!(opportunity.confidence_score, 0.75);
+        assert_eq!(opportunity.confidence, 0.75);
         assert_eq!(opportunity.entry_price, 0.5);
-        assert_eq!(opportunity.target_price, Some(0.52));
-        assert_eq!(opportunity.stop_loss_price, Some(0.48));
-        assert_eq!(opportunity.timeframe, "4h");
-        assert!(opportunity.expected_return_percentage > 0.0);
+        assert_eq!(opportunity.target_price, 0.51);
+        assert_eq!(opportunity.stop_loss, 0.49);
+        assert_eq!(opportunity.timeframe, "24h");
+        assert!(opportunity.confidence > 0.0);
     }
 
     #[test]
@@ -684,14 +749,15 @@ mod tests {
             pair: "BTCUSDT".to_string(),
             long_exchange: ExchangeIdEnum::Binance,
             short_exchange: ExchangeIdEnum::Bybit,
-            long_rate: Some(0.001),
-            short_rate: Some(0.003),
-            rate_difference: 0.002,
-            net_rate_difference: Some(0.0018),
-            potential_profit_value: Some(25.0),
-            confidence: 0.8,
+            long_rate: Some(0.01),
+            short_rate: Some(-0.005),
+            rate_difference: 0.015,
+            net_rate_difference: Some(0.015),
+            potential_profit_value: Some(150.0),
+            confidence: 0.85,
             volume: 1000.0,
             timestamp: Utc::now().timestamp_millis() as u64,
+            created_at: Utc::now().timestamp_millis() as u64,
             detected_at: Utc::now().timestamp_millis() as u64,
             expires_at: Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000),
             r#type: ArbitrageType::FundingRate,

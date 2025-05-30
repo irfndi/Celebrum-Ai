@@ -52,10 +52,10 @@ impl RepositoryConfig for ConfigRepositoryConfig {
         if self.batch_size == 0 {
             return Err(validation_error("batch_size", "must be greater than 0"));
         }
-        if self.cache_ttl_seconds == 0 {
+        if self.enable_caching && self.cache_ttl_seconds == 0 {
             return Err(validation_error(
                 "cache_ttl_seconds",
-                "must be greater than 0",
+                "must be greater than 0 when caching is enabled",
             ));
         }
         Ok(())
@@ -427,7 +427,8 @@ impl ConfigRepository {
             .get("template_data")
             .and_then(|v| v.as_str())
             .unwrap_or("[]");
-        let parameters = serde_json::from_str(parameters_json).unwrap_or_default();
+        let parameters = serde_json::from_str(parameters_json)
+            .map_err(|e| ArbitrageError::parse_error(format!("Invalid template_data: {e}")))?;
         let created_at = row.get("created_at").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
 
         Ok(ConfigTemplate {
@@ -542,15 +543,12 @@ impl Repository for ConfigRepository {
         let start_time = current_timestamp_ms();
 
         // Test database connectivity
-        let db_healthy = match self
+        let db_healthy = (self
             .db
             .prepare("SELECT 1")
             .first::<serde_json::Value>(None)
-            .await
-        {
-            Ok(_) => true,
-            Err(_) => false,
-        };
+            .await)
+            .is_ok();
 
         let cache_healthy = if self.cache.is_some() {
             // Test cache connectivity

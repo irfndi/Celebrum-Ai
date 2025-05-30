@@ -5,6 +5,7 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use worker::Env;
 
 /// Pipeline types for different data streams
@@ -298,11 +299,11 @@ impl PipelineEvent {
 
     pub fn generate_r2_key(&self) -> String {
         let date = chrono::DateTime::from_timestamp_millis(self.timestamp as i64)
-            .unwrap_or_else(|| chrono::Utc::now())
+            .unwrap_or(chrono::Utc::now())
             .format("%Y/%m/%d");
 
         let hour = chrono::DateTime::from_timestamp_millis(self.timestamp as i64)
-            .unwrap_or_else(|| chrono::Utc::now())
+            .unwrap_or(chrono::Utc::now())
             .format("%H");
 
         if let Some(partition_key) = &self.partition_key {
@@ -336,15 +337,15 @@ pub struct PipelineManager {
     api_token: String,
 
     // Service availability
-    pipelines_available: Arc<std::sync::Mutex<bool>>,
-    r2_available: Arc<std::sync::Mutex<bool>>,
+    pipelines_available: Arc<StdMutex<bool>>,
+    r2_available: Arc<StdMutex<bool>>,
 
     // Health and metrics
-    health: Arc<std::sync::Mutex<PipelineHealth>>,
-    metrics: Arc<std::sync::Mutex<PipelineMetrics>>,
+    health: Arc<StdMutex<PipelineHealth>>,
+    metrics: Arc<StdMutex<PipelineMetrics>>,
 
     // Active pipeline tracking
-    active_pipelines: Arc<std::sync::Mutex<HashMap<String, u64>>>, // pipeline_id -> start_time
+    active_pipelines: Arc<StdMutex<HashMap<String, u64>>>, // pipeline_id -> start_time
 
     // Performance tracking
     startup_time: u64,
@@ -394,11 +395,11 @@ impl PipelineManager {
             api_token: config.api_token.clone(),
             config,
             logger,
-            pipelines_available: Arc::new(std::sync::Mutex::new(pipelines_available)),
-            r2_available: Arc::new(std::sync::Mutex::new(r2_available)),
-            health: Arc::new(std::sync::Mutex::new(PipelineHealth::default())),
-            metrics: Arc::new(std::sync::Mutex::new(PipelineMetrics::default())),
-            active_pipelines: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            pipelines_available: Arc::new(StdMutex::new(pipelines_available)),
+            r2_available: Arc::new(StdMutex::new(r2_available)),
+            health: Arc::new(StdMutex::new(PipelineHealth::default())),
+            metrics: Arc::new(StdMutex::new(PipelineMetrics::default())),
+            active_pipelines: Arc::new(StdMutex::new(HashMap::new())),
             startup_time: chrono::Utc::now().timestamp_millis() as u64,
         })
     }
@@ -640,37 +641,14 @@ impl PipelineManager {
     }
 
     /// Record successful operation
-    async fn record_success(&self, pipeline_type: &PipelineType, start_time: u64) {
-        let end_time = chrono::Utc::now().timestamp_millis() as u64;
-        let latency = end_time - start_time;
+    async fn record_success(&self, _pipeline_type: &PipelineType, _latency: u64) {
+        let mut metrics = self.metrics.lock().unwrap();
+        metrics.total_events_processed += 1;
+        metrics.successful_ingestions += 1;
 
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_events_processed += 1;
-            metrics.successful_ingestions += 1;
-            metrics.average_latency_ms = (metrics.average_latency_ms
-                * (metrics.total_events_processed - 1) as f64
-                + latency as f64)
-                / metrics.total_events_processed as f64;
-            metrics.min_latency_ms = metrics.min_latency_ms.min(latency as f64);
-            metrics.max_latency_ms = metrics.max_latency_ms.max(latency as f64);
-
-            *metrics
-                .pipeline_usage_by_type
-                .entry(pipeline_type.clone())
-                .or_insert(0) += 1;
-            metrics.last_updated = end_time;
-        }
-
-        if let Ok(mut health) = self.health.lock() {
-            health.last_success_timestamp = end_time;
-            let total_operations = health.success_rate_percent
-                * self.metrics.lock().unwrap().total_events_processed as f32
-                / 100.0
-                + 1.0;
-            health.success_rate_percent = (total_operations
-                / self.metrics.lock().unwrap().total_events_processed as f32)
-                * 100.0;
-        }
+        let mut health = self.health.lock().unwrap();
+        health.success_rate_percent =
+            metrics.successful_ingestions as f32 / metrics.total_events_processed as f32 * 100.0;
     }
 
     /// Record failed operation
@@ -683,35 +661,30 @@ impl PipelineManager {
         let end_time = chrono::Utc::now().timestamp_millis() as u64;
         let latency = end_time - start_time;
 
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_events_processed += 1;
-            metrics.failed_ingestions += 1;
-            metrics.average_latency_ms = (metrics.average_latency_ms
-                * (metrics.total_events_processed - 1) as f64
-                + latency as f64)
-                / metrics.total_events_processed as f64;
-            metrics.min_latency_ms = metrics.min_latency_ms.min(latency as f64);
-            metrics.max_latency_ms = metrics.max_latency_ms.max(latency as f64);
-            metrics.last_updated = end_time;
-        }
+        let mut metrics = self.metrics.lock().unwrap();
+        metrics.total_events_processed += 1;
+        metrics.failed_ingestions += 1;
+        metrics.average_latency_ms = (metrics.average_latency_ms
+            * (metrics.total_events_processed - 1) as f64
+            + latency as f64)
+            / metrics.total_events_processed as f64;
+        metrics.min_latency_ms = metrics.min_latency_ms.min(latency as f64);
+        metrics.max_latency_ms = metrics.max_latency_ms.max(latency as f64);
+        metrics.last_updated = end_time;
 
-        if let Ok(mut health) = self.health.lock() {
-            health.last_error = Some(error.to_string());
-            let total_operations = health.success_rate_percent
-                * self.metrics.lock().unwrap().total_events_processed as f32
-                / 100.0;
-            health.success_rate_percent = (total_operations
-                / self.metrics.lock().unwrap().total_events_processed as f32)
-                * 100.0;
-        }
+        let mut health = self.health.lock().unwrap();
+        health.last_error = Some(error.to_string());
+        let total_operations =
+            health.success_rate_percent * metrics.total_events_processed as f32 / 100.0;
+        health.success_rate_percent =
+            (total_operations / metrics.total_events_processed as f32) * 100.0;
     }
 
     /// Record batch operation
     async fn record_batch_operation(&self, _start_time: u64) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.batch_operations += 1;
-            metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
+        let mut metrics = self.metrics.lock().unwrap();
+        metrics.batch_operations += 1;
+        metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
     }
 
     async fn create_pipeline_config(

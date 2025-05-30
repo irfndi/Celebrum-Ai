@@ -206,14 +206,11 @@ pub async fn handle_api_get_user_preferences(req: Request, env: Env) -> Result<R
             let preferences = serde_json::json!({
                 "user_id": user_id,
                 "risk_tolerance_percentage": profile.configuration.risk_tolerance_percentage,
-                "trading_pairs": profile.configuration.trading_pairs,
-                "auto_trading_enabled": profile.configuration.auto_trading_enabled,
-                "max_leverage": profile.configuration.max_leverage,
+                "auto_trading_enabled": profile.configuration.trading_settings.auto_trading_enabled,
+                "max_leverage": profile.configuration.trading_settings.max_leverage,
                 "max_entry_size_usdt": profile.configuration.max_entry_size_usdt,
-                "min_entry_size_usdt": profile.configuration.min_entry_size_usdt,
-                "opportunity_threshold": profile.configuration.opportunity_threshold,
-                "notification_preferences": profile.configuration.notification_preferences,
-                "excluded_pairs": profile.configuration.excluded_pairs,
+                "preferred_exchanges": profile.configuration.preferred_exchanges,
+                "notification_preferences": profile.configuration.notification_settings,
                 "timestamp": chrono::Utc::now().timestamp()
             });
 
@@ -292,14 +289,11 @@ pub async fn handle_api_update_user_preferences(mut req: Request, env: Env) -> R
                                 "updated": true,
                                 "preferences": {
                                     "risk_tolerance_percentage": profile.configuration.risk_tolerance_percentage,
-                                    "trading_pairs": profile.configuration.trading_pairs,
-                                    "auto_trading_enabled": profile.configuration.auto_trading_enabled,
-                                    "max_leverage": profile.configuration.max_leverage,
+                                    "auto_trading_enabled": profile.configuration.trading_settings.auto_trading_enabled,
+                                    "max_leverage": profile.configuration.trading_settings.max_leverage,
                                     "max_entry_size_usdt": profile.configuration.max_entry_size_usdt,
-                                    "min_entry_size_usdt": profile.configuration.min_entry_size_usdt,
-                                    "opportunity_threshold": profile.configuration.opportunity_threshold,
-                                    "notification_preferences": profile.configuration.notification_preferences,
-                                    "excluded_pairs": profile.configuration.excluded_pairs
+                                    "preferred_exchanges": profile.configuration.preferred_exchanges,
+                                    "notification_preferences": profile.configuration.notification_settings
                                 },
                                 "timestamp": chrono::Utc::now().timestamp()
                             }));

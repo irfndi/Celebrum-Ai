@@ -248,6 +248,7 @@ impl NotificationCoordinatorConfig {
 
         self.template_engine_config.validate()?;
         self.delivery_manager_config.validate()?;
+        self.channel_manager_config.validate()?;
 
         Ok(())
     }
@@ -539,11 +540,16 @@ impl NotificationCoordinator {
         // Process in batches based on max concurrent limit
         for chunk in requests.chunks(self.config.max_concurrent_notifications) {
             for request in chunk {
-                let result = self.process_notification(request.clone()).await;
-                match result {
-                    Ok(r) => results.push(r),
+                let start_time = chrono::Utc::now().timestamp_millis() as u64;
+
+                match self.process_notification_internal(request.clone()).await {
+                    Ok(mut notification_result) => {
+                        let processing_time =
+                            chrono::Utc::now().timestamp_millis() as u64 - start_time;
+                        notification_result.processing_time_ms = processing_time;
+                        results.push(notification_result);
+                    }
                     Err(e) => {
-                        // Create error result
                         results.push(NotificationResult {
                             notification_id: request.notification_id.clone(),
                             success: false,

@@ -511,12 +511,13 @@ pub mod utils {
 
     /// Create development financial configuration
     pub fn create_development_config() -> FinancialModuleConfig {
-        let mut config = FinancialModuleConfig::default();
-        config.update_interval_seconds = 60;
-        config.batch_processing_size = 25;
-        config.max_concurrent_operations = 10;
-        config.enable_fund_optimization = false;
-        config
+        FinancialModuleConfig {
+            update_interval_seconds: 60,
+            batch_processing_size: 25,
+            max_concurrent_operations: 10,
+            enable_fund_optimization: false,
+            ..Default::default()
+        }
     }
 
     /// Calculate portfolio diversity score
@@ -532,7 +533,7 @@ pub mod utils {
             .sum();
 
         // Convert to diversity score (1 - HHI, normalized to 0-100)
-        ((1.0 - hhi) * 100.0).max(0.0).min(100.0)
+        ((1.0 - hhi) * 100.0).clamp(0.0, 100.0)
     }
 
     /// Calculate risk score based on portfolio composition
@@ -553,7 +554,7 @@ pub mod utils {
             .sum();
 
         // Normalize to 0-100 scale
-        (weighted_volatility * 100.0).max(0.0).min(100.0)
+        (weighted_volatility * 100.0).clamp(0.0, 100.0)
     }
 }
 

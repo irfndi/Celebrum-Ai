@@ -169,7 +169,7 @@ impl ObservabilityDataPoint {
 }
 
 /// Observability severity levels
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum ObservabilitySeverity {
     Critical,
@@ -177,26 +177,22 @@ pub enum ObservabilitySeverity {
     Medium,
     Low,
     Info,
+    Warning,
+    Error,
+    Debug,
 }
 
 impl ObservabilitySeverity {
-    pub fn as_str(&self) -> &str {
-        match self {
-            ObservabilitySeverity::Critical => "critical",
-            ObservabilitySeverity::High => "high",
-            ObservabilitySeverity::Medium => "medium",
-            ObservabilitySeverity::Low => "low",
-            ObservabilitySeverity::Info => "info",
-        }
-    }
-
     pub fn priority_score(&self) -> u8 {
         match self {
-            ObservabilitySeverity::Critical => 5,
-            ObservabilitySeverity::High => 4,
-            ObservabilitySeverity::Medium => 3,
-            ObservabilitySeverity::Low => 2,
-            ObservabilitySeverity::Info => 1,
+            ObservabilitySeverity::Critical => 7,
+            ObservabilitySeverity::High => 6,
+            ObservabilitySeverity::Medium => 5,
+            ObservabilitySeverity::Low => 4,
+            ObservabilitySeverity::Info => 3,
+            ObservabilitySeverity::Warning => 2,
+            ObservabilitySeverity::Error => 1,
+            ObservabilitySeverity::Debug => 0,
         }
     }
 }

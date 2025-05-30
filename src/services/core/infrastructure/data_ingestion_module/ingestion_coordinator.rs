@@ -4,7 +4,9 @@
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
+use std::sync::Mutex;
 use worker::kv::KvStore;
 
 use super::{
@@ -402,14 +404,14 @@ pub struct IngestionCoordinator {
     kv_store: KvStore,
 
     // Flow control
-    circuit_breaker: Arc<std::sync::Mutex<CircuitBreaker>>,
-    rate_limiter: Arc<std::sync::Mutex<RateLimiter>>,
+    circuit_breaker: Arc<Mutex<CircuitBreaker>>,
+    rate_limiter: Arc<Mutex<RateLimiter>>,
 
     // Metrics tracking
-    metrics: Arc<std::sync::Mutex<IngestionMetrics>>,
+    metrics: Arc<Mutex<IngestionMetrics>>,
 
     // Active request tracking
-    active_requests: Arc<std::sync::Mutex<HashMap<String, u64>>>, // request_id -> start_time
+    active_requests: Arc<Mutex<HashMap<String, u64>>>, // request_id -> start_time
 
     // Performance tracking
     startup_time: u64,
@@ -430,14 +432,12 @@ impl IngestionCoordinator {
         config.validate()?;
 
         // Initialize circuit breaker and rate limiter
-        let circuit_breaker = Arc::new(std::sync::Mutex::new(CircuitBreaker::new(
+        let circuit_breaker = Arc::new(Mutex::new(CircuitBreaker::new(
             config.circuit_breaker_threshold,
             config.circuit_breaker_timeout_seconds,
         )));
 
-        let rate_limiter = Arc::new(std::sync::Mutex::new(RateLimiter::new(
-            config.rate_limit_per_second,
-        )));
+        let rate_limiter = Arc::new(Mutex::new(RateLimiter::new(config.rate_limit_per_second)));
 
         logger.info(&format!(
             "IngestionCoordinator initialized: max_concurrent={}, rate_limit={}/s, circuit_breaker_threshold={}",
@@ -453,8 +453,8 @@ impl IngestionCoordinator {
             kv_store,
             circuit_breaker,
             rate_limiter,
-            metrics: Arc::new(std::sync::Mutex::new(IngestionMetrics::default())),
-            active_requests: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            metrics: Arc::new(Mutex::new(IngestionMetrics::default())),
+            active_requests: Arc::new(Mutex::new(HashMap::new())),
             startup_time: chrono::Utc::now().timestamp_millis() as u64,
         })
     }
@@ -467,7 +467,7 @@ impl IngestionCoordinator {
         if response.success {
             Ok(())
         } else {
-            Err(ArbitrageError::internal_error(&format!(
+            Err(ArbitrageError::internal_error(format!(
                 "Ingestion failed: {:?}",
                 response.errors
             )))
@@ -497,37 +497,32 @@ impl IngestionCoordinator {
         let start_time = chrono::Utc::now().timestamp_millis() as u64;
 
         // Check rate limiting
-        if self.config.enable_rate_limiting {
-            if let Ok(mut limiter) = self.rate_limiter.lock() {
-                if !limiter.can_proceed() {
-                    return self
-                        .create_error_response(
-                            &request,
-                            "Rate limit exceeded".to_string(),
-                            start_time,
-                        )
-                        .await;
-                }
-            }
+        let should_rate_limit = {
+            let mut limiter = self.rate_limiter.lock().unwrap();
+            !limiter.can_proceed()
+        };
+
+        if should_rate_limit {
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            return Err(ArbitrageError::rate_limit_error("Rate limit exceeded"));
         }
 
         // Check circuit breaker
-        if self.config.enable_circuit_breaker {
-            if let Ok(mut breaker) = self.circuit_breaker.lock() {
-                if !breaker.can_execute() {
-                    return self
-                        .create_error_response(
-                            &request,
-                            "Circuit breaker open".to_string(),
-                            start_time,
-                        )
-                        .await;
-                }
-            }
+        let should_circuit_break = {
+            let mut breaker = self.circuit_breaker.lock().unwrap();
+            !breaker.can_execute()
+        };
+
+        if should_circuit_break {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            return Err(ArbitrageError::service_unavailable(
+                "Circuit breaker is open",
+            ));
         }
 
         // Track active request
-        if let Ok(mut active) = self.active_requests.lock() {
+        {
+            let mut active = self.active_requests.lock().unwrap();
             active.insert(request.request_id.clone(), start_time);
         }
 
@@ -535,17 +530,17 @@ impl IngestionCoordinator {
         let result = self.execute_ingestion(&request, start_time).await;
 
         // Remove from active requests
-        if let Ok(mut active) = self.active_requests.lock() {
+        {
+            let mut active = self.active_requests.lock().unwrap();
             active.remove(&request.request_id);
         }
 
         // Update circuit breaker
         if self.config.enable_circuit_breaker {
-            if let Ok(mut breaker) = self.circuit_breaker.lock() {
-                match &result {
-                    Ok(_) => breaker.record_success(),
-                    Err(_) => breaker.record_failure(),
-                }
+            let mut breaker = self.circuit_breaker.lock().unwrap();
+            match &result {
+                Ok(_) => breaker.record_success(),
+                Err(_) => breaker.record_failure(),
             }
         }
 
@@ -736,7 +731,17 @@ impl IngestionCoordinator {
 
     /// Store data to KV as fallback
     async fn store_to_kv_fallback(&self, event: &IngestionEvent) -> ArbitrageResult<()> {
-        let key = format!("fallback:{}:{}", event.event_type.as_str(), event.event_id);
+        // Create a safe event ID for the key to avoid exceeding Cloudflare's 2KB key limit
+        let safe_event_id = if event.event_id.len() > 128 {
+            // Hash the event_id if it's too long
+            let mut hasher = DefaultHasher::new();
+            event.event_id.hash(&mut hasher);
+            format!("hash_{:x}", hasher.finish())
+        } else {
+            event.event_id.clone()
+        };
+
+        let key = format!("fallback:{}:{}", event.event_type.as_str(), safe_event_id);
         let value = serde_json::to_string(event)?;
 
         self.kv_store
@@ -744,18 +749,15 @@ impl IngestionCoordinator {
             .expiration_ttl(self.config.kv_fallback_ttl_seconds)
             .execute()
             .await
-            .map_err(|e| ArbitrageError::internal_error(&format!("KV store failed: {:?}", e)))?;
+            .map_err(|e| ArbitrageError::internal_error(format!("KV store failed: {:?}", e)))?;
 
         Ok(())
     }
 
     /// Get ingestion metrics
     pub async fn get_metrics(&self) -> IngestionMetrics {
-        if let Ok(metrics) = self.metrics.lock() {
-            metrics.clone()
-        } else {
-            IngestionMetrics::default()
-        }
+        let metrics = self.metrics.lock().unwrap();
+        metrics.clone()
     }
 
     /// Perform health check
@@ -814,77 +816,67 @@ impl IngestionCoordinator {
         let end_time = chrono::Utc::now().timestamp_millis() as u64;
         let processing_time = end_time - start_time;
 
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_requests += 1;
+        let mut metrics = self.metrics.lock().unwrap();
+        metrics.total_requests += 1;
 
-            if success {
-                metrics.successful_requests += 1;
-            } else {
-                metrics.failed_requests += 1;
-            }
-
-            if request.processing_options.use_pipeline {
-                metrics.pipeline_requests += 1;
-            }
-            if request.processing_options.use_queue {
-                metrics.queue_requests += 1;
-            }
-            if request.processing_options.use_transformer {
-                metrics.transformation_requests += 1;
-            }
-            if fallback_used {
-                metrics.fallback_requests += 1;
-            }
-
-            // Update timing metrics
-            metrics.average_processing_time_ms = (metrics.average_processing_time_ms
-                * (metrics.total_requests - 1) as f64
-                + processing_time as f64)
-                / metrics.total_requests as f64;
-            metrics.min_processing_time_ms =
-                metrics.min_processing_time_ms.min(processing_time as f64);
-            metrics.max_processing_time_ms =
-                metrics.max_processing_time_ms.max(processing_time as f64);
-
-            // Update categorical metrics
-            *metrics
-                .requests_by_event_type
-                .entry(request.event.event_type.clone())
-                .or_insert(0) += 1;
-            *metrics
-                .requests_by_priority
-                .entry(request.processing_options.priority.clone())
-                .or_insert(0) += 1;
-
-            // Update error rate
-            metrics.error_rate_percent =
-                (metrics.failed_requests as f32 / metrics.total_requests as f32) * 100.0;
-
-            // Update throughput (simplified calculation)
-            let elapsed_seconds = (end_time - self.startup_time) as f64 / 1000.0;
-            metrics.throughput_per_second =
-                metrics.total_requests as f64 / elapsed_seconds.max(1.0);
-
-            metrics.last_updated = end_time;
+        if success {
+            metrics.successful_requests += 1;
+        } else {
+            metrics.failed_requests += 1;
         }
+
+        if request.processing_options.use_pipeline {
+            metrics.pipeline_requests += 1;
+        }
+        if request.processing_options.use_queue {
+            metrics.queue_requests += 1;
+        }
+        if request.processing_options.use_transformer {
+            metrics.transformation_requests += 1;
+        }
+        if fallback_used {
+            metrics.fallback_requests += 1;
+        }
+
+        // Update timing metrics
+        metrics.average_processing_time_ms = (metrics.average_processing_time_ms
+            * (metrics.total_requests - 1) as f64
+            + processing_time as f64)
+            / metrics.total_requests as f64;
+        metrics.min_processing_time_ms = metrics.min_processing_time_ms.min(processing_time as f64);
+        metrics.max_processing_time_ms = metrics.max_processing_time_ms.max(processing_time as f64);
+
+        // Update categorical metrics
+        *metrics
+            .requests_by_event_type
+            .entry(request.event.event_type.clone())
+            .or_insert(0) += 1;
+        *metrics
+            .requests_by_priority
+            .entry(request.processing_options.priority.clone())
+            .or_insert(0) += 1;
+
+        // Update error rate
+        metrics.error_rate_percent =
+            (metrics.failed_requests as f32 / metrics.total_requests as f32) * 100.0;
+
+        // Update throughput (simplified calculation)
+        let elapsed_seconds = (end_time - self.startup_time) as f64 / 1000.0;
+        metrics.throughput_per_second = metrics.total_requests as f64 / elapsed_seconds.max(1.0);
+
+        metrics.last_updated = end_time;
     }
 
     /// Get active request count
     pub async fn get_active_request_count(&self) -> u32 {
-        if let Ok(active) = self.active_requests.lock() {
-            active.len() as u32
-        } else {
-            0
-        }
+        let active = self.active_requests.lock().unwrap();
+        active.len() as u32
     }
 
     /// Get circuit breaker status
     pub async fn get_circuit_breaker_status(&self) -> String {
-        if let Ok(breaker) = self.circuit_breaker.lock() {
-            format!("{:?}", breaker.state)
-        } else {
-            "Unknown".to_string()
-        }
+        let breaker = self.circuit_breaker.lock().unwrap();
+        format!("{:?}", breaker.state)
     }
 }
 

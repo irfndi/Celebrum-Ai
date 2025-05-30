@@ -541,14 +541,24 @@ impl HealthMonitor {
         }
 
         // Store in KV if enabled
-        if self.config.enable_kv_storage {
-            self.store_component_in_kv(&component).await?;
-        }
+        // 1. grab &mut to update in-memory state
+        let maybe_component = {
+            let mut components = self.components.lock().unwrap();
+            components.get_mut(&component_id).cloned()
+        };
 
-        self.logger.info(&format!(
-            "Registered component: {} ({})",
-            component.component_name, component.component_type
-        ));
+        if let Some(component) = maybe_component {
+            // Note: Status update removed during registration - status should be updated via separate health checks
+
+            // 2. persist *after* the lock has been released
+            if self.config.enable_kv_storage {
+                self.store_component_in_kv(&component).await?;
+            }
+
+            // 3. write the updated copy back
+            let mut components = self.components.lock().unwrap();
+            components.insert(component_id.clone(), component);
+        }
         Ok(())
     }
 
@@ -782,14 +792,14 @@ impl HealthMonitor {
             .expiration_ttl(60) // 1 minute
             .execute()
             .await
-            .map_err(|e| ArbitrageError::kv_error(&format!("KV write test failed: {}", e)))?;
+            .map_err(|e| ArbitrageError::kv_error(format!("KV write test failed: {}", e)))?;
 
         let _result = self
             .kv_store
             .get(&test_key)
             .text()
             .await
-            .map_err(|e| ArbitrageError::kv_error(&format!("KV read test failed: {}", e)))?;
+            .map_err(|e| ArbitrageError::kv_error(format!("KV read test failed: {}", e)))?;
 
         Ok(())
     }
@@ -801,6 +811,10 @@ impl HealthMonitor {
         status: HealthStatus,
         response_time: f64,
     ) -> ArbitrageResult<()> {
+        let mut component_to_update = None;
+        let mut alert_to_add = None;
+
+        // Update component and prepare alert if needed
         if let Ok(mut components) = self.components.lock() {
             if let Some(component) = components.get_mut(component_id) {
                 let old_status = component.status.clone();
@@ -820,14 +834,23 @@ impl HealthMonitor {
                     component.add_alert(alert.clone());
 
                     if self.config.enable_alerting {
-                        self.add_active_alert(alert).await;
+                        alert_to_add = Some(alert);
                     }
                 }
 
-                // Store updated component in KV
-                if self.config.enable_kv_storage {
-                    self.store_component_in_kv(component).await?;
-                }
+                component_to_update = Some(component.clone());
+            }
+        }
+
+        // Handle alerting outside of lock
+        if let Some(alert) = alert_to_add {
+            self.add_active_alert(alert).await;
+        }
+
+        // Store updated component in KV outside of lock
+        if let Some(component) = component_to_update {
+            if self.config.enable_kv_storage {
+                self.store_component_in_kv(&component).await?;
             }
         }
 
@@ -921,7 +944,7 @@ impl HealthMonitor {
             .expiration_ttl(self.config.metrics_retention_days as u64 * 86400) // Convert days to seconds
             .execute()
             .await
-            .map_err(|e| ArbitrageError::kv_error(&format!("Failed to store component: {}", e)))?;
+            .map_err(|e| ArbitrageError::kv_error(format!("Failed to store component: {}", e)))?;
 
         Ok(())
     }
@@ -940,6 +963,65 @@ impl HealthMonitor {
         let health_status = self.check_component_health("health_monitor_test").await?;
 
         Ok(health_status.is_operational())
+    }
+
+    /// Update component health status
+    pub async fn update_component_health(
+        &self,
+        component_name: &str,
+        is_healthy: bool,
+        details: Option<String>,
+    ) -> ArbitrageResult<()> {
+        let mut component_to_update = None;
+        let mut should_alert = false;
+
+        // Update component and check if alert is needed
+        if let Ok(mut components) = self.components.lock() {
+            if let Some(component) = components.get_mut(component_name) {
+                let was_healthy = component.status == HealthStatus::Healthy;
+                component.status = if is_healthy {
+                    HealthStatus::Healthy
+                } else {
+                    HealthStatus::Unhealthy
+                };
+                component.last_check_time = chrono::Utc::now().timestamp_millis() as u64;
+                component.response_time_ms = 0.0;
+                component.check_count = 0;
+                component.success_count = 0;
+                component.failure_count = 0;
+                component.consecutive_failures = 0;
+                component.error_rate_percent = 0.0;
+                component.metadata.insert(
+                    "details".to_string(),
+                    serde_json::Value::String(details.unwrap_or_else(|| "No details".to_string())),
+                );
+
+                // Check if we need to alert
+                if was_healthy && !is_healthy {
+                    should_alert = true;
+                }
+
+                component_to_update = Some(component.clone());
+            }
+        }
+
+        // Handle alerting outside of lock
+        if should_alert {
+            let alert = HealthAlert::new(
+                component_name.to_string(),
+                HealthAlertType::StatusChange,
+                HealthAlertSeverity::Error,
+                format!("Component {} became unhealthy", component_name),
+            );
+            self.add_active_alert(alert).await;
+        }
+
+        // Store component outside of lock
+        if let Some(component) = component_to_update {
+            self.store_component_in_kv(&component).await?;
+        }
+
+        Ok(())
     }
 }
 

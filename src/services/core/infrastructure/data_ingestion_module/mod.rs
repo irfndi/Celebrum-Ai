@@ -495,11 +495,42 @@ impl DataIngestionModule {
     pub async fn health_check(&self) -> ArbitrageResult<bool> {
         let _start_time = chrono::Utc::now().timestamp_millis() as u64;
 
-        // Check all components
-        let pipeline_healthy = self.pipeline_manager.health_check().await.unwrap_or(false);
-        let queue_healthy = self.queue_manager.health_check().await.unwrap_or(false);
-        let transformer_healthy = self.data_transformer.health_check().await.unwrap_or(false);
-        let coordinator_healthy = self.coordinator.health_check().await.unwrap_or(false);
+        // Check all components and log errors for better observability
+        let pipeline_healthy = match self.pipeline_manager.health_check().await {
+            Ok(healthy) => healthy,
+            Err(e) => {
+                self.logger
+                    .error(&format!("Pipeline manager health check failed: {}", e));
+                false
+            }
+        };
+
+        let queue_healthy = match self.queue_manager.health_check().await {
+            Ok(healthy) => healthy,
+            Err(e) => {
+                self.logger
+                    .error(&format!("Queue manager health check failed: {}", e));
+                false
+            }
+        };
+
+        let transformer_healthy = match self.data_transformer.health_check().await {
+            Ok(healthy) => healthy,
+            Err(e) => {
+                self.logger
+                    .error(&format!("Data transformer health check failed: {}", e));
+                false
+            }
+        };
+
+        let coordinator_healthy = match self.coordinator.health_check().await {
+            Ok(healthy) => healthy,
+            Err(e) => {
+                self.logger
+                    .error(&format!("Ingestion coordinator health check failed: {}", e));
+                false
+            }
+        };
 
         // Calculate overall health
         let healthy_components = [

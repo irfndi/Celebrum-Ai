@@ -247,6 +247,12 @@ impl TraceContext {
     }
 }
 
+impl Default for TraceContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Sampling decision for traces
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -643,19 +649,17 @@ impl TraceCollector {
             return Ok(());
         }
 
-        // Move trace from active to finished
-        if let Ok(mut traces) = self.active_traces.lock() {
-            if let Some(spans) = traces.remove(trace_id) {
-                self.record_trace_metrics(trace_id, &spans).await;
+        let spans_to_process = {
+            let mut traces = self.active_traces.lock().unwrap();
+            traces.remove(trace_id)
+        };
 
-                if let Ok(mut finished) = self.finished_traces.lock() {
-                    finished.push(trace_id.to_string());
-                }
+        if let Some(spans) = spans_to_process {
+            self.record_trace_metrics(trace_id, &spans).await;
 
-                // Store trace if KV storage is enabled
-                if self.config.enable_kv_storage {
-                    self.store_trace_in_kv(trace_id, &spans).await?;
-                }
+            // Store in KV if enabled
+            if self.config.enable_kv_storage {
+                self.store_trace_in_kv(trace_id, &spans).await?;
             }
         }
 
@@ -720,7 +724,7 @@ impl TraceCollector {
             .expiration_ttl(self.config.span_retention_seconds)
             .execute()
             .await
-            .map_err(|e| ArbitrageError::kv_error(&format!("Failed to store span: {}", e)))?;
+            .map_err(|e| ArbitrageError::kv_error(format!("Failed to store span: {}", e)))?;
 
         Ok(())
     }
@@ -735,7 +739,7 @@ impl TraceCollector {
             .expiration_ttl(self.config.trace_retention_seconds)
             .execute()
             .await
-            .map_err(|e| ArbitrageError::kv_error(&format!("Failed to store trace: {}", e)))?;
+            .map_err(|e| ArbitrageError::kv_error(format!("Failed to store trace: {}", e)))?;
 
         Ok(())
     }

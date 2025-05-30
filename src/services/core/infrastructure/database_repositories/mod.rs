@@ -63,6 +63,7 @@ impl Default for RepositoryMetrics {
 }
 
 /// Base repository trait for common operations
+#[allow(async_fn_in_trait)]
 pub trait Repository {
     /// Get repository name
     fn name(&self) -> &str;
@@ -142,6 +143,11 @@ pub mod utils {
         row.get(field_name)
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
+    }
+
+    /// Get optional i64 field from row
+    pub fn get_optional_i64_field(row: &HashMap<String, Value>, field_name: &str) -> Option<i64> {
+        row.get(field_name).and_then(|v| v.as_i64())
     }
 
     /// Get i64 field from row safely

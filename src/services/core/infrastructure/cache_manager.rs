@@ -182,13 +182,13 @@ impl CacheManager {
                 Err(e)
             }
         }
-    }
-
-    /// Set value in cache with automatic serialization and TTL
-    pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> ArbitrageResult<CacheResult>
-    where
-        T: Serialize,
-    {
+pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> ArbitrageResult<CacheResult>
+ where
+    T: Serialize + Clone,
+ {
+ …
+    let entry = CacheEntry {
+        data: value.clone(),
         let start_time = chrono::Utc::now().timestamp_millis() as u64;
         let namespaced_key = self.build_key(key);
 
@@ -462,15 +462,18 @@ impl CacheManager {
 
     async fn set_with_retry(&self, key: &str, value: &str, ttl_seconds: Option<u64>) -> ArbitrageResult<()> {
         for attempt in 0..=self.config.retry_attempts {
-            let result = if let Some(ttl) = ttl_seconds {
-                self.kv_store
-                    .put(key, value)
-                    .map_err(|e| ArbitrageError::cache_error(format!("Failed to set in cache: {}", e)))
-            } else {
-                self.kv_store
-                    .put(key, value)
-                    .map_err(|e| ArbitrageError::cache_error(format!("Failed to set in cache: {}", e)))
-            };
+let builder = self
+    .kv_store
+    .put(key, value)
+    .map_err(|e| ArbitrageError::cache_error(format!("Failed to set in cache: {}", e)))?;
+let builder = if let Some(ttl) = ttl_seconds {
+    builder.expiration_ttl(ttl)
+} else {
+    builder
+};
+let result = builder.execute().await.map_err(|e| {
+    ArbitrageError::cache_error(format!("Failed to set in cache: {}", e))
+});
 
             match result {
                 Ok(_) => return Ok(()),
@@ -517,9 +520,10 @@ impl CacheManager {
             }
 
             // Update hit rate
-            if stats.total_operations > 0 {
-                stats.hit_rate = stats.cache_hits as f64 / (stats.cache_hits + stats.cache_misses) as f64;
-            }
+let denom = stats.cache_hits + stats.cache_misses;
+if denom > 0 {
+    stats.hit_rate = stats.cache_hits as f64 / denom as f64;
+ }
 
             // Update average operation time
             let total_time = stats.avg_operation_time_ms * (stats.total_operations - 1) as f64 + execution_time_ms as f64;
@@ -536,10 +540,9 @@ impl CacheManager {
         }
     }
 
-    async fn sleep_ms(&self, ms: u64) {
-        // In real implementation, this would use proper async sleep
-        // For now, just a placeholder
-    }
+async fn sleep_ms(&self, ms: u64) {
+    worker::Delay::from_millis(ms).await;
+ }
 }
 
 impl Default for CacheStats {

@@ -186,7 +186,9 @@ impl OpportunityUtils {
 
     /// Determine if price difference is significant for arbitrage
     pub fn is_arbitrage_significant(price_diff_percent: f64) -> bool {
-        price_diff_percent >= OpportunityConstants::MIN_ARBITRAGE_THRESHOLD * 100.0
+        // value already expressed in percent
+        const MIN_ARBITRAGE_THRESHOLD_PERCENT: f64 = 0.1; // 0.1%
+        price_diff_percent >= MIN_ARBITRAGE_THRESHOLD_PERCENT
     }
 
     /// Determine if volume is sufficient for trading
@@ -226,13 +228,7 @@ impl OpportunityUtils {
 
     /// Generate unique opportunity ID
     pub fn generate_opportunity_id(prefix: &str, user_id: &str, symbol: &str) -> String {
-        format!(
-            "{}_{}_{}_{}",
-            prefix,
-            user_id,
-            symbol,
-            chrono::Utc::now().timestamp()
-        )
+        format!("{}_{}_{}_{}", prefix, user_id, symbol, uuid::Uuid::new_v4())
     }
 
     /// Apply delay to opportunity timestamps

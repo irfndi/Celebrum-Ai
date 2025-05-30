@@ -243,7 +243,7 @@ pub struct AnomalyDetection {
 }
 
 /// Data Processor for real-time analytics
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DataProcessor {
     config: DataProcessorConfig,
     kv_store: Option<KvStore>,
@@ -384,9 +384,10 @@ impl DataProcessor {
                     let serialized = serde_json::to_string(&aggregation)
                         .map_err(|e| ArbitrageError::serialization_error(e.to_string()))?;
 
-                    let _ = kv
-                        .put(&cache_key, serialized)?
-                        .expiration_ttl(self.config.cache_ttl_seconds);
+                    kv.put(&cache_key, serialized)?
+                        .expiration_ttl(self.config.cache_ttl_seconds)
+                        .execute()
+                        .await?;
                 }
             }
         }

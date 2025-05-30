@@ -623,7 +623,7 @@ impl AffiliationService {
                     format!("{:?}", program.verification_status).into(),
                     program
                         .follower_count
-                        .map(|f| worker::wasm_bindgen::JsValue::from(f))
+                        .map(worker::wasm_bindgen::JsValue::from)
                         .unwrap_or_else(|| worker::wasm_bindgen::JsValue::NULL),
                     program.platform.clone().unwrap_or_default().into(),
                     program.kickback_rate.into(),

@@ -100,19 +100,14 @@ impl PersonalizationEngineConfig {
 }
 
 /// Ranking algorithms for opportunity personalization
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum RankingAlgorithm {
     ContentBased,           // Based on opportunity features
     CollaborativeFiltering, // Based on similar users
-    Hybrid,                 // Combination of both
+    #[default]
+    Hybrid,   // Combination of both
     MachineLearning,        // ML-based ranking
     Simple,                 // Basic scoring
-}
-
-impl Default for RankingAlgorithm {
-    fn default() -> Self {
-        RankingAlgorithm::Hybrid
-    }
 }
 
 /// User preference vector for personalization
@@ -148,18 +143,13 @@ impl Default for UserPreferenceVector {
 }
 
 /// Time horizon preferences
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum TimeHorizon {
-    Short,  // < 1 hour
+    Short, // < 1 hour
+    #[default]
     Medium, // 1-24 hours
-    Long,   // > 24 hours
-    Any,    // No preference
-}
-
-impl Default for TimeHorizon {
-    fn default() -> Self {
-        TimeHorizon::Medium
-    }
+    Long,  // > 24 hours
+    Any,   // No preference
 }
 
 /// User interaction with opportunities
@@ -239,10 +229,11 @@ pub struct PersonalizationEngine {
     config: PersonalizationEngineConfig,
     logger: crate::utils::logger::Logger,
     cache: Option<KvStore>,
+    #[allow(dead_code)] // TODO: Will be used for feature extraction in future implementation
+    feature_extractors: HashMap<String, Box<dyn FeatureExtractor + Send + Sync>>,
     user_preferences: Arc<std::sync::Mutex<HashMap<String, UserPreferenceVector>>>,
     interaction_history: Arc<std::sync::Mutex<Vec<UserInteraction>>>,
     metrics: Arc<std::sync::Mutex<PersonalizationMetrics>>,
-    feature_extractors: HashMap<String, Box<dyn FeatureExtractor + Send + Sync>>,
 }
 
 /// Trait for extracting features from opportunities
@@ -301,7 +292,7 @@ impl FeatureExtractor for BasicFeatureExtractor {
 
 impl PersonalizationEngine {
     /// Create new PersonalizationEngine instance
-    pub fn new(mut config: PersonalizationEngineConfig) -> ArbitrageResult<Self> {
+    pub fn new(config: PersonalizationEngineConfig) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
         // Validate configuration
@@ -315,10 +306,10 @@ impl PersonalizationEngine {
             config,
             logger,
             cache: None,
+            feature_extractors,
             user_preferences: Arc::new(std::sync::Mutex::new(HashMap::new())),
             interaction_history: Arc::new(std::sync::Mutex::new(Vec::new())),
             metrics: Arc::new(std::sync::Mutex::new(PersonalizationMetrics::default())),
-            feature_extractors,
         };
 
         engine.logger.info(&format!(
@@ -691,7 +682,7 @@ impl PersonalizationEngine {
         let learning_weight = self.calculate_learning_weight(interaction);
 
         // Update preferences based on opportunity features
-        for (feature, _value) in &interaction.opportunity_features {
+        for feature in interaction.opportunity_features.keys() {
             if feature.starts_with("exchange_") {
                 let exchange = feature.strip_prefix("exchange_").unwrap_or("");
                 let current_pref = user_preferences
@@ -702,7 +693,7 @@ impl PersonalizationEngine {
                     current_pref + (learning_weight - current_pref) * self.config.learning_rate;
                 user_preferences
                     .exchange_preferences
-                    .insert(exchange.to_string(), new_pref.max(0.0).min(1.0));
+                    .insert(exchange.to_string(), new_pref.clamp(0.0, 1.0));
             } else if feature.starts_with("asset_") {
                 let asset = feature.strip_prefix("asset_").unwrap_or("");
                 let current_pref = user_preferences
@@ -713,7 +704,7 @@ impl PersonalizationEngine {
                     current_pref + (learning_weight - current_pref) * self.config.learning_rate;
                 user_preferences
                     .asset_preferences
-                    .insert(asset.to_string(), new_pref.max(0.0).min(1.0));
+                    .insert(asset.to_string(), new_pref.clamp(0.0, 1.0));
             }
         }
 
@@ -748,9 +739,7 @@ impl PersonalizationEngine {
 
         let feedback_modifier = interaction.feedback_score.unwrap_or(1.0);
 
-        (base_weight * outcome_modifier * feedback_modifier)
-            .max(0.0)
-            .min(1.0)
+        (base_weight * outcome_modifier * feedback_modifier).clamp(0.0, 1.0)
     }
 
     /// Get user preferences (from cache or create new)
@@ -758,18 +747,17 @@ impl PersonalizationEngine {
         &self,
         user_id: &str,
     ) -> ArbitrageResult<UserPreferenceVector> {
-        // Try cache first
-        if let Some(cached_prefs) = self.get_cached_user_preferences(user_id).await? {
-            return Ok(cached_prefs);
-        }
-
-        // Check in-memory storage
-        if let Ok(preferences) = self.user_preferences.lock() {
-            if let Some(prefs) = preferences.get(user_id) {
-                // Cache the preferences
-                let _ = self.cache_user_preferences(prefs).await;
-                return Ok(prefs.clone());
+        let prefs_to_cache = {
+            if let Ok(preferences) = self.user_preferences.lock() {
+                preferences.get(user_id).cloned()
+            } else {
+                None
             }
+        };
+
+        if let Some(prefs) = prefs_to_cache {
+            let _ = self.cache_user_preferences(&prefs).await;
+            return Ok(prefs);
         }
 
         // Create new preferences
@@ -819,6 +807,8 @@ impl PersonalizationEngine {
     }
 
     /// Get cached user preferences
+    // TODO: Will be used for caching user preferences in future implementation
+    #[allow(dead_code)]
     async fn get_cached_user_preferences(
         &self,
         user_id: &str,
@@ -875,6 +865,8 @@ impl PersonalizationEngine {
         Ok(self.config.enable_personalization)
     }
 
+    // TODO: Will be used for analyzing user preferences in future implementation
+    #[allow(dead_code)]
     async fn analyze_user_preferences(
         &self,
         user_id: &str,

@@ -226,13 +226,13 @@ impl AnalyticsRepository {
             .map_err(|e| {
                 database_error(
                     "bind parameters",
-                    &format!("Failed to bind parameters: {}", e),
+                    format!("Failed to bind parameters: {}", e),
                 )
             })?
             .run()
             .await
             .map_err(|e| {
-                database_error("execute query", &format!("Failed to execute query: {}", e))
+                database_error("execute query", format!("Failed to execute query: {}", e))
             });
 
         // Invalidate cache for user analytics
@@ -263,17 +263,12 @@ impl AnalyticsRepository {
         // Try cache first
         if let Some(ref cache) = self.cache {
             let cache_key = format!("analytics:user:{}:limit:{}", user_id, limit);
-            match cache.get(&cache_key).text().await {
-                Ok(Some(cached_data)) => {
-                    if let Ok(analytics) =
-                        serde_json::from_str::<Vec<TradingAnalytics>>(&cached_data)
-                    {
-                        self.update_metrics(start_time, true).await;
-                        self.update_cache_hit_rate(true).await;
-                        return Ok(analytics);
-                    }
+            if let Ok(Some(cached_data)) = cache.get(&cache_key).text().await {
+                if let Ok(analytics) = serde_json::from_str::<Vec<TradingAnalytics>>(&cached_data) {
+                    self.update_metrics(start_time, true).await;
+                    self.update_cache_hit_rate(true).await;
+                    return Ok(analytics);
                 }
-                _ => {}
             }
             self.update_cache_hit_rate(false).await;
         }
@@ -290,20 +285,20 @@ impl AnalyticsRepository {
             .map_err(|e| {
                 database_error(
                     "bind parameters",
-                    &format!("Failed to bind parameters: {}", e),
+                    format!("Failed to bind parameters: {}", e),
                 )
             })?
             .all()
             .await
             .map_err(|e| {
-                database_error("execute query", &format!("Failed to execute query: {}", e))
+                database_error("execute query", format!("Failed to execute query: {}", e))
             })?;
 
         let mut analytics = Vec::new();
         let results = result
             .results::<HashMap<String, serde_json::Value>>()
             .map_err(|e| {
-                database_error("parse results", &format!("Failed to parse results: {}", e))
+                database_error("parse results", format!("Failed to parse results: {}", e))
             })?;
 
         for row in results {
@@ -314,7 +309,12 @@ impl AnalyticsRepository {
         if let Some(ref cache) = self.cache {
             let cache_key = format!("analytics:user:{}:limit:{}", user_id, limit);
             let cache_data = serde_json::to_string(&analytics).unwrap_or_default();
-            let _ = cache.put(&cache_key, &cache_data);
+            // persist with TTL, swallow failure intentionally
+            let _ = cache
+                .put(&cache_key, cache_data)?
+                .expiration_ttl(self.config.cache_ttl_seconds)
+                .execute()
+                .await;
         }
 
         self.update_metrics(start_time, true).await;
@@ -372,16 +372,12 @@ impl AnalyticsRepository {
         // Try cache first
         if let Some(ref cache) = self.cache {
             let cache_key = format!("analytics:summary:user:{}", user_id);
-            match cache.get(&cache_key).text().await {
-                Ok(Some(cached_data)) => {
-                    if let Ok(summary) = serde_json::from_str::<UserAnalyticsSummary>(&cached_data)
-                    {
-                        self.update_metrics(start_time, true).await;
-                        self.update_cache_hit_rate(true).await;
-                        return Ok(summary);
-                    }
+            if let Ok(Some(cached_data)) = cache.get(&cache_key).text().await {
+                if let Ok(summary) = serde_json::from_str::<UserAnalyticsSummary>(&cached_data) {
+                    self.update_metrics(start_time, true).await;
+                    self.update_cache_hit_rate(true).await;
+                    return Ok(summary);
                 }
-                _ => {}
             }
             self.update_cache_hit_rate(false).await;
         }
@@ -454,7 +450,7 @@ impl AnalyticsRepository {
             .iter()
             .filter(|a| a.metric_type == "risk_assessment")
             .map(|a| a.metric_value)
-            .last()
+            .next_back()
             .unwrap_or(0.0);
 
         let last_trade_timestamp = analytics
@@ -507,17 +503,12 @@ impl AnalyticsRepository {
         // Try cache first
         if let Some(ref cache) = self.cache {
             let cache_key = "analytics:summary:system";
-            match cache.get(cache_key).text().await {
-                Ok(Some(cached_data)) => {
-                    if let Ok(summary) =
-                        serde_json::from_str::<SystemAnalyticsSummary>(&cached_data)
-                    {
-                        self.update_metrics(start_time, true).await;
-                        self.update_cache_hit_rate(true).await;
-                        return Ok(summary);
-                    }
+            if let Ok(Some(cached_data)) = cache.get(cache_key).text().await {
+                if let Ok(summary) = serde_json::from_str::<SystemAnalyticsSummary>(&cached_data) {
+                    self.update_metrics(start_time, true).await;
+                    self.update_cache_hit_rate(true).await;
+                    return Ok(summary);
                 }
-                _ => {}
             }
             self.update_cache_hit_rate(false).await;
         }
@@ -698,7 +689,7 @@ impl AnalyticsRepository {
             .iter()
             .filter(|a| a.metric_type == "risk_assessment")
             .map(|a| a.metric_value)
-            .last()
+            .next_back()
             .unwrap_or(0.0);
 
         let aggregation = AnalyticsAggregation {
@@ -852,13 +843,22 @@ impl AnalyticsRepository {
 
     async fn update_cache_hit_rate(&self, hit: bool) {
         if let Ok(mut metrics) = self.metrics.lock() {
-            let current_hits = metrics.cache_hit_rate * metrics.total_operations as f64;
+            // Capture current values before updating
+            let current_total_operations = metrics.total_operations;
+            let current_hits = metrics.cache_hit_rate * current_total_operations as f64;
+
+            // Calculate new hit rate with the captured total operations
             let new_hits = if hit {
                 current_hits + 1.0
             } else {
                 current_hits
             };
-            metrics.cache_hit_rate = new_hits / (metrics.total_operations + 1) as f64;
+
+            // Update total operations first
+            metrics.total_operations += 1;
+
+            // Then calculate hit rate using the new total
+            metrics.cache_hit_rate = new_hits / metrics.total_operations as f64;
         }
     }
 }
@@ -963,7 +963,6 @@ mod tests {
             timestamp: Utc::now(),
             session_id: None,
             analytics_metadata: serde_json::json!({}),
-            user_id: "test_user".to_string(),
             total_trades: 0,
             successful_trades: 0,
             total_pnl_usdt: 0.0,

@@ -19,6 +19,22 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::{kv::KvStore, Env};
 
+/// Helper function to get current time in milliseconds as u64
+/// Handles the f64 to u64 conversion safely by applying floor() before casting
+fn get_current_time_millis() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now() as u64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    }
+}
+
 /// Financial Coordinator Configuration
 #[derive(Debug, Clone)]
 pub struct FinancialCoordinatorConfig {
@@ -253,7 +269,7 @@ impl FinancialCoordinator {
             operation_queue: Vec::new(),
             operation_results: HashMap::new(),
             metrics: FinancialCoordinatorMetrics::default(),
-            last_operation_time: worker::Date::now().as_millis(),
+            last_operation_time: get_current_time_millis(),
             is_initialized: false,
         })
     }
@@ -276,7 +292,7 @@ impl FinancialCoordinator {
         balance_tracker: &mut BalanceTracker,
         fund_analyzer: &mut FundAnalyzer,
     ) -> ArbitrageResult<FinancialOperationResult> {
-        let start_time = worker::Date::now().as_millis();
+        let start_time = get_current_time_millis();
 
         // Validate operation request
         self.validate_operation_request(&operation_request)?;
@@ -316,14 +332,14 @@ impl FinancialCoordinator {
         };
 
         // Create operation result
-        let execution_time = worker::Date::now().as_millis() - start_time;
+        let execution_time = get_current_time_millis() - start_time;
         let operation_result = FinancialOperationResult {
             operation_id: operation_request.operation_id.clone(),
             operation_type: operation_request.operation_type.clone(),
             status: "success".to_string(),
             result_data,
             execution_time_ms: execution_time,
-            completed_at: worker::Date::now().as_millis(),
+            completed_at: get_current_time_millis(),
             error_message: None,
         };
 
@@ -381,7 +397,7 @@ impl FinancialCoordinator {
             "exchange_count": balance_snapshots.len(),
             "balances": balance_snapshots,
             "total_value_usd": balance_snapshots.values().map(|s| s.total_usd_value).sum::<f64>(),
-            "timestamp": worker::Date::now().as_millis()
+            "timestamp": get_current_time_millis()
         });
 
         Ok(result)
@@ -421,7 +437,7 @@ impl FinancialCoordinator {
             "user_id": operation_request.user_id,
             "portfolio_analytics": portfolio_analytics,
             "balance_snapshots_count": balance_snapshots.len(),
-            "timestamp": worker::Date::now().as_millis()
+            "timestamp": get_current_time_millis()
         });
 
         Ok(result)
@@ -484,7 +500,7 @@ impl FinancialCoordinator {
             "user_id": operation_request.user_id,
             "optimization_result": optimization_result,
             "target_allocation": target_allocation,
-            "timestamp": worker::Date::now().as_millis()
+            "timestamp": get_current_time_millis()
         });
 
         Ok(result)
@@ -544,7 +560,7 @@ impl FinancialCoordinator {
                 "to_timestamp": to_timestamp,
                 "limit": limit
             },
-            "timestamp": worker::Date::now().as_millis()
+            "timestamp": get_current_time_millis()
         });
 
         Ok(result)
@@ -579,7 +595,7 @@ impl FinancialCoordinator {
             .await?;
 
         // Get balance history (last 7 days)
-        let from_timestamp = worker::Date::now().as_millis() - (7 * 24 * 60 * 60 * 1000);
+        let from_timestamp = get_current_time_millis() - (7 * 24 * 60 * 60 * 1000);
         let balance_history = balance_tracker
             .get_balance_history(
                 &operation_request.user_id,
@@ -595,7 +611,7 @@ impl FinancialCoordinator {
         let total_exchanges = balance_snapshots.len();
         let total_assets = balance_snapshots
             .values()
-            .flat_map(|snapshot| snapshot.balances.keys())
+            .flat_map(|snapshot| snapshot.balances.iter().map(|balance| &balance.asset))
             .collect::<std::collections::HashSet<_>>()
             .len();
         let total_value_usd = balance_snapshots
@@ -611,7 +627,7 @@ impl FinancialCoordinator {
                 "total_exchanges": total_exchanges,
                 "total_assets": total_assets,
                 "total_value_usd": total_value_usd,
-                "analysis_timestamp": worker::Date::now().as_millis()
+                "analysis_timestamp": get_current_time_millis()
             },
             "balance_snapshots": balance_snapshots,
             "portfolio_analytics": portfolio_analytics,
@@ -620,7 +636,7 @@ impl FinancialCoordinator {
                 "entry_count": balance_history.len(),
                 "period_days": 7
             },
-            "timestamp": worker::Date::now().as_millis()
+            "timestamp": get_current_time_millis()
         });
 
         Ok(result)
@@ -641,10 +657,19 @@ impl FinancialCoordinator {
                 "user_id cannot be empty".to_string(),
             ));
         }
-        if request.operation_type.is_empty() {
-            return Err(ArbitrageError::validation_error(
-                "operation_type cannot be empty".to_string(),
-            ));
+        const ALLOWED: &[&str] = &[
+            "get_balances",
+            "analyze_portfolio",
+            "optimize_portfolio",
+            "get_balance_history",
+            "comprehensive_analysis",
+        ];
+
+        if !ALLOWED.contains(&request.operation_type.as_str()) {
+            return Err(ArbitrageError::validation_error(format!(
+                "unsupported operation_type '{}'",
+                request.operation_type
+            )));
         }
         Ok(())
     }
@@ -707,7 +732,7 @@ impl FinancialCoordinator {
                     "exchange_count": operation_result.result_data.get("exchange_count")
                 }),
                 severity: "info".to_string(),
-                timestamp: worker::Date::now().as_millis(),
+                timestamp: get_current_time_millis(),
                 processed: false,
             };
             self.pending_events.push(event);
@@ -728,7 +753,7 @@ impl FinancialCoordinator {
                         .and_then(|r| r.get("optimization_score"))
                 }),
                 severity: "info".to_string(),
-                timestamp: worker::Date::now().as_millis(),
+                timestamp: get_current_time_millis(),
                 processed: false,
             };
             self.pending_events.push(event);
@@ -750,7 +775,7 @@ impl FinancialCoordinator {
             workflow_type: workflow_type.to_string(),
             trigger_condition: trigger_condition.to_string(),
             status: "pending".to_string(),
-            created_at: worker::Date::now().as_millis(),
+            created_at: get_current_time_millis(),
             started_at: None,
             completed_at: None,
             result: None,
@@ -820,8 +845,8 @@ impl FinancialCoordinator {
                 self.metrics.failed_operations as f64 / total_operations as f64;
         }
 
-        self.metrics.last_updated = worker::Date::now().as_millis();
-        self.last_operation_time = worker::Date::now().as_millis();
+        self.metrics.last_updated = get_current_time_millis();
+        self.last_operation_time = get_current_time_millis();
     }
 
     /// Get health status
@@ -844,7 +869,7 @@ impl FinancialCoordinator {
             active_workflows,
             pending_events,
             average_operation_time_ms: self.metrics.average_operation_time_ms,
-            last_health_check: worker::Date::now().as_millis(),
+            last_health_check: get_current_time_millis(),
         })
     }
 
@@ -855,7 +880,7 @@ impl FinancialCoordinator {
 
     /// Cleanup old workflows and events
     pub async fn cleanup_old_data(&mut self, max_age_hours: u32) -> ArbitrageResult<()> {
-        let cutoff_time = worker::Date::now().as_millis() - (max_age_hours as u64 * 60 * 60 * 1000);
+        let cutoff_time = get_current_time_millis() - (max_age_hours as u64 * 60 * 60 * 1000);
 
         // Remove old workflows
         self.active_workflows
@@ -897,7 +922,7 @@ impl Default for FinancialCoordinatorMetrics {
             financial_analyses_triggered: 0,
             optimizations_triggered: 0,
             balance_updates_processed: 0,
-            last_updated: worker::Date::now().as_millis(),
+            last_updated: get_current_time_millis(),
         }
     }
 }

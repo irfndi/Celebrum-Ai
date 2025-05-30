@@ -433,6 +433,7 @@ impl MathUtils {
 
 /// Main service for market analysis and technical indicators
 pub struct MarketAnalysisService {
+    #[allow(dead_code)] // TODO: Will be used for database operations in future implementation
     database_repositories: DatabaseManager,
     preferences_service: UserTradingPreferencesService,
     pipelines_service: Option<DataIngestionModule>, // For market data ingestion and analysis storage

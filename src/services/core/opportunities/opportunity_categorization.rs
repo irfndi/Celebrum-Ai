@@ -269,11 +269,11 @@ impl UserOpportunityPreferences {
             created_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_secs(),
+                .as_millis() as u64,
             updated_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_secs(),
+                .as_millis() as u64,
         }
     }
 }
@@ -334,7 +334,7 @@ impl Default for PersonalizationSettings {
 
 /// Main opportunity categorization service
 pub struct OpportunityCategorizationService {
-    d1_service: DatabaseManager,
+    db_manager: DatabaseManager,
     preferences_service: UserTradingPreferencesService,
     logger: Logger,
     // Cache for user preferences to avoid repeated DB calls (using Arc<Mutex<>> for thread safety)
@@ -343,12 +343,12 @@ pub struct OpportunityCategorizationService {
 
 impl OpportunityCategorizationService {
     pub fn new(
-        d1_service: DatabaseManager,
+        db_manager: DatabaseManager,
         preferences_service: UserTradingPreferencesService,
         logger: Logger,
     ) -> Self {
         Self {
-            d1_service,
+            db_manager,
             preferences_service,
             logger,
             user_prefs_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -487,7 +487,7 @@ impl OpportunityCategorizationService {
 
         // Try to load from D1 database first
         let opportunity_prefs = match self
-            .d1_service
+            .db_manager
             .get_user_opportunity_preferences(user_id)
             .await?
         {
@@ -507,7 +507,7 @@ impl OpportunityCategorizationService {
                     ArbitrageError::parse_error(format!("Failed to serialize preferences: {}", e))
                 })?;
 
-                self.d1_service
+                self.db_manager
                     .store_user_opportunity_preferences(&default_prefs.user_id, &preferences_value)
                     .await?;
 
@@ -585,7 +585,7 @@ impl OpportunityCategorizationService {
         })?;
 
         // Store in database using D1Service
-        self.d1_service
+        self.db_manager
             .store_user_opportunity_preferences(&preferences.user_id, &preferences_value)
             .await?;
 
@@ -1016,97 +1016,6 @@ impl OpportunityCategorizationService {
         );
 
         metadata
-    }
-
-    /// Create default opportunity preferences for a user
-    fn create_default_opportunity_preferences(
-        &self,
-        user_id: &str,
-        user_prefs: &UserTradingPreferences,
-    ) -> UserOpportunityPreferences {
-        // Default enabled categories based on trading focus and experience
-        let enabled_categories = match (&user_prefs.trading_focus, &user_prefs.experience_level) {
-            (TradingFocus::Arbitrage, ExperienceLevel::Beginner) => vec![
-                OpportunityCategory::LowRiskArbitrage,
-                OpportunityCategory::HighConfidenceArbitrage,
-                OpportunityCategory::BeginnerFriendly,
-            ],
-            (TradingFocus::Arbitrage, _) => vec![
-                OpportunityCategory::LowRiskArbitrage,
-                OpportunityCategory::HighConfidenceArbitrage,
-                OpportunityCategory::HybridEnhanced,
-                OpportunityCategory::AiRecommended,
-            ],
-            (TradingFocus::Technical, ExperienceLevel::Beginner) => vec![
-                OpportunityCategory::BeginnerFriendly,
-                OpportunityCategory::TechnicalSignals,
-            ],
-            (TradingFocus::Technical, _) => vec![
-                OpportunityCategory::TechnicalSignals,
-                OpportunityCategory::MomentumTrading,
-                OpportunityCategory::MeanReversion,
-                OpportunityCategory::BreakoutPatterns,
-                OpportunityCategory::AiRecommended,
-            ],
-            (TradingFocus::Hybrid, _) => vec![
-                OpportunityCategory::LowRiskArbitrage,
-                OpportunityCategory::HighConfidenceArbitrage,
-                OpportunityCategory::TechnicalSignals,
-                OpportunityCategory::HybridEnhanced,
-                OpportunityCategory::AiRecommended,
-            ],
-        };
-
-        // Create default alert configs for enabled categories
-        let alert_configs: Vec<CategoryAlertConfig> = enabled_categories
-            .iter()
-            .map(|category| {
-                let mut config = CategoryAlertConfig {
-                    category: category.clone(),
-                    ..Default::default()
-                };
-
-                // Adjust thresholds based on experience level
-                match user_prefs.experience_level {
-                    ExperienceLevel::Beginner => {
-                        config.min_confidence_threshold = 0.8;
-                        config.max_risk_level = RiskLevel::Low;
-                        config.min_expected_return = 1.0;
-                    }
-                    ExperienceLevel::Intermediate => {
-                        config.min_confidence_threshold = 0.7;
-                        config.max_risk_level = RiskLevel::Medium;
-                        config.min_expected_return = 1.5;
-                    }
-                    ExperienceLevel::Advanced => {
-                        config.min_confidence_threshold = 0.6;
-                        config.max_risk_level = RiskLevel::High;
-                        config.min_expected_return = 2.0;
-                    }
-                }
-
-                config
-            })
-            .collect();
-
-        // Get current timestamp
-        #[cfg(target_arch = "wasm32")]
-        let now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        UserOpportunityPreferences {
-            user_id: user_id.to_string(),
-            enabled_categories,
-            alert_configs,
-            global_alert_settings: GlobalAlertSettings::default(),
-            personalization_settings: PersonalizationSettings::default(),
-            created_at: now,
-            updated_at: now,
-        }
     }
 }
 

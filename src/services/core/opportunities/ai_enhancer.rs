@@ -520,7 +520,7 @@ impl AIEnhancer {
 
         ArbitrageOpportunity {
             id: format!("tech_to_arb_{}", tech_opp.id),
-            pair: tech_opp.pair.clone(),
+            pair: tech_opp.symbol.clone(),
             long_exchange: tech_opp.exchange,
             short_exchange: tech_opp.exchange,
             long_rate: None,
@@ -531,12 +531,13 @@ impl AIEnhancer {
             confidence: 0.8, // Default confidence score
             volume: 1000.0,  // Default volume
             timestamp: Utc::now().timestamp_millis() as u64,
+            created_at: Utc::now().timestamp_millis() as u64,
             detected_at: Utc::now().timestamp_millis() as u64,
             expires_at: Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
             r#type: ArbitrageType::CrossExchange,
             details: Some(format!(
                 "Technical Signal: {:?} | Confidence: {:.2}",
-                tech_opp.signal_type, tech_opp.confidence_score
+                tech_opp.signal_type, tech_opp.confidence
             )),
             min_exchanges_required: 1, // Technical only needs one exchange
         }
@@ -567,6 +568,7 @@ mod tests {
             confidence: 0.8, // Default confidence score
             volume: 1000.0,  // Default volume
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
             detected_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
             r#type: ArbitrageType::CrossExchange,
@@ -578,22 +580,25 @@ mod tests {
     fn create_test_technical_opportunity() -> TechnicalOpportunity {
         TechnicalOpportunity {
             id: Uuid::new_v4().to_string(),
-            pair: "ETHUSDT".to_string(),
+            symbol: "ETHUSDT".to_string(),
             exchange: ExchangeIdEnum::Binance,
             signal_type: TechnicalSignalType::Buy,
             signal_strength: TechnicalSignalStrength::Strong,
-            entry_price: 3000.0,
-            target_price: Some(3150.0),
-            stop_loss_price: Some(2950.0),
-            confidence_score: 0.85,
-            technical_indicators: vec!["RSI".to_string(), "MACD".to_string()],
-            timeframe: "1h".to_string(),
-            expected_return_percentage: 0.05,
             risk_level: TechnicalRiskLevel::Medium,
-            timestamp: Utc::now().timestamp_millis() as u64,
+            entry_price: 3000.0,
+            target_price: 3150.0,
+            stop_loss: 2950.0,
+            confidence: 0.85,
+            timeframe: "1h".to_string(),
+            indicators: serde_json::json!({"RSI": 70, "MACD": "bullish"}),
+            created_at: Utc::now().timestamp_millis() as u64,
             expires_at: Utc::now().timestamp_millis() as u64 + (4 * 60 * 60 * 1000),
+            metadata: serde_json::json!({"signal_strength": "strong"}),
+            pair: "ETHUSDT".to_string(),
+            expected_return_percentage: 0.05,
             details: Some("Strong buy signal".to_string()),
-            min_exchanges_required: 1,
+            confidence_score: 0.85,
+            timestamp: Utc::now().timestamp_millis() as u64,
         }
     }
 
@@ -605,7 +610,7 @@ mod tests {
         // This test focuses on the conversion logic
         let converted = ArbitrageOpportunity {
             id: format!("tech_to_arb_{}", tech_opp.id),
-            pair: tech_opp.pair.clone(),
+            pair: tech_opp.symbol.clone(),
             long_exchange: tech_opp.exchange,
             short_exchange: tech_opp.exchange,
             long_rate: None,
@@ -616,12 +621,13 @@ mod tests {
             confidence: 0.8, // Default confidence score
             volume: 1000.0,  // Default volume
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
             detected_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
             r#type: ArbitrageType::CrossExchange,
             details: Some(format!(
                 "Technical Signal: {:?} | Confidence: {:.2}",
-                tech_opp.signal_type, tech_opp.confidence_score
+                tech_opp.signal_type, tech_opp.confidence
             )),
             min_exchanges_required: 1,
         };

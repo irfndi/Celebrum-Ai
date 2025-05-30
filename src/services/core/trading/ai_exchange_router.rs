@@ -1,17 +1,20 @@
 // use worker::{Request, Response, Env}; // TODO: Re-enable when implementing worker integration [Tracked: PR-24, Comment 94]
 use crate::{
-    // log_info,
-    services::core::ai::ai_integration::{
-        AiAnalysisRequest, AiAnalysisResponse, AiIntegrationService, AiProvider,
+    services::{
+        core::{
+            ai::ai_integration::{
+                AiAnalysisRequest, AiAnalysisResponse, AiIntegrationService, AiProvider,
+            },
+            infrastructure::{
+                database_repositories::DatabaseManager, /* service_container::ServiceContainer, */
+            },
+            /* trading::exchange::ExchangeService, */
+            user::user_profile::UserProfileService,
+        },
+        /* interfaces::telegram::TelegramService, */
     },
-    services::core::infrastructure::database_repositories::DatabaseManager,
-    types::{
-        ArbitrageOpportunity, // ArbitrageType, DistributionStrategy, ExchangeIdEnum,
-        GlobalOpportunity,
-        UserProfile, // OpportunityData, OpportunitySource, UserProfile,
-    },
+    types::{ArbitrageOpportunity, /* ExchangeIdEnum, */ GlobalOpportunity, UserProfile},
     utils::{ArbitrageError, ArbitrageResult},
-    UserProfileService,
 };
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -535,7 +538,7 @@ impl AiExchangeRouterService {
             "total_pnl": user_profile.total_pnl_usdt,
             "risk_tolerance": user_profile.configuration.risk_tolerance_percentage,
             "max_position_size": user_profile.configuration.max_entry_size_usdt,
-            "min_position_size": user_profile.configuration.min_entry_size_usdt,
+            "min_position_size": user_profile.configuration.max_entry_size_usdt * 0.1, // 10% of max as min
         }))
     }
 
@@ -550,7 +553,7 @@ impl AiExchangeRouterService {
             "Analyze this specific arbitrage opportunity: {:?} with {:.2}% rate difference. \
              Consider user's risk tolerance ({:.2}%) and max position size (${:.2}). \
              Provide viability score (0-100), risk factors, and recommended position size.",
-            opportunity.source,
+            opportunity.opportunity_data,
             if let crate::types::OpportunityData::Arbitrage(arb_opp) = &opportunity.opportunity_data
             {
                 arb_opp.rate_difference * 100.0
@@ -587,7 +590,10 @@ impl AiExchangeRouterService {
         let confidence = ai_response.confidence.unwrap_or(0.5) as f64;
 
         Ok(AiOpportunityAnalysis {
-            opportunity_id: opportunity.opportunity_data.id().to_string(),
+            opportunity_id: match &opportunity.opportunity_data {
+                crate::types::OpportunityData::Arbitrage(arb) => arb.id.clone(),
+                crate::types::OpportunityData::Technical(tech) => tech.id.clone(),
+            },
             user_id: user_id.to_string(),
             ai_score,
             viability_assessment: ai_response.analysis.clone(),
@@ -786,77 +792,46 @@ mod tests {
             },
         );
 
-        // Create a test opportunity to ensure the list is not empty
+        // Create ArbitrageOpportunity for testing
         let arbitrage_opp = ArbitrageOpportunity::new(
             "BTCUSDT".to_string(),
             ExchangeIdEnum::Binance,
             ExchangeIdEnum::Bybit,
-            Some(50000.0),
-            Some(50100.0),
-            0.002,
-            ArbitrageType::FundingRate,
+            0.0001, // rate_difference as f64
+            0.0008, // volume as f64
+            0.0007, // confidence as f64
         );
 
-        let global_opportunity = match arbitrage_opp {
-            Ok(arb_opp) => {
-                match GlobalOpportunity::from_arbitrage(
-                    arb_opp,
-                    OpportunitySource::SystemGenerated,
-                    chrono::Utc::now().timestamp() as u64 + 3600,
-                ) {
-                    Ok(mut global_opp) => {
-                        global_opp.priority = 8;
-                        global_opp.priority_score = 8.5;
-                        global_opp.distributed_to = vec!["user1".to_string()];
-                        global_opp.max_participants = Some(10);
-                        global_opp.current_participants = 1;
-                        global_opp
-                    }
-                    Err(_) => {
-                        // Fallback to manual construction
-                        let arb_opp = ArbitrageOpportunity::default();
-                        GlobalOpportunity {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            opportunity_data: OpportunityData::Arbitrage(arb_opp),
-                            source: OpportunitySource::SystemGenerated,
-                            created_at: chrono::Utc::now().timestamp() as u64,
-                            detection_timestamp: chrono::Utc::now().timestamp() as u64,
-                            expires_at: chrono::Utc::now().timestamp() as u64 + 3600,
-                            priority: 8,
-                            priority_score: 8.5,
-                            ai_enhanced: false,
-                            ai_confidence_score: None,
-                            ai_insights: None,
-                            distributed_to: vec!["user1".to_string()],
-                            max_participants: Some(10),
-                            current_participants: 1,
-                            distribution_strategy: DistributionStrategy::FirstComeFirstServe,
-                        }
-                    }
-                }
-            }
-            Err(_) => {
-                // Fallback to default opportunity
-                let arb_opp = ArbitrageOpportunity::default();
-                GlobalOpportunity {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    opportunity_data: OpportunityData::Arbitrage(arb_opp),
-                    source: OpportunitySource::SystemGenerated,
-                    created_at: chrono::Utc::now().timestamp() as u64,
-                    detection_timestamp: chrono::Utc::now().timestamp() as u64,
-                    expires_at: chrono::Utc::now().timestamp() as u64 + 3600,
-                    priority: 8,
-                    priority_score: 8.5,
-                    ai_enhanced: false,
-                    ai_confidence_score: None,
-                    ai_insights: None,
-                    distributed_to: vec!["user1".to_string()],
-                    max_participants: Some(10),
-                    current_participants: 1,
-                    distribution_strategy: DistributionStrategy::FirstComeFirstServe,
-                }
-            }
+        // Create GlobalOpportunity from arbitrage opportunity
+        let global_opp = GlobalOpportunity {
+            id: uuid::Uuid::new_v4().to_string(),
+            opportunity_type: OpportunitySource::SystemGenerated,
+            arbitrage_opportunity: arbitrage_opp.clone(),
+            priority: 8,
+            target_users: vec!["user1".to_string()],
+            distribution_strategy: DistributionStrategy::FirstComeFirstServe,
+            created_at: chrono::Utc::now().timestamp() as u64,
+            expires_at: chrono::Utc::now().timestamp() as u64 + 3600,
+            opportunity_data: OpportunityData::Arbitrage(arbitrage_opp),
+            source: OpportunitySource::SystemGenerated,
+            detection_timestamp: chrono::Utc::now().timestamp() as u64,
+            priority_score: 8.5,
+            ai_enhanced: false,
+            ai_confidence_score: None,
+            ai_insights: None,
+            distributed_to: vec!["user1".to_string()],
+            max_participants: Some(10),
+            current_participants: 3,
         };
+
+        // Set AI enhancement
+        let mut enhanced_global_opp = global_opp;
+        enhanced_global_opp.ai_enhanced = true;
+        enhanced_global_opp.ai_confidence_score = Some(0.0007);
+        enhanced_global_opp.ai_insights =
+            Some(vec!["High potential with moderate risk".to_string()]);
+
+        let global_opportunity = enhanced_global_opp;
 
         MarketDataSnapshot {
             timestamp: chrono::Utc::now().timestamp() as u64,
@@ -1228,22 +1203,23 @@ mod tests {
                 "BTCUSDT".to_string(),
                 ExchangeIdEnum::Binance,
                 ExchangeIdEnum::Bybit,
-                Some(0.0001),
-                Some(0.0008),
-                0.0007,
-                ArbitrageType::FundingRate,
+                0.0001, // rate_difference as f64
+                0.0008, // volume as f64
+                0.0007, // confidence as f64
             );
 
             GlobalOpportunity {
                 id: uuid::Uuid::new_v4().to_string(),
-                opportunity_data: OpportunityData::Arbitrage(
-                    arbitrage_opp.unwrap_or_else(|_| ArbitrageOpportunity::default()),
-                ),
-                source: OpportunitySource::SystemGenerated,
-                created_at: chrono::Utc::now().timestamp() as u64,
-                detection_timestamp: chrono::Utc::now().timestamp() as u64,
-                expires_at: chrono::Utc::now().timestamp() as u64 + 3600,
+                opportunity_type: OpportunitySource::SystemGenerated,
+                arbitrage_opportunity: arbitrage_opp.clone(),
                 priority: 8,
+                target_users: vec!["user1".to_string()],
+                distribution_strategy: DistributionStrategy::FirstComeFirstServe,
+                created_at: chrono::Utc::now().timestamp() as u64,
+                expires_at: chrono::Utc::now().timestamp() as u64 + 3600,
+                opportunity_data: OpportunityData::Arbitrage(arbitrage_opp),
+                source: OpportunitySource::SystemGenerated,
+                detection_timestamp: chrono::Utc::now().timestamp() as u64,
                 priority_score: 8.5,
                 ai_enhanced: false,
                 ai_confidence_score: None,
@@ -1251,7 +1227,6 @@ mod tests {
                 distributed_to: vec!["user1".to_string()],
                 max_participants: Some(10),
                 current_participants: 3,
-                distribution_strategy: DistributionStrategy::FirstComeFirstServe,
             }
         }
 
@@ -1330,7 +1305,10 @@ mod tests {
 
             // Test AI opportunity analysis structure
             let analysis = AiOpportunityAnalysis {
-                opportunity_id: opportunity.opportunity_data.id().to_string(),
+                opportunity_id: match &opportunity.opportunity_data {
+                    crate::types::OpportunityData::Arbitrage(arb) => arb.id.clone(),
+                    crate::types::OpportunityData::Technical(tech) => tech.id.clone(),
+                },
                 user_id: user_id.to_string(),
                 ai_score: 7.5,
                 viability_assessment: "High potential with moderate risk".to_string(),
@@ -1348,7 +1326,10 @@ mod tests {
             // Verify analysis structure
             assert_eq!(
                 analysis.opportunity_id,
-                opportunity.opportunity_data.id().to_string()
+                match &opportunity.opportunity_data {
+                    crate::types::OpportunityData::Arbitrage(arb) => arb.id.clone(),
+                    crate::types::OpportunityData::Technical(tech) => tech.id.clone(),
+                }
             );
             assert_eq!(analysis.user_id, user_id);
             assert!(analysis.ai_score >= 0.0 && analysis.ai_score <= 10.0);

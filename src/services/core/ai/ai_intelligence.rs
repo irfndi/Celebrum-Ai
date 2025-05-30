@@ -12,8 +12,8 @@ use crate::services::{
     OpportunityCategorizationService, PositionsService, UserTradingPreferencesService,
 };
 use crate::types::{
-    ArbitrageOpportunity, ArbitragePosition, ArbitrageType, DistributionStrategy, ExchangeIdEnum,
-    GlobalOpportunity, OpportunityData, OpportunitySource,
+    ArbitrageOpportunity, ArbitragePosition, ArbitrageType, ExchangeIdEnum, GlobalOpportunity,
+    OpportunitySource,
 };
 use crate::utils::{
     logger::{LogLevel, Logger},
@@ -22,7 +22,6 @@ use crate::utils::{
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use uuid::Uuid;
 use worker::kv::KvStore;
 
 // ============= AI INTELLIGENCE DATA STRUCTURES =============
@@ -560,7 +559,7 @@ impl AiIntelligenceService {
         _correlation_metrics: &Option<CorrelationMetrics>,
         preferences: &UserTradingPreferences,
     ) -> String {
-        let total_value: f64 = positions.iter().filter_map(|p| p.calculated_size_usd).sum();
+        let total_value: f64 = positions.iter().map(|p| p.margin_used).sum();
         let position_count = positions.len();
 
         format!(
@@ -845,21 +844,18 @@ impl AiIntelligenceService {
 
     /// Calculate concentration risk for positions
     fn calculate_concentration_risk(&self, positions: &[ArbitragePosition]) -> f64 {
-        if positions.is_empty() {
-            0.0
-        } else {
-            let total_value: f64 = positions.iter().filter_map(|p| p.calculated_size_usd).sum();
-            let max_position = positions
+        let total_value: f64 = positions.iter().map(|p| p.margin_used).sum();
+
+        // Calculate concentration risk
+        if total_value > 0.0 {
+            let largest_position = positions
                 .iter()
-                .filter_map(|p| p.calculated_size_usd)
+                .map(|p| p.margin_used)
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(0.0);
-
-            if total_value > 0.0 {
-                max_position / total_value // Concentration as percentage of largest position
-            } else {
-                0.0
-            }
+            largest_position / total_value
+        } else {
+            0.0
         }
     }
 
@@ -987,7 +983,7 @@ impl AiIntelligenceService {
                 volatility_index: 0.3,
                 market_trend: "neutral".to_string(),
                 global_sentiment: 0.5,
-                active_pairs: positions.iter().map(|p| p.pair.clone()).collect(),
+                active_pairs: positions.iter().map(|p| p.symbol.clone()).collect(),
             },
         }
     }
@@ -1146,8 +1142,8 @@ impl AiIntelligenceService {
         let mut exchange_data = HashMap::new();
 
         for position in positions {
-            let exchange_key = position.exchange.to_string();
-            let symbol = &position.pair;
+            let exchange_key = position.long_exchange.to_string(); // Use long_exchange instead of exchange
+            let symbol = &position.symbol; // Use symbol instead of pair
 
             // 1. Try pipelines (primary data source)
             if let Some(pipelines) = &self.pipelines_service {
@@ -1174,7 +1170,7 @@ impl AiIntelligenceService {
 
             // 2. Try KV cache (fallback)
             match self
-                .get_cached_exchange_data(&position.exchange, symbol)
+                .get_cached_exchange_data(&position.long_exchange, symbol) // Use long_exchange
                 .await
             {
                 Ok(price_series) => {
@@ -1195,7 +1191,7 @@ impl AiIntelligenceService {
 
             // 3. Try real exchange API (last resort)
             match self
-                .fetch_real_exchange_data(&position.exchange, symbol)
+                .fetch_real_exchange_data(&position.long_exchange, symbol) // Use long_exchange
                 .await
             {
                 Ok(price_series) => {
@@ -1206,7 +1202,7 @@ impl AiIntelligenceService {
 
                     // Cache the data for future use
                     let _ = self
-                        .cache_price_series_data(&position.exchange, symbol, &price_series)
+                        .cache_price_series_data(&position.long_exchange, symbol, &price_series) // Use long_exchange
                         .await;
 
                     exchange_data.insert(exchange_key, price_series);
@@ -1250,7 +1246,7 @@ impl AiIntelligenceService {
         position: &ArbitragePosition,
     ) -> ArbitrageResult<crate::services::core::analysis::market_analysis::PriceSeries> {
         // Try to get market data from pipelines
-        let market_data_key = format!("market_data:{}:{}", position.exchange, position.pair);
+        let market_data_key = format!("market_data:{}:{}", position.long_exchange, position.symbol); // Use long_exchange and symbol
 
         match pipelines.get_latest_data(&market_data_key).await {
             Ok(Some(data_str)) => {
@@ -1258,7 +1254,8 @@ impl AiIntelligenceService {
                 match serde_json::from_str::<serde_json::Value>(&data_str) {
                     Ok(data) => {
                         // Parse pipeline data into PriceSeries
-                        self.parse_pipeline_data_to_price_series(&data, &position.pair)
+                        self.parse_pipeline_data_to_price_series(&data, &position.symbol)
+                        // Use symbol
                     }
                     Err(e) => Err(ArbitrageError::parse_error(format!(
                         "Failed to parse pipeline data JSON: {}",
@@ -1859,86 +1856,34 @@ impl AiIntelligenceService {
 
     /// Convert TradingOpportunity to GlobalOpportunity for system-wide distribution
     fn convert_to_global_opportunity(&self, trading_opp: TradingOpportunity) -> GlobalOpportunity {
+        // Calculate expiration time with configurable default
+        let expires_at = trading_opp.expires_at.unwrap_or_else(|| {
+            trading_opp.created_at * 1000                       // convert seconds → ms
+                + self.get_default_expiry_duration(&trading_opp)
+        });
+
         // Select appropriate exchanges for the opportunity
         let (long_exchange, short_exchange) = self.select_exchanges_for_opportunity(&trading_opp);
 
         // Create ArbitrageOpportunity from TradingOpportunity
-        let arb_opp = match ArbitrageOpportunity::new(
+        let mut arb_opp = ArbitrageOpportunity::new(
             trading_opp.trading_pair.clone(),
             long_exchange,
             short_exchange,
-            Some(trading_opp.entry_price),
-            trading_opp.target_price,
-            trading_opp.expected_return,
-            ArbitrageType::CrossExchange,
-        ) {
-            Ok(opp) => opp,
-            Err(_) => {
-                // Fallback to default values if creation fails
-                ArbitrageOpportunity {
-                    id: Uuid::new_v4().to_string(),
-                    pair: trading_opp.trading_pair.clone(),
-                    long_exchange,
-                    short_exchange,
-                    long_rate: Some(trading_opp.entry_price),
-                    short_rate: trading_opp.target_price,
-                    rate_difference: trading_opp.expected_return,
-                    r#type: ArbitrageType::CrossExchange,
-                    ..Default::default()
-                }
-            }
-        };
+            trading_opp.expected_return,  // rate_difference
+            1000.0, // Default volume since TradingOpportunity doesn't have volume field
+            trading_opp.confidence_score, // confidence
+        );
 
-        // Calculate expiration time with configurable default
-        let expires_at = trading_opp
-            .expires_at
-            .unwrap_or(trading_opp.created_at + self.get_default_expiry_duration(&trading_opp));
+        // Set additional fields
+        arb_opp.r#type = ArbitrageType::CrossExchange;
+        arb_opp.details = Some(format!(
+            "AI Generated: Trading opportunity for {} with confidence {}",
+            trading_opp.trading_pair, trading_opp.confidence_score
+        ));
 
-        // Create GlobalOpportunity using the new structure
-        match GlobalOpportunity::from_arbitrage(
-            arb_opp,
-            OpportunitySource::SystemGenerated,
-            expires_at,
-        ) {
-            Ok(mut global_opp) => {
-                // Set additional fields
-                global_opp.priority_score = trading_opp.confidence_score;
-                global_opp.detection_timestamp = trading_opp.created_at;
-                global_opp
-            }
-            Err(_) => {
-                // Fallback to manual construction if from_arbitrage fails
-                let arb_opp = ArbitrageOpportunity {
-                    id: Uuid::new_v4().to_string(),
-                    pair: trading_opp.trading_pair.clone(),
-                    long_exchange,
-                    short_exchange,
-                    long_rate: Some(trading_opp.entry_price),
-                    short_rate: trading_opp.target_price,
-                    rate_difference: trading_opp.expected_return,
-                    r#type: ArbitrageType::CrossExchange,
-                    ..Default::default()
-                };
-
-                GlobalOpportunity {
-                    id: format!("global_arb_{}", arb_opp.id),
-                    opportunity_data: OpportunityData::Arbitrage(arb_opp),
-                    source: OpportunitySource::SystemGenerated,
-                    created_at: trading_opp.created_at,
-                    detection_timestamp: trading_opp.created_at,
-                    expires_at,
-                    priority: 5,
-                    priority_score: trading_opp.confidence_score,
-                    ai_enhanced: false,
-                    ai_confidence_score: None,
-                    ai_insights: None,
-                    distributed_to: Vec::new(),
-                    max_participants: Some(1),
-                    current_participants: 0,
-                    distribution_strategy: DistributionStrategy::FirstComeFirstServe,
-                }
-            }
-        }
+        // Create GlobalOpportunity using the from_arbitrage method
+        GlobalOpportunity::from_arbitrage(arb_opp, OpportunitySource::SystemGenerated, expires_at)
     }
 
     /// Get default expiry duration based on opportunity characteristics
@@ -2302,34 +2247,50 @@ mod tests {
     // Helper functions for testing
     fn create_test_position(value: f64) -> ArbitragePosition {
         ArbitragePosition {
-            id: format!("pos_{}", value as u32),
-            exchange: crate::types::ExchangeIdEnum::Binance,
-            pair: "BTCUSDT".to_string(),
-            side: crate::types::PositionSide::Long,
-            size: value / 50000.0,
-            entry_price: 50000.0,
-            current_price: Some(50000.0),
-            pnl: Some(0.0),
-            status: crate::types::PositionStatus::Open,
-            created_at: chrono::Utc::now().timestamp() as u64,
-            updated_at: chrono::Utc::now().timestamp() as u64,
-            calculated_size_usd: Some(value),
-            risk_percentage_applied: Some(0.02),
+            position_id: format!("pos_{}", value as u32),
+            user_id: "test_user".to_string(),
+            opportunity_id: "test_opp".to_string(),
+            symbol: "BTCUSDT".to_string(),
+            pair: "BTC/USDT".to_string(),
+            long_exchange: ExchangeIdEnum::Binance,
+            short_exchange: ExchangeIdEnum::Bybit,
+            exchange: ExchangeIdEnum::Binance,
+            long_position_size: 0.1,
+            short_position_size: 0.1,
+            entry_price_long: 50000.0,
+            entry_price_short: 50100.0,
+            current_price_long: Some(50050.0),
+            current_price_short: Some(50150.0),
+            unrealized_pnl: 5.0,
+            realized_pnl: 0.0,
+            pnl: Some(5.0),
+            status: PositionStatus::Open,
+            side: PositionSide::Long,
+            leverage: 1.0,
+            margin_used: 5000.0,
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            updated_at: chrono::Utc::now().timestamp_millis() as u64,
+            closed_at: None,
+            volatility_score: Some(0.5),
+            calculated_size_usd: Some(5000.0),
             stop_loss_price: Some(49000.0),
             take_profit_price: Some(51000.0),
-            trailing_stop_distance: None,
             max_loss_usd: Some(100.0),
-            risk_reward_ratio: Some(2.0),
             related_positions: Vec::new(),
+            risk_reward_ratio: Some(2.0),
+            holding_period_hours: Some(24.0),
+            id: Some("test_position_123".to_string()),
+            size: Some(0.1),
+            current_price: Some(50050.0),
+            risk_percentage_applied: Some(0.02),
+            trailing_stop_distance: Some(500.0),
             hedge_position_id: None,
             position_group_id: None,
-            optimization_score: Some(0.7),
-            recommended_action: Some(crate::types::PositionAction::Hold),
-            last_optimization_check: None,
-            max_drawdown: None,
-            unrealized_pnl_percentage: None,
-            holding_period_hours: None,
-            volatility_score: None,
+            optimization_score: Some(0.8),
+            recommended_action: Some(PositionAction::Hold),
+            last_optimization_check: Some(chrono::Utc::now().timestamp_millis() as u64),
+            max_drawdown: Some(0.05),
+            unrealized_pnl_percentage: Some(0.1),
         }
     }
 

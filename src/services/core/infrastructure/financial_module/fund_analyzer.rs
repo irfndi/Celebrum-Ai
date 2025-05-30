@@ -19,6 +19,78 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::{kv::KvStore, Env};
 
+/// Helper function to get current time in milliseconds as u64
+/// Handles the f64 to u64 conversion safely by applying floor() before casting
+fn get_current_time_millis() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now() as u64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    }
+}
+
+/// Simple LRU cache implementation to prevent unbounded growth
+struct LruCache<K, V> {
+    capacity: usize,
+    map: HashMap<K, V>,
+    order: Vec<K>,
+}
+
+impl<K: Clone + std::hash::Hash + Eq, V> LruCache<K, V> {
+    fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            map: HashMap::new(),
+            order: Vec::new(),
+        }
+    }
+
+    fn get(&mut self, key: &K) -> Option<&V> {
+        if self.map.contains_key(key) {
+            // Move to end (most recently used)
+            if let Some(pos) = self.order.iter().position(|k| k == key) {
+                let key = self.order.remove(pos);
+                self.order.push(key);
+            }
+            self.map.get(key)
+        } else {
+            None
+        }
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        if self.map.contains_key(&key) {
+            // Update existing
+            self.map.insert(key.clone(), value);
+            if let Some(pos) = self.order.iter().position(|k| k == &key) {
+                let key = self.order.remove(pos);
+                self.order.push(key);
+            }
+        } else {
+            // Insert new
+            if self.map.len() >= self.capacity {
+                // Remove least recently used
+                if let Some(lru_key) = self.order.first().cloned() {
+                    self.map.remove(&lru_key);
+                    self.order.remove(0);
+                }
+            }
+            self.map.insert(key.clone(), value);
+            self.order.push(key);
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+}
+
 /// Fund Analyzer Configuration
 #[derive(Debug, Clone)]
 pub struct FundAnalyzerConfig {
@@ -193,9 +265,9 @@ pub struct FundAnalyzer {
     config: FundAnalyzerConfig,
     kv_store: Option<KvStore>,
 
-    // Analysis cache
-    analysis_cache: HashMap<String, PortfolioAnalytics>,
-    optimization_cache: HashMap<String, FundOptimizationResult>,
+    // Analysis cache with LRU eviction
+    analysis_cache: LruCache<String, PortfolioAnalytics>,
+    optimization_cache: LruCache<String, FundOptimizationResult>,
 
     // Performance tracking
     metrics: FundAnalyzerMetrics,
@@ -211,10 +283,10 @@ impl FundAnalyzer {
         Ok(Self {
             config,
             kv_store: None,
-            analysis_cache: HashMap::new(),
-            optimization_cache: HashMap::new(),
+            analysis_cache: LruCache::new(100), // Limit to 100 cached analyses
+            optimization_cache: LruCache::new(50), // Limit to 50 cached optimizations
             metrics: FundAnalyzerMetrics::default(),
-            last_analysis_time: worker::Date::now().as_millis(),
+            last_analysis_time: get_current_time_millis(),
             is_initialized: false,
         })
     }
@@ -236,7 +308,7 @@ impl FundAnalyzer {
         user_id: &str,
         balance_snapshots: &HashMap<String, ExchangeBalanceSnapshot>,
     ) -> ArbitrageResult<PortfolioAnalytics> {
-        let start_time = worker::Date::now().as_millis();
+        let start_time = get_current_time_millis();
 
         // Check cache first
         let cache_key = format!(
@@ -296,7 +368,7 @@ impl FundAnalyzer {
         self.cache_analysis(&cache_key, &analytics).await?;
 
         // Update metrics
-        let analysis_time = worker::Date::now().as_millis() - start_time;
+        let analysis_time = get_current_time_millis() - start_time;
         self.update_analysis_metrics(analysis_time);
 
         Ok(analytics)
@@ -315,7 +387,7 @@ impl FundAnalyzer {
             ));
         }
 
-        let start_time = worker::Date::now().as_millis();
+        let start_time = get_current_time_millis();
 
         // Check cache first
         let cache_key = format!(
@@ -364,7 +436,7 @@ impl FundAnalyzer {
             .await?;
 
         // Update metrics
-        let optimization_time = worker::Date::now().as_millis() - start_time;
+        let optimization_time = get_current_time_millis() - start_time;
         self.update_optimization_metrics(optimization_time);
 
         Ok(optimization_result)
@@ -380,9 +452,9 @@ impl FundAnalyzer {
 
         // Sum up all assets across exchanges
         for snapshot in balance_snapshots.values() {
-            for (asset, balance) in &snapshot.balances {
-                let asset_value = balance.total * self.get_mock_price(asset);
-                *asset_totals.entry(asset.clone()).or_insert(0.0) += asset_value;
+            for balance in &snapshot.balances {
+                let asset_value = balance.total * self.get_mock_price(&balance.asset);
+                *asset_totals.entry(balance.asset.clone()).or_insert(0.0) += asset_value;
                 total_portfolio_value += asset_value;
             }
         }
@@ -482,8 +554,7 @@ impl FundAnalyzer {
             .map(|&percentage| (percentage / 100.0).powi(2))
             .sum();
 
-        // Convert to diversity score (1 - HHI, normalized to 0-100)
-        ((1.0 - hhi) * 100.0).max(0.0).min(100.0)
+        ((1.0 - hhi) * 100.0).clamp(0.0, 100.0)
     }
 
     /// Calculate portfolio risk score
@@ -508,7 +579,7 @@ impl FundAnalyzer {
             })
             .sum();
 
-        Ok((weighted_volatility * 100.0).max(0.0).min(100.0))
+        Ok((weighted_volatility * 100.0).clamp(0.0, 100.0))
     }
 
     /// Calculate Sharpe ratio for portfolio
@@ -594,7 +665,7 @@ impl FundAnalyzer {
         let mut highest_balance = 0.0;
 
         for (exchange_id, snapshot) in balance_snapshots {
-            if let Some(balance) = snapshot.balances.get(asset) {
+            if let Some(balance) = snapshot.balances.iter().find(|b| b.asset == asset) {
                 if balance.total > highest_balance {
                     highest_balance = balance.total;
                     best_exchange = exchange_id.clone();
@@ -613,7 +684,7 @@ impl FundAnalyzer {
         balance_snapshots: &HashMap<String, ExchangeBalanceSnapshot>,
     ) -> f64 {
         if let Some(snapshot) = balance_snapshots.get(exchange_id) {
-            if let Some(balance) = snapshot.balances.get(asset) {
+            if let Some(balance) = snapshot.balances.iter().find(|b| b.asset == asset) {
                 return balance.total;
             }
         }
@@ -642,7 +713,7 @@ impl FundAnalyzer {
         let average_variance = total_variance / allocations.len() as f64;
 
         // Score decreases with higher variance (more rebalancing needed)
-        (100.0 - average_variance * 2.0).max(0.0).min(100.0)
+        (100.0 - average_variance * 2.0).clamp(0.0, 100.0)
     }
 
     /// Generate optimization recommendations
@@ -786,11 +857,11 @@ impl FundAnalyzer {
 
     /// Get cached analysis result
     async fn get_cached_analysis(
-        &self,
+        &mut self,
         cache_key: &str,
     ) -> ArbitrageResult<Option<PortfolioAnalytics>> {
         // Check memory cache first
-        if let Some(cached) = self.analysis_cache.get(cache_key) {
+        if let Some(cached) = self.analysis_cache.get(&cache_key.to_string()) {
             return Ok(Some(cached.clone()));
         }
 
@@ -831,11 +902,11 @@ impl FundAnalyzer {
 
     /// Get cached optimization result
     async fn get_cached_optimization(
-        &self,
+        &mut self,
         cache_key: &str,
     ) -> ArbitrageResult<Option<FundOptimizationResult>> {
         // Check memory cache first
-        if let Some(cached) = self.optimization_cache.get(cache_key) {
+        if let Some(cached) = self.optimization_cache.get(&cache_key.to_string()) {
             return Ok(Some(cached.clone()));
         }
 
@@ -864,29 +935,43 @@ impl FundAnalyzer {
         self.metrics.average_analysis_time_ms =
             alpha * analysis_time_ms as f64 + (1.0 - alpha) * self.metrics.average_analysis_time_ms;
 
-        // Calculate analyses per hour
-        let current_time = worker::Date::now().as_millis();
+        // Calculate analyses per hour with division by zero protection
+        let current_time = get_current_time_millis();
         let time_diff_hours =
             (current_time - self.last_analysis_time) as f64 / (1000.0 * 60.0 * 60.0);
-        if time_diff_hours > 0.0 {
-            self.metrics.analyses_per_hour = 1.0 / time_diff_hours;
-        }
-        self.last_analysis_time = current_time;
 
+        // Use epsilon to prevent division by zero
+        const EPSILON: f64 = 1e-9;
+        if time_diff_hours > EPSILON {
+            self.metrics.analyses_per_hour = 1.0 / time_diff_hours;
+        } else {
+            // If time difference is too small, use a reasonable default
+            self.metrics.analyses_per_hour = 3600.0; // 1 analysis per second equivalent
+        }
+
+        self.last_analysis_time = current_time;
         self.metrics.last_updated = current_time;
     }
 
     /// Update optimization performance metrics
-    fn update_optimization_metrics(&mut self, optimization_time_ms: u64) {
+    fn update_optimization_metrics(&mut self, _optimization_time_ms: u64) {
         self.metrics.optimizations_completed += 1;
 
-        // Calculate optimizations per day
-        let optimizations_per_day = self.metrics.optimizations_completed as f64
-            / ((worker::Date::now().as_millis() - self.last_analysis_time) as f64
-                / (1000.0 * 60.0 * 60.0 * 24.0));
-        self.metrics.optimizations_per_day = optimizations_per_day;
+        // Calculate optimizations per day with division by zero protection
+        let current_time = get_current_time_millis();
+        let time_diff_days =
+            (current_time - self.last_analysis_time) as f64 / (1000.0 * 60.0 * 60.0 * 24.0);
 
-        self.metrics.last_updated = worker::Date::now().as_millis();
+        const EPSILON: f64 = 1e-9;
+        if time_diff_days > EPSILON {
+            self.metrics.optimizations_per_day =
+                self.metrics.optimizations_completed as f64 / time_diff_days;
+        } else {
+            // If time difference is too small, use current count as daily rate
+            self.metrics.optimizations_per_day = self.metrics.optimizations_completed as f64;
+        }
+
+        self.metrics.last_updated = current_time;
     }
 
     /// Get health status
@@ -910,7 +995,7 @@ impl FundAnalyzer {
             active_analyses,
             cache_utilization_percent,
             average_analysis_time_ms: self.metrics.average_analysis_time_ms,
-            last_health_check: worker::Date::now().as_millis(),
+            last_health_check: get_current_time_millis(),
         })
     }
 
@@ -934,7 +1019,7 @@ impl Default for FundAnalyzerMetrics {
             analyses_per_hour: 0.0,
             optimizations_per_day: 0.0,
             average_optimization_improvement: 0.0,
-            last_updated: worker::Date::now().as_millis(),
+            last_updated: get_current_time_millis(),
         }
     }
 }

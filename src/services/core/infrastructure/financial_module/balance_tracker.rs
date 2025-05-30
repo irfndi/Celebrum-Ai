@@ -21,6 +21,22 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::{kv::KvStore, D1Database, Env};
 
+/// Helper function to get current time in milliseconds as u64
+/// Handles the f64 to u64 conversion safely by applying floor() before casting
+fn get_current_time_millis() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now() as u64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    }
+}
+
 /// Balance Tracker Configuration
 #[derive(Debug, Clone)]
 pub struct BalanceTrackerConfig {
@@ -206,7 +222,7 @@ impl BalanceTracker {
             d1_database: None,
             circuit_breakers: HashMap::new(),
             metrics: BalanceTrackerMetrics::default(),
-            last_update_time: worker::Date::now().as_millis(),
+            last_update_time: get_current_time_millis(),
             is_initialized: false,
         })
     }
@@ -259,7 +275,7 @@ impl BalanceTracker {
         exchange_ids: &[String],
     ) -> ArbitrageResult<HashMap<String, ExchangeBalanceSnapshot>> {
         let mut balance_snapshots = HashMap::new();
-        let timestamp = worker::Date::now().as_millis();
+        let timestamp = get_current_time_millis();
 
         for exchange_id in exchange_ids {
             // Check circuit breaker state
@@ -291,12 +307,14 @@ impl BalanceTracker {
             self.cache_balance_snapshots(user_id, &balance_snapshots)
                 .await?;
         }
-
-        // Store in D1 for persistence
         if self.config.enable_d1_persistence {
             self.store_balance_snapshots(user_id, &balance_snapshots)
                 .await?;
         }
+
+        // update metrics
+        let elapsed = get_current_time_millis() - timestamp;
+        self.update_metrics(elapsed);
 
         Ok(balance_snapshots)
     }
@@ -333,79 +351,63 @@ impl BalanceTracker {
 
     /// Generate mock balances for testing
     fn generate_mock_balances(&self, exchange_id: &str) -> Balances {
-        let mut balances = HashMap::new();
+        let mut balances = Vec::new();
 
         // Generate different mock data based on exchange
         match exchange_id {
             "binance" => {
-                balances.insert(
-                    "BTC".to_string(),
-                    Balance {
-                        free: 0.5,
-                        used: 0.1,
-                        total: 0.6,
-                    },
-                );
-                balances.insert(
-                    "ETH".to_string(),
-                    Balance {
-                        free: 2.0,
-                        used: 0.5,
-                        total: 2.5,
-                    },
-                );
-                balances.insert(
-                    "USDT".to_string(),
-                    Balance {
-                        free: 1000.0,
-                        used: 200.0,
-                        total: 1200.0,
-                    },
-                );
+                balances.push(Balance {
+                    asset: "BTC".to_string(),
+                    free: 0.5,
+                    used: 0.1,
+                    total: 0.6,
+                });
+                balances.push(Balance {
+                    asset: "ETH".to_string(),
+                    free: 2.0,
+                    used: 0.5,
+                    total: 2.5,
+                });
+                balances.push(Balance {
+                    asset: "USDT".to_string(),
+                    free: 1000.0,
+                    used: 200.0,
+                    total: 1200.0,
+                });
             }
             "bybit" => {
-                balances.insert(
-                    "BTC".to_string(),
-                    Balance {
-                        free: 0.3,
-                        used: 0.05,
-                        total: 0.35,
-                    },
-                );
-                balances.insert(
-                    "ETH".to_string(),
-                    Balance {
-                        free: 1.5,
-                        used: 0.2,
-                        total: 1.7,
-                    },
-                );
-                balances.insert(
-                    "USDT".to_string(),
-                    Balance {
-                        free: 800.0,
-                        used: 100.0,
-                        total: 900.0,
-                    },
-                );
+                balances.push(Balance {
+                    asset: "BTC".to_string(),
+                    free: 0.3,
+                    used: 0.05,
+                    total: 0.35,
+                });
+                balances.push(Balance {
+                    asset: "ETH".to_string(),
+                    free: 1.5,
+                    used: 0.2,
+                    total: 1.7,
+                });
+                balances.push(Balance {
+                    asset: "USDT".to_string(),
+                    free: 800.0,
+                    used: 100.0,
+                    total: 900.0,
+                });
             }
             _ => {
-                balances.insert(
-                    "BTC".to_string(),
-                    Balance {
-                        free: 0.1,
-                        used: 0.02,
-                        total: 0.12,
-                    },
-                );
-                balances.insert(
-                    "USDT".to_string(),
-                    Balance {
-                        free: 500.0,
-                        used: 50.0,
-                        total: 550.0,
-                    },
-                );
+                balances.push(Balance {
+                    asset: "BTC".to_string(),
+                    free: 0.1,
+                    used: 0.02,
+                    total: 0.12,
+                });
+                balances.push(Balance {
+                    asset: "USDT".to_string(),
+                    free: 500.0,
+                    used: 50.0,
+                    total: 550.0,
+                });
             }
         }
 
@@ -416,8 +418,8 @@ impl BalanceTracker {
     async fn calculate_total_usd_value(&self, balances: &Balances) -> ArbitrageResult<f64> {
         let mut total_value = 0.0;
 
-        for (asset, balance) in balances {
-            let price = self.get_asset_price_usd(asset).await?;
+        for balance in balances {
+            let price = self.get_asset_price_usd(&balance.asset).await?;
             total_value += balance.total * price;
         }
 
@@ -446,7 +448,7 @@ impl BalanceTracker {
                 "closed" => true,
                 "open" => {
                     // Check if we should try half-open
-                    let current_time = worker::Date::now().as_millis();
+                    let current_time = get_current_time_millis();
                     current_time >= breaker.next_attempt_time
                 }
                 "half_open" => true,
@@ -470,11 +472,11 @@ impl BalanceTracker {
     fn record_failure(&mut self, exchange_id: &str) {
         if let Some(breaker) = self.circuit_breakers.get_mut(exchange_id) {
             breaker.failure_count += 1;
-            breaker.last_failure_time = worker::Date::now().as_millis();
+            breaker.last_failure_time = get_current_time_millis();
 
             if breaker.failure_count >= self.config.circuit_breaker_threshold {
                 breaker.state = "open".to_string();
-                breaker.next_attempt_time = worker::Date::now().as_millis()
+                breaker.next_attempt_time = get_current_time_millis()
                     + (self.config.circuit_breaker_timeout_seconds * 1000);
                 self.metrics.circuit_breaker_trips += 1;
             }
@@ -494,11 +496,13 @@ impl BalanceTracker {
                 let serialized = serde_json::to_string(snapshot)
                     .map_err(|e| ArbitrageError::serialization_error(e.to_string()))?;
 
-                let _ = kv
-                    .put(&cache_key, serialized)?
+                kv.put(&cache_key, serialized)?
                     .expiration_ttl(self.config.cache_ttl_seconds)
                     .execute()
-                    .await;
+                    .await
+                    .map_err(|e| {
+                        ArbitrageError::storage_error(format!("KV write failed: {:?}", e))
+                    })?;
             }
         }
         Ok(())
@@ -532,15 +536,18 @@ impl BalanceTracker {
         if let Some(_d1) = &self.d1_database {
             for (exchange_id, snapshot) in snapshots {
                 // Create balance history entries
-                for (asset, balance) in &snapshot.balances {
+                for balance in &snapshot.balances {
                     let history_entry = BalanceHistoryEntry {
                         id: uuid::Uuid::new_v4().to_string(),
                         user_id: user_id.to_string(),
                         exchange_id: exchange_id.clone(),
-                        asset: asset.clone(),
+                        asset: balance.asset.clone(),
                         balance: balance.clone(),
                         usd_value: balance.total
-                            * self.get_asset_price_usd(asset).await.unwrap_or(1.0),
+                            * self
+                                .get_asset_price_usd(&balance.asset.to_string())
+                                .await
+                                .unwrap_or(1.0),
                         timestamp: snapshot.timestamp,
                         snapshot_id: format!("{}:{}:{}", user_id, exchange_id, snapshot.timestamp),
                     };
@@ -619,17 +626,18 @@ impl BalanceTracker {
                 exchange_id: exchange_id.unwrap_or("binance").to_string(),
                 asset: asset.unwrap_or("BTC").to_string(),
                 balance: Balance {
+                    asset: asset.unwrap_or("BTC").to_string(),
                     free: 0.5,
                     used: 0.1,
                     total: 0.6,
                 },
                 usd_value: 27000.0,
-                timestamp: worker::Date::now().as_millis(),
+                timestamp: get_current_time_millis(),
                 snapshot_id: format!(
                     "{}:{}:{}",
                     user_id,
                     exchange_id.unwrap_or("binance"),
-                    worker::Date::now().as_millis()
+                    get_current_time_millis()
                 ),
             }];
 
@@ -663,7 +671,7 @@ impl BalanceTracker {
             active_tracking_sessions,
             cache_utilization_percent,
             average_update_time_ms: self.metrics.average_update_time_ms,
-            last_health_check: worker::Date::now().as_millis(),
+            last_health_check: get_current_time_millis(),
         })
     }
 
@@ -682,7 +690,7 @@ impl BalanceTracker {
             alpha * operation_time_ms as f64 + (1.0 - alpha) * self.metrics.average_update_time_ms;
 
         // Calculate updates per second
-        let current_time = worker::Date::now().as_millis();
+        let current_time = get_current_time_millis();
         let time_diff_seconds = (current_time - self.last_update_time) as f64 / 1000.0;
         if time_diff_seconds > 0.0 {
             self.metrics.updates_per_second = 1.0 / time_diff_seconds;
@@ -702,7 +710,7 @@ impl BalanceTracker {
     pub async fn cleanup_old_history(&self, max_age_days: u32) -> ArbitrageResult<()> {
         if let Some(_d1) = &self.d1_database {
             let cutoff_timestamp =
-                worker::Date::now().as_millis() - (max_age_days as u64 * 24 * 60 * 60 * 1000);
+                get_current_time_millis() - (max_age_days as u64 * 24 * 60 * 60 * 1000);
 
             let query = "DELETE FROM balance_history WHERE timestamp < ?";
             let _ = _d1
@@ -730,7 +738,7 @@ impl Default for BalanceTrackerMetrics {
             error_rate: 0.0,
             updates_per_second: 0.0,
             storage_operations_per_minute: 0.0,
-            last_updated: worker::Date::now().as_millis(),
+            last_updated: get_current_time_millis(),
         }
     }
 }

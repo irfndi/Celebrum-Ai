@@ -27,6 +27,7 @@
 //! - **Real-time Monitoring**: Comprehensive health and performance tracking
 
 // ============= NEW MODULAR ARCHITECTURE =============
+pub mod shared_types;
 pub mod notification_module;
 pub mod monitoring_module;
 pub mod data_ingestion_module;
@@ -46,6 +47,11 @@ pub mod service_container;
 pub mod durable_objects;
 
 // ============= MODULAR EXPORTS =============
+pub use shared_types::{
+    ComponentHealth, CircuitBreaker, CircuitBreakerState, ValidationMetrics, ValidationCacheEntry,
+    CacheStats, PerformanceMetrics, RateLimiter, HealthCheckResult
+};
+
 pub use notification_module::{
     NotificationModule, NotificationModuleConfig, NotificationModuleHealth, NotificationModuleMetrics,
     NotificationType, NotificationPriority, NotificationChannel, NotificationRequest, NotificationResult

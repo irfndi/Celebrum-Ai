@@ -406,7 +406,18 @@ impl MetricsCollector {
 
         // Update metrics data
         {
-            let mut metrics = self.metrics_data.lock().unwrap();
+            let mut metrics = match self.metrics_data.lock() {
+                Ok(g) => g,
+                Err(e) => {
+                    self.logger.error(&format!("Metrics mutex poisoned: {}", e));
+                    let mut health = self.health.lock().ok();
+                    if let Some(h) = &mut health {
+                        h.failed_collections_count += 1;
+                        h.last_error = Some("metrics mutex poisoned".into());
+                    }
+                    return Err(ArbitrageError::internal_error("metrics mutex poisoned"));
+                }
+            };
 
             // Get or create metrics data
             let metrics_data = metrics.entry(metric_key.clone()).or_insert_with(|| {
@@ -527,13 +538,49 @@ impl MetricsCollector {
 
     /// Export metrics in specified format
     pub async fn export_metrics(&self, format: &str) -> ArbitrageResult<String> {
-        let metrics = self.metrics_data.lock().unwrap();
+        // Get metrics snapshot to avoid holding lock across await
+        let metrics_snapshot = {
+            let metrics = self.metrics_data.lock().unwrap();
+            metrics.clone()
+        };
 
         match format.to_lowercase().as_str() {
-            "prometheus" => self.export_prometheus_format(&metrics),
-            "grafana" => self.export_grafana_format(&metrics),
-            "json" => self.export_json_format(&metrics),
-            _ => Err(ArbitrageError::configuration_error(format!(
+            "json" => {
+                let json_output = serde_json::to_string_pretty(&metrics_snapshot).map_err(|e| {
+                    ArbitrageError::serialization_error(format!("JSON export failed: {}", e))
+                })?;
+                Ok(json_output)
+            }
+            "prometheus" => {
+                let mut prometheus_output = String::new();
+
+                // Add basic metrics
+                prometheus_output
+                    .push_str("# HELP metrics_total_collected Total metrics collected\n");
+                prometheus_output.push_str("# TYPE metrics_total_collected counter\n");
+                prometheus_output.push_str(&format!(
+                    "metrics_total_collected {}\n",
+                    metrics_snapshot.len()
+                ));
+
+                // Store in KV for caching
+                let metrics_data = {
+                    let metrics = self.metrics_data.lock().unwrap();
+                    metrics.clone()
+                };
+
+                let serialized = serde_json::to_string(&metrics_data)
+                    .map_err(|e| ArbitrageError::serialization_error(e.to_string()))?;
+
+                self.kv_store
+                    .put("metrics_export", serialized)?
+                    .expiration_ttl(3600) // 1 hour
+                    .execute()
+                    .await?;
+
+                Ok(prometheus_output)
+            }
+            _ => Err(ArbitrageError::validation_error(format!(
                 "Unsupported export format: {}",
                 format
             ))),
@@ -542,11 +589,14 @@ impl MetricsCollector {
 
     /// Store metric in KV store
     async fn store_metric_in_kv(&self, metric_key: &str) -> ArbitrageResult<()> {
-        let metrics = self.metrics_data.lock().unwrap();
+        let metric_data = {
+            let metrics = self.metrics_data.lock().unwrap();
+            metrics.get(metric_key).cloned()
+        };
 
-        if let Some(metric_data) = metrics.get(metric_key) {
+        if let Some(metric_data) = metric_data {
             let kv_key = format!("{}{}", self.config.kv_key_prefix, metric_key);
-            let serialized = serde_json::to_string(metric_data)
+            let serialized = serde_json::to_string(&metric_data)
                 .map_err(|e| ArbitrageError::serialization_error(e.to_string()))?;
 
             // Compress if enabled and above threshold
@@ -561,8 +611,7 @@ impl MetricsCollector {
             };
 
             self.kv_store
-                .put(&kv_key, data_to_store)
-                .map_err(|e| ArbitrageError::storage_error(format!("KV put failed: {:?}", e)))?
+                .put(&kv_key, data_to_store)?
                 .execute()
                 .await
                 .map_err(|e| {
@@ -580,7 +629,7 @@ impl MetricsCollector {
     ) -> ArbitrageResult<String> {
         let mut output = String::new();
 
-        for (key, data) in metrics {
+        for data in metrics.values() {
             if let Some(value) = data.get_aggregated_value() {
                 // Add metric help and type
                 output.push_str(&format!(

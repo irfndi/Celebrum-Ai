@@ -311,6 +311,11 @@ impl InvitationRepository {
             .await
             .map_err(|e| database_error("execute query", e));
 
+        // Invalidate cache for the invitation code when it's first used to maintain consistency
+        if result.is_ok() && self.config.enable_caching {
+            let _ = self.invalidate_invitation_cache(&usage.invitation_id).await;
+        }
+
         // Update metrics
         self.update_metrics(start_time, result.is_ok()).await;
 
@@ -356,11 +361,11 @@ impl InvitationRepository {
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
 
-            let used_at = chrono::DateTime::from_timestamp_millis(used_at_ms)
-                .unwrap_or_else(|| chrono::Utc::now());
+            let used_at =
+                chrono::DateTime::from_timestamp_millis(used_at_ms).unwrap_or(chrono::Utc::now());
 
             let beta_expires_at = chrono::DateTime::from_timestamp_millis(beta_expires_at_ms)
-                .unwrap_or_else(|| chrono::Utc::now());
+                .unwrap_or(chrono::Utc::now());
 
             Ok(Some(
                 crate::services::core::invitation::invitation_service::InvitationUsage {
@@ -425,15 +430,9 @@ impl InvitationRepository {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         );
 
-        let expires_at = invitation
-            .expires_at
-            .map(|dt| dt.timestamp_millis())
-            .unwrap_or(0);
-        let accepted_at = invitation
-            .accepted_at
-            .map(|dt| dt.timestamp_millis())
-            .unwrap_or(0);
-        let created_at = invitation.created_at.timestamp_millis();
+        let expires_at = invitation.expires_at.unwrap_or(0);
+        let accepted_at = invitation.accepted_at.unwrap_or(0);
+        let created_at = invitation.created_at;
 
         let result = stmt
             .bind(&[
@@ -538,11 +537,14 @@ impl InvitationRepository {
             ));
         }
 
-        let results = Vec::new();
+        let mut results = Vec::with_capacity(invitations.len());
         for batch in invitations.chunks(self.config.batch_size) {
             for invitation in batch {
-                self.validate_invitation_code(invitation)?;
-                self.store_invitation_code_internal(invitation).await?;
+                let res = async {
+                    self.validate_invitation_code(invitation)?;
+                    self.store_invitation_code_internal(invitation).await
+                };
+                results.push(res.await);
             }
         }
 
@@ -567,13 +569,13 @@ impl InvitationRepository {
 
         stmt.bind(&[
             invitation.code.clone().into(),
-            invitation.created_by.clone().unwrap_or_default().into(),
+            invitation.created_by_user_id.clone().into(),
             (invitation.created_at as i64).into(),
             invitation.expires_at.map(|t| t as i64).unwrap_or(0).into(),
             invitation.max_uses.map(|u| u as i64).unwrap_or(0).into(),
             (invitation.current_uses as i64).into(),
             invitation.is_active.into(),
-            invitation.purpose.clone().into(),
+            invitation.invitation_type.clone().into(),
         ])
         .map_err(|e| database_error("bind parameters", e))?
         .run()
@@ -635,16 +637,10 @@ impl InvitationRepository {
         row: HashMap<String, serde_json::Value>,
     ) -> ArbitrageResult<InvitationCode> {
         let code = get_string_field(&row, "code")?;
-        let created_by = get_optional_string_field(&row, "created_by");
+        let created_by =
+            get_optional_string_field(&row, "created_by").unwrap_or_else(|| "system".to_string());
         let created_at = get_i64_field(&row, "created_at", 0) as u64;
-        let expires_at = {
-            let timestamp = get_i64_field(&row, "expires_at", 0);
-            if timestamp > 0 {
-                Some(timestamp as u64)
-            } else {
-                None
-            }
-        };
+        let expires_at = get_optional_i64_field(&row, "expires_at").map(|v| v as u64);
         let max_uses = {
             let uses = get_i64_field(&row, "max_uses", 0);
             if uses > 0 {
@@ -657,14 +653,28 @@ impl InvitationRepository {
         let is_active = get_bool_field(&row, "is_active", true);
         let purpose = get_string_field(&row, "purpose").unwrap_or_else(|_| "general".to_string());
 
+        // Required fields for the new struct definition
+        let code_id =
+            get_string_field(&row, "code_id").unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+        let created_by_user_id =
+            get_string_field(&row, "created_by_user_id").unwrap_or_else(|_| "system".to_string());
+        let bonus_percentage =
+            get_optional_string_field(&row, "bonus_percentage").and_then(|s| s.parse::<f64>().ok());
+        let invitation_type =
+            get_string_field(&row, "invitation_type").unwrap_or_else(|_| "referral".to_string());
+
         Ok(InvitationCode {
+            code_id,
             code,
-            created_by,
-            created_at,
-            expires_at,
+            created_by_user_id,
             max_uses,
             current_uses,
+            created_at,
+            expires_at,
             is_active,
+            bonus_percentage,
+            invitation_type,
+            created_by,
             purpose,
         })
     }
@@ -681,16 +691,14 @@ impl InvitationRepository {
             let timestamp = get_i64_field(&row, "used_at", 0);
             chrono::DateTime::from_timestamp_millis(timestamp)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
-                .unwrap_or_else(chrono::Utc::now)
+                .unwrap_or(chrono::Utc::now())
         };
 
         let beta_expires_at = {
             let timestamp = get_i64_field(&row, "beta_expires_at", 0);
             chrono::DateTime::from_timestamp_millis(timestamp)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
-                .unwrap_or_else(|| {
-                    chrono::Utc::now() + chrono::Duration::days(self.config.beta_access_days)
-                })
+                .unwrap_or(chrono::Utc::now())
         };
 
         Ok(InvitationUsage {
@@ -715,43 +723,19 @@ impl InvitationRepository {
 
         let invitation_data = get_json_field(&row, "invitation_data", serde_json::Value::Null);
 
-        let created_at = {
-            let timestamp = get_i64_field(&row, "created_at", 0);
-            chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.with_timezone(&chrono::Utc))
-                .unwrap_or_else(chrono::Utc::now)
-        };
-
-        let expires_at = {
-            let timestamp = get_i64_field(&row, "expires_at", 0);
-            if timestamp > 0 {
-                chrono::DateTime::from_timestamp_millis(timestamp)
-                    .map(|dt| dt.with_timezone(&chrono::Utc))
-            } else {
-                None
-            }
-        };
-
-        let accepted_at = {
-            let timestamp = get_i64_field(&row, "accepted_at", 0);
-            if timestamp > 0 {
-                chrono::DateTime::from_timestamp_millis(timestamp)
-                    .map(|dt| dt.with_timezone(&chrono::Utc))
-            } else {
-                None
-            }
-        };
+        let expires_at = get_optional_i64_field(&row, "expires_at").map(|v| v as u64);
+        let accepted_at = get_optional_i64_field(&row, "accepted_at").map(|v| v as u64);
+        let created_at_timestamp = get_i64_field(&row, "created_at", 0) as u64;
 
         // Legacy fields for backward compatibility
         let invitation_code =
             get_string_field(&row, "invitation_code").unwrap_or_else(|_| invitation_id.clone());
         let invited_user_id = get_string_field(&row, "invited_user_id")
             .unwrap_or_else(|_| invitee_identifier.clone());
-        let invited_by = get_optional_string_field(&row, "invited_by");
-        let used_at = accepted_at
-            .map(|dt| dt.timestamp_millis() as u64)
-            .unwrap_or(0);
-        let invitation_metadata = Some(invitation_data.clone());
+        let invited_by =
+            get_optional_string_field(&row, "invited_by").unwrap_or_else(|| "system".to_string());
+        let used_at = accepted_at;
+        let invitation_metadata = invitation_data.as_str().map(|s| s.to_string());
 
         Ok(UserInvitation {
             invitation_code,
@@ -766,7 +750,7 @@ impl InvitationRepository {
             status,
             message,
             invitation_data,
-            created_at,
+            created_at: created_at_timestamp,
             expires_at,
             accepted_at,
         })
@@ -818,9 +802,17 @@ impl InvitationRepository {
                 ))
             })?;
 
-            cache.put(&cache_key, &invitation_json).map_err(|e| {
-                ArbitrageError::cache_error(format!("Failed to cache invitation: {}", e))
-            })?;
+            cache
+                .put(&cache_key, &invitation_json)
+                .map_err(|e| {
+                    ArbitrageError::cache_error(format!("Failed to cache invitation: {}", e))
+                })?
+                .expiration_ttl(self.config.cache_ttl_seconds)
+                .execute()
+                .await
+                .map_err(|e| {
+                    ArbitrageError::cache_error(format!("Failed to cache invitation: {}", e))
+                })?;
         }
         Ok(())
     }
@@ -1142,13 +1134,17 @@ mod tests {
 
         let mut invitation = InvitationCode {
             code: "TEST123".to_string(),
-            created_by: Some("admin".to_string()),
-            created_at: current_timestamp_ms(),
-            expires_at: Some(current_timestamp_ms() + 86400000), // 1 day
-            max_uses: Some(10),
-            current_uses: 0,
-            is_active: true,
+            code_id: "test_code_id".to_string(),
             purpose: "testing".to_string(),
+            max_uses: Some(5),
+            current_uses: 0,
+            expires_at: Some(Utc::now().timestamp_millis() as u64 + (30 * 24 * 60 * 60 * 1000)), // 30 days from now
+            is_active: true,
+            created_at: Utc::now().timestamp_millis() as u64,
+            created_by: "admin".to_string(),
+            created_by_user_id: "admin_user_id".to_string(),
+            bonus_percentage: Some(0.1),
+            invitation_type: "beta".to_string(),
         };
 
         assert!(repo.validate_invitation_code(&invitation).is_ok());

@@ -616,7 +616,7 @@ impl QueueManager {
             }
         }
 
-        Ok(queues_healthy || true) // Always return true if local queues are working
+        Ok(queues_healthy || !self.local_queues.lock().unwrap().is_empty())
     }
 
     /// Process a queue message
@@ -652,7 +652,7 @@ impl QueueManager {
                     message.queue_type.as_str()
                 ));
             } else {
-                return Err(ArbitrageError::validation_error(&format!(
+                return Err(ArbitrageError::validation_error(format!(
                     "Queue type {:?} not found",
                     message.queue_type
                 )));
@@ -741,8 +741,8 @@ impl QueueManager {
 
     /// Calculate message hash for deduplication
     fn calculate_message_hash(&self, content: &str) -> String {
-        // In a real implementation, this would use a proper hash function
-        format!("hash_{}", content.len())
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(content.as_bytes()))
     }
 
     /// Calculate queue depths

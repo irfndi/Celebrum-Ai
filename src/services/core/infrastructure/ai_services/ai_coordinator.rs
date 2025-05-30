@@ -14,6 +14,8 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
+use uuid;
 use worker::{kv::KvStore, Env};
 
 /// Configuration for AICoordinator
@@ -181,16 +183,16 @@ pub struct AICoordinator {
     model_router: Option<ModelRouter>,
     personalization_engine: Option<PersonalizationEngine>,
     ai_cache: Option<AICache>,
-    health: Arc<std::sync::Mutex<AIServiceHealth>>,
-    metrics: Arc<std::sync::Mutex<AIServiceMetrics>>,
-    circuit_breaker_state: Arc<std::sync::Mutex<CircuitBreakerState>>,
-    circuit_breaker_last_failure: Arc<std::sync::Mutex<Option<u64>>>,
-    active_requests: Arc<std::sync::Mutex<u32>>,
+    health: Arc<Mutex<AIServiceHealth>>,
+    metrics: Arc<Mutex<AIServiceMetrics>>,
+    circuit_breaker_state: Arc<Mutex<CircuitBreakerState>>,
+    circuit_breaker_last_failure: Arc<Mutex<Option<u64>>>,
+    active_requests: Arc<Mutex<u32>>,
 }
 
 impl AICoordinator {
     /// Create new AICoordinator instance
-    pub fn new(env: &Env, mut config: AICoordinatorConfig) -> ArbitrageResult<Self> {
+    pub fn new(env: &Env, config: AICoordinatorConfig) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
         // Validate configuration
@@ -242,17 +244,17 @@ impl AICoordinator {
         };
 
         let coordinator = Self {
-            config,
+            config: config.clone(),
             logger,
             embedding_engine,
             model_router,
             personalization_engine,
             ai_cache,
-            health: Arc::new(std::sync::Mutex::new(AIServiceHealth::default())),
-            metrics: Arc::new(std::sync::Mutex::new(AIServiceMetrics::default())),
-            circuit_breaker_state: Arc::new(std::sync::Mutex::new(CircuitBreakerState::Closed)),
-            circuit_breaker_last_failure: Arc::new(std::sync::Mutex::new(None)),
-            active_requests: Arc::new(std::sync::Mutex::new(0)),
+            health: Arc::new(Mutex::new(AIServiceHealth::default())),
+            metrics: Arc::new(Mutex::new(AIServiceMetrics::default())),
+            circuit_breaker_state: Arc::new(Mutex::new(CircuitBreakerState::Closed)),
+            circuit_breaker_last_failure: Arc::new(Mutex::new(None)),
+            active_requests: Arc::new(Mutex::new(0)),
         };
 
         coordinator.logger.info(&format!(
@@ -316,7 +318,10 @@ impl AICoordinator {
                 for opportunity in opportunities {
                     match engine.generate_opportunity_embedding(&opportunity).await {
                         Ok(embedding) => embeddings.push(embedding),
-                        Err(e) => return Err(e),
+                        Err(e) => {
+                            self.handle_service_error(&e).await; // decrements counter + metrics
+                            return Err(e);
+                        }
                     }
                 }
                 self.update_success_metrics(start_time).await;
@@ -352,22 +357,33 @@ impl AICoordinator {
             Some(engine) => {
                 // Create a placeholder opportunity for similarity search
                 let placeholder_opportunity = crate::types::ArbitrageOpportunity {
-                    id: "test_opportunity".to_string(),
-                    pair: "BTCUSDT".to_string(),
+                    id: uuid::Uuid::new_v4().to_string(),
+                    trading_pair: "BTC/USDT".to_string(),
+                    exchanges: vec!["binance".to_string(), "bybit".to_string()],
+                    profit_percentage: 0.5,
+                    confidence_score: 0.7,
+                    risk_level: "medium".to_string(),
+                    buy_exchange: "binance".to_string(),
+                    sell_exchange: "bybit".to_string(),
+                    buy_price: 50000.0,
+                    sell_price: 50250.0,
+                    volume: 1000.0,
+                    created_at: chrono::Utc::now().timestamp_millis() as u64,
+                    expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + 300_000),
+                    // Additional fields
+                    pair: "BTC/USDT".to_string(),
                     long_exchange: crate::types::ExchangeIdEnum::Binance,
                     short_exchange: crate::types::ExchangeIdEnum::Bybit,
-                    long_rate: Some(50000.0),
-                    short_rate: Some(49950.0),
-                    rate_difference: 0.001,
-                    net_rate_difference: Some(0.001),
-                    potential_profit_value: Some(50.0),
-                    confidence: 0.8, // Default confidence score
-                    volume: 1000.0,  // Default volume
+                    long_rate: Some(0.1),
+                    short_rate: Some(-0.1),
+                    rate_difference: 0.5,
+                    net_rate_difference: Some(0.5),
+                    potential_profit_value: Some(250.0),
+                    confidence: 0.7,
                     timestamp: chrono::Utc::now().timestamp_millis() as u64,
                     detected_at: chrono::Utc::now().timestamp_millis() as u64,
-                    expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
                     r#type: crate::types::ArbitrageType::CrossExchange,
-                    details: Some("Test opportunity for AI enhancement".to_string()),
+                    details: Some("AI-generated placeholder opportunity".to_string()),
                     min_exchanges_required: 2,
                 };
 
@@ -581,20 +597,16 @@ impl AICoordinator {
         health.circuit_breaker_open = self.is_circuit_breaker_open().await;
 
         // Update stored health
-        if let Ok(mut stored_health) = self.health.lock() {
-            *stored_health = health.clone();
-        }
+        let mut stored_health = self.health.lock().unwrap();
+        *stored_health = health.clone();
 
         Ok(health)
     }
 
     /// Get AI service metrics
     pub async fn get_metrics(&self) -> AIServiceMetrics {
-        if let Ok(metrics) = self.metrics.lock() {
-            metrics.clone()
-        } else {
-            AIServiceMetrics::default()
-        }
+        let metrics = self.metrics.lock().unwrap();
+        metrics.clone()
     }
 
     /// Handle fallback embeddings when main service fails
@@ -652,7 +664,7 @@ impl AICoordinator {
         let mut ranked_opportunities: Vec<RankedOpportunity> = opportunities
             .into_iter()
             .map(|opp| {
-                let score = (opp.rate_difference / 10.0).min(1.0).max(0.0);
+                let score = (opp.rate_difference / 10.0).clamp(0.0, 1.0);
                 RankedOpportunity {
                     opportunity: opp,
                     personalization_score: score as f32,
@@ -680,85 +692,75 @@ impl AICoordinator {
             return false;
         }
 
-        if let Ok(state) = self.circuit_breaker_state.lock() {
-            match *state {
-                CircuitBreakerState::Open => {
-                    // Check if timeout has passed
-                    if let Ok(last_failure) = self.circuit_breaker_last_failure.lock() {
-                        if let Some(failure_time) = *last_failure {
-                            let now = chrono::Utc::now().timestamp_millis() as u64;
-                            if now - failure_time
-                                > (self.config.circuit_breaker_timeout_seconds * 1000)
-                            {
-                                // Move to half-open state
-                                drop(state);
-                                if let Ok(mut state) = self.circuit_breaker_state.lock() {
-                                    *state = CircuitBreakerState::HalfOpen;
-                                }
-                                return false;
-                            }
-                        }
+        let state = self.circuit_breaker_state.lock().unwrap();
+        match *state {
+            CircuitBreakerState::Open => {
+                // Check if timeout has passed
+                let last_failure = self.circuit_breaker_last_failure.lock().unwrap();
+                if let Some(failure_time) = *last_failure {
+                    let now = chrono::Utc::now().timestamp_millis() as u64;
+                    if now - failure_time > (self.config.circuit_breaker_timeout_seconds * 1000) {
+                        // Move to half-open state
+                        drop(state);
+                        let mut state = self.circuit_breaker_state.lock().unwrap();
+                        *state = CircuitBreakerState::HalfOpen;
+                        return false;
                     }
-                    true
                 }
-                CircuitBreakerState::HalfOpen => false, // Allow one request to test
-                CircuitBreakerState::Closed => false,
+                true
             }
-        } else {
-            false
+            CircuitBreakerState::HalfOpen => false, // Allow one request to test
+            CircuitBreakerState::Closed => false,
         }
     }
 
     /// Check rate limiting
     async fn check_rate_limit(&self) -> ArbitrageResult<()> {
-        if let Ok(mut active) = self.active_requests.lock() {
-            if *active >= self.config.max_concurrent_requests {
-                return Err(ArbitrageError::parse_error("Rate limit exceeded"));
-            }
-            *active += 1;
+        let mut active = self.active_requests.lock().unwrap();
+        if *active >= self.config.max_concurrent_requests {
+            return Err(ArbitrageError::parse_error("Rate limit exceeded"));
         }
+        *active += 1;
         Ok(())
     }
 
     /// Handle service error and update circuit breaker
     async fn handle_service_error(&self, error: &ArbitrageError) {
         // Decrement active requests
-        if let Ok(mut active) = self.active_requests.lock() {
-            if *active > 0 {
-                *active -= 1;
-            }
+        let mut active = self.active_requests.lock().unwrap();
+        if *active > 0 {
+            *active -= 1;
         }
+        drop(active);
 
         // Update error metrics
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.failed_requests += 1;
-            metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
+        let mut metrics = self.metrics.lock().unwrap();
+        metrics.failed_requests += 1;
+        metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        drop(metrics);
 
         // Update health error count
-        if let Ok(mut health) = self.health.lock() {
-            health.error_count += 1;
-        }
+        let mut health = self.health.lock().unwrap();
+        health.error_count += 1;
 
         // Update circuit breaker
-        if self.config.enable_circuit_breaker {
-            if let Ok(mut health) = self.health.lock() {
-                if health.error_count >= self.config.circuit_breaker_threshold {
-                    // Open circuit breaker
-                    if let Ok(mut state) = self.circuit_breaker_state.lock() {
-                        *state = CircuitBreakerState::Open;
-                    }
-                    if let Ok(mut last_failure) = self.circuit_breaker_last_failure.lock() {
-                        *last_failure = Some(chrono::Utc::now().timestamp_millis() as u64);
-                    }
-                    health.circuit_breaker_open = true;
+        if self.config.enable_circuit_breaker
+            && health.error_count >= self.config.circuit_breaker_threshold
+        {
+            // Open circuit breaker
+            let mut state = self.circuit_breaker_state.lock().unwrap();
+            *state = CircuitBreakerState::Open;
+            drop(state);
 
-                    // Update metrics
-                    if let Ok(mut metrics) = self.metrics.lock() {
-                        metrics.circuit_breaker_trips += 1;
-                    }
-                }
-            }
+            let mut last_failure = self.circuit_breaker_last_failure.lock().unwrap();
+            *last_failure = Some(chrono::Utc::now().timestamp_millis() as u64);
+            drop(last_failure);
+
+            health.circuit_breaker_open = true;
+
+            // Update metrics
+            let mut metrics = self.metrics.lock().unwrap();
+            metrics.circuit_breaker_trips += 1;
         }
 
         self.logger.warn(&format!("AI service error: {}", error));
@@ -767,63 +769,55 @@ impl AICoordinator {
     /// Update success metrics
     async fn update_success_metrics(&self, start_time: u64) {
         // Decrement active requests
-        if let Ok(mut active) = self.active_requests.lock() {
-            if *active > 0 {
-                *active -= 1;
-            }
+        let mut active = self.active_requests.lock().unwrap();
+        if *active > 0 {
+            *active -= 1;
         }
+        drop(active);
 
         // Update metrics
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_requests += 1;
-            metrics.successful_requests += 1;
+        let mut metrics = self.metrics.lock().unwrap();
+        metrics.total_requests += 1;
+        metrics.successful_requests += 1;
 
-            // Update average response time
-            let response_time = chrono::Utc::now().timestamp_millis() as u64 - start_time;
-            let total_time = metrics.avg_response_time_ms * (metrics.total_requests - 1) as f64
-                + response_time as f64;
-            metrics.avg_response_time_ms = total_time / metrics.total_requests as f64;
+        // Update average response time
+        let response_time = chrono::Utc::now().timestamp_millis() as u64 - start_time;
+        let total_time = metrics.avg_response_time_ms * (metrics.total_requests - 1) as f64
+            + response_time as f64;
+        metrics.avg_response_time_ms = total_time / metrics.total_requests as f64;
 
-            metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
+        metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        drop(metrics);
 
         // Reset circuit breaker on success
         if self.config.enable_circuit_breaker {
-            if let Ok(mut state) = self.circuit_breaker_state.lock() {
-                match *state {
-                    CircuitBreakerState::HalfOpen => {
-                        *state = CircuitBreakerState::Closed;
-                        // Reset error count
-                        if let Ok(mut health) = self.health.lock() {
-                            health.error_count = 0;
-                            health.circuit_breaker_open = false;
-                        }
-                    }
-                    _ => {}
-                }
+            let mut state = self.circuit_breaker_state.lock().unwrap();
+            if let CircuitBreakerState::HalfOpen = *state {
+                *state = CircuitBreakerState::Closed;
+                // Reset error count
+                let mut health = self.health.lock().unwrap();
+                health.error_count = 0;
+                health.circuit_breaker_open = false;
             }
         }
     }
 
     /// Update routing metrics
     async fn update_routing_metrics(&self) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.routing_decisions += 1;
-        }
+        let mut metrics = self.metrics.lock().unwrap();
+        metrics.routing_decisions += 1;
     }
 
     /// Update personalization metrics
     async fn update_personalization_metrics(&self) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.personalization_requests += 1;
-        }
+        let mut metrics = self.metrics.lock().unwrap();
+        metrics.personalization_requests += 1;
     }
 
     /// Update fallback metrics
     async fn update_fallback_metrics(&self) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.fallback_activations += 1;
-        }
+        let mut metrics = self.metrics.lock().unwrap();
+        metrics.fallback_activations += 1;
     }
 }
 

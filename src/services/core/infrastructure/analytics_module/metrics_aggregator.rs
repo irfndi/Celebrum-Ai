@@ -6,6 +6,7 @@
 //! handling KPI tracking, business intelligence, and performance analytics with
 //! real-time processing and historical analysis capabilities.
 
+use crate::js_sys::Date;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -119,7 +120,7 @@ pub struct BusinessKPI {
 }
 
 /// Metrics Aggregator for business intelligence
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MetricsAggregator {
     config: MetricsAggregatorConfig,
     kv_store: Option<KvStore>,
@@ -164,7 +165,7 @@ impl MetricsAggregator {
                 threshold_critical: 5000.0,
                 unit: "USD".to_string(),
                 trend: "stable".to_string(),
-                last_updated: worker::Date::now().as_millis(),
+                last_updated: Date::now() as u64,
             },
             BusinessKPI {
                 kpi_id: "active_users".to_string(),
@@ -177,7 +178,7 @@ impl MetricsAggregator {
                 threshold_critical: 500.0,
                 unit: "users".to_string(),
                 trend: "stable".to_string(),
-                last_updated: worker::Date::now().as_millis(),
+                last_updated: Date::now() as u64,
             },
         ];
 
@@ -192,12 +193,12 @@ impl MetricsAggregator {
         // Update revenue KPI
         let revenue_kpi = self.business_kpis.get_mut("total_revenue").unwrap();
         revenue_kpi.current_value += 125.50; // Mock revenue update
-        revenue_kpi.last_updated = worker::Date::now().as_millis();
+        revenue_kpi.last_updated = Date::now() as u64;
 
         // Update active users KPI
         let users_kpi = self.business_kpis.get_mut("active_users").unwrap();
         users_kpi.current_value = 850.0; // Mock user count
-        users_kpi.last_updated = worker::Date::now().as_millis();
+        users_kpi.last_updated = Date::now() as u64;
 
         self.metrics.metrics_collected += 2;
         self.metrics.aggregations_computed += 1;
@@ -212,8 +213,8 @@ impl MetricsAggregator {
             kpi_tracking_healthy: true,
             storage_healthy: true,
             metrics_processed_per_minute: self.metrics.metrics_per_minute,
-            last_aggregation_time: worker::Date::now().as_millis(),
-            last_health_check: worker::Date::now().as_millis(),
+            last_aggregation_time: Date::now() as u64,
+            last_health_check: Date::now() as u64,
         })
     }
 
@@ -236,7 +237,7 @@ impl Default for MetricsAggregatorMetrics {
             error_rate: 0.0,
             metrics_per_minute: 0.0,
             average_processing_time_ms: 0.0,
-            last_updated: worker::Date::now().as_millis(),
+            last_updated: Date::now() as u64,
         }
     }
 }

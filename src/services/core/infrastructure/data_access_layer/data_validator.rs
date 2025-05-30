@@ -2,8 +2,144 @@
 // Provides comprehensive data validation, quality checks, and freshness verification
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
+// use crate::services::core::infrastructure::shared_types::{ComponentHealth, CircuitBreaker, ValidationMetrics, ValidationCacheEntry};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
+
+// Temporary local types until shared_types is working
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentHealth {
+    pub is_healthy: bool,
+    pub last_check: u64,
+    pub error_count: u32,
+    pub warning_count: u32,
+    pub uptime_seconds: u64,
+    pub performance_score: f32,
+    pub resource_usage_percent: f32,
+    pub last_error: Option<String>,
+    pub last_warning: Option<String>,
+    pub component_name: String,
+    pub version: String,
+}
+
+impl Default for ComponentHealth {
+    fn default() -> Self {
+        Self {
+            is_healthy: false,
+            last_check: chrono::Utc::now().timestamp_millis() as u64,
+            error_count: 0,
+            warning_count: 0,
+            uptime_seconds: 0,
+            performance_score: 0.0,
+            resource_usage_percent: 0.0,
+            last_error: None,
+            last_warning: None,
+            component_name: "data_validator".to_string(),
+            version: "1.0.0".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CircuitBreaker {
+    pub state: CircuitBreakerState,
+    pub failure_count: u32,
+    pub threshold: u32,
+    pub timeout_seconds: u64,
+    pub last_failure_time: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CircuitBreakerState {
+    Closed,
+    Open,
+    HalfOpen,
+}
+
+impl Default for CircuitBreaker {
+    fn default() -> Self {
+        Self {
+            state: CircuitBreakerState::Closed,
+            failure_count: 0,
+            threshold: 5,
+            timeout_seconds: 60,
+            last_failure_time: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationMetrics {
+    pub total_validations: u64,
+    pub successful_validations: u64,
+    pub failed_validations: u64,
+    pub average_quality_score: f32,
+    pub average_freshness_score: f32,
+    pub avg_validation_time_ms: f64,
+    pub stale_data_count: u64,
+    pub invalid_data_count: u64,
+    pub validation_errors_by_type: HashMap<String, u64>,
+    pub data_sources_quality: HashMap<String, f32>,
+    pub last_updated: u64,
+}
+
+impl Default for ValidationMetrics {
+    fn default() -> Self {
+        Self {
+            total_validations: 0,
+            successful_validations: 0,
+            failed_validations: 0,
+            average_quality_score: 0.0,
+            average_freshness_score: 0.0,
+            avg_validation_time_ms: 0.0,
+            stale_data_count: 0,
+            invalid_data_count: 0,
+            validation_errors_by_type: HashMap::new(),
+            data_sources_quality: HashMap::new(),
+            last_updated: chrono::Utc::now().timestamp_millis() as u64,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationCacheEntry {
+    pub key: String,
+    pub validation_rules: Vec<String>,
+    pub freshness_rules: HashMap<String, u64>,
+    pub last_validation: Option<u64>,
+    pub validation_result: Option<bool>,
+    pub quality_score: Option<f32>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub access_count: u64,
+}
+
+impl ValidationCacheEntry {
+    pub fn new(key: String) -> Self {
+        let now = chrono::Utc::now().timestamp_millis() as u64;
+        Self {
+            key,
+            validation_rules: Vec::new(),
+            freshness_rules: HashMap::new(),
+            last_validation: None,
+            validation_result: None,
+            quality_score: None,
+            created_at: now,
+            expires_at: now + 3600000, // 1 hour default TTL
+            access_count: 0,
+        }
+    }
+
+    pub fn is_expired(&self) -> bool {
+        chrono::Utc::now().timestamp_millis() as u64 > self.expires_at
+    }
+
+    pub fn record_access(&mut self) {
+        self.access_count += 1;
+    }
+}
 
 /// Data validation rules and criteria
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,38 +255,6 @@ impl Default for ValidationResult {
     }
 }
 
-/// Data quality metrics
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DataQualityMetrics {
-    pub total_validations: u64,
-    pub successful_validations: u64,
-    pub failed_validations: u64,
-    pub average_quality_score: f32,
-    pub average_freshness_score: f32,
-    pub stale_data_count: u64,
-    pub invalid_data_count: u64,
-    pub validation_errors_by_type: HashMap<String, u64>,
-    pub data_sources_quality: HashMap<String, f32>,
-    pub last_updated: u64,
-}
-
-impl Default for DataQualityMetrics {
-    fn default() -> Self {
-        Self {
-            total_validations: 0,
-            successful_validations: 0,
-            failed_validations: 0,
-            average_quality_score: 0.0,
-            average_freshness_score: 0.0,
-            stale_data_count: 0,
-            invalid_data_count: 0,
-            validation_errors_by_type: HashMap::new(),
-            data_sources_quality: HashMap::new(),
-            last_updated: chrono::Utc::now().timestamp_millis() as u64,
-        }
-    }
-}
-
 /// Configuration for DataValidator
 #[derive(Debug, Clone)]
 pub struct DataValidatorConfig {
@@ -237,22 +341,23 @@ pub struct DataValidator {
     config: DataValidatorConfig,
     logger: crate::utils::logger::Logger,
 
-    // Validation rules by data type
-    validation_rules: std::sync::Arc<std::sync::Mutex<HashMap<String, Vec<ValidationRule>>>>,
+    // Validation state
+    validation_rules: Arc<std::sync::Mutex<HashMap<String, Vec<ValidationRule>>>>,
+    freshness_rules: Arc<std::sync::Mutex<HashMap<String, FreshnessRule>>>,
+    validation_cache: Arc<std::sync::Mutex<HashMap<String, ValidationCacheEntry>>>,
+    validation_metrics: Arc<std::sync::Mutex<ValidationMetrics>>,
 
-    // Freshness rules by data type
-    freshness_rules: std::sync::Arc<std::sync::Mutex<HashMap<String, FreshnessRule>>>,
+    // Health monitoring
+    health_status: Arc<std::sync::Mutex<ComponentHealth>>,
+    last_health_check: Arc<std::sync::Mutex<Option<u64>>>,
 
-    // Quality metrics tracking
-    metrics: std::sync::Arc<std::sync::Mutex<DataQualityMetrics>>,
-
-    // Performance tracking
-    startup_time: u64,
+    // Circuit breaker for validation operations
+    circuit_breaker: Arc<std::sync::Mutex<CircuitBreaker>>,
 }
 
 impl DataValidator {
     /// Create new DataValidator instance
-    pub fn new(mut config: DataValidatorConfig) -> ArbitrageResult<Self> {
+    pub fn new(config: DataValidatorConfig) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
         // Validate configuration
@@ -261,10 +366,13 @@ impl DataValidator {
         let validator = Self {
             config,
             logger,
-            validation_rules: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
-            freshness_rules: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
-            metrics: std::sync::Arc::new(std::sync::Mutex::new(DataQualityMetrics::default())),
-            startup_time: chrono::Utc::now().timestamp_millis() as u64,
+            validation_rules: Arc::new(Mutex::new(HashMap::new())),
+            freshness_rules: Arc::new(Mutex::new(HashMap::new())),
+            validation_cache: Arc::new(Mutex::new(HashMap::new())),
+            validation_metrics: Arc::new(Mutex::new(ValidationMetrics::default())),
+            health_status: Arc::new(Mutex::new(ComponentHealth::default())),
+            last_health_check: Arc::new(Mutex::new(None)),
+            circuit_breaker: Arc::new(Mutex::new(CircuitBreaker::default())),
         };
 
         // Initialize default rules
@@ -367,12 +475,14 @@ impl DataValidator {
             },
         ];
 
-        // Add rules to the validator
-        if let Ok(mut rules) = self.validation_rules.lock() {
-            rules.insert("market_data".to_string(), market_data_rules);
-            rules.insert("funding_rates".to_string(), funding_rates_rules);
-            rules.insert("user_data".to_string(), user_data_rules);
-        }
+        // Create the rules map
+        let mut rules_map = HashMap::new();
+        rules_map.insert("market_data".to_string(), market_data_rules);
+        rules_map.insert("funding_rates".to_string(), funding_rates_rules);
+        rules_map.insert("user_data".to_string(), user_data_rules);
+
+        // Replace the mutex content
+        *self.validation_rules.lock().unwrap() = rules_map;
 
         // Initialize default freshness rules
         let freshness_rules = vec![
@@ -414,36 +524,36 @@ impl DataValidator {
             ),
         ];
 
-        if let Ok(mut rules) = self.freshness_rules.lock() {
-            for (data_type, rule) in freshness_rules {
-                rules.insert(data_type.to_string(), rule);
-            }
+        let mut freshness_map = HashMap::new();
+        for (data_type, rule) in freshness_rules {
+            freshness_map.insert(data_type.to_string(), rule);
         }
+
+        // Replace the mutex content
+        *self.freshness_rules.lock().unwrap() = freshness_map;
 
         Ok(())
     }
 
     /// Add custom validation rule for a data type
-    pub fn add_validation_rule(
+    pub async fn add_validation_rule(
         &self,
         data_type: String,
         rule: ValidationRule,
     ) -> ArbitrageResult<()> {
-        if let Ok(mut rules) = self.validation_rules.lock() {
-            rules.entry(data_type).or_insert_with(Vec::new).push(rule);
-        }
+        let mut rules = self.validation_rules.lock().unwrap();
+        rules.entry(data_type).or_default().push(rule);
         Ok(())
     }
 
     /// Add freshness rule for a data type
-    pub fn add_freshness_rule(
+    pub async fn add_freshness_rule(
         &self,
         data_type: String,
         rule: FreshnessRule,
     ) -> ArbitrageResult<()> {
-        if let Ok(mut rules) = self.freshness_rules.lock() {
-            rules.insert(data_type, rule);
-        }
+        let mut rules = self.freshness_rules.lock().unwrap();
+        rules.insert(data_type, rule);
         Ok(())
     }
 
@@ -468,10 +578,13 @@ impl DataValidator {
         }
 
         // Perform field validation
-        if let Ok(rules) = self.validation_rules.lock() {
-            if let Some(validation_rules) = rules.get(data_type) {
-                result.field_results = self.validate_fields(data, validation_rules).await?;
-            }
+        let validation_rules = {
+            let rules = self.validation_rules.lock().unwrap();
+            rules.clone()
+        };
+
+        if let Some(validation_rules) = validation_rules.get(data_type) {
+            result.field_results = self.validate_fields(data, validation_rules).await?;
         }
 
         // Calculate quality score
@@ -504,19 +617,18 @@ impl DataValidator {
 
         // Add freshness warnings/errors
         if self.config.enable_freshness_check {
-            if let Ok(freshness_rules) = self.freshness_rules.lock() {
-                if let Some(rule) = freshness_rules.get(data_type) {
-                    if result.data_age_seconds > rule.critical_threshold_seconds {
-                        result.errors.push(format!(
-                            "Data is critically stale: {} seconds old",
-                            result.data_age_seconds
-                        ));
-                    } else if result.data_age_seconds > rule.warning_threshold_seconds {
-                        result.warnings.push(format!(
-                            "Data is stale: {} seconds old",
-                            result.data_age_seconds
-                        ));
-                    }
+            let freshness_rules = self.freshness_rules.lock().unwrap();
+            if let Some(rule) = freshness_rules.get(data_type) {
+                if result.data_age_seconds > rule.critical_threshold_seconds {
+                    result.errors.push(format!(
+                        "Data is critically stale: {} seconds old",
+                        result.data_age_seconds
+                    ));
+                } else if result.data_age_seconds > rule.warning_threshold_seconds {
+                    result.warnings.push(format!(
+                        "Data is stale: {} seconds old",
+                        result.data_age_seconds
+                    ));
                 }
             }
         }
@@ -806,25 +918,24 @@ impl DataValidator {
 
     /// Calculate freshness score based on data age
     async fn calculate_freshness_score(&self, data_type: &str, data_age_seconds: u64) -> f32 {
-        if let Ok(rules) = self.freshness_rules.lock() {
-            if let Some(rule) = rules.get(data_type) {
-                if data_age_seconds <= rule.warning_threshold_seconds {
-                    return 1.0; // Perfect freshness
-                } else if data_age_seconds <= rule.max_age_seconds {
-                    // Linear decay from warning to max age
-                    let decay_range = rule.max_age_seconds - rule.warning_threshold_seconds;
-                    let age_in_range = data_age_seconds - rule.warning_threshold_seconds;
-                    return 1.0 - (age_in_range as f32 / decay_range as f32) * 0.5;
-                // 50% to 100%
-                } else if data_age_seconds <= rule.critical_threshold_seconds {
-                    // Further decay from max age to critical
-                    let decay_range = rule.critical_threshold_seconds - rule.max_age_seconds;
-                    let age_in_range = data_age_seconds - rule.max_age_seconds;
-                    return 0.5 - (age_in_range as f32 / decay_range as f32) * 0.5;
-                // 0% to 50%
-                } else {
-                    return 0.0; // Critically stale
-                }
+        let rules = self.freshness_rules.lock().unwrap();
+        if let Some(rule) = rules.get(data_type) {
+            if data_age_seconds <= rule.warning_threshold_seconds {
+                return 1.0; // Perfect freshness
+            } else if data_age_seconds <= rule.max_age_seconds {
+                // Linear decay from warning to max age
+                let decay_range = rule.max_age_seconds - rule.warning_threshold_seconds;
+                let age_in_range = data_age_seconds - rule.warning_threshold_seconds;
+                return 1.0 - (age_in_range as f32 / decay_range as f32) * 0.5;
+            // 50% to 100%
+            } else if data_age_seconds <= rule.critical_threshold_seconds {
+                // Further decay from max age to critical
+                let decay_range = rule.critical_threshold_seconds - rule.max_age_seconds;
+                let age_in_range = data_age_seconds - rule.max_age_seconds;
+                return 0.5 - (age_in_range as f32 / decay_range as f32) * 0.5;
+            // 0% to 50%
+            } else {
+                return 0.0; // Critically stale
             }
         }
 
@@ -842,61 +953,24 @@ impl DataValidator {
         &self,
         result: &ValidationResult,
         _data_type: &str,
-        _start_time: u64,
+        start_time: u64,
     ) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_validations += 1;
+        let mut metrics = self.validation_metrics.lock().unwrap();
 
-            if result.is_valid {
-                metrics.successful_validations += 1;
-            } else {
-                metrics.failed_validations += 1;
-                metrics.invalid_data_count += 1;
-            }
-
-            if !result.is_fresh {
-                metrics.stale_data_count += 1;
-            }
-
-            // Update average scores
-            let total = metrics.total_validations as f32;
-            metrics.average_quality_score =
-                (metrics.average_quality_score * (total - 1.0) + result.quality_score) / total;
-            metrics.average_freshness_score =
-                (metrics.average_freshness_score * (total - 1.0) + result.freshness_score) / total;
-
-            // Update data source quality
-            metrics
-                .data_sources_quality
-                .insert(result.data_source.clone(), result.overall_score);
-
-            // Count validation errors by type
-            for error in &result.errors {
-                let error_type = self.categorize_error(error);
-                *metrics
-                    .validation_errors_by_type
-                    .entry(error_type)
-                    .or_insert(0) += 1;
-            }
-
-            metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
-    }
-
-    /// Categorize error for metrics
-    fn categorize_error(&self, error: &str) -> String {
-        if error.contains("missing") || error.contains("required") {
-            "missing_field".to_string()
-        } else if error.contains("format") || error.contains("pattern") {
-            "format_error".to_string()
-        } else if error.contains("range") || error.contains("minimum") || error.contains("maximum")
-        {
-            "range_error".to_string()
-        } else if error.contains("stale") || error.contains("old") {
-            "freshness_error".to_string()
+        metrics.total_validations += 1;
+        if result.is_valid {
+            metrics.successful_validations += 1;
         } else {
-            "other".to_string()
+            metrics.failed_validations += 1;
         }
+
+        // Update average validation time
+        let validation_time = chrono::Utc::now().timestamp_millis() as u64 - start_time;
+        let total_time = metrics.avg_validation_time_ms * (metrics.total_validations - 1) as f64
+            + validation_time as f64;
+        metrics.avg_validation_time_ms = total_time / metrics.total_validations as f64;
+
+        metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
     }
 
     /// Validate email format
@@ -906,7 +980,8 @@ impl DataValidator {
 
     /// Validate trading pair format
     fn is_valid_trading_pair(&self, pair: &str) -> bool {
-        pair.contains('/') || pair.contains('-') || pair.contains('_')
+        let re = regex::Regex::new(r"^[A-Z]+([/_-])[A-Z]+$").unwrap();
+        re.is_match(pair)
     }
 
     /// Check if string matches pattern (simplified regex)
@@ -922,12 +997,9 @@ impl DataValidator {
     }
 
     /// Get validation metrics
-    pub async fn get_metrics(&self) -> DataQualityMetrics {
-        if let Ok(metrics) = self.metrics.lock() {
-            metrics.clone()
-        } else {
-            DataQualityMetrics::default()
-        }
+    pub async fn get_metrics(&self) -> ValidationMetrics {
+        let metrics = self.validation_metrics.lock().unwrap();
+        metrics.clone()
     }
 
     /// Health check for data validator
@@ -966,6 +1038,12 @@ impl DataValidator {
             "validation_errors_by_type": metrics.validation_errors_by_type,
             "last_updated": metrics.last_updated
         }))
+    }
+
+    /// Get freshness rules for a data type
+    pub async fn get_freshness_rules(&self, data_type: &str) -> Option<FreshnessRule> {
+        let rules = self.freshness_rules.lock().unwrap();
+        rules.get(data_type).cloned()
     }
 }
 

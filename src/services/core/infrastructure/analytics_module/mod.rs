@@ -397,12 +397,13 @@ pub mod utils {
 
     /// Create development analytics configuration
     pub fn create_development_config() -> AnalyticsModuleConfig {
-        let mut config = AnalyticsModuleConfig::default();
-        config.max_concurrent_queries = 10;
-        config.batch_processing_size = 50;
-        config.retention_days = 30;
-        config.enable_predictive_analytics = false;
-        config
+        AnalyticsModuleConfig {
+            max_concurrent_queries: 10,
+            batch_processing_size: 50,
+            retention_days: 30,
+            enable_predictive_analytics: false,
+            ..Default::default()
+        }
     }
 }
 

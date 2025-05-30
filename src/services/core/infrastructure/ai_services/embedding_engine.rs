@@ -6,7 +6,7 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::{Datelike, Timelike};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use worker::{Env, Fetch, Method, Request, RequestInit};
+use worker::{Env, Fetch, Method, RequestInit};
 
 /// Configuration for EmbeddingEngine
 #[derive(Debug, Clone)]
@@ -177,6 +177,7 @@ pub struct EmbeddingEngine {
     config: EmbeddingEngineConfig,
     logger: crate::utils::logger::Logger,
     vectorize_available: Arc<std::sync::Mutex<bool>>,
+    #[allow(dead_code)] // TODO: Will be used for health monitoring
     last_health_check: Arc<std::sync::Mutex<Option<u64>>>,
     cache: Option<worker::kv::KvStore>,
     metrics: Arc<std::sync::Mutex<EmbeddingMetrics>>,
@@ -439,7 +440,7 @@ impl EmbeddingEngine {
         };
         risk_score += exchange_risk;
 
-        (risk_score.min(1.0) as f64) as f32
+        (risk_score.min(1.0)) as f32
     }
 
     /// Calculate time sensitivity factor
@@ -542,8 +543,7 @@ impl EmbeddingEngine {
             .set("Content-Type", "application/json")?;
         request_init.body = Some(payload.to_string().into());
 
-        let mut request = Request::new_with_init(&url, &request_init)?;
-        let mut response = Fetch::Request(request).send().await?;
+        let response = Fetch::Url(url.parse()?).send().await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -588,8 +588,7 @@ impl EmbeddingEngine {
             .set("Content-Type", "application/json")?;
         request_init.body = Some(serde_json::to_string(&query)?.into());
 
-        let mut request = Request::new_with_init(&url, &request_init)?;
-        let mut response = Fetch::Request(request).send().await?;
+        let mut response = Fetch::Url(url.parse()?).send().await?;
 
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
@@ -645,26 +644,26 @@ impl EmbeddingEngine {
     /// Create placeholder opportunity for demo purposes
     fn create_placeholder_opportunity(&self, _opportunity_id: &str) -> ArbitrageOpportunity {
         // Create test opportunity with correct field names
-        let test_opportunity = ArbitrageOpportunity {
-            id: "test_opportunity".to_string(),
+        ArbitrageOpportunity {
+            id: "test_123".to_string(),
             pair: "BTCUSDT".to_string(),
             long_exchange: ExchangeIdEnum::Binance,
             short_exchange: ExchangeIdEnum::Bybit,
-            long_rate: Some(50000.0),
-            short_rate: Some(49950.0),
-            rate_difference: 0.001,
-            net_rate_difference: Some(0.001),
-            potential_profit_value: Some(50.0),
-            confidence: 0.8, // Default confidence score
-            volume: 1000.0,  // Default volume
+            long_rate: Some(0.01),
+            short_rate: Some(-0.01),
+            rate_difference: 0.02,
+            net_rate_difference: Some(0.02),
+            potential_profit_value: Some(20.0),
+            confidence: 0.8,
+            volume: 1000.0,
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
             detected_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
-            r#type: ArbitrageType::CrossExchange,
-            details: Some("Test opportunity for embedding".to_string()),
+            expires_at: chrono::Utc::now().timestamp_millis() as u64 + 300_000,
+            r#type: ArbitrageType::FundingRate,
+            details: Some("Test opportunity".to_string()),
             min_exchanges_required: 2,
-        };
-        test_opportunity
+        }
     }
 
     /// Cache embedding

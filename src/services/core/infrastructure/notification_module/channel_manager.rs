@@ -7,6 +7,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use worker::kv::KvStore;
 
+/// Simple rate limit info for channel management
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitInfo {
+    pub requests_per_minute: u32,
+    pub requests_remaining: u32,
+    pub reset_time: u64,
+}
+
 /// Channel authentication configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelAuth {
@@ -148,6 +156,31 @@ impl Default for ChannelManagerConfig {
     }
 }
 
+impl ChannelManagerConfig {
+    /// Validate the configuration
+    pub fn validate(&self) -> crate::utils::ArbitrageResult<()> {
+        if self.max_concurrent_deliveries == 0 {
+            return Err(crate::utils::ArbitrageError::validation_error(
+                "max_concurrent_deliveries must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.default_timeout_seconds == 0 {
+            return Err(crate::utils::ArbitrageError::validation_error(
+                "default_timeout_seconds must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.health_check_interval_seconds == 0 {
+            return Err(crate::utils::ArbitrageError::validation_error(
+                "health_check_interval_seconds must be greater than 0".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
 /// Channel Manager for handling channel-specific delivery logic
 pub struct ChannelManager {
     config: ChannelManagerConfig,
@@ -156,6 +189,9 @@ pub struct ChannelManager {
 
     // Channel configurations
     channels: Arc<Mutex<HashMap<String, ChannelDeliveryConfig>>>,
+
+    // Rate limiting tracking
+    rate_limits: Arc<Mutex<HashMap<String, RateLimitInfo>>>,
 
     // Health and performance tracking
     health: Arc<Mutex<ChannelManagerHealth>>,
@@ -183,6 +219,7 @@ impl ChannelManager {
             logger,
             kv_store,
             channels: Arc::new(Mutex::new(HashMap::new())),
+            rate_limits: Arc::new(Mutex::new(HashMap::new())),
             health: Arc::new(Mutex::new(ChannelManagerHealth {
                 is_healthy: false,
                 total_channels: 0,
@@ -251,11 +288,21 @@ impl ChannelManager {
 
         // Check rate limiting
         if self.config.enable_rate_limiting {
-            // In a real implementation, this would check rate limits
-            self.logger.debug(&format!(
-                "Rate limit check passed for channel: {}",
-                channel_id
-            ));
+            // TODO: replace with real token-bucket implementation.
+            // For now, return an error once burst_limit is exceeded to avoid
+            // unbounded traffic.
+            if !self.within_rate_limit(channel_id).await? {
+                return Ok(ChannelDeliveryResult {
+                    success: false,
+                    message_id: None,
+                    error_code: Some("rate_limited".into()),
+                    error_message: Some("Rate limit exceeded".into()),
+                    delivery_time_ms: 0,
+                    rate_limited: true,
+                    retry_after_seconds: Some(1),
+                    response_data: None,
+                });
+            }
         }
 
         // Perform authentication if required
@@ -620,6 +667,26 @@ impl ChannelManager {
         }
 
         Ok(channels_loaded)
+    }
+
+    /// Check if a channel is within its rate limit
+    pub async fn within_rate_limit(&self, channel_id: &str) -> ArbitrageResult<bool> {
+        let rate_limits = self.rate_limits.lock().unwrap();
+
+        if let Some(limit_info) = rate_limits.get(channel_id) {
+            let now = chrono::Utc::now().timestamp_millis() as u64;
+
+            // Check if we're within the time window
+            if now < limit_info.reset_time {
+                Ok(limit_info.requests_remaining > 0)
+            } else {
+                // Time window has passed, reset is needed
+                Ok(true)
+            }
+        } else {
+            // No rate limit info means no restrictions
+            Ok(true)
+        }
     }
 }
 

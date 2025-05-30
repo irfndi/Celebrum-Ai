@@ -738,7 +738,7 @@ impl DataTransformer {
             let field_value = obj.get(&rule.field_name);
 
             if rule.required && field_value.is_none() {
-                return Err(ArbitrageError::validation_error(&format!(
+                return Err(ArbitrageError::validation_error(format!(
                     "Required field '{}' is missing",
                     rule.field_name
                 )));
@@ -748,7 +748,7 @@ impl DataTransformer {
                 match rule.rule_type {
                     ValidationType::String => {
                         if !value.is_string() {
-                            return Err(ArbitrageError::validation_error(&format!(
+                            return Err(ArbitrageError::validation_error(format!(
                                 "Field '{}' must be a string",
                                 rule.field_name
                             )));
@@ -756,7 +756,7 @@ impl DataTransformer {
                     }
                     ValidationType::Number => {
                         if !value.is_number() {
-                            return Err(ArbitrageError::validation_error(&format!(
+                            return Err(ArbitrageError::validation_error(format!(
                                 "Field '{}' must be a number",
                                 rule.field_name
                             )));
@@ -765,7 +765,7 @@ impl DataTransformer {
                         if let Some(num) = value.as_f64() {
                             if let Some(min) = rule.min_value {
                                 if num < min {
-                                    return Err(ArbitrageError::validation_error(&format!(
+                                    return Err(ArbitrageError::validation_error(format!(
                                         "Field '{}' value {} is below minimum {}",
                                         rule.field_name, num, min
                                     )));
@@ -773,7 +773,7 @@ impl DataTransformer {
                             }
                             if let Some(max) = rule.max_value {
                                 if num > max {
-                                    return Err(ArbitrageError::validation_error(&format!(
+                                    return Err(ArbitrageError::validation_error(format!(
                                         "Field '{}' value {} is above maximum {}",
                                         rule.field_name, num, max
                                     )));
@@ -783,7 +783,7 @@ impl DataTransformer {
                     }
                     ValidationType::Boolean => {
                         if !value.is_boolean() {
-                            return Err(ArbitrageError::validation_error(&format!(
+                            return Err(ArbitrageError::validation_error(format!(
                                 "Field '{}' must be a boolean",
                                 rule.field_name
                             )));

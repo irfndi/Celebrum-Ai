@@ -213,8 +213,15 @@ impl ServiceHealthManager {
                 result.response_time_ms = response_time;
                 result.last_check_timestamp = chrono::Utc::now().timestamp_millis() as u64;
                 
-                // Determine status based on response time
-                result.status = self.determine_status_from_response_time(response_time);
+// Escalate the status if latency pushes it to a worse tier,
+// but never *promote* a worse status to a better one.
+let latency_status = self.determine_status_from_response_time(response_time);
+result.status = match (result.status.clone(), latency_status) {
+    // keep the worse of the two
+    (HealthStatus::Unhealthy, _) | (_, HealthStatus::Unhealthy) => HealthStatus::Unhealthy,
+    (HealthStatus::Degraded, _) | (_, HealthStatus::Degraded)   => HealthStatus::Degraded,
+    _                                                           => HealthStatus::Healthy,
+};
                 
                 self.update_service_metrics(service_name, true, response_time, None);
                 Ok(result)

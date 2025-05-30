@@ -2,10 +2,73 @@
 // Provides multi-tier caching with automatic compression and data freshness validation
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
+// use crate::services::core::infrastructure::shared_types::{ComponentHealth, CircuitBreaker, CacheStats};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use worker::kv::KvStore;
+
+// Temporary local types until shared_types is working
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentHealth {
+    pub is_healthy: bool,
+    pub last_check: u64,
+    pub error_count: u32,
+    pub warning_count: u32,
+    pub uptime_seconds: u64,
+    pub performance_score: f32,
+    pub resource_usage_percent: f32,
+    pub last_error: Option<String>,
+    pub last_warning: Option<String>,
+    pub component_name: String,
+    pub version: String,
+}
+
+impl Default for ComponentHealth {
+    fn default() -> Self {
+        Self {
+            is_healthy: false,
+            last_check: chrono::Utc::now().timestamp_millis() as u64,
+            error_count: 0,
+            warning_count: 0,
+            uptime_seconds: 0,
+            performance_score: 0.0,
+            resource_usage_percent: 0.0,
+            last_error: None,
+            last_warning: None,
+            component_name: "cache_layer".to_string(),
+            version: "1.0.0".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CircuitBreaker {
+    pub state: CircuitBreakerState,
+    pub failure_count: u32,
+    pub threshold: u32,
+    pub timeout_seconds: u64,
+    pub last_failure_time: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CircuitBreakerState {
+    Closed,
+    Open,
+    HalfOpen,
+}
+
+impl Default for CircuitBreaker {
+    fn default() -> Self {
+        Self {
+            state: CircuitBreakerState::Closed,
+            failure_count: 0,
+            threshold: 5,
+            timeout_seconds: 60,
+            last_failure_time: 0,
+        }
+    }
+}
 
 /// Cache entry types with different TTL requirements
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -311,24 +374,26 @@ impl CacheLayerConfig {
 /// Cache layer for intelligent caching with freshness validation
 pub struct CacheLayer {
     config: CacheLayerConfig,
-    logger: crate::utils::logger::Logger,
     kv_store: KvStore,
+    logger: crate::utils::logger::Logger,
 
-    // Cache statistics and metrics
-    stats: Arc<std::sync::Mutex<CacheStats>>,
-    metrics: Arc<std::sync::Mutex<CacheMetrics>>,
-    health: Arc<std::sync::Mutex<CacheHealth>>,
-
-    // Cache metadata tracking
+    // Metadata tracking
     entry_metadata: Arc<std::sync::Mutex<HashMap<String, CacheEntry>>>,
 
-    // Performance tracking
-    startup_time: u64,
+    // Performance metrics - use CacheStats instead of CacheMetrics
+    cache_metrics: Arc<std::sync::Mutex<CacheStats>>,
+
+    // Health monitoring
+    health_status: Arc<std::sync::Mutex<ComponentHealth>>,
+    last_health_check: Arc<std::sync::Mutex<Option<u64>>>,
+
+    // Circuit breaker for KV operations
+    circuit_breaker: Arc<std::sync::Mutex<CircuitBreaker>>,
 }
 
 impl CacheLayer {
     /// Create new CacheLayer instance
-    pub fn new(kv_store: KvStore, mut config: CacheLayerConfig) -> ArbitrageResult<Self> {
+    pub fn new(kv_store: KvStore, config: CacheLayerConfig) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
         // Validate configuration
@@ -338,11 +403,11 @@ impl CacheLayer {
             config,
             logger,
             kv_store,
-            stats: Arc::new(std::sync::Mutex::new(CacheStats::default())),
-            metrics: Arc::new(std::sync::Mutex::new(CacheMetrics::default())),
-            health: Arc::new(std::sync::Mutex::new(CacheHealth::default())),
             entry_metadata: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            startup_time: chrono::Utc::now().timestamp_millis() as u64,
+            cache_metrics: Arc::new(std::sync::Mutex::new(CacheStats::default())),
+            health_status: Arc::new(std::sync::Mutex::new(ComponentHealth::default())),
+            last_health_check: Arc::new(std::sync::Mutex::new(None)),
+            circuit_breaker: Arc::new(std::sync::Mutex::new(CircuitBreaker::default())),
         };
 
         layer.logger.info(&format!(
@@ -363,7 +428,8 @@ impl CacheLayer {
         let _start_time = chrono::Utc::now().timestamp_millis() as u64;
 
         // Check metadata first
-        if let Ok(mut metadata) = self.entry_metadata.lock() {
+        let should_record_miss = {
+            let mut metadata = self.entry_metadata.lock().unwrap();
             if let Some(entry) = metadata.get_mut(key) {
                 // Update freshness score
                 entry.update_freshness();
@@ -372,54 +438,63 @@ impl CacheLayer {
                 if self.config.enable_freshness_validation
                     && !entry.is_fresh(self.config.freshness_threshold)
                 {
-                    self.record_miss(_start_time).await;
-                    return Ok(None);
+                    true // Should record miss
+                } else {
+                    // Record access
+                    entry.record_access();
+                    false // Should not record miss
                 }
-
-                // Record access
-                entry.record_access();
+            } else {
+                false // No entry found, continue with normal flow
             }
+        };
+
+        // Record miss if needed (outside of lock scope)
+        if should_record_miss {
+            self.record_miss(_start_time).await;
+            return Ok(None);
         }
 
-        // Get from KV store
-        match self.kv_store.get(key).text().await {
-            Ok(Some(data_str)) => {
+        // Attempt uncompressed then compressed key
+        let raw = match self.kv_store.get(key).text().await {
+            Ok(Some(v)) => Some(v),
+            _ => self
+                .kv_store
+                .get(&format!("compressed:{}", key))
+                .text()
+                .await
+                .ok()
+                .flatten(),
+        };
+
+        match raw {
+            Some(data_str) => {
                 // Decompress if needed
                 let final_data = if self.is_compressed_key(key) {
                     self.decompress_data(&data_str)?
                 } else {
-                    data_str
+                    data_str.to_string()
                 };
 
-                // Deserialize data
+                // Deserialize
                 match serde_json::from_str::<T>(&final_data) {
                     Ok(data) => {
-                        self.record_hit(_start_time).await;
+                        self.update_cache_hit_metrics().await;
                         Ok(Some(data))
                     }
                     Err(e) => {
-                        self.record_miss(_start_time).await;
-                        Err(ArbitrageError::parse_error(format!(
-                            "Failed to deserialize cached data: {}",
-                            e
-                        )))
+                        self.logger.error(&format!(
+                            "Failed to deserialize cached data for key {}: {}",
+                            key, e
+                        ));
+                        self.update_cache_miss_metrics().await;
+                        Ok(None)
                     }
                 }
             }
-            Ok(None) => {
-                self.record_miss(_start_time).await;
+            None => {
+                self.update_cache_miss_metrics().await;
                 Ok(None)
-            }
-            Err(e) => {
-                self.record_failure(
-                    _start_time,
-                    &ArbitrageError::cache_error(format!("KV get failed: {}", e)),
-                )
-                .await;
-                Err(ArbitrageError::cache_error(format!(
-                    "Cache get failed: {}",
-                    e
-                )))
             }
         }
     }
@@ -629,28 +704,19 @@ impl CacheLayer {
 
     /// Get cache statistics
     pub async fn get_stats(&self) -> CacheStats {
-        if let Ok(stats) = self.stats.lock() {
+        if let Ok(stats) = self.cache_metrics.lock() {
             stats.clone()
         } else {
             CacheStats::default()
         }
     }
 
-    /// Get cache metrics
-    pub async fn get_metrics(&self) -> CacheMetrics {
-        if let Ok(metrics) = self.metrics.lock() {
-            metrics.clone()
-        } else {
-            CacheMetrics::default()
-        }
-    }
-
     /// Get cache health
-    pub async fn get_health(&self) -> CacheHealth {
-        if let Ok(health) = self.health.lock() {
+    pub async fn get_health(&self) -> ComponentHealth {
+        if let Ok(health) = self.health_status.lock() {
             health.clone()
         } else {
-            CacheHealth::default()
+            ComponentHealth::default()
         }
     }
 
@@ -671,15 +737,14 @@ impl CacheLayer {
                         let _ = self.kv_store.delete(test_key).await;
 
                         // Update health status
-                        if let Ok(mut health) = self.health.lock() {
+                        if let Ok(mut health) = self.health_status.lock() {
                             health.is_healthy = true;
-                            health.kv_store_available = true;
-                            health.last_health_check = chrono::Utc::now().timestamp_millis() as u64;
+                            health.last_check = chrono::Utc::now().timestamp_millis() as u64;
                             health.last_error = None;
 
                             // Update hit rate from stats
-                            if let Ok(stats) = self.stats.lock() {
-                                health.hit_rate_percent = stats.hit_rate_percent;
+                            if let Ok(stats) = self.cache_metrics.lock() {
+                                health.performance_score = stats.hit_rate_percent / 100.0;
                             }
                         }
 
@@ -727,9 +792,8 @@ impl CacheLayer {
     /// Record cache hit
     async fn record_hit(&self, _start_time: u64) {
         let end_time = chrono::Utc::now().timestamp_millis() as u64;
-        let latency = end_time - _start_time;
 
-        if let Ok(mut stats) = self.stats.lock() {
+        if let Ok(mut stats) = self.cache_metrics.lock() {
             stats.total_hits += 1;
             let total_requests = stats.total_hits + stats.total_misses;
             if total_requests > 0 {
@@ -737,43 +801,19 @@ impl CacheLayer {
             }
             stats.last_updated = end_time;
         }
-
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_operations += 1;
-            metrics.successful_operations += 1;
-            metrics.average_latency_ms = (metrics.average_latency_ms
-                * (metrics.total_operations - 1) as f64
-                + latency as f64)
-                / metrics.total_operations as f64;
-            metrics.min_latency_ms = metrics.min_latency_ms.min(latency as f64);
-            metrics.max_latency_ms = metrics.max_latency_ms.max(latency as f64);
-            metrics.last_updated = end_time;
-        }
     }
 
     /// Record cache miss
     async fn record_miss(&self, _start_time: u64) {
         let end_time = chrono::Utc::now().timestamp_millis() as u64;
-        let latency = end_time - _start_time;
 
-        if let Ok(mut stats) = self.stats.lock() {
+        if let Ok(mut stats) = self.cache_metrics.lock() {
             stats.total_misses += 1;
             let total_requests = stats.total_hits + stats.total_misses;
             if total_requests > 0 {
                 stats.hit_rate_percent = stats.total_hits as f32 / total_requests as f32 * 100.0;
             }
             stats.last_updated = end_time;
-        }
-
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_operations += 1;
-            metrics.average_latency_ms = (metrics.average_latency_ms
-                * (metrics.total_operations - 1) as f64
-                + latency as f64)
-                / metrics.total_operations as f64;
-            metrics.min_latency_ms = metrics.min_latency_ms.min(latency as f64);
-            metrics.max_latency_ms = metrics.max_latency_ms.max(latency as f64);
-            metrics.last_updated = end_time;
         }
     }
 
@@ -785,9 +825,8 @@ impl CacheLayer {
         compressed_size: Option<usize>,
     ) {
         let end_time = chrono::Utc::now().timestamp_millis() as u64;
-        let latency = end_time - _start_time;
 
-        if let Ok(mut stats) = self.stats.lock() {
+        if let Ok(mut stats) = self.cache_metrics.lock() {
             stats.total_sets += 1;
             stats.total_entries += 1;
             stats.total_size_bytes += original_size as u64;
@@ -800,90 +839,68 @@ impl CacheLayer {
 
             stats.last_updated = end_time;
         }
-
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_operations += 1;
-            metrics.successful_operations += 1;
-            metrics.average_latency_ms = (metrics.average_latency_ms
-                * (metrics.total_operations - 1) as f64
-                + latency as f64)
-                / metrics.total_operations as f64;
-            metrics.min_latency_ms = metrics.min_latency_ms.min(latency as f64);
-            metrics.max_latency_ms = metrics.max_latency_ms.max(latency as f64);
-
-            if let Some(compressed) = compressed_size {
-                metrics.compression_savings_bytes += (original_size - compressed) as u64;
-            }
-
-            metrics.last_updated = end_time;
-        }
     }
 
     /// Record cache delete operation
     async fn record_delete(&self, _start_time: u64) {
         let end_time = chrono::Utc::now().timestamp_millis() as u64;
-        let latency = end_time - _start_time;
 
-        if let Ok(mut stats) = self.stats.lock() {
+        if let Ok(mut stats) = self.cache_metrics.lock() {
             stats.total_deletes += 1;
             if stats.total_entries > 0 {
                 stats.total_entries -= 1;
             }
             stats.last_updated = end_time;
         }
-
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_operations += 1;
-            metrics.successful_operations += 1;
-            metrics.cache_evictions += 1;
-            metrics.average_latency_ms = (metrics.average_latency_ms
-                * (metrics.total_operations - 1) as f64
-                + latency as f64)
-                / metrics.total_operations as f64;
-            metrics.min_latency_ms = metrics.min_latency_ms.min(latency as f64);
-            metrics.max_latency_ms = metrics.max_latency_ms.max(latency as f64);
-            metrics.last_updated = end_time;
-        }
     }
 
     /// Record batch operation
     async fn record_batch_operation(&self) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.batch_operations += 1;
-            metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        if let Ok(mut stats) = self.cache_metrics.lock() {
+            stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
         }
     }
 
     /// Record operation failure
     async fn record_failure(&self, _start_time: u64, error: &ArbitrageError) {
         let end_time = chrono::Utc::now().timestamp_millis() as u64;
-        let latency = end_time - _start_time;
 
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_operations += 1;
-            metrics.failed_operations += 1;
-            metrics.average_latency_ms = (metrics.average_latency_ms
-                * (metrics.total_operations - 1) as f64
-                + latency as f64)
-                / metrics.total_operations as f64;
-            metrics.min_latency_ms = metrics.min_latency_ms.min(latency as f64);
-            metrics.max_latency_ms = metrics.max_latency_ms.max(latency as f64);
-            metrics.last_updated = end_time;
-        }
-
-        if let Ok(mut health) = self.health.lock() {
+        if let Ok(mut health) = self.health_status.lock() {
             health.last_error = Some(error.to_string());
-            health.last_health_check = end_time;
+            health.last_check = end_time;
         }
     }
 
     /// Record health check failure
     async fn record_health_failure(&self, error: &str) {
-        if let Ok(mut health) = self.health.lock() {
+        if let Ok(mut health) = self.health_status.lock() {
             health.is_healthy = false;
-            health.kv_store_available = false;
             health.last_error = Some(error.to_string());
-            health.last_health_check = chrono::Utc::now().timestamp_millis() as u64;
+            health.last_check = chrono::Utc::now().timestamp_millis() as u64;
+        }
+    }
+
+    /// Update cache hit metrics
+    async fn update_cache_hit_metrics(&self) {
+        if let Ok(mut stats) = self.cache_metrics.lock() {
+            stats.total_hits += 1;
+            let total_requests = stats.total_hits + stats.total_misses;
+            if total_requests > 0 {
+                stats.hit_rate_percent = stats.total_hits as f32 / total_requests as f32 * 100.0;
+            }
+            stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        }
+    }
+
+    /// Update cache miss metrics
+    async fn update_cache_miss_metrics(&self) {
+        if let Ok(mut stats) = self.cache_metrics.lock() {
+            stats.total_misses += 1;
+            let total_requests = stats.total_hits + stats.total_misses;
+            if total_requests > 0 {
+                stats.hit_rate_percent = stats.total_hits as f32 / total_requests as f32 * 100.0;
+            }
+            stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
         }
     }
 }

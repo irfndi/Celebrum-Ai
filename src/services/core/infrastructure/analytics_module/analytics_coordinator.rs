@@ -574,9 +574,10 @@ impl AnalyticsCoordinator {
             let serialized = serde_json::to_string(result)
                 .map_err(|e| ArbitrageError::serialization_error(e.to_string()))?;
 
-            let _ = kv
-                .put(&cache_key, serialized)?
-                .expiration_ttl(self.config.query_cache_ttl_seconds);
+            kv.put(&cache_key, serialized)?
+                .expiration_ttl(self.config.query_cache_ttl_seconds)
+                .execute()
+                .await?;
         }
 
         Ok(())

@@ -254,9 +254,10 @@ impl ArbitrageError {
             .with_code("PROCESSING_ERROR")
     }
 
-    /// Create an access denied error
     pub fn access_denied(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::AccessDenied, message)
+            .with_status(403)
+            .with_code("ACCESS_DENIED")
     }
 }
 
@@ -276,6 +277,18 @@ impl From<worker::Error> for ArbitrageError {
 impl From<worker::kv::KvError> for ArbitrageError {
     fn from(err: worker::kv::KvError) -> Self {
         Self::storage_error(format!("KV error: {:?}", err))
+    }
+}
+
+impl From<&str> for ArbitrageError {
+    fn from(err: &str) -> Self {
+        Self::validation_error(err.to_string())
+    }
+}
+
+impl From<url::ParseError> for ArbitrageError {
+    fn from(err: url::ParseError) -> Self {
+        Self::parse_error(format!("URL parsing error: {}", err))
     }
 }
 

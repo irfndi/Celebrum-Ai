@@ -246,7 +246,7 @@ impl DatabaseCore {
         self.execute_query(&sql, &all_params).await
     }
 
-    /// Optimized bulk update for high-throughput scenarios
+    /// Bulk update operation with SQL injection protection
     pub async fn bulk_update(
         &self,
         table: &str,
@@ -254,8 +254,16 @@ impl DatabaseCore {
         where_clause: &str,
         where_params: &[JsValue],
     ) -> ArbitrageResult<DatabaseResult> {
-        if updates.is_empty() {
-            return Err(ArbitrageError::validation_error("No updates specified"));
+        // Define allowed column names to prevent SQL injection
+        let allowed_columns = self.get_allowed_columns_for_table(table)?;
+        
+        // Validate all column names against whitelist
+        for (column, _) in updates {
+            if !allowed_columns.contains(&column.to_string()) {
+                return Err(ArbitrageError::validation_error(format!(
+                    "Column '{}' is not allowed for table '{}'", column, table
+                )));
+            }
         }
 
         let set_clause = updates
@@ -277,6 +285,57 @@ impl DatabaseCore {
         all_params.extend_from_slice(where_params);
 
         self.execute_query(&sql, &all_params).await
+    }
+
+    /// Get allowed columns for a specific table to prevent SQL injection
+    fn get_allowed_columns_for_table(&self, table: &str) -> ArbitrageResult<Vec<String>> {
+        let allowed_columns = match table {
+            "user_profiles" => vec![
+                "user_id".to_string(),
+                "telegram_id".to_string(),
+                "username".to_string(),
+                "api_keys_json".to_string(),
+                "subscription_json".to_string(),
+                "configuration_json".to_string(),
+                "created_at".to_string(),
+                "updated_at".to_string(),
+                "last_active".to_string(),
+                "is_active".to_string(),
+                "beta_expires_at".to_string(),
+                "account_balance_usdt".to_string(),
+            ],
+            "analytics_data" => vec![
+                "user_id".to_string(),
+                "metric_type".to_string(),
+                "timestamp".to_string(),
+                "data_json".to_string(),
+                "created_at".to_string(),
+            ],
+            "invitation_codes" => vec![
+                "code".to_string(),
+                "created_by".to_string(),
+                "created_at".to_string(),
+                "expires_at".to_string(),
+                "max_uses".to_string(),
+                "current_uses".to_string(),
+                "is_active".to_string(),
+            ],
+            "group_registrations" => vec![
+                "group_id".to_string(),
+                "group_name".to_string(),
+                "registered_by".to_string(),
+                "registered_at".to_string(),
+                "is_active".to_string(),
+                "settings_json".to_string(),
+            ],
+            _ => {
+                return Err(ArbitrageError::validation_error(format!(
+                    "Table '{}' is not supported for bulk updates", table
+                )));
+            }
+        };
+        
+        Ok(allowed_columns)
     }
 
     /// Health check with comprehensive metrics
@@ -349,8 +408,8 @@ impl DatabaseCore {
     }
 
     async fn sleep_ms(&self, ms: u64) {
-        // In real implementation, this would use proper async sleep
-        // For now, just a placeholder
+        use wasm_timer::Delay;
+        Delay::new(std::time::Duration::from_millis(ms)).await;
     }
 
     // ============= UTILITY METHODS FOR DATA EXTRACTION =============

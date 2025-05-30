@@ -5,6 +5,7 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use worker::kv::KvStore;
 
 use super::{
@@ -203,13 +204,13 @@ pub struct InfrastructureEngine {
     data_access_layer: Option<DataAccessLayer>,
     metrics_collector: Option<MetricsCollector>,
     
-    // Service management
-    services: Arc<std::sync::Mutex<HashMap<String, ServiceInfo>>>,
-    circuit_breakers: Arc<std::sync::Mutex<HashMap<String, CircuitBreaker>>>,
+    // Service management with async-aware mutexes
+    services: Arc<Mutex<HashMap<String, ServiceInfo>>>,
+    circuit_breakers: Arc<Mutex<HashMap<String, CircuitBreaker>>>,
     startup_time: u64,
     
-    // Configuration management
-    global_config: Arc<std::sync::Mutex<HashMap<String, serde_json::Value>>>,
+    // Configuration management with async-aware mutex
+    global_config: Arc<Mutex<HashMap<String, serde_json::Value>>>,
 }
 
 impl InfrastructureEngine {
@@ -224,10 +225,10 @@ impl InfrastructureEngine {
             notification_engine: None,
             data_access_layer: None,
             metrics_collector: None,
-            services: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            circuit_breakers: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            services: Arc::new(Mutex::new(HashMap::new())),
+            circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
             startup_time: chrono::Utc::now().timestamp_millis() as u64,
-            global_config: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            global_config: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -242,10 +243,10 @@ impl InfrastructureEngine {
             notification_engine: None,
             data_access_layer: None,
             metrics_collector: None,
-            services: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            circuit_breakers: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            services: Arc::new(Mutex::new(HashMap::new())),
+            circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
             startup_time: chrono::Utc::now().timestamp_millis() as u64,
-            global_config: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            global_config: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -431,9 +432,9 @@ impl InfrastructureEngine {
             performance_metrics: HashMap::new(),
         };
 
-        if let Ok(mut services) = self.services.lock() {
-            services.insert(service_info.registration.service_name.clone(), service_info);
-        }
+        let mut services = self.services.lock().await;
+        services.insert(service_info.registration.service_name.clone(), service_info);
+        drop(services);
 
         // Initialize circuit breaker if enabled
         if self.config.enable_circuit_breaker {
@@ -445,21 +446,21 @@ impl InfrastructureEngine {
 
     /// Get service information
     pub async fn get_service_info(&self, service_name: &str) -> Option<ServiceInfo> {
-        if let Ok(services) = self.services.lock() {
-            services.get(service_name).cloned()
-        } else {
-            None
-        }
+        let services = self.services.lock().await;
+        services.get(service_name).cloned()
     }
 
     /// Get all registered services
     pub async fn get_all_services(&self) -> HashMap<String, ServiceInfo> {
-        self.services.lock().unwrap().clone()
+        let services = self.services.lock().await;
+        services.clone()
     }
 
     /// Get infrastructure health summary
     pub async fn get_infrastructure_health(&self) -> InfrastructureHealth {
-        let services = self.services.lock().unwrap().clone();
+        let services = self.services.lock().await;
+        let services_clone = services.clone();
+        drop(services);
         
         let mut healthy_count = 0;
         let mut degraded_count = 0;
@@ -467,7 +468,7 @@ impl InfrastructureEngine {
         let mut critical_services_healthy = true;
         let mut service_statuses = HashMap::new();
 
-        for (name, service) in &services {
+        for (name, service) in &services_clone {
             service_statuses.insert(name.clone(), service.status.clone());
             
             match service.status {
@@ -484,7 +485,7 @@ impl InfrastructureEngine {
             }
         }
 
-        let total_services = services.len() as u32;
+        let total_services = services_clone.len() as u32;
         let overall_status = if !critical_services_healthy {
             ServiceStatus::Unhealthy
         } else if unhealthy_count > 0 || degraded_count > healthy_count {
@@ -515,15 +516,14 @@ impl InfrastructureEngine {
 
     /// Update service status
     pub async fn update_service_status(&self, service_name: &str, status: ServiceStatus) -> ArbitrageResult<()> {
-        if let Ok(mut services) = self.services.lock() {
-            if let Some(service) = services.get_mut(service_name) {
-                service.status = status;
-                service.last_health_check = Some(chrono::Utc::now().timestamp_millis() as u64);
-                
-                // Update uptime
-                let current_time = chrono::Utc::now().timestamp_millis() as u64;
-                service.uptime_seconds = (current_time - self.startup_time) / 1000;
-            }
+        let mut services = self.services.lock().await;
+        if let Some(service) = services.get_mut(service_name) {
+            service.status = status;
+            service.last_health_check = Some(chrono::Utc::now().timestamp_millis() as u64);
+            
+            // Update uptime
+            let current_time = chrono::Utc::now().timestamp_millis() as u64;
+            service.uptime_seconds = (current_time - self.startup_time) / 1000;
         }
         Ok(())
     }
@@ -534,19 +534,18 @@ impl InfrastructureEngine {
             return Err(ArbitrageError::operation_error("Auto-recovery is disabled"));
         }
 
-        if let Ok(mut services) = self.services.lock() {
-            if let Some(service) = services.get_mut(service_name) {
-                if service.restart_count >= self.config.max_restart_attempts {
-                    return Err(ArbitrageError::operation_error("Max restart attempts exceeded"));
-                }
-
-                service.restart_count += 1;
-                service.status = ServiceStatus::Initializing;
-                
-                // Implement service-specific restart logic here
-                // For now, just update status
-                service.status = ServiceStatus::Healthy;
+        let mut services = self.services.lock().await;
+        if let Some(service) = services.get_mut(service_name) {
+            if service.restart_count >= self.config.max_restart_attempts {
+                return Err(ArbitrageError::operation_error("Max restart attempts exceeded"));
             }
+
+            service.restart_count += 1;
+            service.status = ServiceStatus::Initializing;
+            
+            // Implement service-specific restart logic here
+            // For now, just update status
+            service.status = ServiceStatus::Healthy;
         }
 
         Ok(())
@@ -554,18 +553,14 @@ impl InfrastructureEngine {
 
     /// Get configuration value
     pub async fn get_config(&self, key: &str) -> Option<serde_json::Value> {
-        if let Ok(config) = self.global_config.lock() {
-            config.get(key).cloned()
-        } else {
-            None
-        }
+        let config = self.global_config.lock().await;
+        config.get(key).cloned()
     }
 
     /// Set configuration value
     pub async fn set_config(&self, key: &str, value: serde_json::Value) -> ArbitrageResult<()> {
-        if let Ok(mut config) = self.global_config.lock() {
-            config.insert(key.to_string(), value);
-        }
+        let mut config = self.global_config.lock().await;
+        config.insert(key.to_string(), value);
         Ok(())
     }
 
@@ -576,10 +571,9 @@ impl InfrastructureEngine {
         }
 
         // Update all services to stopped status
-        if let Ok(mut services) = self.services.lock() {
-            for service in services.values_mut() {
-                service.status = ServiceStatus::Stopped;
-            }
+        let mut services = self.services.lock().await;
+        for service in services.values_mut() {
+            service.status = ServiceStatus::Stopped;
         }
 
         // Additional cleanup logic would go here
@@ -606,66 +600,54 @@ impl InfrastructureEngine {
             timeout_seconds: self.config.circuit_breaker_timeout_seconds,
         };
 
-        if let Ok(mut breakers) = self.circuit_breakers.lock() {
-            breakers.insert(service_name.to_string(), circuit_breaker);
-        }
-
+        let mut circuit_breakers = self.circuit_breakers.lock().await;
+        circuit_breakers.insert(service_name.to_string(), circuit_breaker);
         Ok(())
     }
 
     async fn check_circuit_breaker(&self, service_name: &str) -> bool {
-        if !self.config.enable_circuit_breaker {
-            return true;
-        }
-
-        if let Ok(breakers) = self.circuit_breakers.lock() {
-            if let Some(breaker) = breakers.get(service_name) {
-                match breaker.state {
-                    CircuitBreakerState::Closed => true,
-                    CircuitBreakerState::Open => {
-                        // Check if timeout has passed
-                        if let Some(next_attempt) = breaker.next_attempt_time {
-                            chrono::Utc::now().timestamp_millis() as u64 >= next_attempt
-                        } else {
-                            false
-                        }
+        let circuit_breakers = self.circuit_breakers.lock().await;
+        if let Some(breaker) = circuit_breakers.get(service_name) {
+            match breaker.state {
+                CircuitBreakerState::Closed => true,
+                CircuitBreakerState::Open => {
+                    // Check if we should transition to half-open
+                    if let Some(next_attempt) = breaker.next_attempt_time {
+                        let current_time = chrono::Utc::now().timestamp_millis() as u64;
+                        current_time >= next_attempt
+                    } else {
+                        false
                     }
-                    CircuitBreakerState::HalfOpen => true,
                 }
-            } else {
-                true
+                CircuitBreakerState::HalfOpen => true,
             }
         } else {
-            true
+            true // No circuit breaker configured, allow request
         }
     }
 
     async fn record_circuit_breaker_success(&self, service_name: &str) -> ArbitrageResult<()> {
-        if let Ok(mut breakers) = self.circuit_breakers.lock() {
-            if let Some(breaker) = breakers.get_mut(service_name) {
-                breaker.success_count += 1;
-                breaker.failure_count = 0;
-                
-                if breaker.state == CircuitBreakerState::HalfOpen {
-                    breaker.state = CircuitBreakerState::Closed;
-                }
-            }
+        let mut circuit_breakers = self.circuit_breakers.lock().await;
+        if let Some(breaker) = circuit_breakers.get_mut(service_name) {
+            breaker.success_count += 1;
+            breaker.failure_count = 0;
+            breaker.state = CircuitBreakerState::Closed;
+            breaker.next_attempt_time = None;
         }
         Ok(())
     }
 
     async fn record_circuit_breaker_failure(&self, service_name: &str) -> ArbitrageResult<()> {
-        if let Ok(mut breakers) = self.circuit_breakers.lock() {
-            if let Some(breaker) = breakers.get_mut(service_name) {
-                breaker.failure_count += 1;
-                breaker.last_failure_time = Some(chrono::Utc::now().timestamp_millis() as u64);
-                
-                if breaker.failure_count >= breaker.threshold {
-                    breaker.state = CircuitBreakerState::Open;
-                    breaker.next_attempt_time = Some(
-                        chrono::Utc::now().timestamp_millis() as u64 + (breaker.timeout_seconds * 1000)
-                    );
-                }
+        let mut circuit_breakers = self.circuit_breakers.lock().await;
+        if let Some(breaker) = circuit_breakers.get_mut(service_name) {
+            breaker.failure_count += 1;
+            breaker.last_failure_time = Some(chrono::Utc::now().timestamp_millis() as u64);
+
+            if breaker.failure_count >= breaker.threshold {
+                breaker.state = CircuitBreakerState::Open;
+                breaker.next_attempt_time = Some(
+                    chrono::Utc::now().timestamp_millis() as u64 + (breaker.timeout_seconds * 1000)
+                );
             }
         }
         Ok(())

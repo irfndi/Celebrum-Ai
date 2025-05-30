@@ -236,10 +236,6 @@ pub struct DataCoordinator {
     // Coordination state
     metrics: Arc<std::sync::Mutex<CoordinationMetrics>>,
     active_requests: Arc<std::sync::Mutex<HashMap<String, u64>>>, // request_id -> start_time
-    request_deduplication: Arc<std::sync::Mutex<HashMap<String, Vec<String>>>>, // key -> request_ids
-
-    // Performance tracking
-    startup_time: u64,
 }
 
 impl DataCoordinator {
@@ -275,8 +271,6 @@ impl DataCoordinator {
             data_validator,
             metrics: Arc::new(std::sync::Mutex::new(CoordinationMetrics::default())),
             active_requests: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            request_deduplication: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            startup_time: chrono::Utc::now().timestamp_millis() as u64,
         };
 
         coordinator.logger.info(&format!(
@@ -345,7 +339,7 @@ impl DataCoordinator {
                     // Handle caching based on strategy
                     if self.should_cache(&request, &source_type) {
                         if let Err(e) = self
-                            .cache_data(&request, &response.data.as_ref().unwrap())
+                            .cache_data(&request, response.data.as_ref().unwrap())
                             .await
                         {
                             response
@@ -442,11 +436,13 @@ impl DataCoordinator {
 
         // Add remaining sources as fallback if not already included
         let all_sources = vec![
+            DataSourceType::KvStore,
+            DataSourceType::D1Database,
+            DataSourceType::ExternalAPI,
             DataSourceType::Pipeline,
             DataSourceType::Queue,
             DataSourceType::LocalFallback,
         ];
-
         for source in all_sources {
             if !plan.contains(&source) {
                 plan.push(source);
@@ -526,11 +522,11 @@ impl DataCoordinator {
         let exchange = request
             .metadata
             .get("exchange")
-            .and_then(|e| match e.as_str() {
-                "binance" => Some(ExchangeType::Binance),
-                "bybit" => Some(ExchangeType::Bybit),
-                "okx" => Some(ExchangeType::OKX),
-                _ => Some(ExchangeType::Generic),
+            .map(|e| match e.as_str() {
+                "binance" => ExchangeType::Binance,
+                "bybit" => ExchangeType::Bybit,
+                "okx" => ExchangeType::OKX,
+                _ => ExchangeType::Generic,
             })
             .unwrap_or(ExchangeType::Generic);
 
@@ -623,7 +619,7 @@ impl DataCoordinator {
     /// Check concurrent request limit
     async fn check_concurrent_limit(&self, request_id: &str, start_time: u64) -> bool {
         if let Ok(mut active) = self.active_requests.lock() {
-            if active.len() >= self.config.max_concurrent_operations as usize {
+            if active.len() >= self.config.max_concurrent_operations {
                 false
             } else {
                 active.insert(request_id.to_string(), start_time);
@@ -681,7 +677,7 @@ impl DataCoordinator {
             *metrics
                 .source_usage
                 .entry(response.source_used.clone())
-                .or_insert(0) += 1;
+                .or_default() += 1;
 
             // Update average latency
             let total = metrics.total_requests as f64;
@@ -817,10 +813,7 @@ impl DataCoordinator {
                     .map(source_type_to_string)
                     .unwrap_or_else(|| "unknown".to_string())
             );
-            grouped_requests
-                .entry(group_key)
-                .or_insert_with(Vec::new)
-                .push(request);
+            grouped_requests.entry(group_key).or_default().push(request);
         }
 
         let mut all_responses = Vec::new();
@@ -828,7 +821,7 @@ impl DataCoordinator {
         // Process each group
         for (_, group_requests) in grouped_requests {
             // Process in batches of configured size
-            for chunk in group_requests.chunks(self.config.max_concurrent_operations as usize) {
+            for chunk in group_requests.chunks(self.config.max_concurrent_operations) {
                 let mut batch_responses = Vec::new();
 
                 // Process batch concurrently (simplified - in real implementation use proper async batching)

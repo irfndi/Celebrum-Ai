@@ -22,7 +22,7 @@ pub use data_source_manager::{
     DataSourceHealth, DataSourceManager, DataSourceManagerConfig, DataSourceMetrics,
 };
 pub use data_validator::{
-    DataQualityMetrics, DataValidator, DataValidatorConfig, FreshnessRule, ValidationResult,
+    DataValidator, DataValidatorConfig, FreshnessRule, ValidationMetrics, ValidationResult,
     ValidationRule, ValidationRuleType,
 };
 
@@ -293,7 +293,14 @@ impl DataAccessLayer {
 
     /// Get comprehensive health status
     pub async fn health_check(&self) -> ArbitrageResult<DataAccessLayerHealth> {
-        let coordinator_healthy = self.coordinator.health_check().await.unwrap_or(false);
+        let coordinator_healthy = match self.coordinator.health_check().await {
+            Ok(v) => v,
+            Err(e) => {
+                self.logger
+                    .error(&format!("Coordinator health check failed: {}", e));
+                false
+            }
+        };
         let coordinator_metrics = self.coordinator.get_metrics().await;
         let health_summary = self
             .coordinator

@@ -8,15 +8,30 @@ use crate::services::core::user::session_management::SessionManagementService;
 
 use crate::types::{
     ArbitrageOpportunity, ArbitrageType, ChatContext, DistributionStrategy, FairnessConfig,
-    GlobalOpportunity, OpportunityData, OpportunitySource,
+    GlobalOpportunity, OpportunityData, OpportunitySource, SubscriptionTier,
 };
-use crate::utils::ArbitrageResult;
+use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // Non-WASM version with Send + Sync bounds for thread safety
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
 pub trait NotificationSender: Send + Sync {
+    async fn send_opportunity_notification(
+        &self,
+        chat_id: &str,
+        opportunity: &OpportunityData,
+        is_private: bool,
+    ) -> ArbitrageResult<bool>;
+
+    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()>;
+}
+
+// WASM version without Send + Sync bounds
+#[cfg(target_arch = "wasm32")]
+#[async_trait::async_trait(?Send)]
+pub trait NotificationSender {
     async fn send_opportunity_notification(
         &self,
         chat_id: &str,
@@ -59,18 +74,19 @@ impl Default for DistributionConfig {
 pub struct OpportunityDistributionService {
     database_repositories: DatabaseManager,
     data_access_layer: DataAccessLayer,
-    session_service: SessionManagementService,
+    session_service: Arc<SessionManagementService>,
     data_ingestion_module: Option<DataIngestionModule>,
     ai_coordinator: Option<AICoordinator>,
     queue_manager: Option<QueueManager>,
     config: DistributionConfig,
+    notification_sender: Option<Box<dyn NotificationSender>>,
 }
 
 impl OpportunityDistributionService {
     pub fn new(
         database_repositories: DatabaseManager,
         data_access_layer: DataAccessLayer,
-        session_service: SessionManagementService,
+        session_service: Arc<SessionManagementService>,
     ) -> Self {
         Self {
             database_repositories,
@@ -80,6 +96,7 @@ impl OpportunityDistributionService {
             ai_coordinator: None,
             queue_manager: None,
             config: DistributionConfig::default(),
+            notification_sender: None,
         }
     }
 
@@ -88,15 +105,9 @@ impl OpportunityDistributionService {
         self
     }
 
-    // #[cfg(not(target_arch = "wasm32"))]
-    // pub fn set_notification_sender(&mut self, sender: Box<dyn NotificationSender>) {
-    //     self.notification_sender = Some(sender);
-    // }
-
-    // #[cfg(target_arch = "wasm32")]
-    // pub fn set_notification_sender(&mut self, sender: Box<dyn NotificationSender>) {
-    //     self.notification_sender = Some(sender);
-    // }
+    pub fn set_notification_sender(&mut self, sender: Box<dyn NotificationSender>) {
+        self.notification_sender = Some(sender);
+    }
 
     pub fn set_data_ingestion_module(&mut self, data_ingestion_module: DataIngestionModule) {
         self.data_ingestion_module = Some(data_ingestion_module);
@@ -121,6 +132,9 @@ impl OpportunityDistributionService {
         // Create global opportunity with metadata
         let global_opportunity = GlobalOpportunity {
             id: format!("global_arb_{}", opportunity.id),
+            opportunity_type: OpportunitySource::SystemGenerated,
+            arbitrage_opportunity: opportunity.clone(),
+            target_users: Vec::new(),
             opportunity_data: OpportunityData::Arbitrage(opportunity.clone()),
             source: OpportunitySource::SystemGenerated,
             created_at: start_time,
@@ -156,7 +170,7 @@ impl OpportunityDistributionService {
                 .await?
         } else {
             // Fallback to direct distribution
-            self.distribute_directly(&selected_users, &global_opportunity)
+            self.distribute_directly(selected_users.to_vec(), &global_opportunity)
                 .await?
         };
 
@@ -191,7 +205,16 @@ impl OpportunityDistributionService {
             if let Some(telegram_id) = row.get("telegram_id") {
                 if let Some(user_id_str) = telegram_id.as_str() {
                     // Check if user is eligible for push notifications
-                    let chat_context = ChatContext::Private;
+                    let chat_context = ChatContext {
+                        chat_id: telegram_id.as_i64().unwrap_or(0),
+                        chat_type: "private".to_string(),
+                        user_id: Some(user_id_str.to_string()),
+                        username: None,
+                        is_group: false,
+                        group_title: None,
+                        message_id: None,
+                        reply_to_message_id: None,
+                    };
 
                     if let Some(arbitrage_opp) = opportunity.opportunity_data.as_arbitrage() {
                         if self
@@ -315,6 +338,76 @@ impl OpportunityDistributionService {
                 // Send to all eligible users (respecting global limits)
                 selected_users.extend_from_slice(eligible_users);
             }
+            DistributionStrategy::Tiered => {
+                // Tiered distribution based on subscription level
+                let mut premium_users = Vec::new();
+                let mut regular_users = Vec::new();
+
+                for user_id in eligible_users {
+                    let user_tier = self.get_user_subscription_tier(user_id).await?;
+                    if matches!(
+                        user_tier,
+                        SubscriptionTier::Premium
+                            | SubscriptionTier::Pro
+                            | SubscriptionTier::Enterprise
+                    ) {
+                        premium_users.push(user_id.clone());
+                    } else {
+                        regular_users.push(user_id.clone());
+                    }
+                }
+
+                // Send to premium users first, then regular users
+                selected_users.extend_from_slice(
+                    &premium_users[..std::cmp::min(premium_users.len(), max_users as usize / 2)],
+                );
+                let remaining_slots = max_users as usize - selected_users.len();
+                if remaining_slots > 0 {
+                    selected_users.extend_from_slice(
+                        &regular_users[..std::cmp::min(regular_users.len(), remaining_slots)],
+                    );
+                }
+            }
+            DistributionStrategy::Personalized => {
+                // AI-personalized distribution based on user preferences and history
+                let mut user_scores = HashMap::new();
+
+                for user_id in eligible_users {
+                    let personalization_score: f64 = self
+                        .calculate_personalization_score(user_id, opportunity)
+                        .await?;
+                    user_scores.insert(user_id.clone(), personalization_score);
+                }
+
+                // Sort by personalization score (highest first)
+                let mut sorted_users: Vec<_> = user_scores.into_iter().collect();
+                sorted_users.sort_by(|(_, a), (_, b)| {
+                    b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                for (user_id, _) in sorted_users.into_iter().take(max_users as usize) {
+                    selected_users.push(user_id);
+                }
+            }
+            DistributionStrategy::HighestBidder => {
+                // Premium users get priority based on subscription tier
+                let mut user_priorities = HashMap::new();
+
+                for user_id in eligible_users {
+                    let tier_priority = self.get_subscription_tier_priority(user_id).await?;
+                    user_priorities.insert(user_id.clone(), tier_priority);
+                }
+
+                // Sort by tier priority (highest first)
+                let mut sorted_users: Vec<_> = user_priorities.into_iter().collect();
+                sorted_users.sort_by(|(_, a), (_, b)| {
+                    b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                for (user_id, _) in sorted_users.into_iter().take(max_users as usize) {
+                    selected_users.push(user_id);
+                }
+            }
         }
 
         Ok(selected_users)
@@ -409,7 +502,8 @@ impl OpportunityDistributionService {
             Err(e) => {
                 // Log error and fallback to direct distribution
                 eprintln!("Queue distribution failed, falling back to direct: {}", e);
-                self.distribute_directly(selected_users, _opportunity).await
+                self.distribute_directly(selected_users.to_vec(), _opportunity)
+                    .await
             }
         }
     }
@@ -417,12 +511,12 @@ impl OpportunityDistributionService {
     /// Fallback direct distribution method (original implementation)
     async fn distribute_directly(
         &self,
-        selected_users: &[String],
+        selected_users: Vec<String>,
         _opportunity: &GlobalOpportunity,
     ) -> ArbitrageResult<u32> {
         let mut distributed_count = 0;
 
-        for user_id in selected_users {
+        for user_id in &selected_users {
             if self.send_opportunity_to_user(user_id, _opportunity).await? {
                 distributed_count += 1;
 
@@ -449,8 +543,8 @@ impl OpportunityDistributionService {
         opportunity_data: &OpportunityData,
     ) -> ArbitrageResult<MessagePriority> {
         let rate_difference = match opportunity_data {
-            OpportunityData::Arbitrage(arb) => arb.rate_difference,
-            OpportunityData::Technical(tech) => tech.expected_return_percentage,
+            OpportunityData::Arbitrage(ref arb) => arb.rate_difference,
+            OpportunityData::Technical(ref tech) => tech.confidence, // Use confidence as proxy for technical opportunities
         };
 
         // High priority for high-value opportunities
@@ -469,41 +563,147 @@ impl OpportunityDistributionService {
         Ok(MessagePriority::Low)
     }
 
-    /// Send opportunity to a specific user
+    /// Send opportunity to user with context-aware formatting
     async fn send_opportunity_to_user(
         &self,
         user_id: &str,
-        _opportunity: &GlobalOpportunity,
+        opportunity: &GlobalOpportunity,
     ) -> ArbitrageResult<bool> {
-        // Check rate limiting
-        if !self.check_user_rate_limit(user_id).await? {
-            return Ok(false);
-        }
+        // Get user session to determine context
+        let session = self.session_service.get_session_by_user_id(user_id).await?;
+
+        // Determine if this is a group/channel context
+        let is_group_context = session.telegram_chat_id != session.telegram_id;
+        let chat_id = session.telegram_chat_id.to_string();
+
+        // Format opportunity message based on context
+        let _message = if is_group_context {
+            self.format_group_opportunity_message(opportunity).await?
+        } else {
+            self.format_private_opportunity_message(opportunity).await?
+        };
 
         // Send via notification sender if available
-        // if let Some(ref notification_sender) = self.notification_sender {
-        //     match notification_sender
-        //         .send_opportunity_notification(user_id, &opportunity.opportunity_data, true)
-        //         .await
-        //     {
-        //         Ok(sent) => {
-        //             if sent {
-        //                 // Update rate limiting counters
-        //                 self.update_rate_limit_counters(user_id).await?;
-        //             }
-        //             Ok(sent)
-        //         }
-        //         Err(_) => {
-        //             // Log error but don't fail the entire distribution
-        //             Ok(false)
-        //         }
-        //     }
-        // } else {
-        // If no notification sender, just record that we would have sent it
-        // Still update rate limiting to maintain consistency
-        self.update_rate_limit_counters(user_id).await?;
+        if let Some(notification_sender) = &self.notification_sender {
+            let opportunity_data = &opportunity.opportunity_data;
+            return notification_sender
+                .send_opportunity_notification(&chat_id, opportunity_data, !is_group_context)
+                .await;
+        }
+
+        // Fallback: record that opportunity was "sent" for analytics
+        self.record_opportunity_sent(user_id, opportunity).await?;
         Ok(true)
-        // }
+    }
+
+    /// Format opportunity message for group/channel context
+    async fn format_group_opportunity_message(
+        &self,
+        opportunity: &GlobalOpportunity,
+    ) -> ArbitrageResult<String> {
+        let arb = &opportunity.arbitrage_opportunity;
+
+        let mut message = format!(
+            "🚀 **Arbitrage Opportunity**\n\n\
+            💰 **Pair**: {}\n\
+            📈 **Rate Difference**: {:.2}%\n\
+            🔄 **Long**: {} | **Short**: {}\n\
+            ⏰ **Expires**: <t:{}:R>\n\n",
+            arb.pair,
+            arb.rate_difference * 100.0,
+            arb.long_exchange.as_str(),
+            arb.short_exchange.as_str(),
+            arb.expires_at / 1000
+        );
+
+        // Add AI insights if available and group has AI enabled
+        if let Some(ai_insights) = &opportunity.ai_insights {
+            message.push_str("🤖 **AI Insights**:\n");
+            for insight in ai_insights.iter().take(2) {
+                message.push_str(&format!("• {}\n", insight));
+            }
+            message.push('\n');
+        }
+
+        // Add take action button instruction for groups
+        message.push_str("🎯 **Take Action**: Click the button below to trade in private chat");
+
+        Ok(message)
+    }
+
+    /// Format opportunity message for private chat context
+    async fn format_private_opportunity_message(
+        &self,
+        opportunity: &GlobalOpportunity,
+    ) -> ArbitrageResult<String> {
+        let arb = &opportunity.arbitrage_opportunity;
+
+        let mut message = format!(
+            "🚀 **New Arbitrage Opportunity**\n\n\
+            💰 **Pair**: {}\n\
+            📈 **Rate Difference**: {:.2}%\n\
+            🔄 **Long**: {} | **Short**: {}\n\
+            💵 **Potential Profit**: ${:.2}\n\
+            ⚡ **Confidence**: {:.1}%\n\
+            ⏰ **Expires**: <t:{}:R>\n\n",
+            arb.pair,
+            arb.rate_difference * 100.0,
+            arb.long_exchange.as_str(),
+            arb.short_exchange.as_str(),
+            arb.potential_profit_value.unwrap_or(0.0),
+            arb.confidence * 100.0,
+            arb.expires_at / 1000
+        );
+
+        // Add detailed AI insights for private chat
+        if let Some(ai_insights) = &opportunity.ai_insights {
+            message.push_str("🤖 **AI Analysis**:\n");
+            for insight in ai_insights {
+                message.push_str(&format!("• {}\n", insight));
+            }
+            message.push('\n');
+        }
+
+        // Add action buttons for private chat
+        message.push_str("🎯 **Actions**: Use buttons below to trade or get more details");
+
+        Ok(message)
+    }
+
+    /// Record that opportunity was sent (for analytics)
+    async fn record_opportunity_sent(
+        &self,
+        user_id: &str,
+        opportunity: &GlobalOpportunity,
+    ) -> ArbitrageResult<()> {
+        // Update user distribution tracking
+        self.update_user_distribution_tracking(user_id, opportunity)
+            .await?;
+
+        // Record in analytics
+        let analytics_key = format!("opportunity_sent:{}:{}", user_id, opportunity.id);
+        let analytics_data = serde_json::json!({
+            "user_id": user_id,
+            "opportunity_id": opportunity.id,
+            "opportunity_type": opportunity.get_opportunity_type(),
+            "pair": opportunity.get_pair(),
+            "timestamp": chrono::Utc::now().timestamp_millis(),
+            "rate_difference": opportunity.arbitrage_opportunity.rate_difference,
+            "ai_enhanced": opportunity.ai_enhanced
+        });
+
+        // Store analytics with 7-day TTL
+        let kv_store = self.data_access_layer.get_kv_store();
+        let _ = kv_store
+            .put(&analytics_key, analytics_data.to_string())
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to create analytics put: {}", e))
+            })?
+            .expiration_ttl(7 * 24 * 3600)
+            .execute()
+            .await;
+
+        Ok(())
     }
 
     /// Check if user is within rate limits
@@ -519,7 +719,7 @@ impl OpportunityDistributionService {
             .get(&hour_key)
             .text()
             .await
-            .unwrap_or_else(|_| None)
+            .unwrap_or(None)
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(0);
 
@@ -534,7 +734,7 @@ impl OpportunityDistributionService {
             .get(&day_key)
             .text()
             .await
-            .unwrap_or_else(|_| None)
+            .unwrap_or(None)
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(0);
 
@@ -543,53 +743,6 @@ impl OpportunityDistributionService {
         }
 
         Ok(true)
-    }
-
-    /// Update rate limiting counters after successful delivery
-    async fn update_rate_limit_counters(&self, user_id: &str) -> ArbitrageResult<()> {
-        let now = chrono::Utc::now();
-        let hour_key = format!("rate_limit:{}:{}", user_id, now.format("%Y-%m-%d-%H"));
-        let day_key = format!("rate_limit:{}:{}", user_id, now.format("%Y-%m-%d"));
-
-        // Update hourly counter
-        let hourly_count = self
-            .data_access_layer
-            .get_kv_store()
-            .get(&hour_key)
-            .text()
-            .await
-            .unwrap_or_else(|_| None)
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(0)
-            + 1;
-
-        self.data_access_layer
-            .get_kv_store()
-            .put(&hour_key, &hourly_count.to_string())?
-            .expiration_ttl(3600) // 1 hour TTL
-            .execute()
-            .await?;
-
-        // Update daily counter
-        let daily_count = self
-            .data_access_layer
-            .get_kv_store()
-            .get(&day_key)
-            .text()
-            .await
-            .unwrap_or_else(|_| None)
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(0)
-            + 1;
-
-        self.data_access_layer
-            .get_kv_store()
-            .put(&day_key, &daily_count.to_string())?
-            .expiration_ttl(24 * 3600) // 24 hour TTL
-            .execute()
-            .await?;
-
-        Ok(())
     }
 
     /// Update user distribution tracking
@@ -604,7 +757,7 @@ impl OpportunityDistributionService {
         let last_opportunity_key = format!("user_last_opportunity:{}", user_id);
         self.data_access_layer
             .get_kv_store()
-            .put(&last_opportunity_key, &current_time.to_string())?
+            .put(&last_opportunity_key, current_time.to_string())?
             .expiration_ttl(24 * 3600) // 24 hour TTL
             .execute()
             .await?;
@@ -617,7 +770,7 @@ impl OpportunityDistributionService {
             .get(&user_stats_key)
             .text()
             .await
-            .unwrap_or_else(|_| None)
+            .unwrap_or(None)
             .unwrap_or_else(|| "0.5".to_string())
             .parse::<f64>()
             .unwrap_or(0.5);
@@ -626,7 +779,7 @@ impl OpportunityDistributionService {
         let new_stats = (current_stats + 0.1).min(1.0);
         self.data_access_layer
             .get_kv_store()
-            .put(&user_stats_key, &new_stats.to_string())?
+            .put(&user_stats_key, new_stats.to_string())?
             .expiration_ttl(7 * 24 * 3600) // 7 day TTL
             .execute()
             .await?;
@@ -670,7 +823,7 @@ impl OpportunityDistributionService {
             .get(&last_opportunity_key)
             .text()
             .await
-            .unwrap_or_else(|_| None)
+            .unwrap_or(None)
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(0);
 
@@ -687,7 +840,7 @@ impl OpportunityDistributionService {
             .get(&user_stats_key)
             .text()
             .await
-            .unwrap_or_else(|_| None)
+            .unwrap_or(None)
             .unwrap_or_else(|| "0.5".to_string()) // Default priority score
             .parse::<f64>()
             .unwrap_or(0.5);
@@ -724,7 +877,7 @@ impl OpportunityDistributionService {
         // Store in KV for fast access
         self.data_access_layer
             .get_kv_store()
-            .put(&analytics_key, &analytics_data.to_string())?
+            .put(&analytics_key, analytics_data.to_string())?
             .expiration_ttl(7 * 24 * 3600) // 7 days TTL
             .execute()
             .await?;
@@ -867,14 +1020,14 @@ impl OpportunityDistributionService {
             .get(&today_key)
             .text()
             .await
-            .unwrap_or_else(|_| None)
+            .unwrap_or(None)
             .unwrap_or_else(|| "0".to_string())
             .parse::<u32>()
             .unwrap_or(0);
 
         self.data_access_layer
             .get_kv_store()
-            .put(&today_key, &(today_count + 1).to_string())?
+            .put(&today_key, (today_count + 1).to_string())?
             .expiration_ttl(86400) // 24 hours TTL
             .execute()
             .await?;
@@ -886,7 +1039,7 @@ impl OpportunityDistributionService {
             .get(active_users_key)
             .text()
             .await
-            .unwrap_or_else(|_| None)
+            .unwrap_or(None)
             .unwrap_or_else(|| "0".to_string())
             .parse::<u32>()
             .unwrap_or(0);
@@ -898,7 +1051,7 @@ impl OpportunityDistributionService {
             .get("distribution_stats:avg_time")
             .text()
             .await
-            .unwrap_or_else(|_| None)
+            .unwrap_or(None)
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
 
@@ -925,10 +1078,10 @@ impl OpportunityDistributionService {
         let long_rate = row.get("long_rate")?.as_f64()?;
         let short_rate = row.get("short_rate")?.as_f64()?;
         let spread = row.get("spread")?.as_f64()?;
-        let confidence = row.get("confidence")?.as_f64()?;
-        let volume = row.get("volume")?.as_f64()?;
-        let detected_at = row.get("detected_at")?.as_u64()?;
-        let expires_at = row.get("expires_at")?.as_u64()?;
+        let _confidence = row.get("confidence")?.as_f64()?;
+        let _volume = row.get("volume")?.as_f64()?;
+        let _detected_at = row.get("detected_at")?.as_u64()?;
+        let _expires_at = row.get("expires_at")?.as_u64()?;
 
         // Parse exchange enums from strings
         let long_exchange_enum = long_exchange.parse::<crate::types::ExchangeIdEnum>().ok()?;
@@ -949,6 +1102,19 @@ impl OpportunityDistributionService {
             .and_then(|s| s.as_u64())
             .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
 
+        // Ensure all required fields from types.rs ArbitrageOpportunity are present
+        // Specifically, map detected_at from DB to created_at in struct
+        let created_at_from_row = row
+            .get("detected_at")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(timestamp); // Or handle error if detected_at is mandatory and missing
+        let _expires_at_from_row = row.get("expires_at").and_then(|v| v.as_u64()).unwrap_or(0);
+        let confidence_from_row = row
+            .get("confidence")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.5); // Default confidence
+        let volume_from_row = row.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0); // Default volume
+
         Some(ArbitrageOpportunity {
             id,
             pair,
@@ -956,14 +1122,15 @@ impl OpportunityDistributionService {
             short_exchange: short_exchange_enum,
             long_rate: Some(long_rate),
             short_rate: Some(short_rate),
-            rate_difference: spread,
+            rate_difference: spread, // Assuming `spread` is rate_difference
             net_rate_difference,
             potential_profit_value,
-            confidence,
-            volume,
-            timestamp,
-            detected_at,
-            expires_at,
+            confidence: confidence_from_row,
+            volume: volume_from_row,
+            timestamp, // Keep original timestamp as well if distinct from created_at
+            created_at: created_at_from_row, // Mapped from detected_at or a default
+            detected_at: created_at_from_row, // Use same value as created_at for now
+            expires_at: created_at_from_row + 300_000, // 5 minutes TTL
             r#type: ArbitrageType::CrossExchange,
             min_exchanges_required: 2,
             details,
@@ -1017,7 +1184,7 @@ impl OpportunityDistributionService {
         let opportunities: Vec<ArbitrageOpportunity> = rows
             .results::<HashMap<String, serde_json::Value>>()?
             .into_iter()
-            .filter_map(|row| Self::parse_opportunity_row(row))
+            .filter_map(Self::parse_opportunity_row)
             .collect();
 
         // Cache the results if TTL is specified
@@ -1118,14 +1285,14 @@ impl OpportunityDistributionService {
             .get(&today_key)
             .text()
             .await
-            .unwrap_or_else(|_| None)
+            .unwrap_or(None)
             .unwrap_or_else(|| "0".to_string())
             .parse::<u32>()
             .unwrap_or(0);
 
         self.data_access_layer
             .get_kv_store()
-            .put(&today_key, &(today_count + 1).to_string())?
+            .put(&today_key, (today_count + 1).to_string())?
             .expiration_ttl(86400) // 24 hours TTL
             .execute()
             .await?;
@@ -1137,7 +1304,7 @@ impl OpportunityDistributionService {
             .get(active_users_key)
             .text()
             .await
-            .unwrap_or_else(|_| None)
+            .unwrap_or(None)
             .unwrap_or_else(|| "0".to_string())
             .parse::<u32>()
             .unwrap_or(0);
@@ -1152,7 +1319,7 @@ impl OpportunityDistributionService {
             .get(avg_time_key)
             .text()
             .await
-            .unwrap_or_else(|_| None)
+            .unwrap_or(None)
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
 
@@ -1165,7 +1332,7 @@ impl OpportunityDistributionService {
 
         self.data_access_layer
             .get_kv_store()
-            .put(avg_time_key, &new_avg_time.to_string())?
+            .put(avg_time_key, new_avg_time.to_string())?
             .expiration_ttl(3600)
             .execute()
             .await?;
@@ -1178,11 +1345,99 @@ impl OpportunityDistributionService {
         let active_users_key = "distribution_stats:active_users";
         self.data_access_layer
             .get_kv_store()
-            .put(active_users_key, &user_count.to_string())?
+            .put(active_users_key, user_count.to_string())?
             .expiration_ttl(24 * 3600) // 24 hour TTL
             .execute()
             .await?;
         Ok(())
+    }
+
+    /// Get user's subscription tier
+    async fn get_user_subscription_tier(&self, user_id: &str) -> ArbitrageResult<SubscriptionTier> {
+        // Query user profile from database
+        let query = "SELECT subscription_tier FROM user_profiles WHERE user_id = ?";
+        let params: Vec<worker::wasm_bindgen::JsValue> =
+            vec![worker::wasm_bindgen::JsValue::from(user_id)];
+
+        let result = self.database_repositories.query(query, &params).await?;
+        let rows = result.results::<HashMap<String, serde_json::Value>>()?;
+
+        if let Some(row) = rows.first() {
+            if let Some(tier_str) = row.get("subscription_tier").and_then(|v| v.as_str()) {
+                match tier_str {
+                    "Free" => Ok(SubscriptionTier::Free),
+                    "Basic" => Ok(SubscriptionTier::Basic),
+                    "Premium" => Ok(SubscriptionTier::Premium),
+                    "Pro" => Ok(SubscriptionTier::Pro),
+                    "Enterprise" => Ok(SubscriptionTier::Enterprise),
+                    "Admin" => Ok(SubscriptionTier::Admin),
+                    "SuperAdmin" => Ok(SubscriptionTier::SuperAdmin),
+                    _ => Ok(SubscriptionTier::Free),
+                }
+            } else {
+                Ok(SubscriptionTier::Free)
+            }
+        } else {
+            Ok(SubscriptionTier::Free)
+        }
+    }
+
+    /// Calculate personalization score for user and opportunity
+    async fn calculate_personalization_score(
+        &self,
+        user_id: &str,
+        opportunity: &GlobalOpportunity,
+    ) -> ArbitrageResult<f64> {
+        // Get user preferences and history
+        let user_stats_key = format!("user_stats:{}", user_id);
+        let user_stats = self
+            .data_access_layer
+            .get_kv_store()
+            .get(&user_stats_key)
+            .text()
+            .await
+            .unwrap_or(None)
+            .unwrap_or_else(|| "0.5".to_string())
+            .parse::<f64>()
+            .unwrap_or(0.5);
+
+        // Base score from user stats
+        let mut score = user_stats;
+
+        // Adjust based on opportunity characteristics
+        if let Some(arbitrage_opp) = opportunity.opportunity_data.as_arbitrage() {
+            // Higher score for higher rate differences
+            score += arbitrage_opp.rate_difference * 0.1;
+
+            // Higher score for higher confidence
+            score += arbitrage_opp.confidence * 0.2;
+
+            // Adjust for user's preferred pairs (simplified)
+            if arbitrage_opp.pair.contains("BTC") || arbitrage_opp.pair.contains("ETH") {
+                score += 0.1;
+            }
+        }
+
+        // Clamp score between 0.0 and 1.0
+        Ok(score.clamp(0.0, 1.0))
+    }
+
+    /// Get subscription tier priority for user
+    async fn get_subscription_tier_priority(&self, user_id: &str) -> ArbitrageResult<f64> {
+        let tier = self.get_user_subscription_tier(user_id).await?;
+
+        let priority = match tier {
+            SubscriptionTier::Free => 1.0,
+            SubscriptionTier::Paid => 3.0,
+            SubscriptionTier::Basic => 2.0,
+            SubscriptionTier::Premium => 4.0,
+            SubscriptionTier::Pro => 5.0,
+            SubscriptionTier::Enterprise => 6.0,
+            SubscriptionTier::Admin => 7.0,
+            SubscriptionTier::SuperAdmin => 7.0,
+        };
+
+        Ok(priority)
     }
 }
 

@@ -318,10 +318,12 @@ impl OpportunityEngine {
         }
 
         // Check cache first
-        let group_id = chat_context.get_group_id().unwrap_or("unknown_group");
+        let group_id = chat_context
+            .get_group_id()
+            .unwrap_or("unknown_group".to_string());
         if let Ok(Some(cached_opportunities)) = self
             .cache_manager
-            .get_cached_group_arbitrage_opportunities(group_id)
+            .get_cached_group_arbitrage_opportunities(&group_id)
             .await
         {
             return Ok(cached_opportunities);
@@ -364,7 +366,7 @@ impl OpportunityEngine {
                     market_opp.long_rate.unwrap_or(0.0),
                     market_opp.short_rate.unwrap_or(0.0),
                     &OpportunityContext::Group {
-                        admin_id: group_id.to_string(),
+                        admin_id: group_admin_id.to_string(),
                         chat_context: chat_context.clone(),
                     },
                 )?;
@@ -387,7 +389,7 @@ impl OpportunityEngine {
         // Cache the results
         let _ = self
             .cache_manager
-            .cache_group_arbitrage_opportunities(group_id, &opportunities, None)
+            .cache_group_arbitrage_opportunities(&group_id, &opportunities, None)
             .await;
 
         log_info!(
@@ -605,32 +607,35 @@ impl OpportunityEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{SubscriptionInfo, SubscriptionTier, UserConfiguration, UserProfile};
+    use crate::types::{SubscriptionTier, UserAccessLevel, UserConfiguration, UserProfile};
+    use chrono::Utc;
 
     fn create_test_user_profile(user_id: &str) -> UserProfile {
         UserProfile {
-            user_id: user_id.to_string(),
-            telegram_user_id: Some(12345),
-            telegram_username: Some("testuser".to_string()),
-            subscription: SubscriptionInfo {
-                tier: SubscriptionTier::Premium,
-                is_active: true,
-                expires_at: None,
-                created_at: Utc::now().timestamp_millis() as u64,
-                features: vec!["ai_analysis".to_string()],
-            },
-            configuration: UserConfiguration::default(),
+            user_id: "test_user".to_string(),
+            telegram_user_id: Some(123456789),
+            username: Some("testuser".to_string()),
+            email: Some("test@example.com".to_string()),
+            subscription_tier: SubscriptionTier::Free,
+            access_level: UserAccessLevel::Registered,
+            is_active: true,
+            created_at: Utc::now().timestamp_millis() as u64,
+            last_login: None,
+            preferences: crate::types::UserPreferences::default(),
+            risk_profile: crate::types::RiskProfile::default(),
+            configuration: crate::types::UserConfiguration::default(),
             api_keys: Vec::new(),
             invitation_code: None,
-            created_at: Utc::now().timestamp_millis() as u64,
+            beta_expires_at: None,
             updated_at: Utc::now().timestamp_millis() as u64,
-            last_active: Utc::now().timestamp_millis() as u64,
-            is_active: true,
+            last_active: Some(Utc::now().timestamp_millis() as u64),
             total_trades: 0,
             total_pnl_usdt: 0.0,
-            account_balance_usdt: 10000.0,
+            account_balance_usdt: 0.0,
             profile_metadata: None,
-            beta_expires_at: None,
+            telegram_username: Some("testuser".to_string()),
+            subscription: crate::types::UserSubscription::default(),
+            group_admin_roles: Vec::new(),
         }
     }
 
@@ -642,7 +647,16 @@ mod tests {
         };
         let group_context = OpportunityContext::Group {
             admin_id: "admin_user".to_string(),
-            chat_context: crate::types::ChatContext::Group,
+            chat_context: crate::types::ChatContext {
+                chat_id: -123456789,
+                chat_type: "group".to_string(),
+                user_id: Some("test_user".to_string()),
+                username: Some("testuser".to_string()),
+                is_group: true,
+                group_title: Some("Test Group".to_string()),
+                message_id: Some(1),
+                reply_to_message_id: None,
+            },
         };
         let global_context = OpportunityContext::Global { system_level: true };
 
@@ -659,9 +673,9 @@ mod tests {
         let user_profile = create_test_user_profile("test_user");
 
         assert_eq!(user_profile.user_id, "test_user");
-        assert_eq!(user_profile.subscription.tier, SubscriptionTier::Premium);
+        assert_eq!(user_profile.subscription.tier, SubscriptionTier::Free);
         assert!(user_profile.is_active);
-        assert_eq!(user_profile.account_balance_usdt, 10000.0);
+        assert_eq!(user_profile.account_balance_usdt, 0.0);
     }
 
     #[test]

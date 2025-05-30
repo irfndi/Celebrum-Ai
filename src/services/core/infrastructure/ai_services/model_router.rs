@@ -2,10 +2,24 @@
 // Extracts and modularizes AI routing functionality from ai_gateway.rs
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use worker::Env;
+
+/// AI Provider trait for different AI service providers
+#[async_trait]
+pub trait AIProvider: Send + Sync {
+    async fn generate_text(&self, prompt: &str) -> ArbitrageResult<String>;
+    async fn analyze_market_data(
+        &self,
+        data: &serde_json::Value,
+    ) -> ArbitrageResult<serde_json::Value>;
+    async fn get_embeddings(&self, text: &str) -> ArbitrageResult<Vec<f64>>;
+    fn get_provider_name(&self) -> &str;
+    fn is_available(&self) -> bool;
+}
 
 /// Configuration for ModelRouter
 #[derive(Debug, Clone)]
@@ -145,18 +159,13 @@ pub struct ModelRequirements {
 }
 
 /// Request priority levels
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum RequestPriority {
     Low,
+    #[default]
     Normal,
     High,
     Critical,
-}
-
-impl Default for RequestPriority {
-    fn default() -> Self {
-        RequestPriority::Normal
-    }
 }
 
 /// AI Gateway routing decision
@@ -209,10 +218,12 @@ impl Default for ModelAnalytics {
 pub struct ModelRouter {
     config: ModelRouterConfig,
     logger: crate::utils::logger::Logger,
+    providers: HashMap<String, Box<dyn AIProvider + Send + Sync>>,
+    #[allow(dead_code)] // TODO: Will be used for health monitoring
+    last_health_check: Arc<std::sync::Mutex<Option<u64>>>,
     available_models: HashMap<String, AIModelConfig>,
     model_analytics: Arc<std::sync::Mutex<HashMap<String, ModelAnalytics>>>,
     ai_gateway_available: Arc<std::sync::Mutex<bool>>,
-    last_health_check: Arc<std::sync::Mutex<Option<u64>>>,
     cache: Option<worker::kv::KvStore>,
     metrics: Arc<std::sync::Mutex<RouterMetrics>>,
 }
@@ -277,10 +288,11 @@ impl ModelRouter {
         let mut router = Self {
             config,
             logger,
+            providers: HashMap::new(),
+            last_health_check: Arc::new(std::sync::Mutex::new(None)),
             available_models: HashMap::new(),
             model_analytics: Arc::new(std::sync::Mutex::new(HashMap::new())),
             ai_gateway_available: Arc::new(std::sync::Mutex::new(ai_gateway_available)),
-            last_health_check: Arc::new(std::sync::Mutex::new(None)),
             cache: None,
             metrics: Arc::new(std::sync::Mutex::new(RouterMetrics::default())),
         };
@@ -359,8 +371,16 @@ impl ModelRouter {
             scored_models.push((model, score));
         }
 
-        // Sort by score (highest first)
-        scored_models.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort by score (highest first) with explicit NaN handling
+        scored_models.sort_by(|a, b| {
+            // Handle NaN values explicitly by pushing them to the end
+            match (a.1.is_nan(), b.1.is_nan()) {
+                (true, true) => std::cmp::Ordering::Equal,
+                (true, false) => std::cmp::Ordering::Greater, // NaN goes to end (lower priority)
+                (false, true) => std::cmp::Ordering::Less,    // Non-NaN comes first
+                (false, false) => b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal),
+            }
+        });
 
         // Select the best model
         let (best_model, best_score) = scored_models
@@ -380,10 +400,7 @@ impl ModelRouter {
 
         Ok(RoutingDecision {
             selected_model: best_model.clone(),
-            routing_reason: format!(
-                "Intelligent routing: score={:.3}, task={}",
-                best_score, requirements.task_type
-            ),
+            routing_reason: format!("Intelligent routing: score={:.3}", best_score),
             estimated_cost,
             estimated_latency_ms: best_model.estimated_latency_ms,
             confidence_score: *best_score,
@@ -489,6 +506,9 @@ impl ModelRouter {
         // Normalize score
         if weight_sum > 0.0 {
             score /= weight_sum;
+        } else {
+            // If no weights were applied, default to 0.0
+            score = 0.0;
         }
 
         // Apply priority boost
@@ -504,8 +524,14 @@ impl ModelRouter {
             if let Ok(analytics) = self.model_analytics.lock() {
                 if let Some(model_analytics) = analytics.get(&model.model_id) {
                     let success_rate = if model_analytics.total_requests > 0 {
-                        model_analytics.successful_requests as f32
-                            / model_analytics.total_requests as f32
+                        let rate = model_analytics.successful_requests as f32
+                            / model_analytics.total_requests as f32;
+                        // Ensure success rate is valid (not NaN or infinite)
+                        if rate.is_nan() || rate.is_infinite() {
+                            1.0 // Default to perfect success rate if calculation fails
+                        } else {
+                            rate.clamp(0.0, 1.0) // Ensure rate is between 0 and 1
+                        }
                     } else {
                         1.0
                     };
@@ -514,7 +540,14 @@ impl ModelRouter {
             }
         }
 
-        Ok(score.min(1.0).max(0.0))
+        // Final validation: ensure score is finite and within bounds
+        let final_score = if score.is_nan() || score.is_infinite() {
+            0.0
+        } else {
+            score.clamp(0.0, 1.0)
+        };
+
+        Ok(final_score)
     }
 
     /// Get models that support a specific task
@@ -758,13 +791,11 @@ impl ModelRouter {
         decision: &RoutingDecision,
     ) -> ArbitrageResult<()> {
         if let Some(ref cache) = self.cache {
-            let cache_key = format!(
-                "routing:{}:{}",
-                requirements.task_type,
-                serde_json::to_string(requirements)
-                    .unwrap_or_default()
-                    .len()
-            );
+            use sha2::{Digest, Sha256};
+            let req_bytes = serde_json::to_vec(requirements)?;
+            let hash = hex::encode(Sha256::digest(&req_bytes));
+            let cache_key = format!("routing:{}:{}", requirements.task_type, &hash[0..16]); // first 16 hex chars
+
             let decision_json = serde_json::to_string(decision)?;
 
             cache

@@ -221,13 +221,14 @@ pub struct AICache {
     logger: crate::utils::logger::Logger,
     cache: Option<KvStore>,
     stats: Arc<std::sync::Mutex<CacheStats>>,
+    #[allow(dead_code)] // TODO: Will be used for cache warming functionality
     cache_warming_enabled: Arc<std::sync::Mutex<bool>>,
     popular_keys: Arc<std::sync::Mutex<HashMap<String, u64>>>, // Key -> access count
 }
 
 impl AICache {
     /// Create new AICache instance
-    pub fn new(mut config: AICacheConfig) -> ArbitrageResult<Self> {
+    pub fn new(config: AICacheConfig) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
         // Validate configuration
@@ -434,7 +435,8 @@ impl AICache {
         let cleaned_count = 0u64;
 
         // Update statistics
-        if let Ok(mut stats) = self.stats.lock() {
+        {
+            let mut stats = self.stats.lock().unwrap();
             stats.expired_entries_cleaned += cleaned_count;
             stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
         }
@@ -460,18 +462,12 @@ impl AICache {
 
     /// Get cache statistics
     pub async fn get_stats(&self) -> CacheStats {
-        if let Ok(stats) = self.stats.lock() {
-            stats.clone()
-        } else {
-            CacheStats::default()
-        }
+        self.stats.lock().unwrap().clone()
     }
 
     /// Reset cache statistics
     pub async fn reset_stats(&self) -> ArbitrageResult<()> {
-        if let Ok(mut stats) = self.stats.lock() {
-            *stats = CacheStats::default();
-        }
+        *self.stats.lock().unwrap() = CacheStats::default();
         Ok(())
     }
 
@@ -552,52 +548,53 @@ impl AICache {
 
     /// Update statistics for cache hit
     async fn update_stats_hit(&self) {
-        if let Ok(mut stats) = self.stats.lock() {
-            stats.total_hits += 1;
-            stats.hit_rate_percent =
-                (stats.total_hits as f32 / (stats.total_hits + stats.total_misses) as f32) * 100.0;
-            stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
+        let mut stats = self.stats.lock().unwrap();
+        stats.total_hits += 1;
+        stats.hit_rate_percent =
+            (stats.total_hits as f32 / (stats.total_hits + stats.total_misses) as f32) * 100.0;
+        stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
     }
 
     /// Update statistics for cache miss
     async fn update_stats_miss(&self) {
-        if let Ok(mut stats) = self.stats.lock() {
-            stats.total_misses += 1;
-            stats.hit_rate_percent =
-                (stats.total_hits as f32 / (stats.total_hits + stats.total_misses) as f32) * 100.0;
-            stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
+        let mut stats = self.stats.lock().unwrap();
+        stats.total_misses += 1;
+        stats.hit_rate_percent =
+            (stats.total_hits as f32 / (stats.total_hits + stats.total_misses) as f32) * 100.0;
+        stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
     }
 
     /// Update statistics for cache set
     async fn update_stats_set(&self, entry: &CacheEntry) {
-        if let Ok(mut stats) = self.stats.lock() {
-            stats.total_entries += 1;
-            stats.total_size_bytes += entry.size_bytes as u64;
-            stats.avg_entry_size_bytes = stats.total_size_bytes as f32 / stats.total_entries as f32;
+        let mut stats = self.stats.lock().unwrap();
+        stats.total_entries += 1;
+        stats.total_size_bytes += entry.size_bytes as u64;
+        stats.avg_entry_size_bytes = stats.total_size_bytes as f32 / stats.total_entries as f32;
 
-            // Update entries by type
-            let type_key = entry.entry_type.to_string();
-            let count = stats.entries_by_type.get(&type_key).unwrap_or(&0) + 1;
-            stats.entries_by_type.insert(type_key, count);
+        // Update entries by type
+        let type_key = entry.entry_type.to_string();
+        let count = stats.entries_by_type.get(&type_key).unwrap_or(&0) + 1;
+        stats.entries_by_type.insert(type_key, count);
 
-            stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
+        stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
     }
 
     /// Track popular keys for cache warming
     async fn track_popular_key(&self, key: &str) {
-        if let Ok(mut popular) = self.popular_keys.lock() {
-            let count = popular.get(key).unwrap_or(&0) + 1;
-            popular.insert(key.to_string(), count);
+        let mut popular = self.popular_keys.lock().unwrap();
+        *popular.entry(key.to_string()).or_insert(0) += 1;
 
-            // Keep only top 1000 popular keys
-            if popular.len() > 1000 {
-                // Remove least popular keys (simplified)
-                let min_count = popular.values().min().unwrap_or(&0);
-                let min_count_value = *min_count;
-                popular.retain(|_, count| *count > min_count_value);
+        // Keep only top 100 popular keys
+        if popular.len() > 100 {
+            // Collect the data first to avoid borrowing conflicts
+            let mut sorted: Vec<(String, u64)> =
+                popular.iter().map(|(k, v)| (k.clone(), *v)).collect();
+            sorted.sort_by(|a, b| b.1.cmp(&a.1));
+
+            // Clear and repopulate with top 100
+            popular.clear();
+            for (key, count) in sorted.into_iter().take(100) {
+                popular.insert(key, count);
             }
         }
     }

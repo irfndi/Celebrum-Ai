@@ -6,7 +6,7 @@ use crate::services::core::ai::ai_intelligence::{
     AiOpportunityEnhancement, AiPerformanceInsights, ParameterSuggestion,
 };
 use crate::services::core::infrastructure::database_repositories::utils::{
-    database_error, get_f64_field, get_i64_field, get_string_field,
+    database_error, get_bool_field, get_f64_field, get_i64_field, get_json_field, get_string_field,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
@@ -208,7 +208,6 @@ impl AIDataRepository {
         }
 
         let result = self.store_ai_insight_internal(insight).await;
-
         if result.is_ok() && self.config.enable_insight_caching {
             let _ = self.cache_ai_insight(insight).await;
         }

@@ -4,6 +4,7 @@ use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use worker::console_log;
 
 #[cfg(all(
     target_arch = "wasm32",
