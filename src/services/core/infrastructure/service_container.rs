@@ -22,6 +22,7 @@ use crate::services::core::user::user_profile::UserProfileService;
 // use crate::services::core::user::group_management::GroupManagementService;
 use crate::services::interfaces::telegram::TelegramService;
 // use crate::services::core::admin::{AdminService, UserManagementService, SystemConfigService, MonitoringService, AuditService};
+use crate::utils::feature_flags::{load_feature_flags, FeatureFlags};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;
 // use worker::console_log;
@@ -42,11 +43,15 @@ pub struct ServiceContainer {
     pub data_ingestion_module: Option<Arc<DataIngestionModule>>,
     pub database_manager: DatabaseManager,
     pub data_access_layer: DataAccessLayer,
+    pub feature_flags: Arc<FeatureFlags>,
 }
 
 impl ServiceContainer {
     /// Create a new comprehensive service container with all dependencies
     pub async fn new(env: &Env, kv_store: KvStore) -> ArbitrageResult<Self> {
+        let feature_flags = load_feature_flags("feature_flags.json").map_err(|e| {
+            ArbitrageError::configuration_error(format!("Failed to load feature flags: {}", e))
+        })?;
         let custom_env = env;
 
         let d1_database = env.d1("DB").map_err(|e| {
@@ -110,6 +115,7 @@ impl ServiceContainer {
             data_ingestion_module: None,
             database_manager,
             data_access_layer,
+            feature_flags,
         })
     }
 
@@ -259,6 +265,11 @@ impl ServiceContainer {
     /// Get data access layer
     pub fn data_access_layer(&self) -> &DataAccessLayer {
         &self.data_access_layer
+    }
+
+    /// Get feature flags
+    pub fn get_feature_flags(&self) -> Arc<FeatureFlags> {
+        self.feature_flags.clone()
     }
 
     /// Validate that all required services are configured

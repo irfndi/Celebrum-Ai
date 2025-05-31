@@ -64,19 +64,39 @@ impl SessionManagementService {
         Ok(session)
     }
 
-    /// Validate if a user has an active session
-    pub async fn validate_session(&self, user_id: &str) -> ArbitrageResult<bool> {
+    /// Validate if a user has an active session and return it
+    pub async fn validate_session(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<Option<EnhancedUserSession>> {
         match self.get_session_by_user_id(user_id).await {
-            Ok(session) => Ok(session.is_active()),
-            Err(_) => Ok(false),
+            Ok(session) => {
+                if session.is_active() {
+                    Ok(Some(session))
+                } else {
+                    Ok(None)
+                }
+            }
+            Err(ArbitrageError::SessionNotFound(_)) => Ok(None), // Not found is not an error here
+            Err(e) => Err(e),                                   // Other errors are propagated
         }
     }
 
-    /// Validate session by telegram ID (faster lookup)
-    pub async fn validate_session_by_telegram_id(&self, telegram_id: i64) -> ArbitrageResult<bool> {
+    /// Validate session by telegram ID (faster lookup) and return it
+    pub async fn validate_session_by_telegram_id(
+        &self,
+        telegram_id: i64,
+    ) -> ArbitrageResult<Option<EnhancedUserSession>> {
         match self.get_session_by_telegram_id(telegram_id).await {
-            Ok(session) => Ok(session.is_active()),
-            Err(_) => Ok(false),
+            Ok(session) => {
+                if session.is_active() {
+                    Ok(Some(session))
+                } else {
+                    Ok(None)
+                }
+            }
+            Err(ArbitrageError::SessionNotFound(_)) => Ok(None), // Not found is not an error here
+            Err(e) => Err(e),                                   // Other errors are propagated
         }
     }
 
@@ -196,9 +216,11 @@ impl SessionManagementService {
         chat_context: &ChatContext,
     ) -> ArbitrageResult<bool> {
         // Layer 1: Session validation
-        if !self.validate_session(user_id).await? {
+        let session = self.validate_session(user_id).await?;
+        if session.is_none() {
             return Ok(false);
         }
+        // let session = session.unwrap(); // We have a valid session if we reach here
 
         // Layer 2: Rate limiting - prevent spam
         if !self.check_notification_rate_limit(user_id).await? {
