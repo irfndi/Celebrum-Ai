@@ -157,24 +157,35 @@ async fn route_auth_request(
                 .ok_or_else(|| worker::Error::RustError("Missing X-User-ID header".to_string()))?;
 
             // Validate session using session service
-            let is_valid = container
+            let session_details_option = container
                 .session_service
-                .validate_session(&user_id)
+                .validate_session(&user_id) // user_id is the user_id here
                 .await
                 .map_err(|e| {
                     worker::Error::RustError(format!("Session validation failed: {:?}", e))
                 })?;
 
-            if is_valid {
+            if let Some(session_details) = session_details_option {
+                // Convert u64 timestamps to chrono::DateTime<chrono::Utc> for the response if needed
+                let created_at_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.created_at as i64);
+                let expires_at_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.expires_at as i64);
+                let last_activity_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.last_activity_at as i64);
+
                 let session_response = serde_json::json!({
                     "status": "valid",
                     "message": "Session is valid",
-                    "user_id": user_id,
+                    "session_id": session_details.session_id,
+                    "user_id": session_details.user_id,
+                    "created_at": created_at_ts.map(|dt| dt.to_rfc3339()).unwrap_or_default(),
+                    "expires_at": expires_at_ts.map(|dt| dt.to_rfc3339()).unwrap_or_default(),
+                    "last_activity_at": last_activity_ts.map(|dt| dt.to_rfc3339()).unwrap_or_default(),
+                    "onboarding_completed": session_details.onboarding_completed,
+                    "preferences_set": session_details.preferences_set,
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 });
                 Response::from_json(&session_response)
             } else {
-                Response::error("Invalid session", 401)
+                Response::error("Invalid or expired session", 401)
             }
         }
         _ => Response::error("Unknown auth action", 400),
