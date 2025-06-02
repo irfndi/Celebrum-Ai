@@ -771,7 +771,7 @@ impl TemplateEngine {
 
             let body_size = channel_template.body.len();
             if body_size > self.config.max_template_size_bytes {
-                return Err(ArbitrageError::validation_error(&format!(
+                return Err(ArbitrageError::validation_error(format!(
                     "Channel '{}' template body too large: {} > {} bytes",
                     channel, body_size, self.config.max_template_size_bytes
                 )));
@@ -871,7 +871,7 @@ impl TemplateEngine {
             .expiration_ttl(self.config.cache_ttl_seconds)
             .execute()
             .await
-            .map_err(|e| ArbitrageError::kv_error(&format!("Failed to store template: {}", e)))?;
+            .map_err(|e| ArbitrageError::kv_error(format!("Failed to store template: {}", e)))?;
 
         Ok(())
     }

@@ -206,7 +206,7 @@ impl AccessManager {
         }
 
         // Cache the result
-        self.cache_exchanges(&cache_key, &exchanges).await;
+        let _ = self.cache_exchanges(&cache_key, &exchanges).await;
 
         log_info!(
             "Retrieved user exchange APIs",
@@ -236,7 +236,7 @@ impl AccessManager {
         let exchanges = self.get_user_exchange_apis(group_admin_id).await?;
 
         // Cache the result
-        self.cache_exchanges(&cache_key, &exchanges).await;
+        let _ = self.cache_exchanges(&cache_key, &exchanges).await;
 
         log_info!(
             "Retrieved group admin exchange APIs",

@@ -452,7 +452,7 @@ impl FundAnalyzer {
 
         // Sum up all assets across exchanges
         for snapshot in balance_snapshots.values() {
-            for (_, balance) in &snapshot.balances {
+            for balance in snapshot.balances.values() {
                 let asset_value = balance.total * self.get_mock_price(&balance.asset);
                 *asset_totals.entry(balance.asset.clone()).or_insert(0.0) += asset_value;
                 total_portfolio_value += asset_value;
