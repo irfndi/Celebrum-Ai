@@ -889,9 +889,9 @@ impl TemplateEngine {
             .get(&key)
             .text()
             .await
-            .map_err(|e| ArbitrageError::kv_error(&format!("Failed to load template: {}", e)))?
+            .map_err(|e| ArbitrageError::kv_error(format!("Failed to load template: {}", e)))?
             .ok_or_else(|| {
-                ArbitrageError::not_found(&format!("Template not found in KV: {}", key))
+                ArbitrageError::not_found(format!("Template not found in KV: {}", key))
             })?;
 
         let template: NotificationTemplate = serde_json::from_str(&value)?;

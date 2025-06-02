@@ -346,19 +346,7 @@ impl AccessManager {
             Some(profile) => {
                 // Convert AIAccessLevel to UserAccessLevel
                 let ai_level = profile.get_ai_access_level();
-                let user_level = match ai_level {
-                    UserAccessLevel::FreeWithoutAPI => UserAccessLevel::FreeWithoutAPI,
-                    UserAccessLevel::FreeWithAPI => UserAccessLevel::FreeWithAPI,
-                    UserAccessLevel::SubscriptionWithAPI => UserAccessLevel::SubscriptionWithAPI,
-                    UserAccessLevel::Premium => UserAccessLevel::Premium,
-                    UserAccessLevel::Admin => UserAccessLevel::Admin,
-                    UserAccessLevel::Registered => UserAccessLevel::Registered,
-                    UserAccessLevel::Guest => UserAccessLevel::Guest,
-                    UserAccessLevel::Free => UserAccessLevel::Free,
-                    UserAccessLevel::Verified => UserAccessLevel::Verified,
-                    UserAccessLevel::Paid => UserAccessLevel::Paid,
-                    UserAccessLevel::SuperAdmin => UserAccessLevel::SuperAdmin,
-                };
+                let user_level = ai_level;
                 Ok(user_level)
             }
             None => Ok(UserAccessLevel::FreeWithoutAPI),

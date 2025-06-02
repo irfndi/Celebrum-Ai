@@ -447,19 +447,36 @@ impl UserProfile {
     }
 
     pub fn has_permission(&self, permission: CommandPermission) -> bool {
-        matches!((&self.access_level, permission), 
-            (UserAccessLevel::SuperAdmin, _) | 
-            (UserAccessLevel::Admin, CommandPermission::AdminAccess) | 
-            (UserAccessLevel::Admin, CommandPermission::ViewOpportunities) | 
-            (UserAccessLevel::Admin, CommandPermission::BasicTrading) | 
-            (UserAccessLevel::Premium, CommandPermission::ViewOpportunities) | 
-            (UserAccessLevel::Premium, CommandPermission::BasicTrading) | 
-            (UserAccessLevel::Verified, CommandPermission::ViewOpportunities) | 
-            (UserAccessLevel::Verified, CommandPermission::BasicTrading) | 
-            (UserAccessLevel::Registered, CommandPermission::ViewOpportunities) | 
-            (UserAccessLevel::FreeWithAPI, CommandPermission::ViewOpportunities) | 
-            (UserAccessLevel::FreeWithAPI, CommandPermission::BasicTrading) | 
-            (UserAccessLevel::SubscriptionWithAPI, _))
+        matches!(
+            (&self.access_level, permission),
+            (UserAccessLevel::SuperAdmin, _)
+                | (UserAccessLevel::Admin, CommandPermission::AdminAccess)
+                | (UserAccessLevel::Admin, CommandPermission::ViewOpportunities)
+                | (UserAccessLevel::Admin, CommandPermission::BasicTrading)
+                | (
+                    UserAccessLevel::Premium,
+                    CommandPermission::ViewOpportunities
+                )
+                | (UserAccessLevel::Premium, CommandPermission::BasicTrading)
+                | (
+                    UserAccessLevel::Verified,
+                    CommandPermission::ViewOpportunities
+                )
+                | (UserAccessLevel::Verified, CommandPermission::BasicTrading)
+                | (
+                    UserAccessLevel::Registered,
+                    CommandPermission::ViewOpportunities
+                )
+                | (
+                    UserAccessLevel::FreeWithAPI,
+                    CommandPermission::ViewOpportunities
+                )
+                | (
+                    UserAccessLevel::FreeWithAPI,
+                    CommandPermission::BasicTrading
+                )
+                | (UserAccessLevel::SubscriptionWithAPI, _)
+        )
     }
 
     pub fn has_trading_api_keys(&self) -> bool {
@@ -1835,11 +1852,9 @@ impl SubscriptionTier {
         }
     }
 
-
-
     /// Get tier field for compatibility
     pub fn tier(&self) -> String {
-        self.to_string()
+        format!("{}", self)
     }
 }
 
