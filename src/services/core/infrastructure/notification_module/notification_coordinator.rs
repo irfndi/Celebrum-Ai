@@ -119,7 +119,7 @@ impl NotificationRequest {
         // Check that recipients are provided for all channels
         for channel in &self.channels {
             if !self.recipients.contains_key(channel) {
-                return Err(ArbitrageError::validation_error(&format!(
+                return Err(ArbitrageError::validation_error(format!(
                     "Recipient not provided for channel: {}",
                     channel.as_str()
                 )));

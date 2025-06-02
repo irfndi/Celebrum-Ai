@@ -101,7 +101,7 @@ impl TemplateVariable {
         if let Some(pattern) = &self.validation_pattern {
             // Simple pattern validation (in real implementation, use regex)
             if !value.contains(&pattern.replace("*", "")) {
-                return Err(ArbitrageError::validation_error(&format!(
+                return Err(ArbitrageError::validation_error(format!(
                     "Variable '{}' value '{}' does not match pattern '{}'",
                     self.name, value, pattern
                 )));
@@ -111,7 +111,7 @@ impl TemplateVariable {
         match self.variable_type {
             VariableType::Number => {
                 if value.parse::<f64>().is_err() {
-                    return Err(ArbitrageError::validation_error(&format!(
+                    return Err(ArbitrageError::validation_error(format!(
                         "Variable '{}' must be a number, got '{}'",
                         self.name, value
                     )));
@@ -119,7 +119,7 @@ impl TemplateVariable {
             }
             VariableType::Email => {
                 if !value.contains('@') {
-                    return Err(ArbitrageError::validation_error(&format!(
+                    return Err(ArbitrageError::validation_error(format!(
                         "Variable '{}' must be a valid email, got '{}'",
                         self.name, value
                     )));
@@ -127,7 +127,7 @@ impl TemplateVariable {
             }
             VariableType::Url => {
                 if !value.starts_with("http") {
-                    return Err(ArbitrageError::validation_error(&format!(
+                    return Err(ArbitrageError::validation_error(format!(
                         "Variable '{}' must be a valid URL, got '{}'",
                         self.name, value
                     )));
@@ -241,7 +241,7 @@ impl NotificationTemplate {
         // Check required variables
         for template_var in &self.variables {
             if template_var.required && !variables.contains_key(&template_var.name) {
-                return Err(ArbitrageError::validation_error(&format!(
+                return Err(ArbitrageError::validation_error(format!(
                     "Required variable '{}' is missing",
                     template_var.name
                 )));
@@ -652,7 +652,7 @@ impl TemplateEngine {
 
         // Get channel template
         let channel_template = template.get_channel_template(channel).ok_or_else(|| {
-            ArbitrageError::validation_error(&format!(
+            ArbitrageError::validation_error(format!(
                 "Channel '{}' not found in template",
                 channel
             ))
@@ -712,7 +712,7 @@ impl TemplateEngine {
             }
         }
 
-        Err(ArbitrageError::not_found(&format!(
+        Err(ArbitrageError::not_found(format!(
             "Template '{}' not found for language '{}'",
             template_id, target_language
         )))
@@ -756,7 +756,7 @@ impl TemplateEngine {
         }
 
         if template.variables.len() > self.config.max_variables_per_template {
-            return Err(ArbitrageError::validation_error(&format!(
+            return Err(ArbitrageError::validation_error(format!(
                 "Template has too many variables: {} > {}",
                 template.variables.len(),
                 self.config.max_variables_per_template
@@ -766,7 +766,7 @@ impl TemplateEngine {
         // Validate each channel template
         for (channel, channel_template) in &template.channel_templates {
             if channel_template.body.is_empty() {
-                return Err(ArbitrageError::validation_error(&format!(
+                return Err(ArbitrageError::validation_error(format!(
                     "Channel '{}' template body cannot be empty",
                     channel
                 )));

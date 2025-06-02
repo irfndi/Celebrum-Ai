@@ -300,7 +300,7 @@ impl MessageHandler {
         const MAX_MESSAGE_LENGTH: usize = 4096;
         
         if text.len() > MAX_MESSAGE_LENGTH {
-            return Err(ArbitrageError::validation_error(&format!(
+            return Err(ArbitrageError::validation_error(format!(
                 "Message too long: {} characters (max: {})",
                 text.len(),
                 MAX_MESSAGE_LENGTH
@@ -377,4 +377,4 @@ impl Default for MessageHandler {
     fn default() -> Self {
         Self::new()
     }
-} 
+}  

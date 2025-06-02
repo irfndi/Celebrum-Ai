@@ -227,23 +227,23 @@ impl TelegramBotClient {
             .json(payload)
             .send()
             .await
-            .map_err(|e| ArbitrageError::external_service_error(&format!("HTTP request failed: {}", e)))?;
+            .map_err(|e| ArbitrageError::external_service_error(format!("HTTP request failed: {}", e)))?;
 
         let status = response.status();
         let response_text = response
             .text()
             .await
-            .map_err(|e| ArbitrageError::external_service_error(&format!("Failed to read response: {}", e)))?;
+            .map_err(|e| ArbitrageError::external_service_error(format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(ArbitrageError::external_service_error(&format!(
+            return Err(ArbitrageError::external_service_error(format!(
                 "Telegram API error {}: {}",
                 status, response_text
             )));
         }
 
         serde_json::from_str(&response_text)
-            .map_err(|e| ArbitrageError::external_service_error(&format!("Failed to parse response: {}", e)))
+            .map_err(|e| ArbitrageError::external_service_error(format!("Failed to parse response: {}", e)))
     }
 
     /// Calculate retry delay with exponential backoff
@@ -288,4 +288,4 @@ impl TelegramBotClient {
 
         self.make_api_request(&url, json!({})).await
     }
-} 
+}  

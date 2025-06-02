@@ -97,7 +97,7 @@ impl CommandRouter {
             // Help and general commands
             "/help" => self.handle_help_command(user_info, permissions).await,
             
-            _ => Err(ArbitrageError::validation_error(&format!("Unknown command: {}", cmd))),
+            _ => Err(ArbitrageError::validation_error(format!("Unknown command: {}", cmd))),
         }
     }
 
@@ -142,4 +142,4 @@ impl CommandRouter {
         
         Ok(help_text)
     }
-} 
+}  

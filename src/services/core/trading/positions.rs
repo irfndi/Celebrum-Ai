@@ -2,7 +2,7 @@
 
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::{
-    AccountInfo, ArbitragePosition, CommandPermission, ExchangeIdEnum, PositionAction,
+    AccountInfo, ArbitragePosition, CommandPermission, ExchangeIdEnum, Position, PositionAction,
     PositionOptimizationResult, PositionSide, PositionStatus, RiskAssessment, RiskLevel,
     RiskManagementConfig,
 };
@@ -111,7 +111,7 @@ impl<K: KvStoreInterface> PositionsService<K> {
 
         let final_size_base_currency: f64;
         let calculated_size_usd_for_audit: Option<f64>;
-        let mut risk_percentage_applied_for_audit: Option<f64> = None;
+        let mut _risk_percentage_applied_for_audit: Option<f64> = None;
 
         if let Some(risk_perc) = position_data.risk_percentage {
             if position_data.entry_price_long <= 0.0 {
@@ -119,7 +119,7 @@ impl<K: KvStoreInterface> PositionsService<K> {
                     "Entry price must be positive for risk-based sizing.".to_string(),
                 ));
             }
-            risk_percentage_applied_for_audit = Some(risk_perc);
+            _risk_percentage_applied_for_audit = Some(risk_perc);
             let mut amount_to_risk_usd = account_info.total_balance_usd * risk_perc;
 
             if let Some(max_usd) = position_data.max_size_usd {
@@ -150,52 +150,93 @@ impl<K: KvStoreInterface> PositionsService<K> {
         }
 
         let position = ArbitragePosition {
-            position_id: id.clone(),
+            id: id.clone(),
             user_id: "system".to_string(), // TODO: Use actual user_id
             opportunity_id: "manual".to_string(), // TODO: Use actual opportunity_id if available
-            symbol: position_data.pair.clone(),
-            pair: position_data.pair.clone(),
-            long_exchange: position_data.exchange,
-            short_exchange: position_data.exchange, // For single exchange positions
-            exchange: position_data.exchange,
-            long_position_size: final_size_base_currency,
-            short_position_size: 0.0, // For single-sided positions
-            entry_price_long: position_data.entry_price_long,
-            entry_price_short: position_data.entry_price_long,
-            current_price_long: None,
-            current_price_short: None,
-            unrealized_pnl: 0.0,
-            realized_pnl: 0.0,
-            pnl: Some(0.0),
+            long_position: Position {
+                info: serde_json::json!({}),
+                id: Some(id.clone()),
+                symbol: position_data.pair.clone(),
+                timestamp: now,
+                datetime: chrono::DateTime::from_timestamp(now as i64 / 1000, 0)
+                    .unwrap()
+                    .to_rfc3339(),
+                isolated: Some(false),
+                hedged: Some(false),
+                side: "long".to_string(),
+                amount: final_size_base_currency,
+                contracts: None,
+                contract_size: None,
+                entry_price: Some(position_data.entry_price_long),
+                mark_price: None,
+                notional: None,
+                leverage: Some(1.0),
+                collateral: None,
+                initial_margin: None,
+                initial_margin_percentage: None,
+                maintenance_margin: None,
+                maintenance_margin_percentage: None,
+                unrealized_pnl: Some(0.0),
+                realized_pnl: Some(0.0),
+                percentage: None,
+            },
+            short_position: Position {
+                info: serde_json::json!({}),
+                id: None,
+                symbol: position_data.pair.clone(),
+                timestamp: now,
+                datetime: chrono::DateTime::from_timestamp(now as i64 / 1000, 0)
+                    .unwrap()
+                    .to_rfc3339(),
+                isolated: Some(false),
+                hedged: Some(false),
+                side: "short".to_string(),
+                amount: 0.0,
+                contracts: None,
+                contract_size: None,
+                entry_price: None,
+                mark_price: None,
+                notional: None,
+                leverage: Some(1.0),
+                collateral: None,
+                initial_margin: None,
+                initial_margin_percentage: None,
+                maintenance_margin: None,
+                maintenance_margin_percentage: None,
+                unrealized_pnl: Some(0.0),
+                realized_pnl: Some(0.0),
+                percentage: None,
+            },
             status: PositionStatus::Open,
-            side: position_data.side,
-            leverage: 1.0, // Default leverage
+            entry_time: now,
+            exit_time: None,
+            realized_pnl: 0.0,
+            unrealized_pnl: 0.0,
+            total_fees: 0.0,
+            risk_score: 0.5,
             margin_used: 0.0,
-            created_at: now,
-            updated_at: now,
-            closed_at: None,
+            symbol: position_data.pair.clone(),
+            side: position_data.side,
+            entry_price_long: position_data.entry_price_long,
+            take_profit_price: None,
             volatility_score: None,
             calculated_size_usd: calculated_size_usd_for_audit,
-            stop_loss_price: None,
-            take_profit_price: None,
-            max_loss_usd: None,
-            related_positions: Vec::new(),
-            risk_reward_ratio: None,
-            holding_period_hours: None,
-
-            // Compatibility fields
-            id: Some(id.clone()),
+            long_exchange: position_data.exchange,
             size: Some(final_size_base_currency),
-            current_price: None,
-            risk_percentage_applied: risk_percentage_applied_for_audit,
+            pnl: Some(0.0),
+            unrealized_pnl_percentage: Some(0.0),
+            max_drawdown: Some(0.0),
+            created_at: now,
+            holding_period_hours: Some(0.0),
             trailing_stop_distance: None,
-            hedge_position_id: None,
-            position_group_id: None,
-            optimization_score: None,
-            recommended_action: None,
-            last_optimization_check: None,
-            max_drawdown: None,
-            unrealized_pnl_percentage: None,
+            stop_loss_price: None,
+            current_price: Some(position_data.entry_price_long),
+            max_loss_usd: None,
+            exchange: position_data.exchange,
+            pair: position_data.pair.clone(),
+            related_positions: Vec::new(),
+            updated_at: now,
+            risk_reward_ratio: None,
         };
 
         // Store position
@@ -245,7 +286,7 @@ impl<K: KvStoreInterface> PositionsService<K> {
         // Update fields if provided
         if let Some(size) = update_data.size {
             position.size = Some(size);
-            position.long_position_size = size; // Update the actual position size
+            position.long_position.amount = size; // Update the actual position size
         }
         if let Some(current_price) = update_data.current_price {
             position.current_price = Some(current_price);
@@ -389,7 +430,7 @@ impl<K: KvStoreInterface> PositionsService<K> {
                 }
             }
             PositionSide::Short => {
-                if stop_loss_price <= position.entry_price_short {
+                if stop_loss_price <= position.entry_price_long {
                     return Err(ArbitrageError::validation_error(
                         "Stop-loss price for short position must be above entry price".to_string(),
                     ));
@@ -444,7 +485,7 @@ impl<K: KvStoreInterface> PositionsService<K> {
                 }
             }
             PositionSide::Short => {
-                if take_profit_price >= position.entry_price_short {
+                if take_profit_price >= position.entry_price_long {
                     return Err(ArbitrageError::validation_error(
                         "Take-profit price for short position must be below entry price"
                             .to_string(),

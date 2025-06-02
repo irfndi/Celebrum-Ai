@@ -67,8 +67,8 @@ impl OpportunityBuilder {
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000)), // 15 minutes
             pair: pair.clone(),
-            long_exchange: long_exchange.to_string(),
-            short_exchange: short_exchange.to_string(),
+            long_exchange,
+            short_exchange,
             long_rate: None,
             short_rate: None,
             rate_difference,
@@ -140,8 +140,8 @@ impl OpportunityBuilder {
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000)), // 15 minutes
             pair: pair.clone(),
-            long_exchange: long_exchange.to_string(),
-            short_exchange: short_exchange.to_string(),
+            long_exchange,
+            short_exchange,
             long_rate: None, // Not applicable for price arbitrage
             short_rate: None,
             rate_difference: price_difference,
@@ -225,8 +225,8 @@ impl OpportunityBuilder {
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000)), // 15 minutes
             pair: pair.clone(),
-            long_exchange: min_exchange.to_string(),
-            short_exchange: max_exchange.to_string(),
+            long_exchange: *min_exchange,
+            short_exchange: *max_exchange,
             long_rate: Some(*min_value),
             short_rate: Some(*max_value),
             rate_difference: difference,
@@ -331,11 +331,25 @@ impl OpportunityBuilder {
         let opportunity = TechnicalOpportunity {
             id: Uuid::new_v4().to_string(),
             trading_pair: pair.clone(),
+            exchanges: vec![exchange.to_string()],
+            pair: pair.clone(),
             symbol: pair.clone(),
-            exchange,
+            exchange: exchange.to_string(),
             signal_type,
-            signal_strength,
-            risk_level,
+            signal_strength: match signal_strength {
+                TechnicalSignalStrength::VeryStrong => 0.9,
+                TechnicalSignalStrength::Strong => 0.7,
+                TechnicalSignalStrength::Moderate => 0.5,
+                TechnicalSignalStrength::Weak => 0.3,
+                TechnicalSignalStrength::VeryWeak => 0.1,
+            },
+            risk_level: match risk_level {
+                TechnicalRiskLevel::VeryLow => "very_low".to_string(),
+                TechnicalRiskLevel::Low => "low".to_string(),
+                TechnicalRiskLevel::Medium => "medium".to_string(),
+                TechnicalRiskLevel::High => "high".to_string(),
+                TechnicalRiskLevel::VeryHigh => "very_high".to_string(),
+            },
             entry_price,
             target_price: target_price.unwrap_or(entry_price * 1.02),
             stop_loss: stop_loss_price.unwrap_or(entry_price * 0.98),
@@ -437,17 +451,17 @@ impl OpportunityBuilder {
         let global_opportunity = GlobalOpportunity {
             id: Uuid::new_v4().to_string(),
             opportunity_id: Uuid::new_v4().to_string(),
-            opportunity_type: source.as_str().to_string(),
+            opportunity_type: source.clone(),
             trading_pair: arbitrage_opportunity.trading_pair.clone(),
             exchanges: arbitrage_opportunity.exchanges.clone(),
             profit_percentage: arbitrage_opportunity.profit_percentage,
             confidence_score: arbitrage_opportunity.confidence_score,
             risk_level: arbitrage_opportunity.risk_level.clone(),
             created_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at: Some(expires_at),
+            expires_at,
             metadata: serde_json::json!({}),
             distributed_to: Vec::new(),
-            max_participants: max_participants.unwrap_or(100),
+            max_participants: Some(max_participants.unwrap_or(100)),
             current_participants: 0,
             distribution_strategy: DistributionStrategy::Broadcast,
             arbitrage_opportunity: arbitrage_opportunity.clone(),
@@ -492,17 +506,17 @@ impl OpportunityBuilder {
         let global_opportunity = GlobalOpportunity {
             id: Uuid::new_v4().to_string(),
             opportunity_id: Uuid::new_v4().to_string(),
-            opportunity_type: source.as_str().to_string(),
+            opportunity_type: source.clone(),
             trading_pair: technical_opportunity.trading_pair.clone(),
             exchanges: vec![technical_opportunity.exchange.to_string()],
             profit_percentage: technical_opportunity.expected_return_percentage,
             confidence_score: technical_opportunity.confidence_score,
             risk_level: technical_opportunity.risk_level.to_string(),
             created_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at: Some(expires_at),
+            expires_at,
             metadata: serde_json::json!({}),
             distributed_to: Vec::new(),
-            max_participants: max_participants.unwrap_or(100),
+            max_participants: Some(max_participants.unwrap_or(100)),
             current_participants: 0,
             distribution_strategy: DistributionStrategy::Broadcast,
             arbitrage_opportunity: ArbitrageOpportunity::default(),
@@ -627,11 +641,14 @@ impl OpportunityBuilder {
             .abs()
             * 100.0;
         let confidence_multiplier = opportunity.confidence;
-        let strength_multiplier = match opportunity.signal_strength {
-            TechnicalSignalStrength::Strong => 1.5,
-            TechnicalSignalStrength::Moderate => 1.2,
-            TechnicalSignalStrength::Weak => 0.8,
-            TechnicalSignalStrength::VeryStrong => 2.0,
+        let strength_multiplier = if opportunity.signal_strength >= 0.8 {
+            2.0 // VeryStrong
+        } else if opportunity.signal_strength >= 0.6 {
+            1.5 // Strong
+        } else if opportunity.signal_strength >= 0.4 {
+            1.2 // Moderate
+        } else {
+            0.8 // Weak
         };
 
         return_score * confidence_multiplier * strength_multiplier
@@ -746,6 +763,18 @@ mod tests {
 
         let arbitrage_opp = ArbitrageOpportunity {
             id: "test_arb_001".to_string(),
+            trading_pair: "BTCUSDT".to_string(),
+            exchanges: vec!["binance".to_string(), "bybit".to_string()],
+            profit_percentage: 0.015,
+            confidence_score: 0.85,
+            risk_level: "low".to_string(),
+            buy_exchange: "binance".to_string(),
+            sell_exchange: "bybit".to_string(),
+            buy_price: 50000.0,
+            sell_price: 50750.0,
+            volume: 1000.0,
+            created_at: Utc::now().timestamp_millis() as u64,
+            expires_at: Some(Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000)),
             pair: "BTCUSDT".to_string(),
             long_exchange: ExchangeIdEnum::Binance,
             short_exchange: ExchangeIdEnum::Bybit,
@@ -755,11 +784,8 @@ mod tests {
             net_rate_difference: Some(0.015),
             potential_profit_value: Some(150.0),
             confidence: 0.85,
-            volume: 1000.0,
             timestamp: Utc::now().timestamp_millis() as u64,
-            created_at: Utc::now().timestamp_millis() as u64,
             detected_at: Utc::now().timestamp_millis() as u64,
-            expires_at: Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000),
             r#type: ArbitrageType::FundingRate,
             details: Some("Test arbitrage".to_string()),
             min_exchanges_required: 2,

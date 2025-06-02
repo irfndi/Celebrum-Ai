@@ -280,7 +280,7 @@ impl ChannelManager {
         let channel_config = self.get_channel_config(channel_id).await?;
 
         if !channel_config.enabled {
-            return Err(ArbitrageError::validation_error(&format!(
+            return Err(ArbitrageError::validation_error(format!(
                 "Channel '{}' is disabled",
                 channel_id
             )));
@@ -364,7 +364,7 @@ impl ChannelManager {
             }
         }
 
-        Err(ArbitrageError::not_found(&format!(
+        Err(ArbitrageError::not_found(format!(
             "Channel '{}' not found",
             channel_id
         )))
@@ -456,7 +456,7 @@ impl ChannelManager {
                     .info(&format!("Sending webhook to {}: {}", recipient, content));
                 Ok(format!("webhook_msg_{}", uuid::Uuid::new_v4()))
             }
-            _ => Err(ArbitrageError::not_implemented(&format!(
+            _ => Err(ArbitrageError::not_implemented(format!(
                 "Channel '{}' delivery not implemented",
                 config.channel_name
             ))),
@@ -563,7 +563,7 @@ impl ChannelManager {
             .execute()
             .await
             .map_err(|e| {
-                ArbitrageError::kv_error(&format!("Failed to store channel config: {}", e))
+                ArbitrageError::kv_error(format!("Failed to store channel config: {}", e))
             })?;
 
         Ok(())
@@ -582,10 +582,10 @@ impl ChannelManager {
             .text()
             .await
             .map_err(|e| {
-                ArbitrageError::kv_error(&format!("Failed to load channel config: {}", e))
+                ArbitrageError::kv_error(format!("Failed to load channel config: {}", e))
             })?
             .ok_or_else(|| {
-                ArbitrageError::not_found(&format!("Channel config not found in KV: {}", key))
+                ArbitrageError::not_found(format!("Channel config not found in KV: {}", key))
             })?;
 
         let config: ChannelDeliveryConfig = serde_json::from_str(&value)?;

@@ -273,7 +273,7 @@ impl AccessValidator {
             "manual" => "trading.manual",
             "automated" => "trading.automated",
             "advanced" => "trading.advanced",
-            _ => return Err(ArbitrageError::validation_error(&format!("Unknown trading type: {}", trading_type))),
+            _ => return Err(ArbitrageError::validation_error(format!("Unknown trading type: {}", trading_type))),
         };
 
         self.permission_checker.check_permission(user_profile, permission).await
@@ -289,7 +289,7 @@ impl AccessValidator {
             "realtime" => "opportunities.realtime",
             "priority" => "opportunities.priority",
             "global" => "opportunities.global",
-            _ => return Err(ArbitrageError::validation_error(&format!("Unknown opportunity type: {}", opportunity_type))),
+            _ => return Err(ArbitrageError::validation_error(format!("Unknown opportunity type: {}", opportunity_type))),
         };
 
         self.permission_checker.check_permission(user_profile, permission).await
@@ -390,4 +390,4 @@ pub struct FeatureAccessSummary {
     pub beta_features: bool,
     pub daily_opportunity_limit: i32,
     pub can_trade: bool,
-} 
+}  

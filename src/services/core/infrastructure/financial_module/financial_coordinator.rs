@@ -611,7 +611,7 @@ impl FinancialCoordinator {
         let total_exchanges = balance_snapshots.len();
         let total_assets = balance_snapshots
             .values()
-            .flat_map(|snapshot| snapshot.balances.iter().map(|balance| &balance.asset))
+            .flat_map(|snapshot| snapshot.balances.values().map(|balance| &balance.asset))
             .collect::<std::collections::HashSet<_>>()
             .len();
         let total_value_usd = balance_snapshots

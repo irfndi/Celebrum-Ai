@@ -132,23 +132,33 @@ impl OpportunityDistributionService {
         // Create global opportunity with metadata
         let global_opportunity = GlobalOpportunity {
             id: format!("global_arb_{}", opportunity.id),
+            opportunity_id: opportunity.id.clone(),
             opportunity_type: OpportunitySource::SystemGenerated,
-            arbitrage_opportunity: opportunity.clone(),
-            target_users: Vec::new(),
-            opportunity_data: OpportunityData::Arbitrage(opportunity.clone()),
-            source: OpportunitySource::SystemGenerated,
+            trading_pair: opportunity.pair.clone(),
+            exchanges: vec![
+                opportunity.long_exchange.as_str().to_string(),
+                opportunity.short_exchange.as_str().to_string(),
+            ],
+            profit_percentage: opportunity.rate_difference * 100.0,
+            confidence_score: opportunity.confidence,
+            risk_level: "medium".to_string(),
             created_at: start_time,
-            detection_timestamp: start_time,
             expires_at: start_time + (10 * 60 * 1000), // 10 minutes
-            priority: 5,
-            priority_score: 0.5,
-            ai_enhanced: false,
-            ai_confidence_score: None,
-            ai_insights: None,
+            metadata: serde_json::json!({}),
             distributed_to: Vec::new(),
             max_participants: Some(100),
             current_participants: 0,
             distribution_strategy: DistributionStrategy::FirstComeFirstServe,
+            arbitrage_opportunity: opportunity.clone(),
+            opportunity_data: OpportunityData::Arbitrage(opportunity.clone()),
+            ai_insights: None,
+            source: OpportunitySource::SystemGenerated,
+            detection_timestamp: start_time,
+            priority: 5,
+            priority_score: 0.5,
+            ai_enhanced: false,
+            ai_confidence_score: None,
+            target_users: Vec::new(),
         };
 
         // Get eligible users
@@ -408,6 +418,17 @@ impl OpportunityDistributionService {
                     selected_users.push(user_id);
                 }
             }
+            DistributionStrategy::Targeted => {
+                for user_id in eligible_users.iter().take(3) {
+                    selected_users.push(user_id.clone());
+                }
+            }
+            DistributionStrategy::Priority => {
+                // Priority-based distribution
+                for user_id in eligible_users.iter().take(5) {
+                    selected_users.push(user_id.clone());
+                }
+            }
         }
 
         Ok(selected_users)
@@ -545,6 +566,7 @@ impl OpportunityDistributionService {
         let rate_difference = match opportunity_data {
             OpportunityData::Arbitrage(ref arb) => arb.rate_difference,
             OpportunityData::Technical(ref tech) => tech.confidence, // Use confidence as proxy for technical opportunities
+            OpportunityData::AI(ref ai) => ai.confidence_score,
         };
 
         // High priority for high-value opportunities
@@ -613,7 +635,7 @@ impl OpportunityDistributionService {
             arb.rate_difference * 100.0,
             arb.long_exchange.as_str(),
             arb.short_exchange.as_str(),
-            arb.expires_at / 1000
+            arb.expires_at.unwrap_or(0) / 1000
         );
 
         // Add AI insights if available and group has AI enabled
@@ -652,7 +674,7 @@ impl OpportunityDistributionService {
             arb.short_exchange.as_str(),
             arb.potential_profit_value.unwrap_or(0.0),
             arb.confidence * 100.0,
-            arb.expires_at / 1000
+            arb.expires_at.unwrap_or(0) / 1000
         );
 
         // Add detailed AI insights for private chat
@@ -1117,6 +1139,21 @@ impl OpportunityDistributionService {
 
         Some(ArbitrageOpportunity {
             id,
+            trading_pair: pair.clone(),
+            exchanges: vec![
+                long_exchange_enum.to_string(),
+                short_exchange_enum.to_string(),
+            ],
+            profit_percentage: spread * 100.0,
+            confidence_score: confidence_from_row,
+            risk_level: "medium".to_string(),
+            buy_exchange: long_exchange_enum.to_string(),
+            sell_exchange: short_exchange_enum.to_string(),
+            buy_price: long_rate,
+            sell_price: short_rate,
+            volume: volume_from_row,
+            created_at: created_at_from_row,
+            expires_at: Some(created_at_from_row + 300_000),
             pair,
             long_exchange: long_exchange_enum,
             short_exchange: short_exchange_enum,
@@ -1126,11 +1163,8 @@ impl OpportunityDistributionService {
             net_rate_difference,
             potential_profit_value,
             confidence: confidence_from_row,
-            volume: volume_from_row,
             timestamp, // Keep original timestamp as well if distinct from created_at
-            created_at: created_at_from_row, // Mapped from detected_at or a default
             detected_at: created_at_from_row, // Use same value as created_at for now
-            expires_at: created_at_from_row + 300_000, // 5 minutes TTL
             r#type: ArbitrageType::CrossExchange,
             min_exchanges_required: 2,
             details,

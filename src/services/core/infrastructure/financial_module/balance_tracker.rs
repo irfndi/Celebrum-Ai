@@ -361,18 +361,21 @@ impl BalanceTracker {
                     free: 0.5,
                     used: 0.1,
                     total: 0.6,
+                    currency: "BTC".to_string(),
                 });
                 balances.push(Balance {
                     asset: "ETH".to_string(),
                     free: 2.0,
                     used: 0.5,
                     total: 2.5,
+                    currency: "ETH".to_string(),
                 });
                 balances.push(Balance {
                     asset: "USDT".to_string(),
                     free: 1000.0,
                     used: 200.0,
                     total: 1200.0,
+                    currency: "USDT".to_string(),
                 });
             }
             "bybit" => {
@@ -381,18 +384,21 @@ impl BalanceTracker {
                     free: 0.3,
                     used: 0.05,
                     total: 0.35,
+                    currency: "BTC".to_string(),
                 });
                 balances.push(Balance {
                     asset: "ETH".to_string(),
                     free: 1.5,
                     used: 0.2,
                     total: 1.7,
+                    currency: "ETH".to_string(),
                 });
                 balances.push(Balance {
                     asset: "USDT".to_string(),
                     free: 800.0,
                     used: 100.0,
                     total: 900.0,
+                    currency: "USDT".to_string(),
                 });
             }
             _ => {
@@ -401,24 +407,30 @@ impl BalanceTracker {
                     free: 0.1,
                     used: 0.02,
                     total: 0.12,
+                    currency: "BTC".to_string(),
                 });
                 balances.push(Balance {
                     asset: "USDT".to_string(),
                     free: 500.0,
                     used: 50.0,
                     total: 550.0,
+                    currency: "USDT".to_string(),
                 });
             }
         }
 
-        balances
+        let mut balance_map = std::collections::HashMap::new();
+        for balance in balances {
+            balance_map.insert(balance.asset.clone(), balance);
+        }
+        balance_map
     }
 
     /// Calculate total USD value of balances
     async fn calculate_total_usd_value(&self, balances: &Balances) -> ArbitrageResult<f64> {
         let mut total_value = 0.0;
 
-        for balance in balances {
+        for balance in balances.values() {
             let price = self.get_asset_price_usd(&balance.asset).await?;
             total_value += balance.total * price;
         }
@@ -541,11 +553,11 @@ impl BalanceTracker {
                         id: uuid::Uuid::new_v4().to_string(),
                         user_id: user_id.to_string(),
                         exchange_id: exchange_id.clone(),
-                        asset: balance.asset.clone(),
-                        balance: balance.clone(),
-                        usd_value: balance.total
+                        asset: balance.1.asset.clone(),
+                        balance: balance.1.clone(),
+                        usd_value: balance.1.total
                             * self
-                                .get_asset_price_usd(&balance.asset.to_string())
+                                .get_asset_price_usd(&balance.1.asset.to_string())
                                 .await
                                 .unwrap_or(1.0),
                         timestamp: snapshot.timestamp,
@@ -630,6 +642,7 @@ impl BalanceTracker {
                     free: 0.5,
                     used: 0.1,
                     total: 0.6,
+                    currency: asset.unwrap_or("BTC").to_string(),
                 },
                 usd_value: 27000.0,
                 timestamp: get_current_time_millis(),

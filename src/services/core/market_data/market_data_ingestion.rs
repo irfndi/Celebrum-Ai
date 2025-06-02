@@ -258,7 +258,7 @@ impl MarketDataIngestionService {
             ExchangeIdEnum::Binance => self.fetch_binance_data(pair).await,
             ExchangeIdEnum::Bybit => self.fetch_bybit_data(pair).await,
             ExchangeIdEnum::OKX => self.fetch_okx_data(pair).await,
-            _ => Err(ArbitrageError::not_implemented(&format!(
+            _ => Err(ArbitrageError::not_implemented(format!(
                 "Exchange {} not supported for real market data fetching",
                 exchange.as_str()
             ))),
@@ -366,7 +366,7 @@ impl MarketDataIngestionService {
         let mut response = Fetch::Request(request).send().await?;
         
         if response.status_code() != 200 {
-            return Err(ArbitrageError::api_error(&format!(
+            return Err(ArbitrageError::api_error(format!(
                 "Binance price API error: {}", response.status_code()
             )));
         }
@@ -397,7 +397,7 @@ impl MarketDataIngestionService {
         let mut response = Fetch::Request(request).send().await?;
         
         if response.status_code() != 200 {
-            return Err(ArbitrageError::api_error(&format!(
+            return Err(ArbitrageError::api_error(format!(
                 "Binance funding rate API error: {}", response.status_code()
             )));
         }
@@ -437,7 +437,7 @@ impl MarketDataIngestionService {
         let mut response = Fetch::Request(request).send().await?;
         
         if response.status_code() != 200 {
-            return Err(ArbitrageError::api_error(&format!(
+            return Err(ArbitrageError::api_error(format!(
                 "Binance volume API error: {}", response.status_code()
             )));
         }
@@ -464,7 +464,7 @@ impl MarketDataIngestionService {
         let mut response = Fetch::Request(request).send().await?;
         
         if response.status_code() != 200 {
-            return Err(ArbitrageError::api_error(&format!(
+            return Err(ArbitrageError::api_error(format!(
                 "Bybit price API error: {}", response.status_code()
             )));
         }
@@ -506,7 +506,7 @@ impl MarketDataIngestionService {
         let mut response = Fetch::Request(request).send().await?;
         
         if response.status_code() != 200 {
-            return Err(ArbitrageError::api_error(&format!(
+            return Err(ArbitrageError::api_error(format!(
                 "Bybit funding rate API error: {}", response.status_code()
             )));
         }
@@ -550,7 +550,7 @@ impl MarketDataIngestionService {
         let mut response = Fetch::Request(request).send().await?;
         
         if response.status_code() != 200 {
-            return Err(ArbitrageError::api_error(&format!(
+            return Err(ArbitrageError::api_error(format!(
                 "Bybit volume API error: {}", response.status_code()
             )));
         }
@@ -585,7 +585,7 @@ impl MarketDataIngestionService {
         let mut response = Fetch::Request(request).send().await?;
         
         if response.status_code() != 200 {
-            return Err(ArbitrageError::api_error(&format!(
+            return Err(ArbitrageError::api_error(format!(
                 "OKX price API error: {}", response.status_code()
             )));
         }
@@ -622,12 +622,12 @@ impl MarketDataIngestionService {
             Ok(cached_data) => {
                 match serde_json::from_str::<MarketDataSnapshot>(&cached_data) {
                     Ok(snapshot) => Ok(snapshot),
-                    Err(e) => Err(ArbitrageError::parse_error(&format!(
+                    Err(e) => Err(ArbitrageError::parse_error(format!(
                         "Failed to parse cached market data: {}", e
                     ))),
                 }
             }
-            Err(e) => Err(ArbitrageError::not_found(&format!(
+            Err(e) => Err(ArbitrageError::not_found(format!(
                 "No cached data for {}:{} - {}", exchange.as_str(), pair, e
             ))),
         }
@@ -878,4 +878,4 @@ mod tests {
         assert!(matches!(DataSource::Cache, DataSource::Cache));
         assert!(matches!(DataSource::CoinMarketCap, DataSource::CoinMarketCap));
     }
-} 
+}  

@@ -303,7 +303,7 @@ impl DeliveryRequest {
 
         let max_length = self.channel.max_message_length();
         if self.content.len() > max_length {
-            return Err(ArbitrageError::validation_error(&format!(
+            return Err(ArbitrageError::validation_error(format!(
                 "Content too long for {}: {} > {} characters",
                 self.channel.as_str(),
                 self.content.len(),
@@ -838,7 +838,7 @@ impl DeliveryManager {
 
         // Rate limiting check
         if self.config.enable_rate_limiting && !self.check_rate_limit(&request.channel).await {
-            return Err(ArbitrageError::rate_limit_error(&format!(
+            return Err(ArbitrageError::rate_limit_error(format!(
                 "Rate limit exceeded for channel: {}",
                 request.channel.as_str()
             )));
@@ -988,7 +988,7 @@ impl DeliveryManager {
                     .info(&format!("Sending webhook to {}", request.recipient));
                 Ok("webhook_response_ok".to_string())
             }
-            _ => Err(ArbitrageError::not_implemented(&format!(
+            _ => Err(ArbitrageError::not_implemented(format!(
                 "Channel {} not implemented",
                 request.channel.as_str()
             ))),

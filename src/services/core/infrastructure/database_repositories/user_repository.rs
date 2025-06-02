@@ -503,7 +503,7 @@ impl UserRepository {
             subscription_json.into(),  // write to trading_preferences
             (profile.created_at as i64).into(),
             (profile.updated_at as i64).into(),
-            (profile.last_active.unwrap_or(0) as i64).into(),
+            (profile.last_active as i64).into(),
             if profile.is_active {
                 "active"
             } else {
@@ -599,7 +599,7 @@ impl UserRepository {
             invitation_code: get_optional_string_field(&row, "invitation_code"),
             beta_expires_at,
             updated_at,
-            last_active: Some(last_active),
+            last_active,
             total_trades: get_i64_field(&row, "total_trades", 0) as u32,
             total_pnl_usdt: get_f64_field(&row, "total_pnl_usdt", 0.0),
             account_balance_usdt,
@@ -607,6 +607,10 @@ impl UserRepository {
             telegram_username,
             subscription: serde_json::from_value(subscription).unwrap_or_default(),
             group_admin_roles: Vec::new(), // Will be populated separately
+            invitation_code_used: None,
+            invited_by: None,
+            successful_invitations: 0,
+            total_invitations_sent: 0,
         })
     }
 

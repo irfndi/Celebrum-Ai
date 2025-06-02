@@ -43,9 +43,7 @@ impl ExchangeIdEnum {
         }
     }
 
-    pub fn to_string(&self) -> String {
-        self.as_str().to_string()
-    }
+
 
     pub fn from_string(s: &str) -> Result<Self, String> {
         s.parse()
@@ -229,9 +227,8 @@ pub enum CommandPermission {
 pub struct ExchangeCredentials {
     pub exchange: ExchangeIdEnum,
     pub api_key: String,
+    pub api_secret: String,
     pub secret: String,
-    #[serde(alias = "secret")]
-    pub api_secret: String, // Alias for secret field
     pub passphrase: Option<String>,
     pub sandbox: bool,
     pub is_testnet: bool,
@@ -1731,10 +1728,11 @@ pub enum PositionAction {
 }
 
 /// User subscription tier - Simplified for group/channel focus
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum SubscriptionTier {
     // Core subscription types
+    #[default]
     Free, // Free tier - basic features
     Paid, // Paid tier - enhanced features
 
@@ -1876,11 +1874,7 @@ impl std::fmt::Display for SubscriptionTier {
     }
 }
 
-impl Default for SubscriptionTier {
-    fn default() -> Self {
-        SubscriptionTier::Free
-    }
-}
+
 
 /// Opportunity data for distribution
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2232,6 +2226,7 @@ impl Default for GroupAdminRole {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AIAccessLevel {
+    #[default]
     FreeWithoutAI,
     FreeWithAI,
     SubscriptionWithAI,
@@ -2239,11 +2234,7 @@ pub enum AIAccessLevel {
     EnterpriseAI,
 }
 
-impl Default for AIAccessLevel {
-    fn default() -> Self {
-        AIAccessLevel::FreeWithoutAI
-    }
-}
+
 
 /// Funding rate information structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2318,7 +2309,7 @@ impl UserPreferencesUpdate {
 
         // Validate max leverage
         if let Some(max_leverage) = self.max_leverage {
-            if max_leverage < 1.0 || max_leverage > 100.0 {
+            if !(1.0..=100.0).contains(&max_leverage) {
                 return Err("Max leverage must be between 1 and 100".to_string());
             }
         }
@@ -2765,6 +2756,22 @@ pub struct ArbitragePosition {
     pub volatility_score: Option<f64>,
     pub calculated_size_usd: Option<f64>,
     pub long_exchange: ExchangeIdEnum,
+    // Fields required by positions.rs
+    pub size: Option<f64>,
+    pub pnl: Option<f64>,
+    pub unrealized_pnl_percentage: Option<f64>,
+    pub max_drawdown: Option<f64>,
+    pub created_at: u64,
+    pub holding_period_hours: Option<f64>,
+    pub trailing_stop_distance: Option<f64>,
+    pub stop_loss_price: Option<f64>,
+    pub current_price: Option<f64>,
+    pub max_loss_usd: Option<f64>,
+    pub exchange: ExchangeIdEnum,
+    pub pair: String,
+    pub related_positions: Vec<String>,
+    pub updated_at: u64,
+    pub risk_reward_ratio: Option<f64>,
 }
 
 /// Position side enumeration
