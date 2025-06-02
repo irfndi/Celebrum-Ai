@@ -520,20 +520,31 @@ impl AIEnhancer {
 
         ArbitrageOpportunity {
             id: format!("tech_to_arb_{}", tech_opp.id),
+            trading_pair: tech_opp.symbol.clone(),
+            exchanges: vec![tech_opp.exchange.clone()],
+            profit_percentage: tech_opp.expected_return_percentage * 100.0,
+            confidence_score: tech_opp.confidence,
+            risk_level: "medium".to_string(),
+            buy_exchange: tech_opp.exchange.clone(),
+            sell_exchange: tech_opp.exchange.clone(),
+            buy_price: tech_opp.entry_price,
+            sell_price: tech_opp.target_price,
+            created_at: Utc::now().timestamp_millis() as u64,
+            expires_at: tech_opp.expires_at,
             pair: tech_opp.symbol.clone(),
-            long_exchange: tech_opp.exchange,
-            short_exchange: tech_opp.exchange,
+            long_exchange: ExchangeIdEnum::from_string(&tech_opp.exchange)
+                .unwrap_or(ExchangeIdEnum::Binance),
+            short_exchange: ExchangeIdEnum::from_string(&tech_opp.exchange)
+                .unwrap_or(ExchangeIdEnum::Binance),
             long_rate: None,
             short_rate: None,
             rate_difference: tech_opp.expected_return_percentage,
             net_rate_difference: Some(tech_opp.expected_return_percentage),
-            potential_profit_value: Some(tech_opp.expected_return_percentage * 1000.0), // Scale for AI processing
-            confidence: 0.8, // Default confidence score
-            volume: 1000.0,  // Default volume
+            potential_profit_value: Some(tech_opp.expected_return_percentage * 1000.0),
+            confidence: tech_opp.confidence,
+            volume: 1000.0,
             timestamp: Utc::now().timestamp_millis() as u64,
-            created_at: Utc::now().timestamp_millis() as u64,
             detected_at: Utc::now().timestamp_millis() as u64,
-            expires_at: Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
             r#type: ArbitrageType::CrossExchange,
             details: Some(format!(
                 "Technical Signal: {:?} | Confidence: {:.2}",
@@ -565,12 +576,12 @@ mod tests {
             rate_difference: 0.001,
             net_rate_difference: Some(0.001),
             potential_profit_value: Some(50.0),
-            confidence: 0.8, // Default confidence score
-            volume: 1000.0,  // Default volume
+            confidence: 0.8,
+            volume: 1000.0,
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             detected_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
+            expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000),
             r#type: ArbitrageType::CrossExchange,
             details: Some("Test opportunity for AI enhancement".to_string()),
             min_exchanges_required: 2,
@@ -611,19 +622,19 @@ mod tests {
         let converted = ArbitrageOpportunity {
             id: format!("tech_to_arb_{}", tech_opp.id),
             pair: tech_opp.symbol.clone(),
-            long_exchange: tech_opp.exchange,
+            long_exchange: tech_opp.exchange.clone(),
             short_exchange: tech_opp.exchange,
             long_rate: None,
             short_rate: None,
             rate_difference: tech_opp.expected_return_percentage,
             net_rate_difference: Some(tech_opp.expected_return_percentage),
             potential_profit_value: Some(tech_opp.expected_return_percentage * 1000.0),
-            confidence: 0.8, // Default confidence score
-            volume: 1000.0,  // Default volume
+            confidence: 0.8,
+            volume: 1000.0,
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             detected_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
+            expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000),
             r#type: ArbitrageType::CrossExchange,
             details: Some(format!(
                 "Technical Signal: {:?} | Confidence: {:.2}",

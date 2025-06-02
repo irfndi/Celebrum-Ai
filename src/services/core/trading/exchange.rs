@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::{
     CommandPermission, ExchangeCredentials, ExchangeIdEnum, Market, Order, OrderBook, Position,
-    Ticker, TradingFees,
+    Ticker, TradingFeeRates, TradingFees,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 
@@ -540,6 +540,10 @@ impl ExchangeInterface for ExchangeService {
                 .get("quoteVolume")
                 .and_then(|v| v.as_str())
                 .and_then(|s| s.parse().ok()),
+            volume: response
+                .get("volume")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
             info: response,
         })
     }
@@ -629,7 +633,7 @@ impl ExchangeInterface for ExchangeService {
             datetime: chrono::Utc::now().to_rfc3339(),
             last_trade_timestamp: None,
             symbol: symbol.to_string(),
-            order_type: "limit".to_string(),
+            type_: "limit".to_string(),
             time_in_force: None,
             side: side.to_string(),
             amount,
@@ -660,7 +664,7 @@ impl ExchangeInterface for ExchangeService {
             datetime: chrono::Utc::now().to_rfc3339(),
             last_trade_timestamp: None,
             symbol: symbol.to_string(),
-            order_type: "limit".to_string(),
+            type_: "limit".to_string(),
             time_in_force: None,
             side: "buy".to_string(),
             amount: 0.0,
@@ -715,9 +719,18 @@ impl ExchangeInterface for ExchangeService {
     ) -> ArbitrageResult<TradingFees> {
         // Placeholder implementation
         Ok(TradingFees {
-            trading: std::collections::HashMap::new(),
-            funding: std::collections::HashMap::new(),
-            transaction: std::collections::HashMap::new(),
+            trading: TradingFeeRates {
+                maker: 0.001,
+                taker: 0.001,
+                percentage: true,
+                tier_based: false,
+            },
+            funding: Some(TradingFeeRates {
+                maker: 0.0,
+                taker: 0.0,
+                percentage: true,
+                tier_based: false,
+            }),
         })
     }
 

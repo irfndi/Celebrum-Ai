@@ -593,6 +593,7 @@ impl AiExchangeRouterService {
             opportunity_id: match &opportunity.opportunity_data {
                 crate::types::OpportunityData::Arbitrage(arb) => arb.id.clone(),
                 crate::types::OpportunityData::Technical(tech) => tech.id.clone(),
+                crate::types::OpportunityData::AI(ai) => ai.id.clone(),
             },
             user_id: user_id.to_string(),
             ai_score,

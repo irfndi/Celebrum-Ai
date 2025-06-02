@@ -19,6 +19,7 @@ use crate::types::{
     // AiInsightsSummary, CommandPermission,
     GroupRateLimitConfig,
     GroupRegistration,
+    GroupSettings,
     MessageAnalytics, // UserProfile, UserRole,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
@@ -613,7 +614,11 @@ impl TelegramService {
                             })
                             .collect();
 
-                        match GroupRegistration::from_d1_row(&value_row) {
+                        let string_row: std::collections::HashMap<String, String> = value_row
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                            .collect();
+                        match self.parse_group_registration_from_row(&string_row) {
                             Ok(group_registration) => {
                                 self.group_registrations.insert(
                                     group_registration.group_id.to_string(),
@@ -706,6 +711,7 @@ impl TelegramService {
                 max_technical_signals_per_hour: 3,
                 max_broadcasts_per_day: 10,
                 cooldown_between_messages_minutes: 15,
+                enabled: true,
             });
 
         let registered_at = row
@@ -745,11 +751,12 @@ impl TelegramService {
             group_username,
             member_count,
             admin_user_ids,
-            bot_permissions,
+            bot_permissions: bot_permissions.into(),
             enabled_features,
             global_opportunities_enabled,
             technical_analysis_enabled,
             rate_limit_config,
+            settings: crate::types::GroupSettings::default(),
             registered_at,
             last_activity: Some(last_activity),
             total_messages_sent,
@@ -844,6 +851,7 @@ impl TelegramService {
         let group_id_i64 = chat_context.chat_id.parse::<i64>().unwrap_or(0);
 
         let default_rate_limit = GroupRateLimitConfig {
+            enabled: true,
             group_id: group_id_i64.to_string(),
             max_messages_per_minute: 10,
             max_commands_per_hour: 20,
@@ -859,6 +867,7 @@ impl TelegramService {
         };
 
         let registration = GroupRegistration {
+            settings: GroupSettings::default(),
             registration_id: uuid::Uuid::new_v4().to_string(),
             group_id: group_id_i64.to_string(),
             group_name: group_title
@@ -882,7 +891,11 @@ impl TelegramService {
             group_username: None,
             member_count,
             admin_user_ids: vec![],
-            bot_permissions: vec!["read_messages".to_string(), "send_messages".to_string()],
+            bot_permissions: serde_json::to_value(vec![
+                "read_messages".to_string(),
+                "send_messages".to_string(),
+            ])
+            .unwrap(),
             enabled_features: vec!["global_opportunities".to_string()],
             global_opportunities_enabled: true,
             technical_analysis_enabled: false,

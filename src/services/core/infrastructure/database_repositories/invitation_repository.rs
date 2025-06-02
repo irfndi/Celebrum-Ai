@@ -673,6 +673,7 @@ impl InvitationRepository {
             expires_at,
             is_active,
             bonus_percentage,
+            metadata: std::collections::HashMap::new(),
             invitation_type,
             created_by,
             purpose,

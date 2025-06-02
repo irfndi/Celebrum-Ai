@@ -77,8 +77,8 @@ impl SessionManagementService {
                     Ok(None)
                 }
             }
-            Err(ArbitrageError::SessionNotFound(_)) => Ok(None), // Not found is not an error here
-            Err(e) => Err(e),                                   // Other errors are propagated
+            Err(e) if e.error_code.as_deref() == Some("SESSION_NOT_FOUND") => Ok(None), // Not found is not an error here
+            Err(e) => Err(e), // Other errors are propagated
         }
     }
 
@@ -95,8 +95,8 @@ impl SessionManagementService {
                     Ok(None)
                 }
             }
-            Err(ArbitrageError::SessionNotFound(_)) => Ok(None), // Not found is not an error here
-            Err(e) => Err(e),                                   // Other errors are propagated
+            Err(e) if e.error_code.as_deref() == Some("SESSION_NOT_FOUND") => Ok(None), // Not found is not an error here
+            Err(e) => Err(e), // Other errors are propagated
         }
     }
 

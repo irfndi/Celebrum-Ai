@@ -195,10 +195,11 @@ impl AccessManager {
                     api_key: api_key.encrypted_key.clone(),
                     api_secret: api_key.encrypted_secret.clone().unwrap_or_default(),
                     secret: api_key.encrypted_secret.clone().unwrap_or_default(),
-                    passphrase: api_key.passphrase.clone(),
+                    passphrase: api_key.passphrase().clone(),
                     sandbox: api_key.is_testnet,
                     default_leverage: 1,               // Default value
                     exchange_type: "spot".to_string(), // Default to spot
+                    is_testnet: api_key.is_testnet,
                 };
                 exchanges.push((exchange_id, credentials));
             }
@@ -346,13 +347,17 @@ impl AccessManager {
                 // Convert AIAccessLevel to UserAccessLevel
                 let ai_level = profile.get_ai_access_level();
                 let user_level = match ai_level {
-                    crate::types::AIAccessLevel::FreeWithoutAI => UserAccessLevel::FreeWithoutAPI,
-                    crate::types::AIAccessLevel::FreeWithAI => UserAccessLevel::FreeWithAPI,
-                    crate::types::AIAccessLevel::SubscriptionWithAI => {
-                        UserAccessLevel::SubscriptionWithAPI
-                    }
-                    crate::types::AIAccessLevel::PremiumAI => UserAccessLevel::Premium,
-                    crate::types::AIAccessLevel::EnterpriseAI => UserAccessLevel::Admin,
+                    UserAccessLevel::FreeWithoutAPI => UserAccessLevel::FreeWithoutAPI,
+                    UserAccessLevel::FreeWithAPI => UserAccessLevel::FreeWithAPI,
+                    UserAccessLevel::SubscriptionWithAPI => UserAccessLevel::SubscriptionWithAPI,
+                    UserAccessLevel::Premium => UserAccessLevel::Premium,
+                    UserAccessLevel::Admin => UserAccessLevel::Admin,
+                    UserAccessLevel::Registered => UserAccessLevel::Registered,
+                    UserAccessLevel::Guest => UserAccessLevel::Guest,
+                    UserAccessLevel::Free => UserAccessLevel::Free,
+                    UserAccessLevel::Verified => UserAccessLevel::Verified,
+                    UserAccessLevel::Paid => UserAccessLevel::Paid,
+                    UserAccessLevel::SuperAdmin => UserAccessLevel::SuperAdmin,
                 };
                 Ok(user_level)
             }

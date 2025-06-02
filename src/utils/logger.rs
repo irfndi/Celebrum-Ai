@@ -364,13 +364,23 @@ impl Logger {
     }
 
     /// Store log to secure audit log (production-only)
-    /// This method should be implemented to store logs securely without exposing sensitive data
+    /// This method implements secure audit logging to encrypted R2 storage
     #[cfg(not(any(debug_assertions, feature = "enable-logging")))]
-    fn store_to_audit_log(&self, _sanitized_message: &str) {
-        // In production, we completely disable console output to prevent cleartext logging vulnerabilities
-        // This satisfies CodeQL security requirements by ensuring no sensitive data can be exposed via console
-        // TODO: Implement secure audit logging (e.g., to encrypted storage, secure syslog, etc.)
-        // For now, logs are silently discarded in production to maintain security
+    fn store_to_audit_log(&self, sanitized_message: &str) {
+        let audit_entry = AuditLogEntry {
+            timestamp: chrono::Utc::now(),
+            level: self.level.clone(),
+            message: sanitized_message.to_string(),
+            checksum: calculate_message_checksum(sanitized_message),
+        };
+
+        if let Ok(encrypted_entry) = encrypt_audit_entry(&audit_entry) {
+            tokio::spawn(async move {
+                if let Err(e) = store_encrypted_audit_log(encrypted_entry).await {
+                    eprintln!("Failed to store audit log: {}", e);
+                }
+            });
+        }
     }
 }
 

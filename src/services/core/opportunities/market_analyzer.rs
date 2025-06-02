@@ -9,7 +9,7 @@ use crate::types::{
     TechnicalSignalStrength, TechnicalSignalType, Ticker,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -189,11 +189,11 @@ impl MarketAnalyzer {
                                     datetime: Utc::now().to_rfc3339(),
                                     next_funding_time: rate_data
                                         .get("fundingTime")
-                                        .and_then(|v| v.as_u64())
-                                        .and_then(|ts| DateTime::from_timestamp(ts as i64, 0)),
+                                        .and_then(|v| v.as_u64()),
                                     estimated_rate: rate_data
                                         .get("markPrice")
                                         .and_then(|v| v.as_f64()),
+                                    info: serde_json::json!({}),
                                     estimated_settle_price: rate_data
                                         .get("settlePrice")
                                         .and_then(|v| v.as_f64()),
@@ -949,7 +949,7 @@ impl MarketAnalyzer {
                         if analysis.price_difference_percent >= config.min_rate_difference {
                             let opportunity = ArbitrageOpportunity {
                                 id: uuid::Uuid::new_v4().to_string(),
-                                trading_pair: pair.clone(),
+                                trading_pair: pair.to_string(),
                                 exchanges: vec![exchange_a.to_string(), exchange_b.to_string()],
                                 profit_percentage: analysis.price_difference_percent,
                                 confidence_score: 0.8, // High confidence for market analyzer
@@ -964,7 +964,7 @@ impl MarketAnalyzer {
                                     chrono::Utc::now().timestamp_millis() as u64 + 300_000,
                                 ), // 5 minutes
                                 // Additional fields
-                                pair: pair.clone(),
+                                pair: pair.to_string(),
                                 long_exchange: exchange_a,
                                 short_exchange: exchange_b,
                                 long_rate: Some(analysis.price_difference_percent),

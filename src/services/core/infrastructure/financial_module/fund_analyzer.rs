@@ -452,7 +452,7 @@ impl FundAnalyzer {
 
         // Sum up all assets across exchanges
         for snapshot in balance_snapshots.values() {
-            for balance in &snapshot.balances {
+            for (_, balance) in &snapshot.balances {
                 let asset_value = balance.total * self.get_mock_price(&balance.asset);
                 *asset_totals.entry(balance.asset.clone()).or_insert(0.0) += asset_value;
                 total_portfolio_value += asset_value;
@@ -665,7 +665,7 @@ impl FundAnalyzer {
         let mut highest_balance = 0.0;
 
         for (exchange_id, snapshot) in balance_snapshots {
-            if let Some(balance) = snapshot.balances.iter().find(|b| b.asset == asset) {
+            if let Some((_, balance)) = snapshot.balances.iter().find(|(_, b)| b.asset == asset) {
                 if balance.total > highest_balance {
                     highest_balance = balance.total;
                     best_exchange = exchange_id.clone();
@@ -684,7 +684,7 @@ impl FundAnalyzer {
         balance_snapshots: &HashMap<String, ExchangeBalanceSnapshot>,
     ) -> f64 {
         if let Some(snapshot) = balance_snapshots.get(exchange_id) {
-            if let Some(balance) = snapshot.balances.iter().find(|b| b.asset == asset) {
+            if let Some((_, balance)) = snapshot.balances.iter().find(|(_, b)| b.asset == asset) {
                 return balance.total;
             }
         }

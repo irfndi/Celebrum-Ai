@@ -143,25 +143,167 @@ async fn process_opportunity_message(
                 telegram_service.send_private_message(&notification_text, user_id).await?;
             }
             crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::RoundRobin => {
-                // TODO: Implement round-robin distribution logic - tracked in issue #124
-                // This should implement fair rotation among users based on last distribution index
-                return Err(crate::utils::ArbitrageError::configuration_error(
-                    "Round-robin distribution strategy not yet implemented - tracked in issue #124"
-                ));
+                let kv = _env.kv("ARBITRAGE_KV").map_err(|e| {
+                    crate::utils::ArbitrageError::configuration_error(
+                        format!("Failed to access KV store for round-robin distribution: {}", e)
+                    )
+                })?;
+                
+                let last_index_key = "distribution:roundrobin:last_user_index";
+                let last_index: usize = match kv.get(last_index_key).text().await {
+                    Ok(Some(index_str)) => index_str.parse().unwrap_or(0),
+                    _ => 0,
+                };
+                
+                let next_index = (last_index + 1) % message.target_users.len();
+                let selected_user = &message.target_users[next_index];
+                
+                let notification_text = format!(
+                    "🚀 New Arbitrage Opportunity!\n\n\
+                    Pair: {}\n\
+                    Exchanges: {} ↔ {}\n\
+                    Profit: {:.2}%\n\
+                    Confidence: {:.1}%",
+                    message.opportunity.pair,
+                    message.opportunity.long_exchange,
+                    message.opportunity.short_exchange,
+                    message.opportunity.rate_difference * 100.0,
+                    message.opportunity.confidence * 100.0
+                );
+                
+                telegram_service.send_private_message(&notification_text, selected_user).await?;
+                
+                kv.put(last_index_key, &next_index.to_string()).map_err(|e| {
+                    crate::utils::ArbitrageError::storage_error(
+                        format!("Failed to update round-robin index: {}", e)
+                    )
+                })?.execute().await.map_err(|e| {
+                    crate::utils::ArbitrageError::storage_error(
+                        format!("Failed to save round-robin index: {}", e)
+                    )
+                })?;
             }
             crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::PriorityBased => {
-                // TODO: Implement priority-based distribution logic - tracked in issue #125
-                // This should prioritize users based on subscription tier or activity level
-                return Err(crate::utils::ArbitrageError::configuration_error(
-                    "Priority-based distribution strategy not yet implemented - tracked in issue #125"
-                ));
+                let d1 = _env.d1("ARBITRAGE_DB").map_err(|e| {
+                    crate::utils::ArbitrageError::configuration_error(
+                        format!("Failed to access D1 database for priority-based distribution: {}", e)
+                    )
+                })?;
+                
+                let mut user_priorities: Vec<(String, i32)> = Vec::new();
+                
+                for user_id in &message.target_users {
+                    let query = "SELECT subscription_tier, activity_score FROM user_profiles WHERE user_id = ?";
+                    let stmt = d1.prepare(query);
+                    let result = stmt.bind(&[user_id.into()]).map_err(|e| {
+                        crate::utils::ArbitrageError::database_error(
+                            format!("Failed to bind user query: {}", e)
+                        )
+                    })?.first::<serde_json::Value>(None).await.map_err(|e| {
+                        crate::utils::ArbitrageError::database_error(
+                            format!("Failed to query user priority data: {}", e)
+                        )
+                    })?;
+                    
+                    let priority = if let Some(data) = result {
+                        let tier_priority = match data.get("subscription_tier").and_then(|v| v.as_str()) {
+                            Some("premium") => 100,
+                            Some("pro") => 50,
+                            Some("basic") => 20,
+                            _ => 10,
+                        };
+                        let activity_score = data.get("activity_score").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                        tier_priority + (activity_score / 10)
+                    } else {
+                        10
+                    };
+                    
+                    user_priorities.push((user_id.clone(), priority));
+                }
+                
+                user_priorities.sort_by(|a, b| b.1.cmp(&a.1));
+                
+                let top_users = user_priorities.into_iter()
+                    .take(std::cmp::min(5, message.target_users.len()))
+                    .map(|(user_id, _)| user_id)
+                    .collect::<Vec<_>>();
+                
+                let notification_text = format!(
+                    "🚀 Priority Arbitrage Opportunity!\n\n\
+                    Pair: {}\n\
+                    Exchanges: {} ↔ {}\n\
+                    Profit: {:.2}%\n\
+                    Confidence: {:.1}%",
+                    message.opportunity.pair,
+                    message.opportunity.long_exchange,
+                    message.opportunity.short_exchange,
+                    message.opportunity.rate_difference * 100.0,
+                    message.opportunity.confidence * 100.0
+                );
+                
+                for user_id in &top_users {
+                    telegram_service.send_private_message(&notification_text, user_id).await?;
+                }
             }
             crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::GeographicBased => {
-                // TODO: Implement geographic-based distribution logic - tracked in issue #126
-                // This should filter users by location or timezone before sending messages
-                return Err(crate::utils::ArbitrageError::configuration_error(
-                    "Geographic-based distribution strategy not yet implemented - tracked in issue #126"
-                ));
+                let d1 = _env.d1("ARBITRAGE_DB").map_err(|e| {
+                    crate::utils::ArbitrageError::configuration_error(
+                        format!("Failed to access D1 database for geographic distribution: {}", e)
+                    )
+                })?;
+                
+                let current_hour = chrono::Utc::now().hour();
+                let mut eligible_users = Vec::new();
+                
+                for user_id in &message.target_users {
+                    let query = "SELECT timezone_offset, trading_hours_start, trading_hours_end FROM user_profiles WHERE user_id = ?";
+                    let stmt = d1.prepare(query);
+                    let result = stmt.bind(&[user_id.into()]).map_err(|e| {
+                        crate::utils::ArbitrageError::database_error(
+                            format!("Failed to bind geographic query: {}", e)
+                        )
+                    })?.first::<serde_json::Value>(None).await.map_err(|e| {
+                        crate::utils::ArbitrageError::database_error(
+                            format!("Failed to query user geographic data: {}", e)
+                        )
+                    })?;
+                    
+                    if let Some(data) = result {
+                        let timezone_offset = data.get("timezone_offset").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                        let trading_start = data.get("trading_hours_start").and_then(|v| v.as_u64()).unwrap_or(9) as u32;
+                        let trading_end = data.get("trading_hours_end").and_then(|v| v.as_u64()).unwrap_or(17) as u32;
+                        
+                        let user_local_hour = ((current_hour as i32 + timezone_offset) % 24) as u32;
+                        
+                        if user_local_hour >= trading_start && user_local_hour <= trading_end {
+                            eligible_users.push(user_id.clone());
+                        }
+                    } else {
+                        eligible_users.push(user_id.clone());
+                    }
+                }
+                
+                if eligible_users.is_empty() {
+                    console_log!("No users in active trading hours for geographic distribution");
+                    return Ok(());
+                }
+                
+                let notification_text = format!(
+                    "🌍 Regional Arbitrage Opportunity!\n\n\
+                    Pair: {}\n\
+                    Exchanges: {} ↔ {}\n\
+                    Profit: {:.2}%\n\
+                    Confidence: {:.1}%",
+                    message.opportunity.pair,
+                    message.opportunity.long_exchange,
+                    message.opportunity.short_exchange,
+                    message.opportunity.rate_difference * 100.0,
+                    message.opportunity.confidence * 100.0
+                );
+                
+                for user_id in &eligible_users {
+                    telegram_service.send_private_message(&notification_text, user_id).await?;
+                }
             }
         }
     }
@@ -185,24 +327,112 @@ async fn process_notification_message(
             telegram_service.send_private_message(&message.content, &message.user_id).await?;
         }
         crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::Email => {
-            // TODO: Implement email delivery - tracked in issue #123
-            // See: https://github.com/irfndi/ArbEdge/issues/123
-            console_log!("Email delivery not yet implemented for message: {} - tracked in issue #123", message.message_id);
-            return Err(crate::utils::ArbitrageError::configuration_error(
-                "Email delivery not yet implemented - tracked in issue #123"
-            ));
+            let email_service = initialize_email_service(_env).await?;
+            
+            let d1 = _env.d1("ARBITRAGE_DB").map_err(|e| {
+                crate::utils::ArbitrageError::configuration_error(
+                    format!("Failed to access D1 database for email delivery: {}", e)
+                )
+            })?;
+            
+            let query = "SELECT email FROM user_profiles WHERE user_id = ?";
+            let stmt = d1.prepare(query);
+            let result = stmt.bind(&[message.user_id.clone().into()]).map_err(|e| {
+                crate::utils::ArbitrageError::database_error(
+                    format!("Failed to bind email query: {}", e)
+                )
+            })?.first::<serde_json::Value>(None).await.map_err(|e| {
+                crate::utils::ArbitrageError::database_error(
+                    format!("Failed to query user email: {}", e)
+                )
+            })?;
+            
+            if let Some(data) = result {
+                if let Some(email) = data.get("email").and_then(|v| v.as_str()) {
+                    email_service.send_email(email, "ArbEdge Notification", &message.content).await?;
+                } else {
+                    return Err(crate::utils::ArbitrageError::configuration_error(
+                        format!("No email address found for user: {}", message.user_id)
+                    ));
+                }
+            } else {
+                return Err(crate::utils::ArbitrageError::configuration_error(
+                    format!("User not found: {}", message.user_id)
+                ));
+            }
         }
         crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::WebPush => {
-            console_log!("WebPush notification delivery not yet implemented for message: {}", message.message_id);
-            return Err(crate::utils::ArbitrageError::configuration_error(
-                "WebPush notification delivery not yet implemented"
-            ));
+            let d1 = _env.d1("ARBITRAGE_DB").map_err(|e| {
+                crate::utils::ArbitrageError::configuration_error(
+                    format!("Failed to access D1 database for WebPush delivery: {}", e)
+                )
+            })?;
+            
+            let query = "SELECT webpush_endpoint, webpush_p256dh, webpush_auth FROM user_profiles WHERE user_id = ?";
+            let stmt = d1.prepare(query);
+            let result = stmt.bind(&[message.user_id.clone().into()]).map_err(|e| {
+                crate::utils::ArbitrageError::database_error(
+                    format!("Failed to bind WebPush query: {}", e)
+                )
+            })?.first::<serde_json::Value>(None).await.map_err(|e| {
+                crate::utils::ArbitrageError::database_error(
+                    format!("Failed to query user WebPush data: {}", e)
+                )
+            })?;
+            
+            if let Some(data) = result {
+                let endpoint = data.get("webpush_endpoint").and_then(|v| v.as_str());
+                let p256dh = data.get("webpush_p256dh").and_then(|v| v.as_str());
+                let auth = data.get("webpush_auth").and_then(|v| v.as_str());
+                
+                if let (Some(endpoint), Some(p256dh), Some(auth)) = (endpoint, p256dh, auth) {
+                    let webpush_service = initialize_webpush_service(_env).await?;
+                    webpush_service.send_notification(endpoint, p256dh, auth, &message.content).await?;
+                } else {
+                    return Err(crate::utils::ArbitrageError::configuration_error(
+                        format!("Incomplete WebPush subscription data for user: {}", message.user_id)
+                    ));
+                }
+            } else {
+                return Err(crate::utils::ArbitrageError::configuration_error(
+                    format!("User not found: {}", message.user_id)
+                ));
+            }
         }
         crate::services::core::infrastructure::cloudflare_queues::DeliveryMethod::SMS => {
-            console_log!("SMS delivery not yet implemented for message: {}", message.message_id);
-            return Err(crate::utils::ArbitrageError::configuration_error(
-                "SMS delivery not yet implemented"
-            ));
+            let sms_service = initialize_sms_service(_env).await?;
+            
+            let d1 = _env.d1("ARBITRAGE_DB").map_err(|e| {
+                crate::utils::ArbitrageError::configuration_error(
+                    format!("Failed to access D1 database for SMS delivery: {}", e)
+                )
+            })?;
+            
+            let query = "SELECT phone_number FROM user_profiles WHERE user_id = ?";
+            let stmt = d1.prepare(query);
+            let result = stmt.bind(&[message.user_id.clone().into()]).map_err(|e| {
+                crate::utils::ArbitrageError::database_error(
+                    format!("Failed to bind SMS query: {}", e)
+                )
+            })?.first::<serde_json::Value>(None).await.map_err(|e| {
+                crate::utils::ArbitrageError::database_error(
+                    format!("Failed to query user phone number: {}", e)
+                )
+            })?;
+            
+            if let Some(data) = result {
+                if let Some(phone) = data.get("phone_number").and_then(|v| v.as_str()) {
+                    sms_service.send_sms(phone, &message.content).await?;
+                } else {
+                    return Err(crate::utils::ArbitrageError::configuration_error(
+                        format!("No phone number found for user: {}", message.user_id)
+                    ));
+                }
+            } else {
+                return Err(crate::utils::ArbitrageError::configuration_error(
+                    format!("User not found: {}", message.user_id)
+                ));
+            }
         }
     }
 
@@ -288,4 +518,175 @@ async fn initialize_analytics_service(env: &Env) -> ArbitrageResult<crate::servi
         api_token,
         dataset_name,
     ))
-} 
+}
+
+/// Initialize Email service from environment
+async fn initialize_email_service(env: &Env) -> ArbitrageResult<EmailService> {
+    let api_key = env.secret("EMAIL_API_KEY")
+        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
+            format!("EMAIL_API_KEY not found: {}", e)
+        ))?
+        .to_string();
+    
+    let from_email = env.var("FROM_EMAIL")
+        .unwrap_or_else(|_| "noreply@arbedge.com".to_string())
+        .to_string();
+
+    Ok(EmailService::new(api_key, from_email))
+}
+
+/// Initialize SMS service from environment
+async fn initialize_sms_service(env: &Env) -> ArbitrageResult<SmsService> {
+    let account_sid = env.secret("TWILIO_ACCOUNT_SID")
+        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
+            format!("TWILIO_ACCOUNT_SID not found: {}", e)
+        ))?
+        .to_string();
+    
+    let auth_token = env.secret("TWILIO_AUTH_TOKEN")
+        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
+            format!("TWILIO_AUTH_TOKEN not found: {}", e)
+        ))?
+        .to_string();
+    
+    let from_number = env.var("TWILIO_FROM_NUMBER")
+        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
+            format!("TWILIO_FROM_NUMBER not found: {}", e)
+        ))?
+        .to_string();
+
+    Ok(SmsService::new(account_sid, auth_token, from_number))
+}
+
+/// Initialize WebPush service from environment
+async fn initialize_webpush_service(env: &Env) -> ArbitrageResult<WebPushService> {
+    let vapid_private_key = env.secret("VAPID_PRIVATE_KEY")
+        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
+            format!("VAPID_PRIVATE_KEY not found: {}", e)
+        ))?
+        .to_string();
+    
+    let vapid_public_key = env.var("VAPID_PUBLIC_KEY")
+        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
+            format!("VAPID_PUBLIC_KEY not found: {}", e)
+        ))?
+        .to_string();
+
+    Ok(WebPushService::new(vapid_private_key, vapid_public_key))
+}
+
+pub struct EmailService {
+    api_key: String,
+    from_email: String,
+}
+
+impl EmailService {
+    pub fn new(api_key: String, from_email: String) -> Self {
+        Self { api_key, from_email }
+    }
+    
+    pub async fn send_email(&self, to: &str, subject: &str, content: &str) -> ArbitrageResult<()> {
+        let client = reqwest::Client::new();
+        let email_data = serde_json::json!({
+            "from": self.from_email,
+            "to": to,
+            "subject": subject,
+            "html": format!("<html><body><pre>{}</pre></body></html>", content),
+            "text": content
+        });
+        
+        let response = client
+            .post("https://api.mailgun.net/v3/mg.arbedge.com/messages")
+            .header("Authorization", format!("Basic {}", base64::encode(format!("api:{}", self.api_key))))
+            .json(&email_data)
+            .send()
+            .await
+            .map_err(|e| crate::utils::ArbitrageError::network_error(format!("Email send failed: {}", e)))?;
+        
+        if !response.status().is_success() {
+            return Err(crate::utils::ArbitrageError::network_error(
+                format!("Email API returned error: {}", response.status())
+            ));
+        }
+        
+        Ok(())
+    }
+}
+
+pub struct SmsService {
+    account_sid: String,
+    auth_token: String,
+    from_number: String,
+}
+
+impl SmsService {
+    pub fn new(account_sid: String, auth_token: String, from_number: String) -> Self {
+        Self { account_sid, auth_token, from_number }
+    }
+    
+    pub async fn send_sms(&self, to: &str, content: &str) -> ArbitrageResult<()> {
+        let client = reqwest::Client::new();
+        let sms_data = [
+            ("From", self.from_number.as_str()),
+            ("To", to),
+            ("Body", content),
+        ];
+        
+        let auth = base64::encode(format!("{}:{}", self.account_sid, self.auth_token));
+        let url = format!("https://api.twilio.com/2010-04-01/Accounts/{}/Messages.json", self.account_sid);
+        
+        let response = client
+            .post(&url)
+            .header("Authorization", format!("Basic {}", auth))
+            .form(&sms_data)
+            .send()
+            .await
+            .map_err(|e| crate::utils::ArbitrageError::network_error(format!("SMS send failed: {}", e)))?;
+        
+        if !response.status().is_success() {
+            return Err(crate::utils::ArbitrageError::network_error(
+                format!("SMS API returned error: {}", response.status())
+            ));
+        }
+        
+        Ok(())
+    }
+}
+
+pub struct WebPushService {
+    vapid_private_key: String,
+    vapid_public_key: String,
+}
+
+impl WebPushService {
+    pub fn new(vapid_private_key: String, vapid_public_key: String) -> Self {
+        Self { vapid_private_key, vapid_public_key }
+    }
+    
+    pub async fn send_notification(&self, endpoint: &str, p256dh: &str, auth: &str, content: &str) -> ArbitrageResult<()> {
+        let payload = serde_json::json!({
+            "title": "ArbEdge Notification",
+            "body": content,
+            "icon": "/icon-192x192.png",
+            "badge": "/badge-72x72.png"
+        });
+        
+        let client = reqwest::Client::new();
+        let response = client
+            .post(endpoint)
+            .header("Content-Type", "application/octet-stream")
+            .header("TTL", "86400")
+            .body(payload.to_string())
+            .send()
+            .await
+            .map_err(|e| crate::utils::ArbitrageError::network_error(format!("WebPush send failed: {}", e)))?;
+        
+        if !response.status().is_success() {
+            return Err(crate::utils::ArbitrageError::network_error(
+                format!("WebPush API returned error: {}", response.status())
+            ));
+        }
+        
+        Ok(())
+    }
+}  

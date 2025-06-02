@@ -167,9 +167,15 @@ async fn route_auth_request(
 
             if let Some(session_details) = session_details_option {
                 // Convert u64 timestamps to chrono::DateTime<chrono::Utc> for the response if needed
-                let created_at_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.created_at as i64);
-                let expires_at_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.expires_at as i64);
-                let last_activity_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.last_activity_at as i64);
+                let created_at_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
+                    session_details.created_at as i64,
+                );
+                let expires_at_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
+                    session_details.expires_at as i64,
+                );
+                let last_activity_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
+                    session_details.last_activity_at as i64,
+                );
 
                 let session_response = serde_json::json!({
                     "status": "valid",

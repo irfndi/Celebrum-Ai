@@ -359,8 +359,10 @@ impl AiIntegrationService {
                     .get("headers")
                     .map(|s| {
                         // Try to parse as JSON, fallback to empty HashMap
-                        serde_json::from_str::<std::collections::HashMap<String, String>>(s)
-                            .unwrap_or_default()
+                        serde_json::from_str::<std::collections::HashMap<String, String>>(
+                            s.as_str().unwrap_or("{}"),
+                        )
+                        .unwrap_or_default()
                     })
                     .unwrap_or_default();
 
@@ -888,8 +890,10 @@ impl AiIntegrationService {
                     .get("headers")
                     .map(|s| {
                         // Try to parse as JSON, fallback to empty HashMap
-                        serde_json::from_str::<std::collections::HashMap<String, String>>(s)
-                            .unwrap_or_default()
+                        serde_json::from_str::<std::collections::HashMap<String, String>>(
+                            s.as_str().unwrap_or("{}"),
+                        )
+                        .unwrap_or_default()
                     })
                     .unwrap_or_default();
 
