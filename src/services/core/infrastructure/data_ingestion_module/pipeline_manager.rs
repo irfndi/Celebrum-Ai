@@ -328,6 +328,7 @@ impl PipelineEvent {
 }
 
 /// Pipeline Manager for Cloudflare Pipelines integration
+#[allow(dead_code)]
 pub struct PipelineManager {
     config: PipelineManagerConfig,
     logger: crate::utils::logger::Logger,

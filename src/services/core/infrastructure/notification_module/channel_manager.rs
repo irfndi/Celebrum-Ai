@@ -182,6 +182,7 @@ impl ChannelManagerConfig {
 }
 
 /// Channel Manager for handling channel-specific delivery logic
+#[allow(dead_code)]
 pub struct ChannelManager {
     config: ChannelManagerConfig,
     logger: crate::utils::logger::Logger,

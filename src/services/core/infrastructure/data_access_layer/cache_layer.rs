@@ -372,6 +372,7 @@ impl CacheLayerConfig {
 }
 
 /// Cache layer for intelligent caching with freshness validation
+#[allow(dead_code)]
 pub struct CacheLayer {
     config: CacheLayerConfig,
     kv_store: KvStore,

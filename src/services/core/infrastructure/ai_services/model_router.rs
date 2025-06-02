@@ -215,6 +215,7 @@ impl Default for ModelAnalytics {
 }
 
 /// Model Router for intelligent AI model selection and routing
+#[allow(dead_code)]
 pub struct ModelRouter {
     config: ModelRouterConfig,
     logger: crate::utils::logger::Logger,

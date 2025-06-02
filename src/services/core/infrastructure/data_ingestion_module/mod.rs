@@ -335,6 +335,7 @@ impl DataIngestionModuleConfig {
 }
 
 /// Main Data Ingestion Module orchestrating all components
+#[allow(dead_code)]
 pub struct DataIngestionModule {
     config: DataIngestionModuleConfig,
     logger: crate::utils::logger::Logger,

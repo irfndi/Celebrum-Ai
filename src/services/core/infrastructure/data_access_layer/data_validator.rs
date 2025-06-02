@@ -337,6 +337,7 @@ impl DataValidatorConfig {
 }
 
 /// Data validator for quality and freshness validation
+#[allow(dead_code)]
 pub struct DataValidator {
     config: DataValidatorConfig,
     logger: crate::utils::logger::Logger,

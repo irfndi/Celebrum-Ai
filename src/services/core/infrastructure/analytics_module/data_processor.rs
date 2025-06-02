@@ -244,6 +244,7 @@ pub struct AnomalyDetection {
 
 /// Data Processor for real-time analytics
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct DataProcessor {
     config: DataProcessorConfig,
     kv_store: Option<KvStore>,

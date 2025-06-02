@@ -532,6 +532,7 @@ impl TemplateEngineConfig {
 }
 
 /// Template Engine for dynamic template management
+#[allow(dead_code)]
 pub struct TemplateEngine {
     config: TemplateEngineConfig,
     logger: crate::utils::logger::Logger,

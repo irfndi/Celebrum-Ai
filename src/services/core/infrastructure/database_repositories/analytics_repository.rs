@@ -138,6 +138,7 @@ pub struct SystemAnalyticsSummary {
 }
 
 /// Analytics repository for trading analytics and performance data
+#[allow(dead_code)]
 pub struct AnalyticsRepository {
     db: Arc<D1Database>,
     config: AnalyticsRepositoryConfig,

@@ -121,6 +121,7 @@ pub struct BusinessKPI {
 
 /// Metrics Aggregator for business intelligence
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct MetricsAggregator {
     config: MetricsAggregatorConfig,
     kv_store: Option<KvStore>,

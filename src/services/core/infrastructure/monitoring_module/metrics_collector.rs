@@ -623,6 +623,7 @@ impl MetricsCollector {
     }
 
     /// Export metrics in Prometheus format
+    #[allow(dead_code)]
     fn export_prometheus_format(
         &self,
         metrics: &HashMap<String, MetricsData>,
@@ -691,6 +692,7 @@ impl MetricsCollector {
     }
 
     /// Export metrics in Grafana format
+    #[allow(dead_code)]
     fn export_grafana_format(
         &self,
         metrics: &HashMap<String, MetricsData>,
@@ -724,6 +726,7 @@ impl MetricsCollector {
     }
 
     /// Export metrics in JSON format
+    #[allow(dead_code)]
     fn export_json_format(
         &self,
         metrics: &HashMap<String, MetricsData>,

@@ -680,6 +680,7 @@ impl InvitationRepository {
         })
     }
 
+    #[allow(dead_code)]
     fn row_to_invitation_usage(
         &self,
         row: HashMap<String, serde_json::Value>,

@@ -481,6 +481,7 @@ impl TraceCollectorConfig {
 }
 
 /// Trace Collector for distributed tracing
+#[allow(dead_code)]
 pub struct TraceCollector {
     config: TraceCollectorConfig,
     logger: crate::utils::logger::Logger,

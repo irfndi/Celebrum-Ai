@@ -300,6 +300,7 @@ impl NotificationModuleConfig {
 }
 
 /// Main Notification Module - Unified interface for all notification functionality
+#[allow(dead_code)]
 pub struct NotificationModule {
     config: NotificationModuleConfig,
     logger: crate::utils::logger::Logger,

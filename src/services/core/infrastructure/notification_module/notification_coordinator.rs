@@ -255,6 +255,7 @@ impl NotificationCoordinatorConfig {
 }
 
 /// Notification Coordinator - Main orchestrator for notification processing
+#[allow(dead_code)]
 pub struct NotificationCoordinator {
     config: NotificationCoordinatorConfig,
     logger: crate::utils::logger::Logger,

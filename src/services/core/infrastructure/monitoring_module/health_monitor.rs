@@ -457,6 +457,7 @@ impl HealthMonitorConfig {
 }
 
 /// Health Monitor for comprehensive system health tracking
+#[allow(dead_code)]
 pub struct HealthMonitor {
     config: HealthMonitorConfig,
     logger: crate::utils::logger::Logger,

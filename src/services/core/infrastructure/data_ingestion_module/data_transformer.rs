@@ -432,6 +432,7 @@ pub struct TransformationResponse {
 }
 
 /// Data Transformer for format standardization and validation
+#[allow(dead_code)]
 pub struct DataTransformer {
     config: DataTransformerConfig,
     logger: crate::utils::logger::Logger,

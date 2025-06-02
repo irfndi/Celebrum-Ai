@@ -688,6 +688,7 @@ impl ChannelConfig {
 }
 
 /// Delivery Manager for reliable message delivery
+#[allow(dead_code)]
 pub struct DeliveryManager {
     config: DeliveryManagerConfig,
     logger: crate::utils::logger::Logger,

@@ -393,6 +393,7 @@ impl RateLimiter {
 }
 
 /// Ingestion Coordinator for orchestrating data ingestion operations
+#[allow(dead_code)]
 pub struct IngestionCoordinator {
     config: IngestionCoordinatorConfig,
     logger: crate::utils::logger::Logger,

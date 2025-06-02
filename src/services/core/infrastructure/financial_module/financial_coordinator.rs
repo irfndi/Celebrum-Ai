@@ -238,6 +238,7 @@ pub struct FinancialOperationResult {
 }
 
 /// Financial Coordinator for unified financial operations
+#[allow(dead_code)]
 pub struct FinancialCoordinator {
     config: FinancialCoordinatorConfig,
     kv_store: Option<KvStore>,
