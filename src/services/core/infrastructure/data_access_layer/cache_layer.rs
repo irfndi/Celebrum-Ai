@@ -791,6 +791,7 @@ impl CacheLayer {
     }
 
     /// Record cache hit
+    #[allow(dead_code)]
     async fn record_hit(&self, _start_time: u64) {
         let end_time = chrono::Utc::now().timestamp_millis() as u64;
 

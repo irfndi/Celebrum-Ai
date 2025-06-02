@@ -688,6 +688,7 @@ impl PipelineManager {
         metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
     }
 
+    #[allow(dead_code)]
     async fn create_pipeline_config(
         &self,
         _pipeline_type: &PipelineType,
