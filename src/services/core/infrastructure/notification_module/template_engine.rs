@@ -652,10 +652,7 @@ impl TemplateEngine {
 
         // Get channel template
         let channel_template = template.get_channel_template(channel).ok_or_else(|| {
-            ArbitrageError::validation_error(format!(
-                "Channel '{}' not found in template",
-                channel
-            ))
+            ArbitrageError::validation_error(format!("Channel '{}' not found in template", channel))
         })?;
 
         // Render content

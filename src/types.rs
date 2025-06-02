@@ -43,8 +43,6 @@ impl ExchangeIdEnum {
         }
     }
 
-
-
     pub fn from_string(s: &str) -> Result<Self, String> {
         s.parse()
     }
@@ -1874,8 +1872,6 @@ impl std::fmt::Display for SubscriptionTier {
     }
 }
 
-
-
 /// Opportunity data for distribution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2223,7 +2219,7 @@ impl Default for GroupAdminRole {
 }
 
 /// AI access level enum for subscription-based AI access control
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AIAccessLevel {
     #[default]
@@ -2233,8 +2229,6 @@ pub enum AIAccessLevel {
     PremiumAI,
     EnterpriseAI,
 }
-
-
 
 /// Funding rate information structure
 #[derive(Debug, Clone, Serialize, Deserialize)]

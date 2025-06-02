@@ -581,9 +581,7 @@ impl ChannelManager {
             .get(&key)
             .text()
             .await
-            .map_err(|e| {
-                ArbitrageError::kv_error(format!("Failed to load channel config: {}", e))
-            })?
+            .map_err(|e| ArbitrageError::kv_error(format!("Failed to load channel config: {}", e)))?
             .ok_or_else(|| {
                 ArbitrageError::not_found(format!("Channel config not found in KV: {}", key))
             })?;
