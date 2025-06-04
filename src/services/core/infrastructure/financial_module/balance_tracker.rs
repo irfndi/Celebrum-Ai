@@ -231,7 +231,7 @@ impl BalanceTracker {
     pub async fn initialize(&mut self, env: &Env) -> ArbitrageResult<()> {
         // Initialize KV store for caching
         if self.config.enable_kv_caching {
-            self.kv_store = Some(env.kv("BALANCE_CACHE").map_err(|e| {
+            self.kv_store = Some(env.kv("ArbEdgeKV").map_err(|e| {
                 ArbitrageError::configuration_error(format!(
                     "Failed to initialize KV store: {:?}",
                     e
@@ -241,7 +241,7 @@ impl BalanceTracker {
 
         // Initialize D1 database for persistence
         if self.config.enable_d1_persistence {
-            self.d1_database = Some(env.d1("BALANCE_DB").map_err(|e| {
+            self.d1_database = Some(env.d1("ArbEdgeD1").map_err(|e| {
                 ArbitrageError::configuration_error(format!(
                     "Failed to initialize D1 database: {:?}",
                     e

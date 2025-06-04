@@ -144,7 +144,7 @@ impl MetricsAggregator {
     }
 
     pub async fn initialize(&mut self, env: &Env) -> ArbitrageResult<()> {
-        self.kv_store = Some(env.kv("METRICS_CACHE").map_err(|e| {
+        self.kv_store = Some(env.kv("ArbEdgeKV").map_err(|e| {
             ArbitrageError::configuration_error(format!("Failed to initialize KV store: {:?}", e))
         })?);
 

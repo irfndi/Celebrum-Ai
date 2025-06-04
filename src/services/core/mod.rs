@@ -19,9 +19,19 @@ pub use auth::*;
 pub use infrastructure::*;
 pub use invitation::*;
 pub use market_data::*;
-pub use opportunities::*;
 pub use trading::*;
 pub use user::*;
+
+// Explicitly export items from the 'opportunities' module
+pub use opportunities::access_manager::AccessManager;
+pub use opportunities::ai_enhancer::AIEnhancer;
+pub use opportunities::cache_manager::{CachePrefixes, OpportunityDataCache};
+pub use opportunities::market_analyzer::MarketAnalyzer;
+pub use opportunities::opportunity_builders::OpportunityBuilder;
+pub use opportunities::opportunity_categorization::*;
+pub use opportunities::opportunity_core::*;
+pub use opportunities::opportunity_distribution::OpportunityDistributionService;
+pub use opportunities::opportunity_engine::OpportunityEngine;
 
 // Re-export admin services for easier access
 pub use admin::{

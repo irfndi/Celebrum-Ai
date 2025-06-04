@@ -9,7 +9,7 @@ use worker::kv::KvStore;
 
 /// Unified cache manager for all opportunity services
 /// Consolidates caching logic and provides consistent cache management
-pub struct CacheManager {
+pub struct OpportunityDataCache {
     kv_store: KvStore,
     default_ttl_seconds: u64,
     cache_prefixes: CachePrefixes,
@@ -44,7 +44,7 @@ impl Default for CachePrefixes {
     }
 }
 
-impl CacheManager {
+impl OpportunityDataCache {
     const DEFAULT_TTL_SECONDS: u64 = 300; // 5 minutes
     const LONG_TTL_SECONDS: u64 = 3600; // 1 hour
     const SHORT_TTL_SECONDS: u64 = 60; // 1 minute

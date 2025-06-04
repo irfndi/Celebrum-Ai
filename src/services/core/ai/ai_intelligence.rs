@@ -24,6 +24,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::kv::KvStore;
 
+// Configuration for mock base prices
+const MOCK_BASE_PRICES: &[(&str, f64)] = &[
+    ("BTC", 45000.0),
+    ("ETH", 2500.0),
+    ("SOL", 100.0),
+    ("ADA", 0.5),
+    // Add more common symbols and their typical base prices if needed
+];
+
 // ============= AI INTELLIGENCE DATA STRUCTURES =============
 
 /// AI-enhanced opportunity analysis result
@@ -1357,13 +1366,11 @@ impl AiIntelligenceService {
         use chrono::Utc;
 
         // Generate realistic mock data based on symbol
-        let base_price = match symbol {
-            s if s.contains("BTC") => 45000.0,
-            s if s.contains("ETH") => 2500.0,
-            s if s.contains("SOL") => 100.0,
-            s if s.contains("ADA") => 0.5,
-            _ => 1.0,
-        };
+        let base_price = MOCK_BASE_PRICES
+            .iter()
+            .find(|(token, _)| symbol.to_uppercase().contains(token))
+            .map(|(_, price)| *price)
+            .unwrap_or(1.0); // Default to 1.0 if symbol is not in our mock list
 
         let now = Utc::now().timestamp() as u64;
 
@@ -1562,7 +1569,7 @@ impl AiIntelligenceService {
             okx_symbol
         );
 
-        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
+        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::GET))?;
 
         let mut response = Fetch::Request(request).send().await?;
 
@@ -1868,10 +1875,13 @@ impl AiIntelligenceService {
     /// Convert TradingOpportunity to GlobalOpportunity for system-wide distribution
     fn convert_to_global_opportunity(&self, trading_opp: TradingOpportunity) -> GlobalOpportunity {
         // Calculate expiration time with configurable default
-        let expires_at = trading_opp.expires_at.unwrap_or_else(|| {
-            trading_opp.created_at * 1000                       // convert seconds → ms
-                + self.get_default_expiry_duration(&trading_opp)
-        });
+        let expires_at = trading_opp
+            .expires_at
+            .or_else(|| {
+                // Convert to milliseconds and add risk-based default duration
+                Some(trading_opp.created_at * 1000 + self.get_default_expiry_duration(&trading_opp))
+            })
+            .expect("Expiry timestamp must be set");
 
         // Select appropriate exchanges for the opportunity
         let (long_exchange, short_exchange) = self.select_exchanges_for_opportunity(&trading_opp);

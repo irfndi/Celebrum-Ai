@@ -1,8 +1,9 @@
 use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
-use crate::utils::{logger::Logger, ArbitrageError, ArbitrageResult};
-use chrono::{DateTime, Utc};
+use crate::utils::logger::Logger;
+use crate::utils::{ArbitrageError, ArbitrageResult, Result as ArbitrageResultType};
+use chrono::Utc;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use worker::kv::KvStore;
 use worker::*;
 

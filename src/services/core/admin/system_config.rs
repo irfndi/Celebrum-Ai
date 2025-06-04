@@ -1,33 +1,33 @@
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use worker::{kv::KvStore, Env};
 
 /// System configuration service for super admin operations
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SystemConfigService {
     kv_store: KvStore,
-    env: Env,
 }
 
 impl SystemConfigService {
-    pub fn new(env: Env, kv_store: KvStore) -> Self {
-        Self { kv_store, env }
+    pub fn new(_env: Env, kv_store: KvStore) -> Self {
+        Self { kv_store }
+    }
+
+    /// Generic helper to get configuration from KV store
+    async fn get_config<T: DeserializeOwned + Default>(&self, key: &str) -> ArbitrageResult<T> {
+        if let Some(data) = self.kv_store.get(key).text().await? {
+            serde_json::from_str::<T>(&data).map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to parse {}: {}", key, e))
+            })
+        } else {
+            Ok(T::default())
+        }
     }
 
     /// Get system configuration
     pub async fn get_system_config(&self) -> ArbitrageResult<SystemConfig> {
-        let config_key = "system_config";
-
-        if let Some(config_data) = self.kv_store.get(config_key).text().await? {
-            let config = serde_json::from_str::<SystemConfig>(&config_data).map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to parse system config: {}", e))
-            })?;
-            Ok(config)
-        } else {
-            // Return default configuration if none exists
-            Ok(SystemConfig::default())
-        }
+        self.get_config("system_config").await
     }
 
     /// Update system configuration (super admin only)
@@ -47,16 +47,7 @@ impl SystemConfigService {
 
     /// Get feature flags configuration
     pub async fn get_feature_flags(&self) -> ArbitrageResult<FeatureFlagsConfig> {
-        let flags_key = "feature_flags";
-
-        if let Some(flags_data) = self.kv_store.get(flags_key).text().await? {
-            let flags = serde_json::from_str::<FeatureFlagsConfig>(&flags_data).map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to parse feature flags: {}", e))
-            })?;
-            Ok(flags)
-        } else {
-            Ok(FeatureFlagsConfig::default())
-        }
+        self.get_config("feature_flags").await
     }
 
     /// Update feature flags (super admin only)
@@ -133,20 +124,7 @@ impl SystemConfigService {
 
     /// Get maintenance mode configuration
     pub async fn get_maintenance_mode(&self) -> ArbitrageResult<MaintenanceMode> {
-        let maintenance_key = "maintenance_mode";
-
-        if let Some(maintenance_data) = self.kv_store.get(maintenance_key).text().await? {
-            let maintenance =
-                serde_json::from_str::<MaintenanceMode>(&maintenance_data).map_err(|e| {
-                    ArbitrageError::database_error(format!(
-                        "Failed to parse maintenance mode: {}",
-                        e
-                    ))
-                })?;
-            Ok(maintenance)
-        } else {
-            Ok(MaintenanceMode::default())
-        }
+        self.get_config("maintenance_mode").await
     }
 
     /// Update maintenance mode configuration
@@ -181,16 +159,7 @@ impl SystemConfigService {
 
     /// Get rate limiting configuration
     pub async fn get_rate_limits(&self) -> ArbitrageResult<RateLimitConfig> {
-        let limits_key = "rate_limits";
-
-        if let Some(limits_data) = self.kv_store.get(limits_key).text().await? {
-            let limits = serde_json::from_str::<RateLimitConfig>(&limits_data).map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to parse rate limits: {}", e))
-            })?;
-            Ok(limits)
-        } else {
-            Ok(RateLimitConfig::default())
-        }
+        self.get_config("rate_limits").await
     }
 
     /// Update rate limiting configuration (super admin only)
@@ -210,16 +179,7 @@ impl SystemConfigService {
 
     /// Get API configuration
     pub async fn get_api_config(&self) -> ArbitrageResult<ApiConfig> {
-        let api_key = "api_config";
-
-        if let Some(api_data) = self.kv_store.get(api_key).text().await? {
-            let api_config = serde_json::from_str::<ApiConfig>(&api_data).map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to parse API config: {}", e))
-            })?;
-            Ok(api_config)
-        } else {
-            Ok(ApiConfig::default())
-        }
+        self.get_config("api_config").await
     }
 
     /// Update API configuration (super admin only)
@@ -230,42 +190,6 @@ impl SystemConfigService {
         })?;
 
         self.kv_store.put(api_key, &api_data)?.execute().await?;
-
-        Ok(())
-    }
-
-    /// Get maintenance mode status
-    pub async fn get_maintenance_mode(&self) -> ArbitrageResult<MaintenanceMode> {
-        let maintenance_key = "maintenance_mode";
-
-        if let Some(maintenance_data) = self.kv_store.get(maintenance_key).text().await? {
-            let maintenance =
-                serde_json::from_str::<MaintenanceMode>(&maintenance_data).map_err(|e| {
-                    ArbitrageError::database_error(format!(
-                        "Failed to parse maintenance mode: {}",
-                        e
-                    ))
-                })?;
-            Ok(maintenance)
-        } else {
-            Ok(MaintenanceMode::default())
-        }
-    }
-
-    /// Set maintenance mode (super admin only)
-    pub async fn set_maintenance_mode(&self, maintenance: MaintenanceMode) -> ArbitrageResult<()> {
-        let maintenance_key = "maintenance_mode";
-        let maintenance_data = serde_json::to_string(&maintenance).map_err(|e| {
-            ArbitrageError::serialization_error(format!(
-                "Failed to serialize maintenance mode: {}",
-                e
-            ))
-        })?;
-
-        self.kv_store
-            .put(maintenance_key, &maintenance_data)?
-            .execute()
-            .await?;
 
         Ok(())
     }

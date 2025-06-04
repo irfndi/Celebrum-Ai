@@ -3,12 +3,12 @@ pub mod monitoring;
 pub mod system_config;
 pub mod user_management;
 
-use crate::services::core::admin::audit::{AuditEvent, UserAuditAction};
+use crate::services::core::admin::audit::{AuditConfig, AuditEvent, UserAuditAction};
 use crate::services::core::admin::monitoring::SystemHealth;
 use crate::services::core::admin::system_config::SystemConfig;
 use crate::services::core::infrastructure::D1Service;
 use crate::types::*;
-use crate::utils::ArbitrageResult;
+use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;
 use worker::Env;
 
@@ -26,30 +26,33 @@ pub struct AdminService {
     pub system_config: Arc<SystemConfigService>,
     pub monitoring: Arc<MonitoringService>,
     pub audit: Arc<AuditService>,
+    pub d1_service: Arc<D1Service>,
+    pub env: Env,
 }
 
 impl AdminService {
     /// Create new AdminService with all sub-services
-    pub fn new(
-        env: &Env,
-        kv_store: worker::kv::KvStore,
-        _d1_database: D1Service, // Not used yet, but reserved for future database operations
-    ) -> Self {
-        // Initialize all sub-services (all are sync constructors)
+    pub async fn new(env: Env, d1_service: Arc<D1Service>) -> ArbitrageResult<Self> {
+        let kv_store = env.kv("ArbEdgeKV")?;
+        let audit_config = AuditConfig::default();
+
+        let audit = Arc::new(AuditService::new(
+            env.clone(),
+            kv_store.clone(),
+            audit_config.clone(),
+        ));
+        let monitoring = Arc::new(MonitoringService::new(env.clone(), kv_store.clone()));
+        let system_config = Arc::new(SystemConfigService::new(env.clone(), kv_store.clone()));
         let user_management = Arc::new(UserManagementService::new(env.clone(), kv_store.clone()));
 
-        let system_config = Arc::new(SystemConfigService::new(env.clone(), kv_store.clone()));
-
-        let monitoring = Arc::new(MonitoringService::new(env.clone(), kv_store.clone()));
-
-        let audit = Arc::new(AuditService::new(env.clone(), kv_store.clone()));
-
-        Self {
-            user_management,
-            system_config,
-            monitoring,
+        Ok(Self {
             audit,
-        }
+            monitoring,
+            system_config,
+            user_management,
+            d1_service,
+            env,
+        })
     }
 
     /// Get user management service
@@ -85,24 +88,73 @@ impl AdminService {
         }
     }
 
+    // Private helper to construct AdminHealthStatus
+    fn create_health_status(
+        &self,
+        overall: bool,
+        um_healthy: bool,
+        sc_healthy: bool,
+        m_healthy: bool,
+        a_healthy: bool,
+    ) -> AdminHealthStatus {
+        AdminHealthStatus {
+            overall_healthy: overall,
+            user_management_healthy: um_healthy,
+            system_config_healthy: sc_healthy,
+            monitoring_healthy: m_healthy,
+            audit_healthy: a_healthy,
+            last_check: chrono::Utc::now().timestamp_millis() as u64,
+        }
+    }
+
     /// Perform comprehensive health check of all admin services
-    pub async fn health_check(&self) -> ArbitrageResult<AdminHealthStatus> {
+    pub async fn health_check(&self, fail_fast: bool) -> ArbitrageResult<AdminHealthStatus> {
         let user_mgmt_healthy = self.user_management.health_check().await?;
+        if fail_fast && !user_mgmt_healthy {
+            // If fail_fast and this service failed, mark all as unhealthy (or subsequent as unchecked)
+            return Ok(self.create_health_status(false, false, false, false, false));
+        }
+
         let system_config_healthy = self.system_config.health_check().await?;
+        if fail_fast && !system_config_healthy {
+            return Ok(self.create_health_status(false, user_mgmt_healthy, false, false, false));
+        }
+
         let monitoring_healthy = self.monitoring.health_check().await?;
+        if fail_fast && !monitoring_healthy {
+            return Ok(self.create_health_status(
+                false,
+                user_mgmt_healthy,
+                system_config_healthy,
+                false,
+                false,
+            ));
+        }
+
         let audit_healthy = self.audit.health_check().await?;
+        // For the last service, if fail_fast is true and it fails, the overall status will be false anyway.
+        // So, an explicit early return here has similar effect to letting it proceed to overall_healthy calculation.
+        // However, to be perfectly consistent with the pattern for early exit:
+        if fail_fast && !audit_healthy {
+            return Ok(self.create_health_status(
+                false,
+                user_mgmt_healthy,
+                system_config_healthy,
+                monitoring_healthy,
+                false,
+            ));
+        }
 
         let overall_healthy =
             user_mgmt_healthy && system_config_healthy && monitoring_healthy && audit_healthy;
 
-        Ok(AdminHealthStatus {
+        Ok(self.create_health_status(
             overall_healthy,
-            user_management_healthy: user_mgmt_healthy,
-            system_config_healthy: system_config_healthy,
-            monitoring_healthy: monitoring_healthy,
-            audit_healthy: audit_healthy,
-            last_check: chrono::Utc::now().timestamp_millis() as u64,
-        })
+            user_mgmt_healthy,
+            system_config_healthy,
+            monitoring_healthy,
+            audit_healthy,
+        ))
     }
 
     /// Get comprehensive admin dashboard data
@@ -140,7 +192,7 @@ impl AdminService {
     ) -> ArbitrageResult<AdminActionResult> {
         // Validate admin permissions
         if !self.validate_admin_permissions(admin_user_id).await? {
-            return Err(ArbitrageError::Unauthorized(
+            return Err(ArbitrageError::unauthorized(
                 "Insufficient admin permissions".to_string(),
             ));
         }

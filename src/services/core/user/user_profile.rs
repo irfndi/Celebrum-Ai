@@ -1,10 +1,12 @@
 // src/services/user_profile.rs
 
+use crate::services::core::auth::UserProfileProvider;
 use crate::services::core::infrastructure::DatabaseManager;
 use crate::types::{
     /* ApiKeyProvider, */ ExchangeIdEnum, InvitationCode, UserApiKey, UserProfile, UserSession,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use async_trait::async_trait;
 use std::sync::Arc;
 use worker::{console_log, kv::KvStore};
 // use crate::services::core::infrastructure::data_access_layer::DataAccessLayer;
@@ -14,13 +16,7 @@ use worker::{console_log, kv::KvStore};
 // use crate::services::core::user::user_activity::UserActivityService;
 // use std::sync::Arc;
 
-/// Trait for user profile data access
-#[async_trait::async_trait]
-pub trait UserProfileProvider: Send + Sync {
-    async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile>;
-    async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()>;
-    async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()>;
-}
+// UserProfileProvider trait is defined in auth/mod.rs
 
 #[derive(Clone)]
 pub struct UserProfileService {
@@ -559,6 +555,7 @@ impl UserProfileService {
     }
 }
 
+#[async_trait::async_trait]
 impl UserProfileProvider for UserProfileService {
     async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile> {
         // Call the actual implementation method that returns Option<UserProfile>

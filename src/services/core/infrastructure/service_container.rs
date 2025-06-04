@@ -54,8 +54,8 @@ impl ServiceContainer {
         })?;
         let custom_env = env;
 
-        let d1_database = env.d1("DB").map_err(|e| {
-            ArbitrageError::configuration_error(format!("Failed to get D1 database: {}", e))
+        let d1_database = env.d1("ArbEdgeD1").map_err(|e| {
+            ArbitrageError::InfrastructureError(format!("Failed to get D1 database: {}", e))
         })?;
         let d1_arc = Arc::new(d1_database);
 

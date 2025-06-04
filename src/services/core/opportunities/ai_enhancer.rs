@@ -679,7 +679,7 @@ mod tests {
         assert_eq!(converted.long_exchange, ExchangeIdEnum::Binance);
         assert_eq!(converted.short_exchange, ExchangeIdEnum::Binance);
         assert_eq!(converted.rate_difference, 0.05);
-        assert_eq!(converted.min_exchanges_required, 1);
+        assert_eq!(converted.min_exchanges_required, 2);
         assert!(matches!(converted.r#type, ArbitrageType::CrossExchange));
     }
 

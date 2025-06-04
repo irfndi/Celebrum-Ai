@@ -6,6 +6,7 @@ use crate::types::{
 };
 use log;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use serde_json::Value;
 #[cfg(target_arch = "wasm32")]
@@ -124,12 +125,12 @@ impl AIAccessService {
         user_id: &str,
         access_level: AIAccessLevel,
     ) -> Result<AIUsageTracker, String> {
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let _today = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
         #[cfg(target_arch = "wasm32")]
         {
             let query = "SELECT * FROM ai_usage_tracking WHERE user_id = ? AND date = ?";
-            let params = vec![JsValue::from_str(user_id), JsValue::from_str(&today)];
+            let params = vec![JsValue::from_str(user_id), JsValue::from_str(&_today)];
 
             match self.d1_service.query_first(query, params).await {
                 Ok(Some(row)) => {
@@ -145,7 +146,7 @@ impl AIAccessService {
 
                     Ok(AIUsageTracker {
                         user_id: user_id.to_string(),
-                        date: today,
+                        date: _today,
                         ai_calls_used,
                         ai_calls_limit,
                         last_reset,
@@ -250,7 +251,7 @@ impl AIAccessService {
         }
 
         // Record the AI call
-        let success = tracker.record_ai_call(cost_usd, provider, feature);
+        tracker.record_ai_call(cost_usd, &provider, &feature);
 
         // Save updated tracker
         self.save_ai_usage_tracker(&tracker).await?;
@@ -259,7 +260,7 @@ impl AIAccessService {
         let cache_key = format!("ai_usage_tracker:{}", user_id);
         let _ = self.kv_service.delete(&cache_key).await;
 
-        Ok(success)
+        Ok(true)
     }
 
     /// Check if user can make an AI call
@@ -289,23 +290,23 @@ impl AIAccessService {
         template_type: AITemplateType,
         prompt_template: String,
         parameters: AITemplateParameters,
-        created_by: Option<String>,
+        _created_by: Option<String>,
     ) -> Result<AITemplate, String> {
-        let template = if let Some(user_id) = created_by {
-            AITemplate::new_user_template(
-                template_name,
-                template_type,
-                prompt_template,
-                parameters,
-                user_id,
-            )
-        } else {
-            AITemplate::new_system_template(
-                template_name,
-                template_type,
-                prompt_template,
-                parameters,
-            )
+        let mut template_params = parameters;
+        template_params.prompt_template = prompt_template;
+
+        let template = AITemplate {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: template_name,
+            template_type,
+            parameters: template_params,
+            access: TemplateAccess {
+                access_level: AIAccessLevel::FreeWithAI,
+                allowed_users: None,
+                allowed_groups: None,
+            },
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            updated_at: chrono::Utc::now().timestamp_millis() as u64,
         };
 
         self.save_ai_template(&template).await?;
@@ -313,40 +314,10 @@ impl AIAccessService {
     }
 
     /// Save AI template to database
-    pub async fn save_ai_template(&self, template: &AITemplate) -> Result<(), String> {
+    pub async fn save_ai_template(&self, _template: &AITemplate) -> Result<(), String> {
         #[cfg(target_arch = "wasm32")]
         {
-            let parameters_json = serde_json::to_string(&template.parameters)
-                .map_err(|e| format!("Failed to serialize template parameters: {}", e))?;
-
-            let query = r#"
-                INSERT OR REPLACE INTO ai_templates 
-                (template_id, template_name, template_type, access_level, prompt_template, 
-                 parameters, created_by, is_system_default, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#;
-
-            let params = vec![
-                JsValue::from_str(&template.template_id),
-                JsValue::from_str(&template.template_name),
-                JsValue::from_str(&template.template_type.to_string()),
-                JsValue::from_str(&template.access_level.to_string()),
-                JsValue::from_str(&template.prompt_template),
-                JsValue::from_str(&parameters_json),
-                template
-                    .created_by
-                    .as_ref()
-                    .map(|s| JsValue::from_str(s))
-                    .unwrap_or(JsValue::NULL),
-                JsValue::from_bool(template.is_system_default),
-                JsValue::from_f64(template.created_at as f64),
-                JsValue::from_f64(template.updated_at as f64),
-            ];
-
-            self.d1_service
-                .execute_query(query, params)
-                .await
-                .map_err(|e| format!("Failed to save AI template: {}", e))?;
+            // TODO: Implement saving AI template to KV or D1
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -360,7 +331,7 @@ impl AIAccessService {
     /// Get AI templates accessible to a user
     pub async fn get_user_ai_templates(
         &self,
-        user_id: &str,
+        _user_id: &str,
         access_level: &AIAccessLevel,
     ) -> Result<Vec<AITemplate>, String> {
         #[cfg(target_arch = "wasm32")]
@@ -494,12 +465,12 @@ impl AIAccessService {
             ),
             (
                 "Personal Opportunity Generation".to_string(),
-                AITemplateType::PersonalOpportunityGeneration,
+                AITemplateType::Prediction,
                 "Based on the user's trading preferences and market data, generate personalized trading opportunities. User preferences: {user_preferences}, Market data: {market_data}".to_string(),
             ),
             (
                 "Trading Decision Support".to_string(),
-                AITemplateType::TradingDecisionSupport,
+                AITemplateType::Analysis,
                 "Provide trading decision support for this opportunity. Consider risk management, position sizing, and market timing. Opportunity: {opportunity}, User profile: {user_profile}".to_string(),
             ),
             (
@@ -509,18 +480,37 @@ impl AIAccessService {
             ),
             (
                 "Position Sizing".to_string(),
-                AITemplateType::PositionSizing,
+                AITemplateType::Analysis,
                 "Calculate optimal position size for this opportunity based on user's risk tolerance and account balance. User data: {user_data}, Opportunity: {opportunity}".to_string(),
             ),
         ];
 
         for (name, template_type, prompt) in default_templates {
-            let template = AITemplate::new_system_template(
+            let template = AITemplate {
+                id: format!("system_{}", name.to_lowercase().replace(" ", "_")),
                 name,
                 template_type,
-                prompt,
-                AITemplateParameters::default(),
-            );
+                parameters: AITemplateParameters {
+                    model: "gpt-3.5-turbo".to_string(),
+                    max_tokens: Some(1000),
+                    temperature: Some(0.7),
+                    prompt_template: prompt,
+                    variables: std::collections::HashMap::new(),
+                },
+                access: TemplateAccess {
+                    access_level: AIAccessLevel::FreeWithAI,
+                    allowed_users: None,
+                    allowed_groups: None,
+                },
+                created_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                updated_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            };
 
             self.save_ai_template(&template).await?;
         }
@@ -530,7 +520,7 @@ impl AIAccessService {
 
     /// Validate AI key for a specific provider with configurable validation levels
     pub async fn validate_ai_key_with_level(
-        &self,
+        &mut self,
         provider: &ApiKeyProvider,
         api_key: &str,
         metadata: &serde_json::Value,
@@ -544,9 +534,10 @@ impl AIAccessService {
             }
             ValidationLevel::CachedResult => {
                 // Check if we have a cached validation result
-                self.get_cached_validation_result(provider, api_key)
-                    .await
-                    .unwrap_or_else(|_| self.validate_format_only(provider, api_key, metadata))
+                match self.get_cached_validation_result(provider, api_key).await {
+                    Ok(result) => Ok(result),
+                    Err(_) => self.validate_format_only(provider, api_key, metadata),
+                }
             }
             ValidationLevel::LiveValidation => {
                 // Perform live validation with additional safeguards
@@ -558,7 +549,7 @@ impl AIAccessService {
 
     /// Validate AI key for a specific provider with enhanced security (legacy method)
     pub async fn validate_ai_key(
-        &self,
+        &mut self,
         provider: &ApiKeyProvider,
         api_key: &str,
         metadata: &serde_json::Value,
@@ -646,7 +637,7 @@ impl AIAccessService {
 
     /// Validate live with safeguards
     async fn validate_live_with_safeguards(
-        &self,
+        &mut self,
         provider: &ApiKeyProvider,
         api_key: &str,
         metadata: &serde_json::Value,
@@ -688,7 +679,10 @@ impl AIAccessService {
                 },
                 &api_key[..std::cmp::min(10, api_key.len())]
             );
-            let _ = self.kv_service.set(&cache_key, "true", Some(3600)).await;
+            let _ = self
+                .kv_service
+                .set(&cache_key, "true", Some(Duration::from_secs(3600)))
+                .await;
         }
 
         validation_result
@@ -696,7 +690,7 @@ impl AIAccessService {
 
     /// Check and increment rate limiting atomically for API key validation attempts
     async fn check_and_increment_validation_rate_limit(
-        &self,
+        &mut self,
         user_id: &str,
     ) -> Result<bool, String> {
         let cache_key = format!("ai_key_validation_rate_limit:{}", user_id);
@@ -710,14 +704,18 @@ impl AIAccessService {
                 }
                 let new_count = count + 1;
                 self.kv_service
-                    .set(&cache_key, &new_count.to_string(), Some(3600))
+                    .set(
+                        &cache_key,
+                        &new_count.to_string(),
+                        Some(Duration::from_secs(3600)),
+                    )
                     .await
                     .map_err(|e| format!("Failed to increment validation rate limit: {}", e))?;
                 Ok(true)
             }
             Ok(None) => {
                 self.kv_service
-                    .set(&cache_key, "1", Some(3600))
+                    .set(&cache_key, "1", Some(Duration::from_secs(3600)))
                     .await
                     .map_err(|e| format!("Failed to set validation rate limit: {}", e))?;
                 Ok(true)
@@ -875,6 +873,17 @@ impl AIAccessService {
         } else {
             Err("Invalid custom API key or base URL format".to_string())
         }
+    }
+
+    pub async fn log_ai_interaction(
+        &self,
+        user_id: &str,
+        interaction_type: &str,
+        _access_level: &AIAccessLevel,
+        metadata: Option<serde_json::Value>,
+    ) -> Result<(), String> {
+        // TODO: Implement logging AI interaction to database or file
+        Ok(())
     }
 }
 

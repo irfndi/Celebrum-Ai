@@ -14,12 +14,12 @@ use worker::console_log;
 
 /// Permission Checker Service
 pub struct PermissionChecker {
-    // TODO: Add user profile service dependency injection when needed
+    // Add actual configuration or remove struct entirely
 }
 
 impl PermissionChecker {
     /// Create new permission checker
-    pub async fn new(service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
+    pub async fn new(_service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
         console_log!("🔍 Initializing Permission Checker...");
 
         console_log!("✅ Permission Checker initialized successfully");
@@ -316,8 +316,8 @@ pub struct AccessValidator {
 
 impl AccessValidator {
     /// Create new access validator
-    pub async fn new(service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
-        let permission_checker = PermissionChecker::new(service_container).await?;
+    pub async fn new(_service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
+        let permission_checker = PermissionChecker::new(_service_container).await?;
 
         Ok(Self { permission_checker })
     }
@@ -431,6 +431,13 @@ impl AccessValidator {
     }
 }
 
+// Define constants for feature names
+pub const FEATURE_TRADING_MANUAL: &str = "trading_manual";
+pub const FEATURE_TRADING_AUTOMATED: &str = "trading_automated";
+pub const FEATURE_OPPORTUNITIES_UNLIMITED: &str = "opportunities_unlimited";
+pub const FEATURE_OPPORTUNITIES_REALTIME: &str = "opportunities_realtime";
+pub const FEATURE_BETA_FEATURES: &str = "beta_features";
+
 /// Feature Gate for controlling access to features
 pub struct FeatureGate {
     access_validator: AccessValidator,
@@ -438,8 +445,8 @@ pub struct FeatureGate {
 
 impl FeatureGate {
     /// Create new feature gate
-    pub async fn new(service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
-        let access_validator = AccessValidator::new(service_container).await?;
+    pub async fn new(_service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
+        let access_validator = AccessValidator::new(_service_container).await?;
 
         Ok(Self { access_validator })
     }
@@ -464,27 +471,27 @@ impl FeatureGate {
         );
 
         match feature {
-            "trading_manual" => {
+            FEATURE_TRADING_MANUAL => {
                 self.access_validator
                     .validate_trading_access(user_profile, "manual")
                     .await
             }
-            "trading_automated" => {
+            FEATURE_TRADING_AUTOMATED => {
                 self.access_validator
                     .validate_trading_access(user_profile, "automated")
                     .await
             }
-            "opportunities_unlimited" => {
+            FEATURE_OPPORTUNITIES_UNLIMITED => {
                 self.access_validator
                     .validate_opportunity_access(user_profile, "unlimited")
                     .await
             }
-            "opportunities_realtime" => {
+            FEATURE_OPPORTUNITIES_REALTIME => {
                 self.access_validator
                     .validate_opportunity_access(user_profile, "realtime")
                     .await
             }
-            "beta_features" => {
+            FEATURE_BETA_FEATURES => {
                 self.access_validator
                     .validate_beta_access(user_profile, "access")
                     .await
@@ -507,19 +514,19 @@ impl FeatureGate {
         );
 
         let trading_manual = self
-            .is_feature_enabled(user_profile, "trading_manual")
+            .is_feature_enabled(user_profile, FEATURE_TRADING_MANUAL)
             .await?;
         let trading_automated = self
-            .is_feature_enabled(user_profile, "trading_automated")
+            .is_feature_enabled(user_profile, FEATURE_TRADING_AUTOMATED)
             .await?;
         let opportunities_unlimited = self
-            .is_feature_enabled(user_profile, "opportunities_unlimited")
+            .is_feature_enabled(user_profile, FEATURE_OPPORTUNITIES_UNLIMITED)
             .await?;
         let opportunities_realtime = self
-            .is_feature_enabled(user_profile, "opportunities_realtime")
+            .is_feature_enabled(user_profile, FEATURE_OPPORTUNITIES_REALTIME)
             .await?;
         let beta_features = self
-            .is_feature_enabled(user_profile, "beta_features")
+            .is_feature_enabled(user_profile, FEATURE_BETA_FEATURES)
             .await?;
 
         Ok(FeatureAccessSummary {

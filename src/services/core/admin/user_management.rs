@@ -5,11 +5,11 @@ use crate::types::{
     UserProfile, UserSession, UserStatistics,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 use worker::{kv::KvStore, Env};
 
 /// User management service for super admin operations
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct UserManagementService {
     kv_store: KvStore,
     env: Env,

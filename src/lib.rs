@@ -13,22 +13,25 @@ pub mod test_utils;
 
 use once_cell::sync::OnceCell;
 use services::core::infrastructure::database_repositories::DatabaseManager;
+use services::core::infrastructure::database_repositories::DatabaseManagerConfig;
 use services::core::infrastructure::service_container::ServiceContainer;
 // use services::core::opportunities::opportunity::OpportunityServiceConfig; // Removed - using modular architecture
 // use services::core::opportunities::OpportunityService; // Removed - using modular architecture
 use services::core::trading::exchange::{ExchangeInterface, ExchangeService};
-use services::core::trading::positions::{
-    CreatePositionData, ProductionPositionsService, UpdatePositionData,
-};
+use services::core::trading::positions::{CreatePositionData, UpdatePositionData};
 use services::core::user::user_profile::UserProfileService;
-use services::interfaces::telegram::telegram::{TelegramConfig, TelegramService};
+// use services::interfaces::telegram::telegram::{TelegramConfig, TelegramService}; // Removed unused imports
 
 // Import new modular components
 use handlers::*;
 
 use std::sync::Arc;
+use std::time::SystemTime;
 use types::ExchangeIdEnum;
 use utils::{ArbitrageError, ArbitrageResult};
+
+#[cfg(target_arch = "wasm32")]
+use wee_alloc;
 
 #[cfg(target_arch = "wasm32")]
 use worker::console_log;
@@ -48,42 +51,38 @@ async fn get_service_container(env: &Env) -> Result<Arc<ServiceContainer>> {
     }
 
     let kv_store = env.kv("ArbEdgeKV")?;
-    let encryption_key = env
+    let _encryption_key = env
         .var("ENCRYPTION_KEY")
-        .map_err(|_| worker::Error::RustError("Missing ENCRYPTION_KEY".to_string()))?
-        .to_string();
+        .map_err(|_| worker::Error::RustError("Missing ENCRYPTION_KEY".to_string()))?;
+    let d1 = env.d1("ARB_EDGE_D1")?;
+    let _database_manager =
+        DatabaseManager::new(Arc::new(d1.clone()), DatabaseManagerConfig::default());
 
-    // Create database manager with proper configuration
-    let d1_database = env.d1("ArbEdgeDB")?;
-    let database_manager = DatabaseManager::new(
-        std::sync::Arc::new(d1_database),
-        services::core::infrastructure::database_repositories::DatabaseManagerConfig::default(),
-    );
+    // These services are initialized and managed by the ServiceContainer
+    // let _user_profile_service =
+    //     UserProfileService::new(kv_store.clone(), database_manager, encryption_key);
+    //
+    // let _telegram_service = TelegramService::new(TelegramConfig {
+    //     bot_token: env
+    //         .var("TELEGRAM_BOT_TOKEN")
+    //         .map_err(|_| worker::Error::RustError("Missing TELEGRAM_BOT_TOKEN".to_string()))?
+    //         .to_string(),
+    //     chat_id: env
+    //         .var("TELEGRAM_CHAT_ID")
+    //         .map(|s| s.to_string())
+    //         .unwrap_or_else(|_| "".to_string()),
+    //     is_test_mode: env
+    //         .var("TELEGRAM_TEST_MODE")
+    //         .map(|s| s.to_string())
+    //         .unwrap_or_else(|_| "false".to_string())
+    //         == "true",
+    // });
+    //
+    // let _exchange_service = ExchangeService::new(env)?;
+    // #[cfg(target_arch = "wasm32")]
+    // let _positions_service = ProductionPositionsService::new(Arc::new(kv_store.clone()));
 
-    let _user_profile_service =
-        UserProfileService::new(kv_store.clone(), database_manager, encryption_key);
-
-    let _telegram_service = TelegramService::new(TelegramConfig {
-        bot_token: env
-            .var("TELEGRAM_BOT_TOKEN")
-            .map_err(|_| worker::Error::RustError("Missing TELEGRAM_BOT_TOKEN".to_string()))?
-            .to_string(),
-        chat_id: env
-            .var("TELEGRAM_CHAT_ID")
-            .map(|s| s.to_string())
-            .unwrap_or_else(|_| "".to_string()),
-        is_test_mode: env
-            .var("TELEGRAM_TEST_MODE")
-            .map(|s| s.to_string())
-            .unwrap_or_else(|_| "false".to_string())
-            == "true",
-    });
-
-    let _exchange_service = ExchangeService::new(env)?;
-    #[cfg(target_arch = "wasm32")]
-    let _positions_service = ProductionPositionsService::new(Arc::new(kv_store.clone()));
-
-    let container = Arc::new(ServiceContainer::new(env, kv_store.clone()).await?);
+    let container = Arc::new(ServiceContainer::new(env, kv_store).await?);
 
     SERVICE_CONTAINER
         .set(container.clone())
@@ -468,9 +467,26 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
     let url = req.url()?;
     let path = url.path();
-    let method = req.method();
+    let original_worker_method = req.method();
 
-    console_log!("🌐 Request: {} {}", method, path);
+    // Convert worker::Method to http::Method for use with http::Request::builder()
+    let http_method_for_builder = match &original_worker_method {
+        Method::Get => http::Method::GET,
+        Method::Post => http::Method::POST,
+        Method::Put => http::Method::PUT,
+        Method::Delete => http::Method::DELETE,
+        Method::Options => http::Method::OPTIONS,
+        Method::Head => http::Method::HEAD,
+        Method::Patch => http::Method::PATCH,
+        _ => {
+            return Response::error(
+                format!("Unsupported method: {:?}", original_worker_method),
+                405,
+            )
+        }
+    };
+
+    console_log!("🌐 Request: {} {}", original_worker_method, path);
 
     // CORS headers for all responses
     let mut cors_headers = worker::Headers::new();
@@ -485,11 +501,11 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     )?;
 
     // Handle preflight requests
-    if method == Method::Options {
+    if original_worker_method == Method::Options {
         return Ok(Response::empty()?.with_headers(cors_headers));
     }
 
-    let mut response = match (method.clone(), path) {
+    let mut response = match (original_worker_method.clone(), path) {
         // Health endpoints - Use modular routing
         (Method::Get, "/health") => {
             route_health_check(req, &get_service_container(&env).await?).await
@@ -620,7 +636,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
 
         _ => {
-            console_log!("❌ Route not found: {} {}", method, path);
+            console_log!("❌ Route not found: {} {}", original_worker_method, path);
             Response::error("Not Found", 404)
         }
     };
@@ -932,4 +948,31 @@ async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
 
     console_log!("✅ Scheduled opportunity monitoring completed successfully");
     Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
+pub async fn initialize_services(env: Env) -> ServiceContainer {
+    let _encryption_key = env
+        .var("ENCRYPTION_KEY")
+        .expect("ENCRYPTION_KEY not set")
+        .to_string();
+    let d1 = env.d1("ARB_EDGE_D1").expect("D1 binding not found");
+    let _database_manager = DatabaseManager::new(
+        Arc::new(d1),
+        services::core::infrastructure::database_repositories::DatabaseManagerConfig::default(),
+    );
+    let _kv = env.kv("ArbEdgeKV").expect("KV binding not found");
+    // ... existing code ...
+
+    // ... rest of the function ...
+
+    // ... return the container ...
+    let container = ServiceContainer::new(&env, _kv)
+        .await
+        .expect("Failed to create service container in initialize_services");
+
+    container
 }

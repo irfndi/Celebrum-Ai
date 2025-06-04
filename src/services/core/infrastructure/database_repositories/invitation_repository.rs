@@ -267,10 +267,7 @@ impl InvitationRepository {
             .await
             .map_err(|e| database_error("execute query", e))?;
 
-        let success = result
-            .meta()
-            .map(|meta| meta.changes > 0)
-            .unwrap_or(false);
+        let success = result.meta.as_ref().map(|m| m.rows_written).unwrap_or(0) > 0;
 
         // Invalidate cache if enabled
         if success && self.config.enable_caching {

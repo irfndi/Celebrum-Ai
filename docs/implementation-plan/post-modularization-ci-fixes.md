@@ -10,7 +10,7 @@ After completing the infrastructure services modularization, we have 228 compila
 - ❌ **Remaining Services** - Need systematic modularization
 
 **STRATEGIC APPROACH**:
-1. **Full Modularization First** - Complete all service modules before fixing errors - avoid missing features, improve is grea
+1. **Full Modularization First** - Complete all service modules before fixing errors - avoid missing features, improve maintainability
 2. **User Journey Priority** - Start with Super Admin → Enterprise → Premium → Basic → Free
 3. **Zero Duplication** - Hybrid type system based on modularized service needs
 4. **Feature Flags** - Gradual rollout with backward compatibility
@@ -31,7 +31,7 @@ After completing the infrastructure services modularization, we have 228 compila
 
 ### 🎯 **USER JOURNEY PRIORITIZATION STRATEGY**
 **Super Admin Journey** (Highest Priority):
-```
+```text
 Super Admin Flow:
 1. Authentication & Authorization (RBAC)
 2. System Administration (User Management, Config)
@@ -78,7 +78,7 @@ Instead of massive type refactoring, create **hybrid approach**:
 #### **Task 1.2: Complete Telegram Interface Modularization**
 - **Objective**: Break down monolithic telegram.rs into modular components
 - **Target Structure**:
-```
+```text
 src/services/interfaces/telegram/
 ├── mod.rs (main interface)
 ├── core/ (core telegram functionality)
@@ -104,7 +104,7 @@ src/services/interfaces/telegram/
 **Priority Order** (Based on Super Admin Journey):
 
 1. **Authentication & Authorization Module** (CRITICAL)
-```
+```text
 src/services/core/auth/
 ├── mod.rs
 ├── rbac/ (role-based access control)
@@ -114,7 +114,7 @@ src/services/core/auth/
 ```
 
 2. **System Administration Module** (CRITICAL)
-```
+```text
 src/services/core/admin/
 ├── mod.rs
 ├── user_management/ (user CRUD, permissions)
@@ -124,7 +124,7 @@ src/services/core/admin/
 ```
 
 3. **Analytics & Reporting Module** (HIGH)
-```
+```text
 src/services/core/analytics/
 ├── mod.rs
 ├── collection/ (data collection)
@@ -134,7 +134,7 @@ src/services/core/analytics/
 ```
 
 4. **Trading Services Module** (HIGH)
-```
+```text
 src/services/core/trading/
 ├── mod.rs
 ├── exchange_integration/ (API clients)
@@ -144,7 +144,7 @@ src/services/core/trading/
 ```
 
 5. **AI Intelligence Module** (MEDIUM)
-```
+```text
 src/services/core/ai/
 ├── mod.rs
 ├── model_routing/ (provider selection)
@@ -154,7 +154,7 @@ src/services/core/ai/
 ```
 
 6. **Communication Module** (MEDIUM)
-```
+```text
 src/services/core/communication/
 ├── mod.rs
 ├── notifications/ (multi-channel notifications)
@@ -280,7 +280,7 @@ Task 5: doublecheck all services and files
 ### 🔄 Remaining Issues (121 errors):
 
 #### **Critical Type Mismatches (60+ errors)**:
-1. **String vs ExchangeIdEnum**: ArbitrageOpportunity.long_exchange and short_exchange are String but code expects ExchangeIdEnum
+1. **String vs ExchangeIdEnum**: ArbitrageOpportunity.long_exchange and short_exchange are String, but code expects ExchangeIdEnum
 2. **Missing ArbitrageOpportunity fields**: Many initializations missing buy_exchange, buy_price, confidence_score, sell_exchange, sell_price, volume fields
 3. **Option<u64> vs u64**: expires_at field type mismatches in multiple places
 

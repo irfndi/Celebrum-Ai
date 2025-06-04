@@ -16,7 +16,7 @@ pub mod opportunity_distribution;
 // Re-export core components for easy access
 pub use access_manager::AccessManager;
 pub use ai_enhancer::AIEnhancer;
-pub use cache_manager::{CacheManager, CachePrefixes};
+pub use cache_manager::{CachePrefixes, OpportunityDataCache};
 pub use market_analyzer::MarketAnalyzer;
 pub use opportunity_builders::OpportunityBuilder;
 pub use opportunity_categorization::*;

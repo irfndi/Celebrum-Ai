@@ -14,7 +14,6 @@ use worker::kv::KvStore;
 
 /// Unified access manager for all opportunity services
 /// Consolidates permission checking, access validation, and exchange API management
-
 pub struct AccessManager {
     user_profile_service: Arc<UserProfileService>,
     user_access_service: Arc<UserAccessService>,

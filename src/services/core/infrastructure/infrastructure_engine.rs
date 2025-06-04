@@ -5,6 +5,7 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::sync::Mutex;
 use worker::kv::KvStore;
 
@@ -14,8 +15,9 @@ use super::{
     database_core::DatabaseCore,
     monitoring_module::metrics_collector::{MetricsCollector, MetricsCollectorConfig},
     notification_module::{NotificationCoordinator, NotificationCoordinatorConfig},
+    service_health::SystemHealthReport,
     service_health::{HealthCheckConfig, ServiceHealthManager},
-    DatabaseCoreConfig,
+    D1Service, DatabaseManager, DatabaseManagerConfig, FeatureFlagConfig, FeatureFlagService,
 };
 use worker::Env;
 
@@ -670,6 +672,14 @@ impl InfrastructureEngine {
             }
         }
         Ok(())
+    }
+
+    pub async fn get_detailed_health_status(&self) -> SystemHealthReport {
+        // Placeholder - replace with actual health check logic
+        let _uptime_seconds = SystemTime::now().duration_since(self.start_time).as_secs();
+
+        // TODO: Implement comprehensive health check across all infrastructure components
+        // ... existing code ...
     }
 }
 

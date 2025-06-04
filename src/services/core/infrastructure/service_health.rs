@@ -2,6 +2,7 @@
 // Consolidates health check patterns from multiple services with comprehensive monitoring
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -88,7 +89,7 @@ impl Default for HealthCheckConfig {
 
 /// Health check function trait for services
 #[async_trait::async_trait]
-pub trait HealthCheckable {
+pub trait HealthCheckable: Send + Sync {
     async fn health_check(&self) -> ArbitrageResult<ServiceHealthCheck>;
     fn service_name(&self) -> &str;
     fn dependencies(&self) -> Vec<String> {
@@ -352,7 +353,10 @@ impl ServiceHealthManager {
 
     /// Get metrics for all services
     pub fn get_all_metrics(&self) -> HashMap<String, ServiceMetrics> {
-        self.metrics.lock().unwrap_or_default().clone()
+        match self.metrics.lock() {
+            Ok(metrics) => metrics.clone(),
+            Err(_) => HashMap::new(), // Return empty HashMap if mutex is poisoned
+        }
     }
 
     /// Reset metrics for all services
@@ -494,6 +498,7 @@ impl PingHealthCheck {
     }
 }
 
+#[async_trait::async_trait]
 impl HealthCheckable for PingHealthCheck {
     async fn health_check(&self) -> ArbitrageResult<ServiceHealthCheck> {
         Ok(ServiceHealthCheck {
@@ -529,6 +534,7 @@ impl HttpHealthCheck {
     }
 }
 
+#[async_trait::async_trait]
 impl HealthCheckable for HttpHealthCheck {
     async fn health_check(&self) -> ArbitrageResult<ServiceHealthCheck> {
         // In a real implementation, this would make an HTTP request

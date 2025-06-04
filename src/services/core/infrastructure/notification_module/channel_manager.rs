@@ -179,6 +179,22 @@ impl ChannelManagerConfig {
 
         Ok(())
     }
+
+    /// Create a high reliability configuration
+    pub fn high_reliability() -> Self {
+        Self {
+            enable_channel_manager: true,
+            enable_authentication: true,
+            enable_rate_limiting: true,
+            enable_fallback: true,
+            max_concurrent_deliveries: 50, // Lower for reliability
+            default_timeout_seconds: 60,   // Higher timeout for reliability
+            enable_kv_storage: true,
+            kv_key_prefix: "channel:hr:".to_string(),
+            enable_metrics: true,
+            health_check_interval_seconds: 30, // More frequent health checks
+        }
+    }
 }
 
 /// Channel Manager for handling channel-specific delivery logic

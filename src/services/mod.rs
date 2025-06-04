@@ -34,6 +34,7 @@ pub use core::ai::{AiBetaIntegrationService, AiIntegrationService, AiIntelligenc
 pub use core::analysis::{
     CorrelationAnalysisService, MarketAnalysisService, TechnicalAnalysisService,
 };
+pub use core::infrastructure::CacheManager;
 pub use core::infrastructure::{
     // Legacy services still in use
     AnalyticsEngineService,
@@ -55,7 +56,6 @@ pub use core::invitation::{AffiliationService, InvitationService, ReferralServic
 pub use core::opportunities::{
     AIEnhancer,
     AccessManager,
-    CacheManager,
     MarketAnalyzer,
     OpportunityBuilder,
     OpportunityCategorizationService,

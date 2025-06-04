@@ -2,7 +2,9 @@
 // Consolidates all database operations from D1Service with optimized patterns for high concurrency
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use serde_json::{json, Value};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use worker::{wasm_bindgen::JsValue, D1Database, Env};
@@ -423,7 +425,10 @@ impl DatabaseCore {
 
         Ok(InternalResult {
             rows_affected: result.meta().and_then(|m| Some(m.changes)).unwrap_or(0) as u64,
-            last_insert_id: result.meta().and_then(|m| m.last_row_id).map(|id| id as u64),
+            last_insert_id: result
+                .meta()
+                .and_then(|m| m.last_row_id)
+                .map(|id| id as u64),
         })
     }
 

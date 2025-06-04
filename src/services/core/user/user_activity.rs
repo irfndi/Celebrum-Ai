@@ -1,6 +1,6 @@
 use crate::services::core::infrastructure::DatabaseManager;
-use crate::types::{MessageAnalytics, UserProfile};
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::types::MessageAnalytics;
+use crate::utils::ArbitrageResult;
 use std::sync::Arc;
 use worker::console_log;
 
@@ -68,16 +68,24 @@ impl UserActivityService {
             .execute(
                 query,
                 &[
-                    serde_json::Value::String(analytics.message_id.clone()),
-                    serde_json::Value::Number(serde_json::Number::from(analytics.chat_id)),
-                    serde_json::Value::String(analytics.user_id.clone().unwrap_or_default()),
-                    serde_json::Value::String(analytics.message_type.clone()),
-                    serde_json::Value::String(analytics.command.clone().unwrap_or_default()),
-                    serde_json::Value::Number(serde_json::Number::from(analytics.timestamp)),
-                    serde_json::Value::Number(serde_json::Number::from(analytics.response_time_ms)),
-                    serde_json::Value::Bool(analytics.success),
-                    serde_json::Value::String(analytics.error_message.clone().unwrap_or_default()),
-                    analytics.metadata.clone(),
+                    worker::wasm_bindgen::JsValue::from_str(&analytics.message_id),
+                    worker::wasm_bindgen::JsValue::from_f64(analytics.chat_id as f64),
+                    worker::wasm_bindgen::JsValue::from_str(
+                        &analytics.user_id.clone().unwrap_or_default(),
+                    ),
+                    worker::wasm_bindgen::JsValue::from_str(&analytics.message_type),
+                    worker::wasm_bindgen::JsValue::from_str(
+                        &analytics.command.clone().unwrap_or_default(),
+                    ),
+                    worker::wasm_bindgen::JsValue::from_f64(analytics.timestamp as f64),
+                    worker::wasm_bindgen::JsValue::from_f64(analytics.response_time_ms as f64),
+                    worker::wasm_bindgen::JsValue::from_bool(analytics.success),
+                    worker::wasm_bindgen::JsValue::from_str(
+                        &analytics.error_message.clone().unwrap_or_default(),
+                    ),
+                    worker::wasm_bindgen::JsValue::from_str(
+                        &serde_json::to_string(&analytics.metadata).unwrap_or_default(),
+                    ),
                 ],
             )
             .await?;
@@ -95,13 +103,13 @@ impl UserActivityService {
         let start_timestamp = start_date.timestamp_millis() as u64;
 
         // Get activity from KV store (recent) and D1 (historical)
-        let mut activities = Vec::new();
+        let _activities: Vec<serde_json::Value> = Vec::new();
 
         // Get recent activities from KV
         for hour in 0..24 {
             let hour_timestamp =
                 chrono::Utc::now().timestamp_millis() as u64 - (hour * 3600 * 1000);
-            let activity_pattern = format!("user_activity:{}:{}", user_id, hour_timestamp / 1000);
+            let _activity_pattern = format!("user_activity:{}:{}", user_id, hour_timestamp / 1000);
 
             // In a real implementation, we'd use KV list operations
             // For now, we'll just return a summary structure
@@ -121,8 +129,8 @@ impl UserActivityService {
             .query(
                 query,
                 &[
-                    serde_json::Value::String(user_id.to_string()),
-                    serde_json::Value::Number(serde_json::Number::from(start_timestamp)),
+                    worker::wasm_bindgen::JsValue::from_str(&user_id.to_string()),
+                    worker::wasm_bindgen::JsValue::from_f64(start_timestamp as f64),
                 ],
             )
             .await?;

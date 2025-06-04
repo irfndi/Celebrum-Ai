@@ -312,7 +312,7 @@ impl ReportGenerator {
     /// Initialize the Report Generator with environment
     pub async fn initialize(&mut self, env: &Env) -> ArbitrageResult<()> {
         // Initialize KV store for caching and storage
-        self.kv_store = Some(env.kv("REPORTS_CACHE").map_err(|e| {
+        self.kv_store = Some(env.kv("ArbEdgeKV").map_err(|e| {
             ArbitrageError::configuration_error(format!("Failed to initialize KV store: {:?}", e))
         })?);
 

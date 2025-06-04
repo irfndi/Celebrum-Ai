@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 // use worker::console_log; // TODO: Re-enable when implementing logging integration
+use log::warn;
 use uuid;
 use worker::kv::KvStore;
 
@@ -102,7 +103,7 @@ impl AiIntegrationService {
         user_id: &str,
         provider: ApiKeyProvider,
         api_key: &str,
-        _metadata: Option<Value>,
+        metadata: Option<Value>,
     ) -> ArbitrageResult<String> {
         // Check if user has reached the maximum number of AI keys
         let existing_keys = self.get_user_ai_keys(user_id).await?;
@@ -125,14 +126,23 @@ impl AiIntegrationService {
         // Encrypt the API key
         let encrypted_key = self.encrypt_string(api_key)?;
 
+        // Ensure metadata is a HashMap<String, Value>
+        let metadata_map: HashMap<String, Value> = if let Some(meta) = metadata {
+            if let Value::Object(map) = meta {
+                map.into_iter().collect() // Corrected conversion
+            } else {
+                // If meta is not an object, treat it as an empty map or error out
+                warn!("Metadata provided for AI key for user {} was not a JSON object, defaulting to empty metadata.", user_id);
+                std::collections::HashMap::new()
+            }
+        } else {
+            std::collections::HashMap::new()
+        };
+
         // Create the UserApiKey
         let api_key_id = uuid::Uuid::new_v4().to_string();
-        let user_api_key = UserApiKey::new_ai_key(
-            user_id.to_string(),
-            provider,
-            encrypted_key,
-            std::collections::HashMap::new(), // metadata parameter
-        );
+        let user_api_key =
+            UserApiKey::new_ai_key(user_id.to_string(), provider, encrypted_key, metadata_map);
 
         // Store the key
         let key = format!("ai_key:{}:{}", user_id, api_key_id);
@@ -483,6 +493,28 @@ impl AiIntegrationService {
         Ok(response.status().is_success())
     }
 
+    // Helper function to parse recommendations from AI response
+    fn parse_ai_recommendations(&self, recommendations_node: Option<&Value>) -> Vec<String> {
+        recommendations_node
+            .and_then(|node| node.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .or_else(|| {
+                recommendations_node
+                    .and_then(|node| node.as_str())
+                    .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+            })
+            .unwrap_or_else(|| {
+                vec![recommendations_node
+                    .and_then(|node| node.as_str())
+                    .unwrap_or("No recommendations available")
+                    .to_string()]
+            })
+    }
+
     async fn call_openai(
         &self,
         api_key: &str,
@@ -550,26 +582,8 @@ impl AiIntegrationService {
             .map(|v| v as f32)
             .unwrap_or(0.7);
 
-        let recommendations: Vec<String> = response_data["choices"][0]["message"]
-            ["recommendations"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_else(|| {
-                if let Ok(parsed) = serde_json::from_str::<Vec<String>>(
-                    &response_data["recommendations"].to_string(),
-                ) {
-                    parsed
-                } else {
-                    vec![response_data["recommendations"]
-                        .as_str()
-                        .unwrap_or("No recommendations available")
-                        .to_string()]
-                }
-            });
+        let recommendations_node = response_data["choices"][0]["message"].get("recommendations");
+        let recommendations = self.parse_ai_recommendations(recommendations_node);
 
         Ok(AiAnalysisResponse {
             analysis,
@@ -644,25 +658,8 @@ impl AiIntegrationService {
             .map(|v| v as f32)
             .unwrap_or(0.7);
 
-        let recommendations: Vec<String> = response_data["recommendations"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_else(|| {
-                if let Ok(parsed) = serde_json::from_str::<Vec<String>>(
-                    &response_data["recommendations"].to_string(),
-                ) {
-                    parsed
-                } else {
-                    vec![response_data["recommendations"]
-                        .as_str()
-                        .unwrap_or("No recommendations available")
-                        .to_string()]
-                }
-            });
+        let recommendations_node = response_data.get("recommendations");
+        let recommendations = self.parse_ai_recommendations(recommendations_node);
 
         Ok(AiAnalysisResponse {
             analysis,
@@ -750,36 +747,25 @@ impl AiIntegrationService {
             .map(|v| v as f32)
             .unwrap_or(100.0);
 
-        let recommendations: Vec<String> = response_data["recommendations"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_else(|| {
-                if let Ok(parsed) = serde_json::from_str::<Vec<String>>(
-                    &response_data["recommendations"].to_string(),
-                ) {
-                    parsed
-                } else {
-                    vec![response_data["recommendations"]
-                        .as_str()
-                        .unwrap_or("No recommendations available")
-                        .to_string()]
-                }
-            });
+        let recommendations_node = response_data.get("recommendations");
+        let recommendations = self.parse_ai_recommendations(recommendations_node);
 
         let _risk_factors = response_data["risk_factors"]
             .as_str()
             .map(|s| s.to_string())
             .unwrap_or_default();
 
+        let mut metadata_map = HashMap::new();
+        metadata_map.insert("risk_score".to_string(), json!(_risk_score));
+        metadata_map.insert("timing_score".to_string(), json!(_timing_score));
+        metadata_map.insert("position_size".to_string(), json!(_position_size));
+        metadata_map.insert("risk_factors".to_string(), json!(_risk_factors));
+
         Ok(AiAnalysisResponse {
             analysis,
             confidence: Some(confidence),
             recommendations,
-            metadata: HashMap::new(),
+            metadata: metadata_map,
         })
     }
 

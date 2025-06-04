@@ -2687,6 +2687,47 @@ impl AIUsageTracker {
             cost_breakdown_by_feature: HashMap::new(),
         }
     }
+
+    pub fn needs_daily_reset(&self) -> bool {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        self.date != today
+    }
+
+    pub fn reset_daily_counters(&mut self) {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        self.date = today;
+        self.ai_calls_used = 0;
+        self.last_reset = chrono::Utc::now().timestamp_millis() as u64;
+        self.total_cost_usd = 0.0;
+        self.cost_breakdown_by_provider.clear();
+        self.cost_breakdown_by_feature.clear();
+    }
+
+    pub fn can_make_ai_call(&self) -> bool {
+        self.ai_calls_used < self.ai_calls_limit
+    }
+
+    pub fn get_remaining_calls(&self) -> u32 {
+        if self.ai_calls_limit == u32::MAX {
+            u32::MAX
+        } else {
+            self.ai_calls_limit.saturating_sub(self.ai_calls_used)
+        }
+    }
+
+    pub fn record_ai_call(&mut self, cost_usd: f64, provider: &str, feature: &str) {
+        self.ai_calls_used += 1;
+        self.total_cost_usd += cost_usd;
+
+        *self
+            .cost_breakdown_by_provider
+            .entry(provider.to_string())
+            .or_insert(0.0) += cost_usd;
+        *self
+            .cost_breakdown_by_feature
+            .entry(feature.to_string())
+            .or_insert(0.0) += cost_usd;
+    }
 }
 
 /// Market data structure
@@ -2950,6 +2991,7 @@ pub enum PositionStatus {
     PartiallyFilled,
     Cancelled,
     Failed,
+    Liquidated, // Added missing Liquidated variant
 }
 
 /// Technical risk level enumeration
@@ -3330,6 +3372,20 @@ pub enum AIEnhancementMode {
     Premium,
 }
 
+impl std::fmt::Display for AIEnhancementMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AIEnhancementMode::Disabled => write!(f, "disabled"),
+            AIEnhancementMode::Basic => write!(f, "basic"),
+            AIEnhancementMode::BYOKOnly => write!(f, "byok_only"),
+            AIEnhancementMode::AdminProvided => write!(f, "admin_provided"),
+            AIEnhancementMode::Mixed => write!(f, "mixed"),
+            AIEnhancementMode::Advanced => write!(f, "advanced"),
+            AIEnhancementMode::Premium => write!(f, "premium"),
+        }
+    }
+}
+
 /// Group Channel Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupChannelConfig {
@@ -3350,6 +3406,10 @@ pub struct GroupChannelConfig {
 }
 
 impl GroupChannelConfig {
+    pub fn is_admin(&self, user_id: &str) -> bool {
+        self.admin_user_id == user_id || self.managed_by_admins.contains(&user_id.to_string())
+    }
+
     pub fn new_group(group_id: String, admin_user_id: String) -> Self {
         Self {
             group_id,
@@ -3401,6 +3461,10 @@ pub struct GroupAISettings {
 }
 
 impl GroupAISettings {
+    pub fn get_ai_enhancement_mode(&self) -> AIEnhancementMode {
+        self.enhancement_mode.clone()
+    }
+
     pub fn new(group_id: String, admin_user_id: String) -> Self {
         Self {
             group_id,

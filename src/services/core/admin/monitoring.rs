@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use worker::{kv::KvStore, Env};
 
 /// Monitoring service for system health and performance metrics
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MonitoringService {
     kv_store: KvStore,
     env: Env,

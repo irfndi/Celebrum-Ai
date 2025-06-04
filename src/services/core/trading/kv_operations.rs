@@ -20,7 +20,7 @@ pub type KvResult<T> = Result<T, KvOperationError>;
 #[cfg(target_arch = "wasm32")]
 #[async_trait]
 pub trait KvOperations {
-    async fn put<T: Serialize + Send>(&self, key: &str, value: &T) -> KvResult<()>;
+    async fn put<T: Serialize + Send + ?Sized>(&self, key: &str, value: &T) -> KvResult<()>;
     async fn get<T: DeserializeOwned + Send>(&self, key: &str) -> KvResult<Option<T>>;
     async fn delete(&self, key: &str) -> KvResult<()>;
 }
@@ -28,7 +28,7 @@ pub trait KvOperations {
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 pub trait KvOperations: Send + Sync {
-    async fn put<T: Serialize + Send>(&self, key: &str, value: &T) -> KvResult<()>;
+    async fn put<T: Serialize + Send + ?Sized>(&self, key: &str, value: &T) -> KvResult<()>;
     async fn get<T: DeserializeOwned + Send>(&self, key: &str) -> KvResult<Option<T>>;
     async fn delete(&self, key: &str) -> KvResult<()>;
 }
@@ -36,7 +36,7 @@ pub trait KvOperations: Send + Sync {
 #[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
 impl KvOperations for worker::kv::KvStore {
-    async fn put<T: Serialize + Send>(&self, key: &str, value: &T) -> KvResult<()> {
+    async fn put<T: Serialize + Send + ?Sized>(&self, key: &str, value: &T) -> KvResult<()> {
         let serialized = serde_json::to_string(value)?;
         self.put(key, serialized)
             .await

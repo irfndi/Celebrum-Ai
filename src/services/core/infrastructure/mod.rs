@@ -26,7 +26,10 @@
 //! - **Intelligent Caching**: Multi-layer caching with TTL management
 //! - **Real-time Monitoring**: Comprehensive health and performance tracking
 
+use crate::types::FeatureFlag;
 use crate::utils::error::{ArbitrageError, ArbitrageResult, ErrorKind};
+use std::collections::HashMap;
+use worker::Env;
 
 // ============= NEW MODULAR ARCHITECTURE =============
 pub mod ai_services;
@@ -135,10 +138,6 @@ pub use financial_module::{
     FinancialModuleConfig, FinancialModuleHealth, FinancialModuleMetrics, FundAnalyzer,
     FundOptimizationResult, PortfolioAnalytics,
 };
-
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use worker::{kv::KvStore, Env};
 
 /// Revolutionary Infrastructure Configuration for High-Concurrency Trading
 #[derive(Debug, Clone)]
@@ -480,21 +479,20 @@ impl InfrastructureManager {
     pub async fn initialize(&mut self, env: &Env) -> ArbitrageResult<()> {
         let start_time = crate::utils::get_current_timestamp();
 
-        // Initialize KV store
-        let kv_store = env
-            .kv("ArbEdgeKV")
-            .map_err(|e| ArbitrageError::cache_error(format!("Failed to get KV store: {}", e)))?;
-
         // Initialize core infrastructure first
         self.database_core = Some(DatabaseCore::new(env)?);
         self.cache_manager = Some(CacheManager::new_with_config(
-            kv_store.clone(),
+            env.kv("ArbEdgeKV").map_err(|e| {
+                ArbitrageError::cache_error(format!("Failed to get KV store: {}", e))
+            })?,
             cache_manager::CacheConfig::default(),
             "arb_edge",
         ));
         self.service_health = Some(ServiceHealthManager::new());
         self.infrastructure_engine = Some(InfrastructureEngine::new_with_config(
-            kv_store.clone(),
+            env.kv("ArbEdgeKV").map_err(|e| {
+                ArbitrageError::cache_error(format!("Failed to get KV store: {}", e))
+            })?,
             infrastructure_engine::InfrastructureConfig::default(),
         ));
 
@@ -502,7 +500,9 @@ impl InfrastructureManager {
         self.notification_module = Some(
             notification_module::NotificationModule::new(
                 self.config.notification_config.clone(),
-                kv_store.clone(),
+                env.kv("ArbEdgeKV").map_err(|e| {
+                    ArbitrageError::cache_error(format!("Failed to get KV store: {}", e))
+                })?,
                 env,
             )
             .await?,
@@ -511,7 +511,9 @@ impl InfrastructureManager {
         self.monitoring_module = Some(
             monitoring_module::MonitoringModule::new(
                 self.config.monitoring_config.clone(),
-                kv_store.clone(),
+                env.kv("ArbEdgeKV").map_err(|e| {
+                    ArbitrageError::cache_error(format!("Failed to get KV store: {}", e))
+                })?,
                 env,
             )
             .await?,
@@ -520,7 +522,9 @@ impl InfrastructureManager {
         self.data_ingestion_module = Some(
             data_ingestion_module::DataIngestionModule::new(
                 self.config.data_ingestion_config.clone(),
-                kv_store.clone(),
+                env.kv("ArbEdgeKV").map_err(|e| {
+                    ArbitrageError::cache_error(format!("Failed to get KV store: {}", e))
+                })?,
                 env,
             )
             .await?,
@@ -529,7 +533,9 @@ impl InfrastructureManager {
         self.data_access_layer = Some(
             data_access_layer::DataAccessLayer::new(
                 self.config.data_access_config.clone(),
-                kv_store.clone(),
+                env.kv("ArbEdgeKV").map_err(|e| {
+                    ArbitrageError::cache_error(format!("Failed to get KV store: {}", e))
+                })?,
             )
             .await?,
         );

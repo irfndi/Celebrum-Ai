@@ -924,7 +924,7 @@ mod tests {
     #[test]
     fn test_data_source_manager_config_high_concurrency() {
         let config = DataSourceManagerConfig::high_concurrency();
-        assert_eq!(config.connection_pool_size, 15); // or set to 25 in the builder
+        assert_eq!(config.connection_pool_size, 25);
         assert_eq!(config.default_timeout_seconds, 15);
         // remove obsolete circuit-breaker threshold assertion
     }

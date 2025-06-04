@@ -494,7 +494,7 @@ impl AICoordinator {
                     Err(e) => {
                         self.handle_service_error(&e).await;
                         if self.config.enable_fallback_strategies {
-                            self.handle_fallback_ranking(vec![]).await
+                            self.handle_fallback_ranking(opportunities).await
                         } else {
                             Err(e)
                         }

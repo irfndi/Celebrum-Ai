@@ -5,11 +5,10 @@
 
 use crate::utils::error::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
-use worker::{D1Database, Env};
 use worker::wasm_bindgen::JsValue;
+use worker::{D1Database, Env};
 
 /// D1 Database Service for high-level database operations
-#[derive(Debug, Clone)]
 pub struct D1Service {
     database: D1Database,
     connection_pool_size: u32,

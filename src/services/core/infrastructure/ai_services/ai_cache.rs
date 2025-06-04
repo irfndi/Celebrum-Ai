@@ -321,7 +321,7 @@ impl AICache {
                 // Check if expired
                 if entry.is_expired() {
                     self.delete_cache_entry(&cache_key).await?;
-                    self.update_stats_miss().await;
+                    self.update_stats_miss();
                     return Ok(None);
                 }
 
@@ -332,26 +332,26 @@ impl AICache {
                 // Deserialize data
                 match serde_json::from_str::<T>(&entry.data) {
                     Ok(data) => {
-                        self.update_stats_hit().await;
-                        self.track_popular_key(&cache_key).await;
+                        self.update_stats_hit();
+                        self.track_popular_key(&cache_key);
                         Ok(Some(data))
                     }
                     Err(e) => {
                         self.logger
                             .warn(&format!("Failed to deserialize cached data: {}", e));
                         self.delete_cache_entry(&cache_key).await?;
-                        self.update_stats_miss().await;
+                        self.update_stats_miss();
                         Ok(None)
                     }
                 }
             }
             Ok(None) => {
-                self.update_stats_miss().await;
+                self.update_stats_miss();
                 Ok(None)
             }
             Err(e) => {
                 self.logger.warn(&format!("Cache get error: {}", e));
-                self.update_stats_miss().await;
+                self.update_stats_miss();
                 Ok(None)
             }
         }
@@ -392,7 +392,7 @@ impl AICache {
         self.store_cache_entry(&entry).await?;
 
         // Update statistics
-        self.update_stats_set(&entry).await;
+        self.update_stats_set(&entry);
 
         Ok(())
     }
@@ -596,7 +596,7 @@ impl AICache {
     }
 
     /// Update statistics for cache hit
-    async fn update_stats_hit(&self) {
+    fn update_stats_hit(&self) {
         let mut stats = self.stats.lock().unwrap();
         stats.total_hits += 1;
         stats.hit_rate_percent =
@@ -605,7 +605,7 @@ impl AICache {
     }
 
     /// Update statistics for cache miss
-    async fn update_stats_miss(&self) {
+    fn update_stats_miss(&self) {
         let mut stats = self.stats.lock().unwrap();
         stats.total_misses += 1;
         stats.hit_rate_percent =
@@ -614,7 +614,7 @@ impl AICache {
     }
 
     /// Update statistics for cache set
-    async fn update_stats_set(&self, entry: &CacheEntry) {
+    fn update_stats_set(&self, entry: &CacheEntry) {
         let mut stats_guard = self.stats.lock().unwrap();
         stats_guard.total_entries += 1;
         stats_guard.total_size_bytes += entry.size_bytes as u64;
@@ -629,7 +629,7 @@ impl AICache {
     }
 
     /// Track popular keys for cache warming
-    async fn track_popular_key(&self, key: &str) {
+    fn track_popular_key(&self, key: &str) {
         let mut popular_keys_guard = self.popular_keys.lock().unwrap();
         *popular_keys_guard.entry(key.to_string()).or_insert(0) += 1;
         // Guard is dropped here

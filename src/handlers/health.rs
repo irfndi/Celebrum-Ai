@@ -39,7 +39,7 @@ pub async fn handle_api_detailed_health_check(_req: Request, env: Env) -> Result
     };
 
     // Test D1 database with a simple query
-    let d1_operational = match env.d1("ArbEdgeDB") {
+    let d1_operational = match env.d1("ArbEdgeD1") {
         Ok(d1_database) => {
             let database_manager = services::core::infrastructure::database_repositories::DatabaseManager::new(
                 std::sync::Arc::new(d1_database),

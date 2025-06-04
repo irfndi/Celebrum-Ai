@@ -8,8 +8,10 @@
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::services::core::user::SessionManagementService;
+use crate::types::EnhancedUserSession;
 use crate::types::UserProfile;
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use chrono::{DateTime, Utc};
 use std::sync::Arc;
 use worker::console_log;
 
@@ -95,27 +97,8 @@ impl AuthSessionService {
             .await?;
 
         if let Some(session_details) = session_details_option {
-            // Convert u64 timestamps to chrono::DateTime<chrono::Utc>
-            let created_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
-                session_details.created_at as i64,
-            )
-            .ok_or_else(|| {
-                ArbitrageError::internal_error("Invalid created_at timestamp in session_details")
-            })?;
-            let expires_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
-                session_details.expires_at as i64,
-            )
-            .ok_or_else(|| {
-                ArbitrageError::internal_error("Invalid expires_at timestamp in session_details")
-            })?;
-            let last_activity = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
-                session_details.last_activity_at as i64,
-            )
-            .ok_or_else(|| {
-                ArbitrageError::internal_error(
-                    "Invalid last_activity_at timestamp in session_details",
-                )
-            })?;
+            let (created_at, expires_at, last_activity) =
+                convert_session_timestamps(&session_details)?;
 
             let session_info = super::SessionInfo {
                 session_id: session_details.session_id, // Use the actual session_id from details
@@ -290,18 +273,8 @@ impl SessionManager {
             .await?;
 
         if let Some(session_details) = active_session_option {
-            let created_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
-                session_details.created_at as i64,
-            )
-            .ok_or_else(|| ArbitrageError::internal_error("Invalid created_at timestamp"))?;
-            let expires_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
-                session_details.expires_at as i64,
-            )
-            .ok_or_else(|| ArbitrageError::internal_error("Invalid expires_at timestamp"))?;
-            let last_activity = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
-                session_details.last_activity_at as i64,
-            )
-            .ok_or_else(|| ArbitrageError::internal_error("Invalid last_activity timestamp"))?;
+            let (created_at, expires_at, last_activity) =
+                convert_session_timestamps(&session_details)?;
 
             let session_info = super::SessionInfo {
                 session_id: session_details.session_id,
@@ -345,6 +318,19 @@ pub struct SessionValidationResult {
     pub is_valid: bool,
     pub session_info: Option<super::SessionInfo>,
     pub user_id: String,
+}
+
+// Helper function to convert u64 timestamps from EnhancedUserSession to DateTime<Utc>
+fn convert_session_timestamps(
+    session: &EnhancedUserSession,
+) -> ArbitrageResult<(DateTime<Utc>, DateTime<Utc>, DateTime<Utc>)> {
+    let created_at = DateTime::<Utc>::from_timestamp_millis(session.created_at as i64)
+        .ok_or_else(|| ArbitrageError::internal_error("Invalid created_at timestamp"))?;
+    let expires_at = DateTime::<Utc>::from_timestamp_millis(session.expires_at as i64)
+        .ok_or_else(|| ArbitrageError::internal_error("Invalid expires_at timestamp"))?;
+    let last_activity = DateTime::<Utc>::from_timestamp_millis(session.last_activity_at as i64)
+        .ok_or_else(|| ArbitrageError::internal_error("Invalid last_activity timestamp"))?;
+    Ok((created_at, expires_at, last_activity))
 }
 
 #[cfg(test)]

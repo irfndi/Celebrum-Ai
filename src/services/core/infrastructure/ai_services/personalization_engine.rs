@@ -23,6 +23,7 @@ pub trait FeatureExtractor: Send + Sync {
         &self,
         opportunity: &ArbitrageOpportunity,
     ) -> ArbitrageResult<HashMap<String, f64>>;
+    fn clone_box(&self) -> Box<dyn DebuggableFeatureExtractor>;
 }
 
 /// Basic implementation of FeatureExtractor.
@@ -48,6 +49,10 @@ impl FeatureExtractor for BasicFeatureExtractor {
         // In a real implementation, this would extract meaningful features.
         Ok(HashMap::new())
     }
+
+    fn clone_box(&self) -> Box<dyn DebuggableFeatureExtractor> {
+        Box::new(self.clone())
+    }
 }
 
 // --- Personalization Model Trait and Basic Implementation ---
@@ -60,6 +65,7 @@ pub trait PersonalizationModel: Send + Sync {
         opportunity_features: &HashMap<String, f64>,
     ) -> ArbitrageResult<f32>;
     fn update_model(&mut self, interaction: &UserInteraction) -> ArbitrageResult<()>;
+    fn clone_box(&self) -> Box<dyn DebuggablePersonalizationModel>;
 }
 
 /// Basic implementation of PersonalizationModel.
@@ -80,6 +86,10 @@ impl PersonalizationModel for BasicPersonalizationModel {
         // Placeholder: does nothing.
         // In a real implementation, this would update the model's parameters.
         Ok(())
+    }
+
+    fn clone_box(&self) -> Box<dyn DebuggablePersonalizationModel> {
+        Box::new(self.clone())
     }
 }
 
@@ -333,14 +343,7 @@ pub struct PersonalizationEngine {
 // This is a simplified example. In a real scenario, you'd need a clone_box method in your trait.
 impl Clone for Box<dyn DebuggableFeatureExtractor + 'static> {
     fn clone(&self) -> Self {
-        // This requires the trait to have a method that can clone the underlying concrete type into a Box.
-        // For example, `trait FeatureExtractor { fn clone_box(&self) -> Box<dyn FeatureExtractor>; }`
-        // Then, `self.clone_box()` can be called here.
-        // As a simple placeholder, we'll assume it's always BasicFeatureExtractor if it needs to be cloned.
-        // This is NOT a robust solution for all cases.
-        // If you have multiple implementors of FeatureExtractor, this will not work correctly.
-        // Consider if Box<dyn Trait> really needs to be cloned or if Arc<dyn Trait> is more appropriate.
-        Box::new(BasicFeatureExtractor) // Example: Re-boxing a default instance. Adjust as needed.
+        self.clone_box()
     }
 }
 
@@ -355,9 +358,7 @@ impl Clone for Box<dyn DebuggableFeatureExtractor + 'static> {
 // Placeholder Clone implementation for Box<dyn PersonalizationModel + Send + Sync + std::fmt::Debug + 'static>
 impl Clone for Box<dyn DebuggablePersonalizationModel + 'static> {
     fn clone(&self) -> Self {
-        // Similar to DebuggableFeatureExtractor, this requires a `clone_box` like method on the trait.
-        // Placeholder: assuming BasicPersonalizationModel for cloning.
-        Box::new(BasicPersonalizationModel) // Example: Re-boxing a default instance. Adjust as needed.
+        self.clone_box()
     }
 }
 

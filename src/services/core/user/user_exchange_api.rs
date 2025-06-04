@@ -2,19 +2,17 @@ use crate::log_info;
 use crate::services::core::infrastructure::D1Service;
 use crate::services::core::trading::exchange::{ExchangeInterface, ExchangeService};
 use crate::services::core::user::UserProfileService;
-use crate::types::{
-    AccountStatus, ExchangeCredentials, ExchangeIdEnum, SubscriptionTier, Ticker, UserApiKey,
-    UserProfile,
-};
+use crate::types::{ApiKeyProvider, ExchangeCredentials, ExchangeIdEnum, UserApiKey};
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use aes_gcm::aead::Aead; // Added Aead for encrypt/decrypt
+use aes_gcm::{aead::Aead, AeadCore, Aes256Gcm, Key, KeyInit};
 use chrono::Utc;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::collections::HashMap;
 use std::sync::Arc;
+use uuid;
 use worker::kv::KvStore;
+use worker::Env;
 
 /// User Exchange API Management Service
 /// Provides secure CRUD operations, validation, and compatibility checking for user exchange APIs
@@ -128,11 +126,15 @@ impl UserExchangeApiService {
             .ok_or_else(|| ArbitrageError::not_found(format!("User not found: {}", user_id)))?;
 
         // Check if user already has this exchange
-        if user_profile
-            .api_keys
-            .iter()
-            .any(|key| key.exchange_id == request.exchange_id && key.is_active)
-        {
+        if user_profile.api_keys.iter().any(|key| {
+            // Check if this key is for the same provider and is active
+            match (&key.provider, &request.exchange_id) {
+                (crate::types::ApiKeyProvider::Exchange(provider), exchange_id) => {
+                    provider.to_string() == exchange_id.to_string() && key.is_active
+                }
+                _ => false,
+            }
+        }) {
             return Err(ArbitrageError::validation_error(format!(
                 "User already has an active API key for exchange: {}",
                 request.exchange_id
@@ -158,22 +160,49 @@ impl UserExchangeApiService {
             }
         }
 
-        // Create new API key
+        // Create new API key using the correct field names
         let new_api_key = UserApiKey {
-            exchange_id: request.exchange_id.clone(),
-            api_key: encrypted_api_key,
-            secret: encrypted_secret,
-            passphrase: encrypted_passphrase,
-            is_active: true,
+            key_id: uuid::Uuid::new_v4().to_string(),
+            user_id: user_id.to_string(),
+            provider: crate::types::ApiKeyProvider::Exchange(
+                crate::types::ExchangeIdEnum::from_string(&request.exchange_id).map_err(|e| {
+                    crate::utils::ArbitrageError::validation_error(format!(
+                        "Invalid exchange ID: {}",
+                        e
+                    ))
+                })?,
+            ),
+            encrypted_key: encrypted_api_key,
+            encrypted_secret: Some(encrypted_secret),
             permissions: validation_result
                 .can_trade
                 .then(|| vec!["trade".to_string()])
                 .unwrap_or_else(|| vec!["read".to_string()]),
-            default_leverage: request.default_leverage,
-            exchange_type: request.exchange_type,
-            is_testnet: request.is_testnet.unwrap_or(false),
+            is_active: true,
+            is_read_only: !validation_result.can_trade,
             created_at: Utc::now().timestamp() as u64,
             last_used: None,
+            expires_at: None,
+            is_testnet: request.is_testnet.unwrap_or(false),
+            metadata: {
+                let mut metadata = std::collections::HashMap::new();
+                if let Some(leverage) = request.default_leverage {
+                    metadata.insert("default_leverage".to_string(), serde_json::json!(leverage));
+                }
+                if let Some(exchange_type) = &request.exchange_type {
+                    metadata.insert(
+                        "exchange_type".to_string(),
+                        serde_json::json!(exchange_type),
+                    );
+                }
+                if let Some(passphrase) = encrypted_passphrase {
+                    metadata.insert(
+                        "encrypted_passphrase".to_string(),
+                        serde_json::json!(passphrase),
+                    );
+                }
+                metadata
+            },
         };
 
         // Add to user profile
@@ -220,7 +249,13 @@ impl UserExchangeApiService {
         let api_key_index = user_profile
             .api_keys
             .iter()
-            .position(|key| key.exchange_id == exchange_id)
+            .position(|key| {
+                if let ApiKeyProvider::Exchange(ref exchange) = key.provider {
+                    exchange.as_str() == exchange_id
+                } else {
+                    false
+                }
+            })
             .ok_or_else(|| {
                 ArbitrageError::not_found(format!(
                     "API key not found for exchange: {}",
@@ -228,16 +263,13 @@ impl UserExchangeApiService {
                 ))
             })?;
 
-        // Update the API key
-        let api_key = &mut user_profile.api_keys[api_key_index];
-
+        // Update the API key fields
         if let Some(is_active) = request.is_active {
-            api_key.is_active = is_active;
+            user_profile.api_keys[api_key_index].is_active = is_active;
         }
 
-        if let Some(exchange_type) = request.exchange_type {
-            api_key.exchange_type = Some(exchange_type);
-        }
+        // Note: exchange_type is handled through the provider field
+        // which is set during API key creation and shouldn't be modified
 
         if let Some(default_leverage) = request.default_leverage {
             // Validate default_leverage is within reasonable range (1-100)
@@ -247,14 +279,17 @@ impl UserExchangeApiService {
                     default_leverage
                 )));
             }
-            api_key.default_leverage = Some(default_leverage);
+            // Note: default_leverage is handled by exchange-specific configuration, not stored in UserApiKey
         }
 
         if let Some(permissions) = request.permissions {
-            api_key.permissions = permissions;
+            user_profile.api_keys[api_key_index].permissions = permissions;
         }
 
         user_profile.updated_at = Utc::now().timestamp() as u64;
+
+        // Get the updated API key for logging and return
+        let updated_api_key = user_profile.api_keys[api_key_index].clone();
 
         // Update user profile in database
         self.user_profile_service
@@ -266,11 +301,11 @@ impl UserExchangeApiService {
             serde_json::json!({
                 "user_id": user_id,
                 "exchange_id": exchange_id,
-                "is_active": api_key.is_active
+                "is_active": updated_api_key.is_active
             })
         );
 
-        Ok(api_key.clone())
+        Ok(updated_api_key)
     }
 
     /// Delete an API key
@@ -284,9 +319,10 @@ impl UserExchangeApiService {
 
         // Remove the API key
         let initial_count = user_profile.api_keys.len();
-        user_profile
-            .api_keys
-            .retain(|key| key.exchange_id != exchange_id);
+        user_profile.api_keys.retain(|key| match &key.provider {
+            ApiKeyProvider::Exchange(exchange) => &exchange.to_string() != exchange_id,
+            _ => true,
+        });
 
         if user_profile.api_keys.len() == initial_count {
             return Err(ArbitrageError::not_found(format!(
@@ -331,22 +367,19 @@ impl UserExchangeApiService {
 
         for api_key in &user_profile.api_keys {
             if api_key.is_active {
-                if let Ok(exchange_id) = api_key.exchange_id.parse::<ExchangeIdEnum>() {
+                if let ApiKeyProvider::Exchange(exchange_id) = &api_key.provider {
                     // Decrypt credentials and use immediately to minimize memory exposure
-                    let decrypted_secret = self.decrypt_string(&api_key.secret)?;
+                    let decrypted_secret = self.decrypt_string(&api_key.encrypted_secret)?;
                     let credentials = ExchangeCredentials {
-                        exchange: exchange_id,
-                        api_key: self.decrypt_string(&api_key.api_key)?,
+                        exchange: *exchange_id,
+                        api_key: self.decrypt_string(&api_key.encrypted_key)?,
                         api_secret: decrypted_secret.clone(),
                         secret: decrypted_secret,
-                        passphrase: api_key.passphrase.clone(),
+                        passphrase: None, // TODO: Add passphrase support to UserApiKey if needed
                         sandbox: false,
-                        is_testnet: api_key.is_testnet.unwrap_or(false),
-                        default_leverage: api_key.default_leverage.unwrap_or(1),
-                        exchange_type: api_key
-                            .exchange_type
-                            .clone()
-                            .unwrap_or_else(|| "spot".to_string()),
+                        is_testnet: api_key.is_testnet,
+                        default_leverage: 1, // Default leverage
+                        exchange_type: format!("{:?}", exchange_id), // Convert enum to string
                     };
 
                     exchange_credentials.push((exchange_id, credentials));
@@ -488,7 +521,6 @@ impl UserExchangeApiService {
 
     /// AES-GCM encryption for API keys with secure key derivation
     fn encrypt_string(&self, plaintext: &str) -> ArbitrageResult<String> {
-        use aes_gcm::{aead::Aead, AeadCore, Aes256Gcm, Key, KeyInit, Nonce};
         use base64::{engine::general_purpose, Engine as _};
         use rand::rngs::OsRng;
         use sha2::{Digest, Sha256};
@@ -519,7 +551,6 @@ impl UserExchangeApiService {
 
     /// AES-GCM decryption for API keys
     fn decrypt_string(&self, encrypted: &str) -> ArbitrageResult<String> {
-        use aes_gcm::{aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
         use base64::{engine::general_purpose, Engine as _};
         use sha2::{Digest, Sha256};
 

@@ -278,7 +278,7 @@ impl FinancialCoordinator {
     /// Initialize the Financial Coordinator with environment
     pub async fn initialize(&mut self, env: &Env) -> ArbitrageResult<()> {
         // Initialize KV store for coordination data
-        self.kv_store = Some(env.kv("FINANCIAL_COORDINATION").map_err(|e| {
+        self.kv_store = Some(env.kv("ArbEdgeKV").map_err(|e| {
             ArbitrageError::configuration_error(format!("Failed to initialize KV store: {:?}", e))
         })?);
 

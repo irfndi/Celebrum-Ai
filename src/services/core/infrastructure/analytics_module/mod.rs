@@ -40,11 +40,6 @@ pub use report_generator::{
     ReportGenerator, ReportGeneratorConfig, ReportGeneratorHealth, ReportGeneratorMetrics,
 };
 
-use crate::utils::{ArbitrageError, ArbitrageResult};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use worker::Env;
-
 /// Analytics Module Configuration for High-Performance Analytics
 #[derive(Debug, Clone)]
 pub struct AnalyticsModuleConfig {

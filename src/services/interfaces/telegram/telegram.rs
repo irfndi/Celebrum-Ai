@@ -12,7 +12,6 @@ use crate::services::core::opportunities::opportunity_distribution::Notification
 use crate::services::core::opportunities::opportunity_distribution::OpportunityDistributionService;
 use crate::services::core::opportunities::opportunity_engine::OpportunityEngine;
 use crate::services::core::trading::exchange::ExchangeService;
-use crate::services::core::trading::positions::PositionsService;
 use crate::services::core::user::session_management::SessionManagementService;
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::services::core::user::user_trading_preferences::UserTradingPreferencesService;
@@ -23,6 +22,13 @@ use crate::types::{
     GroupRegistration,
     GroupSettings,
     MessageAnalytics, // UserProfile, UserRole,
+    MessageType,
+    TelegramBotCommand,
+    TelegramConfig,
+    TelegramUpdate,
+    User,
+    UserInterfaceConfig,
+    UserProfile,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use reqwest::Client;
@@ -384,71 +390,6 @@ impl ChatContext {
         Ok(ChatContext::new(chat_id, chat_type, user_id))
     }
 }
-
-#[derive(Clone)]
-pub struct TelegramConfig {
-    pub bot_token: String,
-    pub chat_id: String,
-    pub is_test_mode: bool,
-}
-
-impl Default for TelegramConfig {
-    fn default() -> Self {
-        Self {
-            bot_token: "test_token".to_string(),
-            chat_id: "0".to_string(),
-            is_test_mode: true,
-        }
-    }
-}
-
-// Simple InlineKeyboard placeholder for now
-#[derive(Debug, Clone)]
-pub struct InlineKeyboard {
-    pub buttons: Vec<Vec<InlineKeyboardButton>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct InlineKeyboardButton {
-    pub text: String,
-    pub callback_data: Option<String>,
-    pub url: Option<String>,
-}
-
-impl Default for InlineKeyboard {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl InlineKeyboard {
-    pub fn new() -> Self {
-        Self {
-            buttons: Vec::new(),
-        }
-    }
-
-    pub fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({
-            "inline_keyboard": self.buttons.iter().map(|row| {
-                row.iter().map(|button| {
-                    let mut btn = serde_json::json!({
-                        "text": button.text
-                    });
-                    if let Some(ref callback_data) = button.callback_data {
-                        btn["callback_data"] = serde_json::Value::String(callback_data.clone());
-                    }
-                    if let Some(ref url) = button.url {
-                        btn["url"] = serde_json::Value::String(url.clone());
-                    }
-                    btn
-                }).collect::<Vec<_>>()
-            }).collect::<Vec<_>>()
-        })
-    }
-}
-
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct TelegramService {

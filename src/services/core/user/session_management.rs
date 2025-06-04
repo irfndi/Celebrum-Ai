@@ -156,7 +156,14 @@ impl SessionManagementService {
 
         match result {
             Some(row) => {
-                let session = self.row_to_session(row)?;
+                // Convert serde_json::Value to HashMap
+                let row_map = if let serde_json::Value::Object(map) = row {
+                    map.into_iter()
+                        .collect::<std::collections::HashMap<String, serde_json::Value>>()
+                } else {
+                    return Err(ArbitrageError::database_error("Invalid row format"));
+                };
+                let session = self.row_to_session(row_map)?;
                 // Cache for future lookups
                 self.cache_session(&session).await?;
                 Ok(session)
@@ -960,57 +967,45 @@ mod tests {
                         let mut row = HashMap::new();
                         row.insert(
                             "session_id".to_string(),
-                            serde_json::Value::String(session.session_id.clone()),
+                            serde_json::json!(session.session_id),
                         );
-                        row.insert(
-                            "user_id".to_string(),
-                            serde_json::Value::String(session.user_id.clone()),
-                        );
+                        row.insert("user_id".to_string(), serde_json::json!(session.user_id));
                         row.insert(
                             "telegram_id".to_string(),
-                            serde_json::Value::Number(serde_json::Number::from(
-                                session.telegram_id,
-                            )),
+                            serde_json::json!(session.telegram_id),
                         );
                         row.insert(
                             "session_state".to_string(),
-                            serde_json::Value::String(
-                                session.session_state.to_db_string().to_string(),
-                            ),
+                            serde_json::json!(session.session_state.to_db_string()),
                         );
                         row.insert(
                             "started_at".to_string(),
-                            serde_json::Value::Number(serde_json::Number::from(session.started_at)),
+                            serde_json::json!(session.started_at),
                         );
                         row.insert(
                             "last_activity_at".to_string(),
-                            serde_json::Value::Number(serde_json::Number::from(
-                                session.last_activity_at,
-                            )),
+                            serde_json::json!(session.last_activity_at),
                         );
                         row.insert(
                             "expires_at".to_string(),
-                            serde_json::Value::Number(serde_json::Number::from(session.expires_at)),
+                            serde_json::json!(session.expires_at),
                         );
                         row.insert(
                             "onboarding_completed".to_string(),
-                            serde_json::Value::Bool(session.onboarding_completed),
+                            serde_json::json!(session.onboarding_completed),
                         );
                         row.insert(
                             "preferences_set".to_string(),
-                            serde_json::Value::Bool(session.preferences_set),
+                            serde_json::json!(session.preferences_set),
                         );
-                        row.insert(
-                            "metadata".to_string(),
-                            serde_json::Value::String("null".to_string()),
-                        );
+                        row.insert("metadata".to_string(), serde_json::json!("null"));
                         row.insert(
                             "created_at".to_string(),
-                            serde_json::Value::Number(serde_json::Number::from(session.created_at)),
+                            serde_json::json!(session.created_at),
                         );
                         row.insert(
                             "updated_at".to_string(),
-                            serde_json::Value::Number(serde_json::Number::from(session.updated_at)),
+                            serde_json::json!(session.updated_at),
                         );
                         row
                     })
@@ -1020,10 +1015,7 @@ mod tests {
                 let sessions = self.sessions.lock().unwrap();
                 let count = sessions.len();
                 let mut row = HashMap::new();
-                row.insert(
-                    "count".to_string(),
-                    serde_json::Value::String(count.to_string()),
-                );
+                row.insert("count".to_string(), serde_json::json!(count));
                 Ok(vec![row])
             } else {
                 let query_results = self.query_results.lock().unwrap();

@@ -53,7 +53,7 @@ pub async fn handle_api_admin_get_config(_req: Request, _env: Env) -> Result<Res
 }
 
 /// Handle super admin update config request
-pub async fn handle_api_admin_update_config(mut _req: Request, _env: Env) -> Result<Response> {
+pub async fn handle_api_admin_update_config(_req: Request, _env: Env) -> Result<Response> {
     console_log!("👑 Super admin update config request");
 
     // TODO: Implement config update

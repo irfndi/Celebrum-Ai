@@ -1,10 +1,30 @@
 // src/services/core/admin/audit.rs
 
-use crate::types::{SubscriptionTier, UserAccessLevel, UserProfile};
+use crate::models::user_profile::UserActivityType;
+use crate::services::core::infrastructure::d1::D1Service;
+use crate::types::{Timestamp, UserActionContext, UserContext};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::{kv::KvStore, Env};
+
+/// Configuration for Audit Service retention periods.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditConfig {
+    pub user_action_ttl_seconds: u64,
+    pub system_event_ttl_seconds: u64,
+    pub security_event_ttl_seconds: u64,
+}
+
+impl Default for AuditConfig {
+    fn default() -> Self {
+        Self {
+            user_action_ttl_seconds: 365 * 24 * 60 * 60,  // 1 year
+            system_event_ttl_seconds: 365 * 24 * 60 * 60, // 1 year
+            security_event_ttl_seconds: 2 * 365 * 24 * 60 * 60, // 2 years
+        }
+    }
+}
 
 /// Audit event severity levels
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -71,15 +91,20 @@ pub struct SystemHealthMetrics {
 }
 
 /// Audit service for tracking all system activities and security events
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AuditService {
     kv_store: KvStore,
     env: Env,
+    config: AuditConfig,
 }
 
 impl AuditService {
-    pub fn new(env: Env, kv_store: KvStore) -> Self {
-        Self { kv_store, env }
+    pub fn new(env: Env, kv_store: KvStore, config: AuditConfig) -> Self {
+        Self {
+            kv_store,
+            env,
+            config,
+        }
     }
 
     /// Log user action for audit trail
@@ -112,7 +137,7 @@ impl AuditService {
 
         self.kv_store
             .put(&audit_key, &audit_data)?
-            .expiration_ttl(365 * 24 * 60 * 60) // Keep for 1 year
+            .expiration_ttl(self.config.user_action_ttl_seconds)
             .execute()
             .await?;
 
@@ -144,7 +169,7 @@ impl AuditService {
 
         self.kv_store
             .put(&audit_key, &audit_data)?
-            .expiration_ttl(365 * 24 * 60 * 60) // Keep for 1 year
+            .expiration_ttl(self.config.system_event_ttl_seconds)
             .execute()
             .await?;
 
@@ -179,7 +204,7 @@ impl AuditService {
 
         self.kv_store
             .put(&audit_key, &security_data)?
-            .expiration_ttl(2 * 365 * 24 * 60 * 60) // Keep security events for 2 years
+            .expiration_ttl(self.config.security_event_ttl_seconds)
             .execute()
             .await?;
 
