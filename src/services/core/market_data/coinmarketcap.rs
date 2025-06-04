@@ -214,7 +214,7 @@ impl CoinMarketCapService {
             
             Ok(quote.clone())
         } else {
-            Err(ArbitrageError::not_found(&format!("Symbol {} not found", symbol)))
+            Err(ArbitrageError::not_found(format!("Symbol {} not found", symbol)))
         }
     }
 
@@ -238,7 +238,7 @@ impl CoinMarketCapService {
         let mut response = Fetch::Request(request).send().await?;
         
         if response.status_code() != 200 {
-            return Err(ArbitrageError::api_error(&format!(
+            return Err(ArbitrageError::api_error(format!(
                 "CMC API error: {}", response.status_code()
             )));
         }
@@ -270,7 +270,7 @@ impl CoinMarketCapService {
         let mut response = Fetch::Request(request).send().await?;
         
         if response.status_code() != 200 {
-            return Err(ArbitrageError::api_error(&format!(
+            return Err(ArbitrageError::api_error(format!(
                 "CMC Global Metrics API error: {}", response.status_code()
             )));
         }
@@ -682,4 +682,4 @@ mod tests {
         assert_eq!(quote.symbol, "BTC");
         assert_eq!(quote.price, 45000.0);
     }
-} 
+}  
