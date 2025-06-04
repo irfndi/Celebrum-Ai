@@ -295,7 +295,7 @@ impl FundAnalyzer {
     pub async fn initialize(&mut self, env: &Env) -> ArbitrageResult<()> {
         // Initialize KV store for caching
         self.kv_store = Some(env.kv("ArbEdgeKV").map_err(|e| {
-            ArbitrageError::InfrastructureError(format!("Failed to initialize KV store: {:?}", e))
+            ArbitrageError::infrastructure_error(format!("Failed to initialize KV store: {:?}", e))
         })?);
 
         self.is_initialized = true;

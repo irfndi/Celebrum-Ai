@@ -42,6 +42,7 @@ pub enum ErrorKind {
     Internal,
     Storage,
     AccessDenied,
+    InfrastructureError,
 }
 
 impl fmt::Display for ArbitrageError {
@@ -196,6 +197,12 @@ impl ArbitrageError {
         Self::new(ErrorKind::Storage, message)
             .with_status(500)
             .with_code("KV_ERROR")
+    }
+
+    pub fn infrastructure_error(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::InfrastructureError, message)
+            .with_status(500)
+            .with_code("INFRASTRUCTURE_ERROR")
     }
 
     pub fn service_unavailable(message: impl Into<String>) -> Self {

@@ -424,11 +424,10 @@ impl DatabaseCore {
             })?;
 
         Ok(InternalResult {
-            rows_affected: result.meta().and_then(|m| Some(m.changes)).unwrap_or(0) as u64,
+            rows_affected: result.meta().map_or(0, |m| m.changes) as u64,
             last_insert_id: result
                 .meta()
-                .and_then(|m| m.last_row_id)
-                .map(|id| id as u64),
+                .and_then(|m| m.last_row_id.map(|id| id as u64)),
         })
     }
 

@@ -3,9 +3,9 @@
 use crate::log_info;
 use crate::services::core::ai::ai_beta_integration::AiBetaIntegrationService;
 use crate::services::core::opportunities::{
+    crate::services::CacheManager,
     access_manager::AccessManager,
     ai_enhancer::AIEnhancer,
-    cache_manager::CacheManager,
     market_analyzer::MarketAnalyzer,
     opportunity_builders::OpportunityBuilder,
     opportunity_core::{OpportunityConfig, OpportunityContext},

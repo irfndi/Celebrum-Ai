@@ -1,9 +1,9 @@
 // src/services/core/admin/audit.rs
 
-use crate::models::user_profile::UserActivityType;
+use crate::services::core::auth::UserContext;
 use crate::services::core::infrastructure::d1::D1Service;
-use crate::types::{Timestamp, UserActionContext, UserContext};
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use chrono::{DateTime, Utc as Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::{kv::KvStore, Env};

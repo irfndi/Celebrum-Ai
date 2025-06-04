@@ -3,7 +3,8 @@
 //! Provides key-value storage operations for the ArbEdge platform.
 //! Supports Cloudflare KV and other KV store implementations.
 
-use serde::{Deserialize, DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

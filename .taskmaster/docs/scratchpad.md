@@ -1071,3 +1071,12 @@ This modularization work establishes ArbEdge as having **enterprise-grade AI inf
 - Always ask before using the -force git command
 - [2024-07-26] When `edit_file` tool struggles with large files or complex changes (e.g., multiple failures, catastrophic edits like large deletions), switch to more granular, single-line or small-block focused edits. Revert incorrect large edits immediately using version control (`git restore`). After each small edit, verify by re-reading the file and running checks (`cargo check`). If a tool consistently fails, consider alternative approaches or request manual intervention for that specific part.
 - [2024-07-26] If facing a very large number of compilation errors after a refactor, prioritize fixing errors in core data structures (like types in `types.rs`) and their direct usage first, as these can have cascading effects. Address one error category or one struct/module at a time and re-check compilation frequently.
+
+### 🚧 **PENDING: Fix `make ci` Failures**
+- **File**: `docs/implementation-plan/fix-make-ci-failures.md`
+- **Status**: 📝 **PLANNING - MCP PLAN CREATED**
+- **Goal**: Resolve all errors from the `make ci` command (aliased to `ci-pipeline`) on the `fix/initial-compilation-errors` branch.
+- **Context**: Initial run of `make ci` resulted in exit code 2, with numerous compilation and linting errors starting from Step 2 (Clippy). Full error log in `make_ci_output.log`.
+- **Next Steps**:
+    - Planner to initialize Taskmaster and create initial tasks based on `docs/implementation-plan/fix-make-ci-failures.md`.
+    - Executor to perform full error analysis from `make_ci_output.log`.

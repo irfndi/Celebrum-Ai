@@ -7,10 +7,10 @@
 //! - Beta access assignment
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
-use crate::types::{AuthRequest, AuthResponse, LoginRequest, RegistrationRequest, User};
-// use crate::services::core::user::UserProfileService; // This was already commented out
+
 use crate::types::{
-    RiskProfile, Subscription, SubscriptionTier, UserAccessLevel, UserConfiguration, UserRole,
+    RiskProfile, Subscription, SubscriptionTier, UserAccessLevel, UserConfiguration,
+    UserPreferences, UserProfile, UserRole,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;

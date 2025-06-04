@@ -277,7 +277,7 @@ impl AnalyticsCoordinator {
     ) -> ArbitrageResult<()> {
         // Initialize KV store for caching
         self.kv_store = Some(env.kv("ArbEdgeKV").map_err(|e| {
-            ArbitrageError::InfrastructureError(format!("Failed to initialize KV store: {:?}", e))
+            ArbitrageError::infrastructure_error(format!("Failed to initialize KV store: {:?}", e))
         })?);
 
         // Store component references

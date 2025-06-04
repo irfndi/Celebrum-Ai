@@ -740,9 +740,9 @@ impl ExchangeInterface for ExchangeService {
         _exchange_id: &str,
         _api_key: &str,
         _secret: &str,
-    ) -> ArbitrageResult<bool> {
-        // Placeholder implementation
-        Ok(true)
+    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
+        // Placeholder implementation: (can_read, can_trade, rate_limit_info)
+        Ok((true, true, None))
     }
 
     async fn test_api_connection_with_options(
@@ -752,9 +752,9 @@ impl ExchangeInterface for ExchangeService {
         _secret: &str,
         _leverage: Option<i32>,
         _exchange_type: Option<&str>,
-    ) -> ArbitrageResult<bool> {
-        // Placeholder implementation
-        Ok(true)
+    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
+        // Placeholder implementation: (can_read, can_trade, rate_limit_info)
+        Ok((true, true, None))
     }
 }
 

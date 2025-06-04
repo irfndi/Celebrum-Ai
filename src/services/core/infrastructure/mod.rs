@@ -26,7 +26,6 @@
 //! - **Intelligent Caching**: Multi-layer caching with TTL management
 //! - **Real-time Monitoring**: Comprehensive health and performance tracking
 
-use crate::types::FeatureFlag;
 use crate::utils::error::{ArbitrageError, ArbitrageResult, ErrorKind};
 use std::collections::HashMap;
 use worker::Env;
@@ -99,8 +98,12 @@ pub use data_access_layer::{
 };
 
 pub use database_repositories::{
-    AIDataRepository, AnalyticsRepository, ConfigRepository, DatabaseManager,
-    DatabaseManagerConfig, InvitationRepository, UserRepository,
+    AIDataRepository,
+    AnalyticsRepository,
+    ConfigRepository,
+    DatabaseManager,
+    DatabaseManagerConfig,
+    UserRepository, // Removed FeatureFlagConfig, FeatureFlagService
 };
 
 // ============= CORE INFRASTRUCTURE EXPORTS =============

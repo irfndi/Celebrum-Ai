@@ -1,0 +1,1630 @@
+🚀 Starting Full CI Pipeline...
+================================
+🎨 Step 1: Code Formatting
+[cdylib (2021)] "/Users/irfandi/Coding/2025/ArbEdge/src/lib.rs"
+[test (2021)] "/Users/irfandi/Coding/2025/ArbEdge/tests/e2e/webhook_session_management_test.rs"
+[test (2021)] "/Users/irfandi/Coding/2025/ArbEdge/tests/integration/service_communication_test.rs"
+[test (2021)] "/Users/irfandi/Coding/2025/ArbEdge/tests/integration/session_opportunity_integration_test.rs"
+[test (2021)] "/Users/irfandi/Coding/2025/ArbEdge/tests/lib.rs"
+[test (2021)] "/Users/irfandi/Coding/2025/ArbEdge/tests/mod.rs"
+rustfmt --edition 2021 /Users/irfandi/Coding/2025/ArbEdge/src/lib.rs /Users/irfandi/Coding/2025/ArbEdge/tests/e2e/webhook_session_management_test.rs /Users/irfandi/Coding/2025/ArbEdge/tests/integration/service_communication_test.rs /Users/irfandi/Coding/2025/ArbEdge/tests/integration/session_opportunity_integration_test.rs /Users/irfandi/Coding/2025/ArbEdge/tests/lib.rs /Users/irfandi/Coding/2025/ArbEdge/tests/mod.rs
+✅ Step 1: Code Formatting Check
+[cdylib (2021)] "/Users/irfandi/Coding/2025/ArbEdge/src/lib.rs"
+[test (2021)] "/Users/irfandi/Coding/2025/ArbEdge/tests/e2e/webhook_session_management_test.rs"
+[test (2021)] "/Users/irfandi/Coding/2025/ArbEdge/tests/integration/service_communication_test.rs"
+[test (2021)] "/Users/irfandi/Coding/2025/ArbEdge/tests/integration/session_opportunity_integration_test.rs"
+[test (2021)] "/Users/irfandi/Coding/2025/ArbEdge/tests/lib.rs"
+[test (2021)] "/Users/irfandi/Coding/2025/ArbEdge/tests/mod.rs"
+rustfmt --edition 2021 --check /Users/irfandi/Coding/2025/ArbEdge/src/lib.rs /Users/irfandi/Coding/2025/ArbEdge/tests/e2e/webhook_session_management_test.rs /Users/irfandi/Coding/2025/ArbEdge/tests/integration/service_communication_test.rs /Users/irfandi/Coding/2025/ArbEdge/tests/integration/session_opportunity_integration_test.rs /Users/irfandi/Coding/2025/ArbEdge/tests/lib.rs /Users/irfandi/Coding/2025/ArbEdge/tests/mod.rs
+🔍 Step 2: Clippy Linting Check
+       Fresh unicode-ident v1.0.18
+       Fresh bumpalo v3.17.0
+       Fresh proc-macro2 v1.0.95
+       Fresh autocfg v1.4.0
+       Fresh version_check v0.9.5
+       Fresh quote v1.0.40
+       Fresh libc v0.2.172
+       Fresh wasm-bindgen-shared v0.2.100
+       Fresh rustversion v1.0.21
+       Fresh memchr v2.7.4
+       Fresh syn v2.0.101
+       Fresh typenum v1.18.0
+       Fresh getrandom v0.2.16
+       Fresh stable_deref_trait v1.2.0
+       Fresh pin-project-lite v0.2.16
+       Fresh futures-core v0.3.31
+       Fresh wasm-bindgen-backend v0.2.100
+       Fresh synstructure v0.13.2
+       Fresh rand_core v0.6.4
+       Fresh generic-array v0.14.7
+       Fresh zerovec-derive v0.11.1
+       Fresh displaydoc v0.2.5
+       Fresh wasm-bindgen-macro-support v0.2.100
+       Fresh zerofrom-derive v0.1.6
+       Fresh yoke-derive v0.8.0
+       Fresh crypto-common v0.1.6
+       Fresh futures-sink v0.3.31
+       Fresh serde_derive v1.0.219
+       Fresh wasm-bindgen-macro v0.2.100
+       Fresh zerofrom v0.1.6
+       Fresh itoa v1.0.15
+       Fresh slab v0.4.9
+       Fresh serde v1.0.219
+       Fresh futures-channel v0.3.31
+       Fresh futures-macro v0.3.31
+       Fresh futures-io v0.3.31
+       Fresh yoke v0.8.0
+       Fresh writeable v0.6.1
+       Fresh futures-task v0.3.31
+       Fresh pin-utils v0.1.0
+       Fresh litemap v0.8.0
+       Fresh smallvec v1.15.0
+       Fresh zerovec v0.11.2
+       Fresh zerotrie v0.2.2
+       Fresh futures-util v0.3.31
+       Fresh bytes v1.10.1
+       Fresh tokio-macros v2.5.0
+       Fresh tinystr v0.8.1
+       Fresh potential_utf v0.1.2
+       Fresh mio v1.0.4
+       Fresh socket2 v0.5.10
+       Fresh fnv v1.0.7
+       Fresh subtle v2.6.1
+       Fresh cfg-if v1.0.0
+       Fresh icu_locale_core v2.0.0
+       Fresh icu_collections v2.0.0
+       Fresh once_cell v1.21.3
+       Fresh icu_normalizer_data v2.0.0
+       Fresh http v1.3.1
+       Fresh tokio v1.45.1
+       Fresh icu_properties_data v2.0.1
+       Fresh icu_provider v2.0.0
+       Fresh wasm-bindgen v0.2.100
+       Fresh http-body v1.0.1
+       Fresh cpufeatures v0.2.17
+       Fresh crossbeam-utils v0.8.21
+       Fresh js-sys v0.3.77
+       Fresh icu_properties v2.0.1
+       Fresh icu_normalizer v2.0.0
+       Fresh ryu v1.0.20
+       Fresh percent-encoding v2.3.1
+       Fresh form_urlencoded v1.2.1
+       Fresh crossbeam-epoch v0.9.18
+       Fresh idna_adapter v1.2.1
+       Fresh inout v0.1.4
+       Fresh core-foundation-sys v0.8.7
+       Fresh utf8_iter v1.0.4
+       Fresh try-lock v0.2.5
+       Fresh zerocopy v0.8.25
+       Fresh cipher v0.4.4
+       Fresh httparse v1.10.1
+       Fresh crossbeam-deque v0.8.6
+       Fresh idna v1.0.3
+       Fresh want v0.3.1
+       Fresh serde_json v1.0.140
+       Fresh num-traits v0.2.19
+       Fresh universal-hash v0.5.1
+       Fresh web-sys v0.3.77
+       Fresh block-buffer v0.10.4
+       Fresh thiserror-impl v1.0.69
+       Fresh tracing-core v0.1.33
+       Fresh tower-service v0.3.3
+       Fresh opaque-debug v0.3.1
+       Fresh polyval v0.6.2
+       Fresh digest v0.10.7
+       Fresh thiserror v1.0.69
+       Fresh tracing v0.1.41
+       Fresh url v2.5.4
+       Fresh rayon-core v1.12.1
+       Fresh hyper v1.6.0
+       Fresh ppv-lite86 v0.2.21
+       Fresh iana-time-zone v0.1.63
+       Fresh serde_urlencoded v0.7.1
+       Fresh wasm-bindgen-futures v0.4.50
+       Fresh serde-wasm-bindgen v0.5.0
+       Fresh pin-project-internal v1.1.10
+       Fresh sync_wrapper v1.0.2
+       Fresh async-trait v0.1.88
+       Fresh aho-corasick v1.1.3
+       Fresh regex-syntax v0.8.5
+       Fresh either v1.15.0
+       Fresh tower-layer v0.3.3
+       Fresh pin-project v1.1.10
+       Fresh regex-automata v0.4.9
+       Fresh worker-macros v0.5.0
+       Fresh rayon v1.10.0
+       Fresh tower v0.5.2
+       Fresh worker-kv v0.7.0
+       Fresh chrono v0.4.41
+       Fresh rand_chacha v0.3.1
+       Fresh getrandom v0.3.3
+       Fresh hyper-util v0.1.12
+       Fresh ghash v0.5.1
+       Fresh worker-sys v0.5.0
+       Fresh wasm-streams v0.4.2
+       Fresh ctr v0.9.2
+       Fresh aes v0.8.4
+       Fresh http-body-util v0.1.3
+       Fresh tokio-util v0.7.15
+       Fresh futures-executor v0.3.31
+       Fresh serde-wasm-bindgen v0.6.5
+       Fresh aead v0.5.2
+       Fresh thiserror-impl v2.0.12
+       Fresh zeroize v1.8.1
+       Fresh log v0.4.27
+       Fresh matchit v0.7.3
+       Fresh base64 v0.22.1
+       Fresh ipnet v2.11.0
+       Fresh mime v0.3.17
+       Fresh futures v0.3.31
+       Fresh aes-gcm v0.10.3
+       Fresh thiserror v2.0.12
+       Fresh secrecy v0.8.0
+       Fresh reqwest v0.12.15
+       Fresh worker v0.5.0
+       Fresh rand v0.8.5
+       Fresh uuid v1.17.0
+       Fresh regex v1.11.1
+       Fresh anyhow v1.0.98
+       Fresh sysinfo v0.32.1
+       Fresh hmac v0.12.1
+       Fresh sha2 v0.10.9
+       Fresh approx v0.5.1
+       Fresh console_error_panic_hook v0.1.7
+       Fresh md5 v0.7.0
+       Fresh hex v0.4.3
+    Checking arb_edge v0.1.0 (/Users/irfandi/Coding/2025/ArbEdge)
+     Running `/Users/irfandi/.rustup/toolchains/stable-aarch64-apple-darwin/bin/clippy-driver /Users/irfandi/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name arb_edge --edition=2021 src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type cdylib --crate-type rlib --emit=dep-info,metadata -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --cfg 'feature="default"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("default", "disabled_tests", "enable-logging"))' -C metadata=6cf6706b048a6825 -C extra-filename=-d413b65ad22f9bce --out-dir /Users/irfandi/Coding/2025/ArbEdge/target/debug/deps -C incremental=/Users/irfandi/Coding/2025/ArbEdge/target/debug/incremental -L dependency=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps --extern aes_gcm=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libaes_gcm-6d0d92aca1041134.rmeta --extern anyhow=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libanyhow-efca56a29b8eeeb0.rmeta --extern approx=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libapprox-9ebfcbc236ca50f0.rmeta --extern async_trait=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libasync_trait-357953e0e1e1e2aa.dylib --extern base64=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libbase64-3eab2d053e410ae7.rmeta --extern chrono=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libchrono-f7eadcb397d72aae.rmeta --extern console_error_panic_hook=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libconsole_error_panic_hook-5d35935d242e17e0.rmeta --extern futures=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libfutures-7c96f71d55a38c5e.rmeta --extern hex=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libhex-5efb8b392527ddd9.rmeta --extern hmac=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libhmac-f3635e8c8d1753f6.rmeta --extern http=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libhttp-b005fa15d18ddf54.rmeta --extern log=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/liblog-563788974cecb9c3.rmeta --extern md5=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libmd5-58fca9ed902e0256.rmeta --extern once_cell=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libonce_cell-3841e49f26db0e12.rmeta --extern rand=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/librand-e98cd4edb3e77cf7.rmeta --extern regex=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libregex-be0298e51c864d7f.rmeta --extern reqwest=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libreqwest-4e3b2a8ba0ca8c73.rmeta --extern secrecy=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libsecrecy-a1ea8a89d11a97ff.rmeta --extern serde=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libserde-1e15d018fcc81b1c.rmeta --extern serde_json=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libserde_json-7f71393af9db01b4.rmeta --extern sha2=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libsha2-2c8d30a6e34f2ce0.rmeta --extern sysinfo=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libsysinfo-5237dd84a8fbf74f.rmeta --extern thiserror=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libthiserror-dde89c751a569a5e.rmeta --extern tokio=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libtokio-637c5047a714e290.rmeta --extern url=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/liburl-f786e1856bddf843.rmeta --extern uuid=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libuuid-87d9772aedc3a855.rmeta --extern worker=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libworker-4c94f8d4ef8af6f6.rmeta`
+error[E0432]: unresolved import `crate::types::Role`
+  --> src/services/core/auth/rbac.rs:12:39
+   |
+12 | use crate::types::{CommandPermission, Role, UserRole};
+   |                                       ^^^^ no `Role` in `types`
+
+error[E0432]: unresolved imports `crate::types::AuthRequest`, `crate::types::AuthResponse`, `crate::types::LoginRequest`, `crate::types::RegistrationRequest`, `crate::types::User`
+  --> src/services/core/auth/user_auth.rs:10:20
+   |
+10 | use crate::types::{AuthRequest, AuthResponse, LoginRequest, RegistrationRequest, User};
+   |                    ^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^  ^^^^ no `User` in `types`
+   |                    |            |             |             |
+   |                    |            |             |             no `RegistrationRequest` in `types`
+   |                    |            |             no `LoginRequest` in `types`
+   |                    |            no `AuthResponse` in `types`
+   |                    no `AuthRequest` in `types`
+   |
+   = help: consider importing this struct instead:
+           sysinfo::User
+
+error[E0432]: unresolved import `crate::types::FeatureFlag`
+  --> src/services/core/infrastructure/mod.rs:29:5
+   |
+29 | use crate::types::FeatureFlag;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^ no `FeatureFlag` in `types`
+
+error[E0432]: unresolved imports `super::FeatureFlagConfig`, `super::FeatureFlagService`
+  --> src/services/core/infrastructure/infrastructure_engine.rs:20:56
+   |
+20 |     D1Service, DatabaseManager, DatabaseManagerConfig, FeatureFlagConfig, FeatureFlagService,
+   |                                                        ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^ no `FeatureFlagService` in `services::core::infrastructure`
+   |                                                        |
+   |                                                        no `FeatureFlagConfig` in `services::core::infrastructure`
+
+error[E0432]: unresolved import `crate::services::core::opportunities::cache_manager::CacheManager`
+ --> src/services/core/opportunities/opportunity_engine.rs:8:5
+  |
+8 |     cache_manager::CacheManager,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `CacheManager` in `services::core::opportunities::cache_manager`
+  |
+  = help: consider importing this struct through its public re-export instead:
+          crate::services::CacheManager
+
+error[E0432]: unresolved imports `crate::types::MessageType`, `crate::types::TelegramBotCommand`, `crate::types::TelegramConfig`, `crate::types::TelegramUpdate`, `crate::types::User`, `crate::types::UserInterfaceConfig`
+  --> src/services/interfaces/telegram/telegram.rs:25:5
+   |
+25 |     MessageType,
+   |     ^^^^^^^^^^^ no `MessageType` in `types`
+26 |     TelegramBotCommand,
+   |     ^^^^^^^^^^^^^^^^^^ no `TelegramBotCommand` in `types`
+27 |     TelegramConfig,
+   |     ^^^^^^^^^^^^^^ no `TelegramConfig` in `types`
+28 |     TelegramUpdate,
+   |     ^^^^^^^^^^^^^^ no `TelegramUpdate` in `types`
+29 |     User,
+   |     ^^^^ no `User` in `types`
+30 |     UserInterfaceConfig,
+   |     ^^^^^^^^^^^^^^^^^^^ no `UserInterfaceConfig` in `types`
+   |
+   = help: consider importing this struct instead:
+           sysinfo::User
+
+error[E0433]: failed to resolve: use of undeclared type `UserAccessLevel`
+  --> src/services/core/auth/rbac.rs:84:13
+   |
+84 |             UserAccessLevel::SuperAdmin | UserAccessLevel::Admin
+   |             ^^^^^^^^^^^^^^^ use of undeclared type `UserAccessLevel`
+   |
+help: consider importing this enum
+   |
+10 + use crate::types::UserAccessLevel;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `UserAccessLevel`
+  --> src/services/core/auth/rbac.rs:84:43
+   |
+84 |             UserAccessLevel::SuperAdmin | UserAccessLevel::Admin
+   |                                           ^^^^^^^^^^^^^^^ use of undeclared type `UserAccessLevel`
+   |
+help: consider importing this enum
+   |
+10 + use crate::types::UserAccessLevel;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `UserAccessLevel`
+   --> src/services/core/auth/rbac.rs:120:48
+    |
+120 |         if matches!(user_profile.access_level, UserAccessLevel::SuperAdmin) {
+    |                                                ^^^^^^^^^^^^^^^ use of undeclared type `UserAccessLevel`
+    |
+help: consider importing this enum
+    |
+10  + use crate::types::UserAccessLevel;
+    |
+
+error[E0412]: cannot find type `RateLimitInfo` in this scope
+   --> src/services/core/trading/exchange.rs:743:46
+    |
+743 |     ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
+    |                                              ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing one of these structs
+    |
+3   + use crate::services::core::RateLimitInfo;
+    |
+3   + use crate::services::core::notification_module::channel_manager::RateLimitInfo;
+    |
+
+error[E0412]: cannot find type `RateLimitInfo` in this scope
+   --> src/services/core/trading/exchange.rs:755:46
+    |
+755 |     ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
+    |                                              ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing one of these structs
+    |
+3   + use crate::services::core::RateLimitInfo;
+    |
+3   + use crate::services::core::notification_module::channel_manager::RateLimitInfo;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `Nonce`
+   --> src/services/core/user/user_exchange_api.rs:569:21
+    |
+569 |         let nonce = Nonce::from_slice(nonce_bytes);
+    |                     ^^^^^ use of undeclared type `Nonce`
+    |
+help: consider importing this type alias
+    |
+1   + use aes_gcm::Nonce;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `InlineKeyboard`
+    --> src/services/interfaces/telegram/telegram.rs:1182:30
+     |
+1182 |         let empty_keyboard = InlineKeyboard::new();
+     |                              ^^^^^^^^^^^^^^ use of undeclared type `InlineKeyboard`
+     |
+help: consider importing this struct through its public re-export
+     |
+3    + use crate::services::InlineKeyboard;
+     |
+
+error[E0412]: cannot find type `InlineKeyboard` in this scope
+    --> src/services/interfaces/telegram/telegram.rs:1192:20
+     |
+1192 |         keyboard: &InlineKeyboard,
+     |                    ^^^^^^^^^^^^^^ not found in this scope
+     |
+help: consider importing this struct through its public re-export
+     |
+3    + use crate::services::InlineKeyboard;
+     |
+
+error: unused import: `crate::services::core::auth::UserContext`
+ --> src/services/core/admin/audit.rs:3:5
+  |
+3 | use crate::services::core::auth::UserContext;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `-D unused-imports` implied by `-D warnings`
+  = help: to override `-D warnings` add `#[allow(unused_imports)]`
+
+error: unused import: `crate::services::core::infrastructure::d1::D1Service`
+ --> src/services/core/admin/audit.rs:4:5
+  |
+4 | use crate::services::core::infrastructure::d1::D1Service;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: unused imports: `DateTime` and `Utc as Timestamp`
+ --> src/services/core/admin/audit.rs:6:14
+  |
+6 | use chrono::{DateTime, Utc as Timestamp};
+  |              ^^^^^^^^  ^^^^^^^^^^^^^^^^
+
+error: unused imports: `Deserialize` and `Serialize`
+ --> src/services/core/admin/user_management.rs:8:13
+  |
+8 | use serde::{Deserialize, Serialize};
+  |             ^^^^^^^^^^^  ^^^^^^^^^
+
+error: unused import: `PositionsService`
+  --> src/services/core/ai/ai_intelligence.rs:12:39
+   |
+12 |     OpportunityCategorizationService, PositionsService, UserTradingPreferencesService,
+   |                                       ^^^^^^^^^^^^^^^^
+
+error: unused import: `Headers`
+  --> src/services/core/auth/middleware.rs:14:27
+   |
+14 | use worker::{console_log, Headers, Request};
+   |                           ^^^^^^^
+
+error: unused import: `CommandPermission`
+  --> src/services/core/auth/rbac.rs:12:20
+   |
+12 | use crate::types::{CommandPermission, Role, UserRole};
+   |                    ^^^^^^^^^^^^^^^^^
+
+error: unused import: `UserRole`
+  --> src/services/core/auth/user_auth.rs:14:35
+   |
+14 |     UserPreferences, UserProfile, UserRole,
+   |                                   ^^^^^^^^
+
+error: unused import: `serde::de::DeserializeOwned`
+ --> src/services/core/infrastructure/database_core.rs:5:5
+  |
+5 | use serde::de::DeserializeOwned;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: unused imports: `Deserialize` and `Serialize`
+ --> src/services/core/infrastructure/database_core.rs:6:13
+  |
+6 | use serde::{Deserialize, Serialize};
+  |             ^^^^^^^^^^^  ^^^^^^^^^
+
+error: unused imports: `D1Service`, `DatabaseManagerConfig`, and `DatabaseManager`
+  --> src/services/core/infrastructure/infrastructure_engine.rs:20:5
+   |
+20 |     D1Service, DatabaseManager, DatabaseManagerConfig, FeatureFlagConfig, FeatureFlagService,
+   |     ^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^
+
+error: unused import: `async_trait::async_trait`
+ --> src/services/core/infrastructure/service_health.rs:5:5
+  |
+5 | use async_trait::async_trait;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: unused import: `reqwest::Client`
+ --> src/services/core/market_data/coinmarketcap.rs:5:5
+  |
+5 | use reqwest::Client;
+  |     ^^^^^^^^^^^^^^^
+
+error: unused import: `std::future::Future as StdFuture`
+  --> src/services/core/market_data/market_data_ingestion.rs:11:5
+   |
+11 | use std::future::Future as StdFuture;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: unused import: `worker::Env`
+  --> src/services/core/user/user_exchange_api.rs:15:5
+   |
+15 | use worker::Env;
+   |     ^^^^^^^^^^^
+
+error: unused import: `async_trait::async_trait`
+ --> src/services/core/user/user_profile.rs:9:5
+  |
+9 | use async_trait::async_trait;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: unused import: `UserProfile`
+  --> src/services/interfaces/telegram/telegram.rs:31:5
+   |
+31 |     UserProfile,
+   |     ^^^^^^^^^^^
+
+error: unused import: `Mutex`
+  --> src/services/interfaces/telegram/telegram.rs:38:22
+   |
+38 | use std::sync::{Arc, Mutex};
+   |                      ^^^^^
+
+error: unused import: `std::time::SystemTime`
+  --> src/lib.rs:29:5
+   |
+29 | use std::time::SystemTime;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `clone` found for struct `worker::D1Database` in the current scope
+  --> src/lib.rs:59:42
+   |
+59 |         DatabaseManager::new(Arc::new(d1.clone()), DatabaseManagerConfig::default());
+   |                                          ^^^^^ method not found in `D1Database`
+
+error: unused variable: `http_method_for_builder`
+   --> src/lib.rs:473:9
+    |
+473 |     let http_method_for_builder = match &original_worker_method {
+    |         ^^^^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_http_method_for_builder`
+    |
+    = note: `-D unused-variables` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(unused_variables)]`
+
+error[E0599]: no variant or associated item named `GET` found for enum `worker::Method` in the current scope
+    --> src/services/core/ai/ai_intelligence.rs:1572:91
+     |
+1572 |         let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::GET))?;
+     |                                                                                           ^^^ variant or associated item not found in `Method`
+     |
+help: there is a variant with a similar name
+     |
+1572 -         let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::GET))?;
+1572 +         let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
+     |
+
+error[E0382]: use of moved value: `opportunities`
+   --> src/services/core/infrastructure/ai_services/ai_coordinator.rs:497:58
+    |
+467 |         opportunities: Vec<ArbitrageOpportunity>,
+    |         ------------- move occurs because `opportunities` has type `std::vec::Vec<types::ArbitrageOpportunity>`, which does not implement the `Copy` trait
+...
+486 |                     .rank_opportunities_for_user(user_id, opportunities)
+    |                                                           ------------- value moved here
+...
+497 |                             self.handle_fallback_ranking(opportunities).await
+    |                                                          ^^^^^^^^^^^^^ value used here after move
+    |
+note: consider changing this parameter type in method `rank_opportunities_for_user` to borrow instead if owning the value isn't necessary
+   --> src/services/core/infrastructure/ai_services/personalization_engine.rs:436:24
+    |
+433 |     pub async fn rank_opportunities_for_user(
+    |                  --------------------------- in this method
+...
+436 |         opportunities: Vec<ArbitrageOpportunity>,
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^ this parameter takes ownership of the value
+help: consider cloning the value if the performance cost is acceptable
+    |
+486 |                     .rank_opportunities_for_user(user_id, opportunities.clone())
+    |                                                                        ++++++++
+
+error[E0615]: attempted to take value of method `meta` on type `worker::D1Result`
+   --> src/services/core/infrastructure/database_repositories/ai_data_repository.rs:282:30
+    |
+282 |         let success = result.meta.as_ref().map(|m| m.rows_written).unwrap_or(0) > 0;
+    |                              ^^^^ method, not a field
+    |
+help: use parentheses to call the method
+    |
+282 |         let success = result.meta().as_ref().map(|m| m.rows_written).unwrap_or(0) > 0;
+    |                                  ++
+
+error[E0615]: attempted to take value of method `meta` on type `worker::D1Result`
+   --> src/services/core/infrastructure/database_repositories/invitation_repository.rs:270:30
+    |
+270 |         let success = result.meta.as_ref().map(|m| m.rows_written).unwrap_or(0) > 0;
+    |                              ^^^^ method, not a field
+    |
+help: use parentheses to call the method
+    |
+270 |         let success = result.meta().as_ref().map(|m| m.rows_written).unwrap_or(0) > 0;
+    |                                  ++
+
+error[E0609]: no field `rows_written` on type `&std::option::Option<worker::D1ResultMeta>`
+   --> src/services/core/infrastructure/database_repositories/user_repository.rs:259:56
+    |
+259 |         let success = result.meta().as_ref().map(|m| m.rows_written).unwrap_or(0) > 0;
+    |                                                        ^^^^^^^^^^^^ unknown field
+
+error[E0609]: no field `rows_written` on type `&std::option::Option<worker::D1ResultMeta>`
+   --> src/services/core/infrastructure/database_repositories/user_repository.rs:382:56
+    |
+382 |         let success = result.meta().as_ref().map(|m| m.rows_written).unwrap_or(0) > 0;
+    |                                                        ^^^^^^^^^^^^ unknown field
+
+error[E0609]: no field `changes` on type `std::option::Option<worker::D1ResultMeta>`
+   --> src/services/core/infrastructure/database_core.rs:427:58
+    |
+427 |             rows_affected: result.meta().map_or(0, |m| m.changes) as u64,
+    |                                                          ^^^^^^^ unknown field
+    |
+help: one of the expressions' fields has a field of the same name
+    |
+427 |             rows_affected: result.meta().map_or(0, |m| m.unwrap().changes) as u64,
+    |                                                          +++++++++
+
+error[E0609]: no field `last_row_id` on type `std::option::Option<worker::D1ResultMeta>`
+   --> src/services/core/infrastructure/database_core.rs:430:33
+    |
+430 |                 .and_then(|m| m.last_row_id.map(|id| id as u64)),
+    |                                 ^^^^^^^^^^^ unknown field
+    |
+help: one of the expressions' fields has a field of the same name
+    |
+430 |                 .and_then(|m| m.unwrap().last_row_id.map(|id| id as u64)),
+    |                                 +++++++++
+
+error[E0308]: mismatched types
+   --> src/services/core/infrastructure/database_core.rs:428:29
+    |
+428 |               last_insert_id: result
+    |  _____________________________^
+429 | |                 .meta()
+430 | |                 .and_then(|m| m.last_row_id.map(|id| id as u64)),
+    | |________________________________________________________________^ expected `Option<u64>`, found `Result<_, Error>`
+    |
+    = note: expected enum `std::option::Option<u64>`
+               found enum `std::result::Result<_, worker::Error>`
+help: use the `?` operator to extract the `std::result::Result<_, worker::Error>` value, propagating a `Result::Err` value to the caller
+    |
+430 |                 .and_then(|m| m.last_row_id.map(|id| id as u64))?,
+    |                                                                 +
+
+error: unused variable: `uptime_seconds`
+   --> src/services/core/infrastructure/infrastructure_engine.rs:511:13
+    |
+511 |         let uptime_seconds =
+    |             ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_uptime_seconds`
+
+error[E0609]: no field `start_time` on type `&services::core::infrastructure::infrastructure_engine::InfrastructureEngine`
+   --> src/services/core/infrastructure/infrastructure_engine.rs:679:69
+    |
+679 |         let _uptime_seconds = SystemTime::now().duration_since(self.start_time).as_secs();
+    |                                                                     ^^^^^^^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+679 |         let _uptime_seconds = SystemTime::now().duration_since(self.startup_time).as_secs();
+    |                                                                          ++
+
+error[E0599]: no method named `as_secs` found for enum `std::result::Result` in the current scope
+   --> src/services/core/infrastructure/infrastructure_engine.rs:679:81
+    |
+679 |         let _uptime_seconds = SystemTime::now().duration_since(self.start_time).as_secs();
+    |                                                                                 ^^^^^^^ method not found in `Result<Duration, SystemTimeError>`
+    |
+note: the method `as_secs` exists on the type `std::time::Duration`
+   --> /Users/irfandi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/time.rs:471:5
+    |
+471 |     pub const fn as_secs(&self) -> u64 {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: consider using `Result::expect` to unwrap the `std::time::Duration` value, panicking if the value is a `Result::Err`
+    |
+679 |         let _uptime_seconds = SystemTime::now().duration_since(self.start_time).expect("REASON").as_secs();
+    |                                                                                +++++++++++++++++
+
+error[E0308]: mismatched types
+   --> src/services/core/infrastructure/infrastructure_engine.rs:677:74
+    |
+677 |       pub async fn get_detailed_health_status(&self) -> SystemHealthReport {
+    |  __________________________________________________________________________^
+678 | |         // Placeholder - replace with actual health check logic
+679 | |         let _uptime_seconds = SystemTime::now().duration_since(self.start_time).as_secs();
+...   |
+683 | |     }
+    | |_____^ expected `SystemHealthReport`, found `()`
+
+error[E0609]: no field `changes` on type `std::option::Option<worker::D1ResultMeta>`
+   --> src/services/core/infrastructure/d1.rs:112:46
+    |
+112 |         Ok(result.meta().and_then(|m| Some(m.changes)).unwrap_or(0) as u64)
+    |                                              ^^^^^^^ unknown field
+    |
+help: one of the expressions' fields has a field of the same name
+    |
+112 |         Ok(result.meta().and_then(|m| Some(m.unwrap().changes)).unwrap_or(0) as u64)
+    |                                              +++++++++
+
+error[E0599]: no method named `send_event` found for reference `&services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService` in the current scope
+   --> src/services/core/market_data/coinmarketcap.rs:570:35
+    |
+570 |                 let _ = pipelines.send_event(event).await;
+    |                                   ^^^^^^^^^^ method not found in `&CloudflarePipelinesService`
+
+error[E0599]: no method named `send_event` found for reference `&services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService` in the current scope
+   --> src/services/core/market_data/coinmarketcap.rs:593:31
+    |
+593 |             let _ = pipelines.send_event(event).await;
+    |                               ^^^^^^^^^^ method not found in `&CloudflarePipelinesService`
+
+error[E0596]: cannot borrow `*self` as mutable, as it is behind a `&` reference
+   --> src/services/core/market_data/market_data_ingestion.rs:293:35
+    |
+293 |             snapshot.price_data = self.fetch_binance_price_data(&binance_symbol).await.ok();
+    |                                   ^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+278 |     async fn fetch_binance_data(&mut self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
+    |                                  +++
+
+error[E0596]: cannot borrow `*self` as mutable, as it is behind a `&` reference
+   --> src/services/core/market_data/market_data_ingestion.rs:299:17
+    |
+299 |                 self.fetch_binance_funding_rate(&binance_symbol).await.ok();
+    |                 ^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+278 |     async fn fetch_binance_data(&mut self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
+    |                                  +++
+
+error[E0596]: cannot borrow `*self` as mutable, as it is behind a `&` reference
+   --> src/services/core/market_data/market_data_ingestion.rs:304:36
+    |
+304 |             snapshot.volume_data = self.fetch_binance_volume_data(&binance_symbol).await.ok();
+    |                                    ^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+278 |     async fn fetch_binance_data(&mut self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
+    |                                  +++
+
+error[E0596]: cannot borrow `*self` as mutable, as it is behind a `&` reference
+   --> src/services/core/market_data/market_data_ingestion.rs:326:35
+    |
+326 |             snapshot.price_data = self.fetch_bybit_price_data(&bybit_symbol).await.ok();
+    |                                   ^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+311 |     async fn fetch_bybit_data(&mut self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
+    |                                +++
+
+error[E0596]: cannot borrow `*self` as mutable, as it is behind a `&` reference
+   --> src/services/core/market_data/market_data_ingestion.rs:331:42
+    |
+331 |             snapshot.funding_rate_data = self.fetch_bybit_funding_rate(&bybit_symbol).await.ok();
+    |                                          ^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+311 |     async fn fetch_bybit_data(&mut self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
+    |                                +++
+
+error[E0596]: cannot borrow `*self` as mutable, as it is behind a `&` reference
+   --> src/services/core/market_data/market_data_ingestion.rs:336:36
+    |
+336 |             snapshot.volume_data = self.fetch_bybit_volume_data(&bybit_symbol).await.ok();
+    |                                    ^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+311 |     async fn fetch_bybit_data(&mut self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
+    |                                +++
+
+error[E0596]: cannot borrow `*self` as mutable, as it is behind a `&` reference
+   --> src/services/core/market_data/market_data_ingestion.rs:358:35
+    |
+358 |             snapshot.price_data = self.fetch_okx_price_data(&okx_symbol).await.ok();
+    |                                   ^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+343 |     async fn fetch_okx_data(&mut self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
+    |                              +++
+
+error: unused variable: `errors`
+    --> src/services/core/market_data/market_data_ingestion.rs:1009:17
+     |
+1009 |         let mut errors: Vec<String> = Vec::new();
+     |                 ^^^^^^ help: if this is intentional, prefix it with an underscore: `_errors`
+
+error: variable does not need to be mutable
+    --> src/services/core/market_data/market_data_ingestion.rs:1009:13
+     |
+1009 |         let mut errors: Vec<String> = Vec::new();
+     |             ----^^^^^^
+     |             |
+     |             help: remove this `mut`
+     |
+     = note: `-D unused-mut` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(unused_mut)]`
+
+error[E0107]: type alias takes 1 generic argument but 2 generic arguments were supplied
+    --> src/services/core/market_data/market_data_ingestion.rs:1105:53
+     |
+1105 | ...                   dyn Future<Output = Result<FundingRateInfo, ArbitrageError>> + Send,
+     |                                           ^^^^^^                ---------------- help: remove the unnecessary generic argument
+     |                                           |
+     |                                           expected 1 generic argument
+     |
+note: type alias defined here, with 1 generic parameter: `T`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/lib.rs:236:10
+     |
+236  | pub type Result<T> = StdResult<T, error::Error>;
+     |          ^^^^^^ -
+
+error[E0107]: type alias takes 1 generic argument but 2 generic arguments were supplied
+    --> src/services/core/market_data/market_data_ingestion.rs:1113:53
+     |
+1113 | ...                   dyn Future<Output = Result<FundingRateInfo, ArbitrageError>> + Send,
+     |                                           ^^^^^^                ---------------- help: remove the unnecessary generic argument
+     |                                           |
+     |                                           expected 1 generic argument
+     |
+note: type alias defined here, with 1 generic parameter: `T`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/lib.rs:236:10
+     |
+236  | pub type Result<T> = StdResult<T, error::Error>;
+     |          ^^^^^^ -
+
+error[E0107]: type alias takes 1 generic argument but 2 generic arguments were supplied
+    --> src/services/core/market_data/market_data_ingestion.rs:1132:53
+     |
+1132 | ...                   dyn Future<Output = Result<FundingRateInfo, ArbitrageError>> + Send,
+     |                                           ^^^^^^                ---------------- help: remove the unnecessary generic argument
+     |                                           |
+     |                                           expected 1 generic argument
+     |
+note: type alias defined here, with 1 generic parameter: `T`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/lib.rs:236:10
+     |
+236  | pub type Result<T> = StdResult<T, error::Error>;
+     |          ^^^^^^ -
+
+error[E0308]: mismatched types
+    --> src/services/core/market_data/market_data_ingestion.rs:1139:9
+     |
+1139 |         join_all(futures).await
+     |         ^^^^^^^^^^^^^^^^^^^^^^^ expected `Vec<Result<FundingRateInfo, ...>>`, found `Vec<Result<FundingRateInfo, Error>>`
+     |
+     = note: expected struct `std::vec::Vec<std::result::Result<_, utils::error::ArbitrageError>>`
+                found struct `std::vec::Vec<std::result::Result<_, worker::Error>>`
+
+error[E0271]: expected `impl Future<Output = Result<FundingRateInfo, ArbitrageError>>` to be a future that resolves to `Result<FundingRateInfo, Error>`, but it resolves to `Result<FundingRateInfo, ArbitrageError>`
+    --> src/services/core/market_data/market_data_ingestion.rs:1102:34
+     |
+1102 |                     futures.push(Box::pin(self.fetch_binance_funding_rate(&pair))
+     |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<FundingRateInfo, Error>`, found `Result<FundingRateInfo, ArbitrageError>`
+     |
+     = note: expected enum `std::result::Result<_, worker::Error>`
+                found enum `std::result::Result<_, utils::error::ArbitrageError>`
+     = note: required for the cast from `Pin<Box<impl Future<Output = Result<FundingRateInfo, ...>>>>` to `Pin<Box<dyn Future<Output = Result<FundingRateInfo, Error>> + Send>>`
+     = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-13133031018794640905.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0271]: expected `impl Future<Output = Result<FundingRateInfo, ArbitrageError>>` to be a future that resolves to `Result<FundingRateInfo, Error>`, but it resolves to `Result<FundingRateInfo, ArbitrageError>`
+    --> src/services/core/market_data/market_data_ingestion.rs:1110:34
+     |
+1110 |                     futures.push(Box::pin(self.fetch_bybit_funding_rate(&pair))
+     |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<FundingRateInfo, Error>`, found `Result<FundingRateInfo, ArbitrageError>`
+     |
+     = note: expected enum `std::result::Result<_, worker::Error>`
+                found enum `std::result::Result<_, utils::error::ArbitrageError>`
+     = note: required for the cast from `Pin<Box<impl Future<Output = Result<FundingRateInfo, ...>>>>` to `Pin<Box<dyn Future<Output = Result<FundingRateInfo, Error>> + Send>>`
+     = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-381499316090093955.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0609]: no field `size_usd` on type `services::core::trading::positions::CreatePositionData`
+   --> src/services/core/trading/positions.rs:124:60
+    |
+124 |         } else if let Some(fixed_usd_size) = position_data.size_usd {
+    |                                                            ^^^^^^^^ unknown field
+    |
+    = note: available fields are: `symbol`, `side`, `size`, `entry_price_long`, `entry_price_short` ... and 6 others
+
+error[E0609]: no field `pair` on type `services::core::trading::positions::CreatePositionData`
+   --> src/services/core/trading/positions.rs:153:39
+    |
+153 |                 symbol: position_data.pair.clone(),
+    |                                       ^^^^ unknown field
+    |
+    = note: available fields are: `symbol`, `side`, `size`, `entry_price_long`, `entry_price_short` ... and 6 others
+
+error[E0609]: no field `pair` on type `services::core::trading::positions::CreatePositionData`
+   --> src/services/core/trading/positions.rs:180:39
+    |
+180 |                 symbol: position_data.pair.clone(),
+    |                                       ^^^^ unknown field
+    |
+    = note: available fields are: `symbol`, `side`, `size`, `entry_price_long`, `entry_price_short` ... and 6 others
+
+error[E0609]: no field `pair` on type `services::core::trading::positions::CreatePositionData`
+   --> src/services/core/trading/positions.rs:212:35
+    |
+212 |             symbol: position_data.pair.clone(),
+    |                                   ^^^^ unknown field
+    |
+    = note: available fields are: `symbol`, `side`, `size`, `entry_price_long`, `entry_price_short` ... and 6 others
+
+error[E0609]: no field `exchange` on type `services::core::trading::positions::CreatePositionData`
+   --> src/services/core/trading/positions.rs:218:42
+    |
+218 |             long_exchange: position_data.exchange, // This is ExchangeIdEnum, not Option<ExchangeIdEnum>
+    |                                          ^^^^^^^^ unknown field
+    |
+    = note: available fields are: `symbol`, `side`, `size`, `entry_price_long`, `entry_price_short` ... and 6 others
+
+error[E0609]: no field `exchange` on type `services::core::trading::positions::CreatePositionData`
+   --> src/services/core/trading/positions.rs:234:37
+    |
+234 |             exchange: position_data.exchange,
+    |                                     ^^^^^^^^ unknown field
+    |
+    = note: available fields are: `symbol`, `side`, `size`, `entry_price_long`, `entry_price_short` ... and 6 others
+
+error[E0609]: no field `pair` on type `services::core::trading::positions::CreatePositionData`
+   --> src/services/core/trading/positions.rs:235:33
+    |
+235 |             pair: position_data.pair,
+    |                                 ^^^^ unknown field
+    |
+    = note: available fields are: `symbol`, `side`, `size`, `entry_price_long`, `entry_price_short` ... and 6 others
+
+error[E0609]: no field `current_price` on type `services::core::trading::positions::UpdatePositionData`
+   --> src/services/core/trading/positions.rs:296:42
+    |
+296 |         if let Some(price) = update_data.current_price {
+    |                                          ^^^^^^^^^^^^^ unknown field
+    |
+    = note: available fields are: `take_profit_price`, `stop_loss_price`, `status`, `size`
+
+error[E0609]: no field `pnl` on type `services::core::trading::positions::UpdatePositionData`
+   --> src/services/core/trading/positions.rs:301:40
+    |
+301 |         if let Some(pnl) = update_data.pnl {
+    |                                        ^^^ unknown field
+    |
+    = note: available fields are: `take_profit_price`, `stop_loss_price`, `status`, `size`
+
+error[E0599]: no method named `put` found for struct `services::core::infrastructure::kv::KVService` in the current scope
+   --> src/services/core/user/ai_access.rs:106:14
+    |
+104 |           let _ = self
+    |  _________________-
+105 | |             .kv_service
+106 | |             .put(&cache_key, &cache_value, Some(3600))
+    | |             -^^^ method not found in `KVService`
+    | |_____________|
+    |
+    |
+   ::: src/services/core/infrastructure/kv.rs:13:1
+    |
+13  |   pub struct KVService {
+    |   -------------------- method `put` not found for this struct
+    |
+   ::: src/services/core/trading/kv_operations.rs:31:14
+    |
+31  |       async fn put<T: Serialize + Send + ?Sized>(&self, key: &str, value: &T) -> KvResult<()>;
+    |                --- the method is available for `services::core::infrastructure::kv::KVService` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `KvOperations` which provides `put` is implemented but not in scope; perhaps you want to import it
+    |
+1   + use crate::services::core::trading::kv_operations::KvOperations;
+    |
+
+error[E0308]: mismatched types
+   --> src/services/core/user/ai_access.rs:109:12
+    |
+109 |         Ok(access_level)
+    |         -- ^^^^^^^^^^^^ expected `AIAccessLevel`, found `UserAccessLevel`
+    |         |
+    |         arguments to this enum variant are incorrect
+    |
+help: the type constructed contains `types::UserAccessLevel` due to the type of the argument passed
+   --> src/services/core/user/ai_access.rs:109:9
+    |
+109 |         Ok(access_level)
+    |         ^^^------------^
+    |            |
+    |            this argument influences the type of `Ok`
+note: tuple variant defined here
+   --> /Users/irfandi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/result.rs:532:5
+    |
+532 |     Ok(#[stable(feature = "rust1", since = "1.0.0")] T),
+    |     ^^
+
+error[E0596]: cannot borrow `self.kv_service` as mutable, as it is behind a `&` reference
+   --> src/services/core/user/ai_access.rs:115:9
+    |
+115 |         self.kv_service
+    |         ^^^^^^^^^^^^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+113 |     pub async fn invalidate_ai_access_cache(&mut self, user_id: &str) -> Result<(), String> {
+    |                                              +++
+
+error[E0596]: cannot borrow `self.kv_service` as mutable, as it is behind a `&` reference
+   --> src/services/core/user/ai_access.rs:261:17
+    |
+261 |         let _ = self.kv_service.delete(&cache_key).await;
+    |                 ^^^^^^^^^^^^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+239 |         &mut self,
+    |          +++
+
+error: unused variable: `access_level`
+   --> src/services/core/user/ai_access.rs:335:9
+    |
+335 |         access_level: &AIAccessLevel,
+    |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_access_level`
+
+error: unused variable: `user_id`
+   --> src/services/core/user/ai_access.rs:880:9
+    |
+880 |         user_id: &str,
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_user_id`
+
+error: unused variable: `interaction_type`
+   --> src/services/core/user/ai_access.rs:881:9
+    |
+881 |         interaction_type: &str,
+    |         ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_interaction_type`
+
+error: unused variable: `metadata`
+   --> src/services/core/user/ai_access.rs:883:9
+    |
+883 |         metadata: Option<serde_json::Value>,
+    |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_metadata`
+
+error[E0599]: no variant or associated item named `Basic` found for enum `types::UserAccessLevel` in the current scope
+   --> src/services/core/auth/permissions.rs:177:23
+    |
+177 |             UserRole::Basic => {
+    |                       ^^^^^ variant or associated item not found in `UserAccessLevel`
+    |
+   ::: src/types.rs:150:1
+    |
+150 | pub enum UserAccessLevel {
+    | ------------------------ variant or associated item `Basic` not found for this enum
+
+error[E0308]: mismatched types
+   --> src/services/core/auth/permissions.rs:305:34
+    |
+305 |             chrono::Utc::now() > expires_at
+    |                                  ^^^^^^^^^^ expected `DateTime<_>`, found `u64`
+    |
+    = note: expected struct `chrono::DateTime<_>`
+                 found type `u64`
+
+error[E0599]: no variant or associated item named `Basic` found for enum `types::UserAccessLevel` in the current scope
+   --> src/services/core/auth/rbac.rs:147:23
+    |
+147 |             UserRole::Basic => 10,       // Basic limit
+    |                       ^^^^^ variant or associated item not found in `UserAccessLevel`
+    |
+   ::: src/types.rs:150:1
+    |
+150 | pub enum UserAccessLevel {
+    | ------------------------ variant or associated item `Basic` not found for this enum
+
+error[E0599]: no method named `as_str` found for enum `types::SubscriptionTier` in the current scope
+    --> src/services/core/auth/rbac.rs:152:71
+     |
+152  |         let subscription_limit = match user_profile.subscription_tier.as_str() {
+     |                                                                       ^^^^^^ method not found in `SubscriptionTier`
+     |
+    ::: src/types.rs:1903:1
+     |
+1903 | pub enum SubscriptionTier {
+     | ------------------------- method `as_str` not found for this enum
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+     = note: the following traits define an item `as_str`, perhaps you need to implement one of them:
+             candidate #1: `http::header::map::as_header_name::Sealed`
+             candidate #2: `reqwest::into_url::IntoUrlSealed`
+
+error[E0599]: no variant or associated item named `Basic` found for enum `types::UserAccessLevel` in the current scope
+   --> src/services/core/auth/rbac.rs:271:23
+    |
+271 |             UserRole::Basic,
+    |                       ^^^^^ variant or associated item not found in `UserAccessLevel`
+    |
+   ::: src/types.rs:150:1
+    |
+150 | pub enum UserAccessLevel {
+    | ------------------------ variant or associated item `Basic` not found for this enum
+
+error[E0560]: struct `types::UserProfile` has no field named `telegram_first_name`
+   --> src/services/core/auth/user_auth.rs:121:13
+    |
+121 |             telegram_first_name: None, // Will be updated from Telegram info
+    |             ^^^^^^^^^^^^^^^^^^^ `types::UserProfile` does not have this field
+    |
+    = note: available fields are: `username`, `subscription_tier`
+
+error[E0560]: struct `types::UserProfile` has no field named `telegram_last_name`
+   --> src/services/core/auth/user_auth.rs:122:13
+    |
+122 |             telegram_last_name: None,
+    |             ^^^^^^^^^^^^^^^^^^ `types::UserProfile` does not have this field
+    |
+    = note: available fields are: `username`, `subscription_tier`
+
+error[E0308]: mismatched types
+   --> src/services/core/auth/user_auth.rs:136:23
+    |
+136 |             api_keys: std::collections::HashMap::new(),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Vec<UserApiKey>`, found `HashMap<_, _>`
+    |
+    = note: expected struct `std::vec::Vec<types::UserApiKey>`
+               found struct `std::collections::HashMap<_, _>`
+
+error[E0599]: no variant or associated item named `Beta` found for enum `types::SubscriptionTier` in the current scope
+    --> src/services/core/auth/user_auth.rs:178:72
+     |
+178  |             profile.subscription = Subscription::new(SubscriptionTier::Beta);
+     |                                                                        ^^^^ variant or associated item not found in `SubscriptionTier`
+     |
+    ::: src/types.rs:1903:1
+     |
+1903 | pub enum SubscriptionTier {
+     | ------------------------- variant or associated item `Beta` not found for this enum
+
+error[E0599]: no function or associated item named `high_performance` found for struct `services::core::infrastructure::notification_module::channel_manager::ChannelManagerConfig` in the current scope
+   --> src/services/core/infrastructure/notification_module/notification_coordinator.rs:234:59
+    |
+234 |             channel_manager_config: ChannelManagerConfig::high_performance(),
+    |                                                           ^^^^^^^^^^^^^^^^ function or associated item not found in `ChannelManagerConfig`
+    |
+   ::: src/services/core/infrastructure/notification_module/channel_manager.rs:129:1
+    |
+129 | pub struct ChannelManagerConfig {
+    | ------------------------------- function or associated item `high_performance` not found for this struct
+    |
+note: if you're trying to build a new `services::core::infrastructure::notification_module::channel_manager::ChannelManagerConfig`, consider using `services::core::infrastructure::notification_module::channel_manager::ChannelManagerConfig::high_reliability` which returns `services::core::infrastructure::notification_module::channel_manager::ChannelManagerConfig`
+   --> src/services/core/infrastructure/notification_module/channel_manager.rs:184:5
+    |
+184 |     pub fn high_reliability() -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: future cannot be sent between threads safely
+  --> src/services/core/infrastructure/kv.rs:69:70
+   |
+69 |       ) -> crate::services::core::trading::kv_operations::KvResult<()> {
+   |  ______________________________________________________________________^
+70 | |         let full_key = format!("{}:{}", self.namespace, key);
+71 | |         let serialized_value = serde_json::to_string(value).map_err(|e| {
+72 | |             crate::services::core::trading::kv_operations::KvOperationError::Serialization(e)
+...  |
+77 | |         Ok(())
+78 | |     }
+   | |_____^ future created by async block is not `Send`
+   |
+note: captured value is not `Send` because `&` references cannot be sent unless their referent is `Sync`
+  --> src/services/core/infrastructure/kv.rs:71:54
+   |
+71 |         let serialized_value = serde_json::to_string(value).map_err(|e| {
+   |                                                      ^^^^^ has type `&T` which is not `Send`, because `T` is not `Sync`
+   = note: required for the cast from `Pin<Box<...>>` to `Pin<Box<dyn Future<Output = Result<(), KvOperationError>> + Send>>`
+   = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-11912237272544442936.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: consider further restricting type parameter `T` with trait `Sync`
+   |
+65 |     async fn put<T: Serialize + Send + ?Sized + std::marker::Sync>(
+   |                                               +++++++++++++++++++
+
+error[E0609]: no field `store` on type `&services::core::infrastructure::kv::KVService`
+  --> src/services/core/infrastructure/kv.rs:85:20
+   |
+85 |         match self.store.get(&full_key).json().await {
+   |                    ^^^^^ unknown field
+   |
+   = note: available fields are: `namespace`, `cache`, `default_ttl`
+
+error: unused variable: `key`
+  --> src/services/core/infrastructure/kv.rs:98:9
+   |
+98 |         key: &str,
+   |         ^^^ help: if this is intentional, prefix it with an underscore: `_key`
+
+error: future cannot be sent between threads safely
+    --> src/services/core/user/user_profile.rs:560:85
+     |
+560  |       async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile> {
+     |  _____________________________________________________________________________________^
+561  | |         // Call the actual implementation method that returns Option<UserProfile>
+562  | |         self.d1_service
+563  | |             .get_user_profile(user_id)
+...    |
+570  | |             })
+571  | |     }
+     | |_____^ future created by async block is not `Send`
+     |
+     = help: within `{async block@src/services/core/user/user_profile.rs:560:85: 571:6}`, the trait `std::marker::Send` is not implemented for `*mut u8`
+note: future is not `Send` as this value is used across an await
+    --> src/services/core/infrastructure/database_repositories/database_manager.rs:1256:18
+     |
+1251 |                 .bind(&[user_id.into()])
+     |                        ---------------- has type `[worker::wasm_bindgen::JsValue; 1]` which is not `Send`
+...
+1256 |                 .await
+     |                  ^^^^^ await occurs here, with `[user_id.into()]` maybe used later
+     = note: required for the cast from `Pin<Box<...>>` to `Pin<Box<dyn Future<Output = Result<UserProfile, ...>> + Send>>`
+     = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-17024474582444250930.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: `std::rc::Rc<std::cell::RefCell<worker::wasm_bindgen_futures::Inner>>` cannot be sent between threads safely
+    --> src/services/core/user/user_profile.rs:560:85
+     |
+560  |       async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile> {
+     |  _____________________________________________________________________________________^
+561  | |         // Call the actual implementation method that returns Option<UserProfile>
+562  | |         self.d1_service
+563  | |             .get_user_profile(user_id)
+...    |
+570  | |             })
+571  | |     }
+     | |     ^
+     | |     |
+     | |_____`std::rc::Rc<std::cell::RefCell<worker::wasm_bindgen_futures::Inner>>` cannot be sent between threads safely
+     |       within this `{async block@src/services/core/user/user_profile.rs:560:85: 571:6}`
+     |
+     = help: within `{async block@src/services/core/user/user_profile.rs:560:85: 571:6}`, the trait `std::marker::Send` is not implemented for `std::rc::Rc<std::cell::RefCell<worker::wasm_bindgen_futures::Inner>>`
+note: required because it appears within the type `worker::wasm_bindgen_futures::JsFuture`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wasm-bindgen-futures-0.4.50/src/lib.rs:110:12
+     |
+110  | pub struct JsFuture {
+     |            ^^^^^^^^
+note: required because it's used within this `async` fn body
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/d1/mod.rs:286:5
+     |
+286  | /     {
+287  | |         let result = JsFuture::from(self.0.first(col_name)?).await;
+288  | |         let js_value = cast_to_d1_error(result)?;
+289  | |         let value = serde_wasm_bindgen::from_value(js_value)?;
+290  | |         Ok(value)
+291  | |     }
+     | |_____^
+note: required because it's used within this `async` fn body
+    --> src/services/core/infrastructure/database_repositories/database_manager.rs:1241:61
+     |
+1241 |       ) -> ArbitrageResult<Option<crate::types::UserProfile>> {
+     |  _____________________________________________________________^
+1242 | |         if let Some(ref user_repo) = self.user_repository {
+1243 | |             user_repo.get_user_profile(user_id).await
+1244 | |         } else {
+...    |
+1275 | |     }
+     | |_____^
+note: required because it's used within this `async` block
+    --> src/services/core/user/user_profile.rs:560:85
+     |
+560  |       async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile> {
+     |  _____________________________________________________________________________________^
+561  | |         // Call the actual implementation method that returns Option<UserProfile>
+562  | |         self.d1_service
+563  | |             .get_user_profile(user_id)
+...    |
+570  | |             })
+571  | |     }
+     | |_____^
+     = note: required for the cast from `Pin<Box<...>>` to `Pin<Box<dyn Future<Output = Result<UserProfile, ...>> + Send>>`
+     = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-10898133714181255250.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: `*mut u8` cannot be shared between threads safely
+    --> src/services/core/user/user_profile.rs:560:85
+     |
+560  |       async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile> {
+     |  _____________________________________________________________________________________^
+561  | |         // Call the actual implementation method that returns Option<UserProfile>
+562  | |         self.d1_service
+563  | |             .get_user_profile(user_id)
+...    |
+570  | |             })
+571  | |     }
+     | |_____^ `*mut u8` cannot be shared between threads safely
+     |
+     = help: within `worker::D1PreparedStatement`, the trait `std::marker::Sync` is not implemented for `*mut u8`
+note: required because it appears within the type `std::marker::PhantomData<*mut u8>`
+    --> /Users/irfandi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/marker.rs:777:12
+     |
+777  | pub struct PhantomData<T: ?Sized>;
+     |            ^^^^^^^^^^^
+note: required because it appears within the type `worker::wasm_bindgen::JsValue`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wasm-bindgen-0.2.100/src/lib.rs:135:12
+     |
+135  | pub struct JsValue {
+     |            ^^^^^^^
+note: required because it appears within the type `worker::js_sys::Object`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.77/src/lib.rs:3445:14
+     |
+3445 |     pub type Object;
+     |              ^^^^^^
+note: required because it appears within the type `worker::worker_sys::D1PreparedStatement`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-sys-0.5.0/src/types/d1.rs:59:14
+     |
+59   |     pub type D1PreparedStatement;
+     |              ^^^^^^^^^^^^^^^^^^^
+note: required because it appears within the type `worker::D1PreparedStatement`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/d1/mod.rs:224:12
+     |
+224  | pub struct D1PreparedStatement(D1PreparedStatementSys);
+     |            ^^^^^^^^^^^^^^^^^^^
+     = note: required for `&worker::D1PreparedStatement` to implement `std::marker::Send`
+note: required because it's used within this `async` fn body
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/d1/mod.rs:286:5
+     |
+286  | /     {
+287  | |         let result = JsFuture::from(self.0.first(col_name)?).await;
+288  | |         let js_value = cast_to_d1_error(result)?;
+289  | |         let value = serde_wasm_bindgen::from_value(js_value)?;
+290  | |         Ok(value)
+291  | |     }
+     | |_____^
+note: required because it's used within this `async` fn body
+    --> src/services/core/infrastructure/database_repositories/database_manager.rs:1241:61
+     |
+1241 |       ) -> ArbitrageResult<Option<crate::types::UserProfile>> {
+     |  _____________________________________________________________^
+1242 | |         if let Some(ref user_repo) = self.user_repository {
+1243 | |             user_repo.get_user_profile(user_id).await
+1244 | |         } else {
+...    |
+1275 | |     }
+     | |_____^
+note: required because it's used within this `async` block
+    --> src/services/core/user/user_profile.rs:560:85
+     |
+560  |       async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile> {
+     |  _____________________________________________________________________________________^
+561  | |         // Call the actual implementation method that returns Option<UserProfile>
+562  | |         self.d1_service
+563  | |             .get_user_profile(user_id)
+...    |
+570  | |             })
+571  | |     }
+     | |_____^
+     = note: required for the cast from `Pin<Box<...>>` to `Pin<Box<dyn Future<Output = Result<UserProfile, ...>> + Send>>`
+     = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-15171772570414715648.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error: future cannot be sent between threads safely
+    --> src/services/core/user/user_profile.rs:573:87
+     |
+573  |       async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+     |  _______________________________________________________________________________________^
+...    |
+589  | |         Ok(())
+590  | |     }
+     | |_____^ future created by async block is not `Send`
+     |
+     = help: within `{async block@src/services/core/user/user_profile.rs:573:87: 590:6}`, the trait `std::marker::Send` is not implemented for `*mut u8`
+note: future is not `Send` as this value is used across an await
+    --> src/services/core/infrastructure/database_repositories/database_manager.rs:1296:18
+     |
+1291 |                 .bind(&[telegram_user_id.into()])
+     |                        ------------------------- has type `[worker::wasm_bindgen::JsValue; 1]` which is not `Send`
+...
+1296 |                 .await
+     |                  ^^^^^ await occurs here, with `[telegram_user_id.into()]` maybe used later
+     = note: required for the cast from `Pin<Box<...>>` to `Pin<Box<dyn Future<Output = Result<(), ArbitrageError>> + Send>>`
+     = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-15972932158888059597.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: `std::rc::Rc<std::cell::RefCell<worker::wasm_bindgen_futures::Inner>>` cannot be sent between threads safely
+    --> src/services/core/user/user_profile.rs:573:87
+     |
+573  |       async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+     |  _______________________________________________________________________________________^
+...    |
+589  | |         Ok(())
+590  | |     }
+     | |     ^
+     | |     |
+     | |_____`std::rc::Rc<std::cell::RefCell<worker::wasm_bindgen_futures::Inner>>` cannot be sent between threads safely
+     |       within this `{async block@src/services/core/user/user_profile.rs:573:87: 590:6}`
+     |
+     = help: within `{async block@src/services/core/user/user_profile.rs:573:87: 590:6}`, the trait `std::marker::Send` is not implemented for `std::rc::Rc<std::cell::RefCell<worker::wasm_bindgen_futures::Inner>>`
+note: required because it appears within the type `worker::wasm_bindgen_futures::JsFuture`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wasm-bindgen-futures-0.4.50/src/lib.rs:110:12
+     |
+110  | pub struct JsFuture {
+     |            ^^^^^^^^
+note: required because it's used within this `async` fn body
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/d1/mod.rs:286:5
+     |
+286  | /     {
+287  | |         let result = JsFuture::from(self.0.first(col_name)?).await;
+288  | |         let js_value = cast_to_d1_error(result)?;
+289  | |         let value = serde_wasm_bindgen::from_value(js_value)?;
+290  | |         Ok(value)
+291  | |     }
+     | |_____^
+note: required because it's used within this `async` fn body
+    --> src/services/core/infrastructure/database_repositories/database_manager.rs:1281:61
+     |
+1281 |       ) -> ArbitrageResult<Option<crate::types::UserProfile>> {
+     |  _____________________________________________________________^
+1282 | |         if let Some(ref user_repo) = self.user_repository {
+1283 | |             user_repo.get_user_by_telegram_id(telegram_user_id).await
+1284 | |         } else {
+...    |
+1315 | |     }
+     | |_____^
+note: required because it's used within this `async` fn body
+    --> src/services/core/user/user_profile.rs:43:39
+     |
+43   |       ) -> ArbitrageResult<UserProfile> {
+     |  _______________________________________^
+44   | |         // Validate telegram_user_id is positive
+45   | |         if telegram_user_id <= 0 {
+46   | |             return Err(ArbitrageError::validation_error(
+...    |
+77   | |         Ok(profile)
+78   | |     }
+     | |_____^
+note: required because it's used within this `async` block
+    --> src/services/core/user/user_profile.rs:573:87
+     |
+573  |       async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+     |  _______________________________________________________________________________________^
+...    |
+589  | |         Ok(())
+590  | |     }
+     | |_____^
+     = note: required for the cast from `Pin<Box<...>>` to `Pin<Box<dyn Future<Output = Result<(), ArbitrageError>> + Send>>`
+     = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-10898133714181255250.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: `*mut u8` cannot be shared between threads safely
+    --> src/services/core/user/user_profile.rs:573:87
+     |
+573  |       async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+     |  _______________________________________________________________________________________^
+...    |
+589  | |         Ok(())
+590  | |     }
+     | |_____^ `*mut u8` cannot be shared between threads safely
+     |
+     = help: within `worker::D1PreparedStatement`, the trait `std::marker::Sync` is not implemented for `*mut u8`
+note: required because it appears within the type `std::marker::PhantomData<*mut u8>`
+    --> /Users/irfandi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/marker.rs:777:12
+     |
+777  | pub struct PhantomData<T: ?Sized>;
+     |            ^^^^^^^^^^^
+note: required because it appears within the type `worker::wasm_bindgen::JsValue`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wasm-bindgen-0.2.100/src/lib.rs:135:12
+     |
+135  | pub struct JsValue {
+     |            ^^^^^^^
+note: required because it appears within the type `worker::js_sys::Object`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.77/src/lib.rs:3445:14
+     |
+3445 |     pub type Object;
+     |              ^^^^^^
+note: required because it appears within the type `worker::worker_sys::D1PreparedStatement`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-sys-0.5.0/src/types/d1.rs:59:14
+     |
+59   |     pub type D1PreparedStatement;
+     |              ^^^^^^^^^^^^^^^^^^^
+note: required because it appears within the type `worker::D1PreparedStatement`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/d1/mod.rs:224:12
+     |
+224  | pub struct D1PreparedStatement(D1PreparedStatementSys);
+     |            ^^^^^^^^^^^^^^^^^^^
+     = note: required for `&worker::D1PreparedStatement` to implement `std::marker::Send`
+note: required because it's used within this `async` fn body
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/d1/mod.rs:286:5
+     |
+286  | /     {
+287  | |         let result = JsFuture::from(self.0.first(col_name)?).await;
+288  | |         let js_value = cast_to_d1_error(result)?;
+289  | |         let value = serde_wasm_bindgen::from_value(js_value)?;
+290  | |         Ok(value)
+291  | |     }
+     | |_____^
+note: required because it's used within this `async` fn body
+    --> src/services/core/infrastructure/database_repositories/database_manager.rs:1281:61
+     |
+1281 |       ) -> ArbitrageResult<Option<crate::types::UserProfile>> {
+     |  _____________________________________________________________^
+1282 | |         if let Some(ref user_repo) = self.user_repository {
+1283 | |             user_repo.get_user_by_telegram_id(telegram_user_id).await
+1284 | |         } else {
+...    |
+1315 | |     }
+     | |_____^
+note: required because it's used within this `async` fn body
+    --> src/services/core/user/user_profile.rs:43:39
+     |
+43   |       ) -> ArbitrageResult<UserProfile> {
+     |  _______________________________________^
+44   | |         // Validate telegram_user_id is positive
+45   | |         if telegram_user_id <= 0 {
+46   | |             return Err(ArbitrageError::validation_error(
+...    |
+77   | |         Ok(profile)
+78   | |     }
+     | |_____^
+note: required because it's used within this `async` block
+    --> src/services/core/user/user_profile.rs:573:87
+     |
+573  |       async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+     |  _______________________________________________________________________________________^
+...    |
+589  | |         Ok(())
+590  | |     }
+     | |_____^
+     = note: required for the cast from `Pin<Box<...>>` to `Pin<Box<dyn Future<Output = Result<(), ArbitrageError>> + Send>>`
+     = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-15228804993232597823.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error: future cannot be sent between threads safely
+   --> src/services/core/user/user_profile.rs:592:87
+    |
+592 |       async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+    |  _______________________________________________________________________________________^
+593 | |         self.update_user_profile(profile).await
+594 | |     }
+    | |_____^ future created by async block is not `Send`
+    |
+    = help: within `{async block@src/services/core/user/user_profile.rs:592:87: 594:6}`, the trait `std::marker::Send` is not implemented for `*mut u8`
+note: future is not `Send` as this value is used across an await
+   --> src/services/core/infrastructure/database_repositories/database_manager.rs:820:14
+    |
+811 |               stmt.bind(&[
+    |  ________________________-
+812 | |                 profile_str.into(),
+813 | |                 chrono::Utc::now().to_rfc3339().into(),
+814 | |                 user_id.into(),
+815 | |             ])
+    | |_____________- has type `[worker::wasm_bindgen::JsValue; 3]` which is not `Send`
+...
+820 |               .await
+    |                ^^^^^ await occurs here, with the value maybe used later
+    = note: required for the cast from `Pin<Box<...>>` to `Pin<Box<dyn Future<Output = Result<(), ArbitrageError>> + Send>>`
+    = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-14317292511401092919.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: `std::rc::Rc<std::cell::RefCell<worker::wasm_bindgen_futures::Inner>>` cannot be sent between threads safely
+   --> src/services/core/user/user_profile.rs:592:87
+    |
+592 |       async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+    |  _______________________________________________________________________________________^
+593 | |         self.update_user_profile(profile).await
+594 | |     }
+    | |     ^
+    | |     |
+    | |_____`std::rc::Rc<std::cell::RefCell<worker::wasm_bindgen_futures::Inner>>` cannot be sent between threads safely
+    |       within this `{async block@src/services/core/user/user_profile.rs:592:87: 594:6}`
+    |
+    = help: within `{async block@src/services/core/user/user_profile.rs:592:87: 594:6}`, the trait `std::marker::Send` is not implemented for `std::rc::Rc<std::cell::RefCell<worker::wasm_bindgen_futures::Inner>>`
+note: required because it appears within the type `worker::wasm_bindgen_futures::JsFuture`
+   --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wasm-bindgen-futures-0.4.50/src/lib.rs:110:12
+    |
+110 | pub struct JsFuture {
+    |            ^^^^^^^^
+note: required because it's used within this `async` fn body
+   --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/d1/mod.rs:294:49
+    |
+294 |       pub async fn run(&self) -> Result<D1Result> {
+    |  _________________________________________________^
+295 | |         let result = JsFuture::from(self.0.run()?).await;
+296 | |         let result = cast_to_d1_error(result)?;
+297 | |         Ok(D1Result(result.into()))
+298 | |     }
+    | |_____^
+note: required because it's used within this `async` fn body
+   --> src/services/core/infrastructure/database_repositories/database_manager.rs:791:30
+    |
+791 |       ) -> ArbitrageResult<()> {
+    |  ______________________________^
+792 | |         if let Some(ref user_repo) = self.user_repository {
+...   |
+827 | |     }
+    | |_____^
+note: required because it's used within this `async` fn body
+   --> src/services/core/user/user_profile.rs:113:91
+    |
+113 |       pub async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+    |  ___________________________________________________________________________________________^
+114 | |         let mut updated_profile = profile.clone();
+115 | |         updated_profile.updated_at = chrono::Utc::now().timestamp_millis() as u64;
+...   |
+129 | |         Ok(())
+130 | |     }
+    | |_____^
+note: required because it's used within this `async` block
+   --> src/services/core/user/user_profile.rs:592:87
+    |
+592 |       async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+    |  _______________________________________________________________________________________^
+593 | |         self.update_user_profile(profile).await
+594 | |     }
+    | |_____^
+    = note: required for the cast from `Pin<Box<...>>` to `Pin<Box<dyn Future<Output = Result<(), ArbitrageError>> + Send>>`
+    = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-13222864912135313602.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: `*mut u8` cannot be shared between threads safely
+    --> src/services/core/user/user_profile.rs:592:87
+     |
+592  |       async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+     |  _______________________________________________________________________________________^
+593  | |         self.update_user_profile(profile).await
+594  | |     }
+     | |_____^ `*mut u8` cannot be shared between threads safely
+     |
+     = help: within `worker::D1PreparedStatement`, the trait `std::marker::Sync` is not implemented for `*mut u8`
+note: required because it appears within the type `std::marker::PhantomData<*mut u8>`
+    --> /Users/irfandi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/marker.rs:777:12
+     |
+777  | pub struct PhantomData<T: ?Sized>;
+     |            ^^^^^^^^^^^
+note: required because it appears within the type `worker::wasm_bindgen::JsValue`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wasm-bindgen-0.2.100/src/lib.rs:135:12
+     |
+135  | pub struct JsValue {
+     |            ^^^^^^^
+note: required because it appears within the type `worker::js_sys::Object`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.77/src/lib.rs:3445:14
+     |
+3445 |     pub type Object;
+     |              ^^^^^^
+note: required because it appears within the type `worker::worker_sys::D1PreparedStatement`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-sys-0.5.0/src/types/d1.rs:59:14
+     |
+59   |     pub type D1PreparedStatement;
+     |              ^^^^^^^^^^^^^^^^^^^
+note: required because it appears within the type `worker::D1PreparedStatement`
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/d1/mod.rs:224:12
+     |
+224  | pub struct D1PreparedStatement(D1PreparedStatementSys);
+     |            ^^^^^^^^^^^^^^^^^^^
+     = note: required for `&worker::D1PreparedStatement` to implement `std::marker::Send`
+note: required because it's used within this `async` fn body
+    --> /Users/irfandi/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/worker-0.5.0/src/d1/mod.rs:294:49
+     |
+294  |       pub async fn run(&self) -> Result<D1Result> {
+     |  _________________________________________________^
+295  | |         let result = JsFuture::from(self.0.run()?).await;
+296  | |         let result = cast_to_d1_error(result)?;
+297  | |         Ok(D1Result(result.into()))
+298  | |     }
+     | |_____^
+note: required because it's used within this `async` fn body
+    --> src/services/core/infrastructure/database_repositories/database_manager.rs:791:30
+     |
+791  |       ) -> ArbitrageResult<()> {
+     |  ______________________________^
+792  | |         if let Some(ref user_repo) = self.user_repository {
+...    |
+827  | |     }
+     | |_____^
+note: required because it's used within this `async` fn body
+    --> src/services/core/user/user_profile.rs:113:91
+     |
+113  |       pub async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+     |  ___________________________________________________________________________________________^
+114  | |         let mut updated_profile = profile.clone();
+115  | |         updated_profile.updated_at = chrono::Utc::now().timestamp_millis() as u64;
+...    |
+129  | |         Ok(())
+130  | |     }
+     | |_____^
+note: required because it's used within this `async` block
+    --> src/services/core/user/user_profile.rs:592:87
+     |
+592  |       async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
+     |  _______________________________________________________________________________________^
+593  | |         self.update_user_profile(profile).await
+594  | |     }
+     | |_____^
+     = note: required for the cast from `Pin<Box<...>>` to `Pin<Box<dyn Future<Output = Result<(), ArbitrageError>> + Send>>`
+     = note: the full name for the type has been written to '/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/arb_edge-d413b65ad22f9bce.long-type-13222864912135313602.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+Some errors have detailed explanations: E0107, E0271, E0277, E0308, E0382, E0412, E0432, E0433, E0560...
+For more information about an error, try `rustc --explain E0107`.
+error: could not compile `arb_edge` (lib) due to 105 previous errors
+
+Caused by:
+  process didn't exit successfully: `/Users/irfandi/.rustup/toolchains/stable-aarch64-apple-darwin/bin/clippy-driver /Users/irfandi/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name arb_edge --edition=2021 src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type cdylib --crate-type rlib --emit=dep-info,metadata -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --cfg 'feature="default"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("default", "disabled_tests", "enable-logging"))' -C metadata=6cf6706b048a6825 -C extra-filename=-d413b65ad22f9bce --out-dir /Users/irfandi/Coding/2025/ArbEdge/target/debug/deps -C incremental=/Users/irfandi/Coding/2025/ArbEdge/target/debug/incremental -L dependency=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps --extern aes_gcm=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libaes_gcm-6d0d92aca1041134.rmeta --extern anyhow=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libanyhow-efca56a29b8eeeb0.rmeta --extern approx=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libapprox-9ebfcbc236ca50f0.rmeta --extern async_trait=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libasync_trait-357953e0e1e1e2aa.dylib --extern base64=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libbase64-3eab2d053e410ae7.rmeta --extern chrono=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libchrono-f7eadcb397d72aae.rmeta --extern console_error_panic_hook=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libconsole_error_panic_hook-5d35935d242e17e0.rmeta --extern futures=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libfutures-7c96f71d55a38c5e.rmeta --extern hex=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libhex-5efb8b392527ddd9.rmeta --extern hmac=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libhmac-f3635e8c8d1753f6.rmeta --extern http=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libhttp-b005fa15d18ddf54.rmeta --extern log=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/liblog-563788974cecb9c3.rmeta --extern md5=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libmd5-58fca9ed902e0256.rmeta --extern once_cell=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libonce_cell-3841e49f26db0e12.rmeta --extern rand=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/librand-e98cd4edb3e77cf7.rmeta --extern regex=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libregex-be0298e51c864d7f.rmeta --extern reqwest=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libreqwest-4e3b2a8ba0ca8c73.rmeta --extern secrecy=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libsecrecy-a1ea8a89d11a97ff.rmeta --extern serde=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libserde-1e15d018fcc81b1c.rmeta --extern serde_json=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libserde_json-7f71393af9db01b4.rmeta --extern sha2=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libsha2-2c8d30a6e34f2ce0.rmeta --extern sysinfo=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libsysinfo-5237dd84a8fbf74f.rmeta --extern thiserror=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libthiserror-dde89c751a569a5e.rmeta --extern tokio=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libtokio-637c5047a714e290.rmeta --extern url=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/liburl-f786e1856bddf843.rmeta --extern uuid=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libuuid-87d9772aedc3a855.rmeta --extern worker=/Users/irfandi/Coding/2025/ArbEdge/target/debug/deps/libworker-4c94f8d4ef8af6f6.rmeta` (exit status: 1)
+make: *** [ci-pipeline] Error 101

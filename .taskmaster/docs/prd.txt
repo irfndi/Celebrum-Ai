@@ -1,0 +1,49 @@
+Project Goal: Ensure `make ci` passes successfully.
+
+Background:
+The `make ci` command, aliased to `ci-pipeline` in the Makefile, currently fails during the linting phase due to multiple compilation errors, primarily unresolved imports as seen in `make_ci_output.log`. This prevents the successful completion of the CI pipeline, which includes formatting, linting, various compilation checks, multiple stages of testing (library, unit, integration, E2E), and build verifications.
+
+Requirements:
+
+1.  **Resolve Compilation and Linting Errors (`cargo clippy --lib --verbose -- -D warnings`):**
+    *   Address all unresolved import errors identified in `make_ci_output.log`. Specific errors include:
+        *   `serde::DeserializeOwned` in `src/services/core/infrastructure/kv.rs` (Hint: likely `serde::de::DeserializeOwned`).
+        *   `crate::utils::Result` in `src/services/core/market_data/coinmarketcap.rs` (Hint: evaluate available `Result` types like `anyhow::Result` or a custom `crate::Result`).
+        *   `crate::models::user_profile::UserActivityType` in `src/services/core/admin/audit.rs` (Hint: check if `models` module exists at crate root or if path is incorrect).
+        *   `crate::services::core::market_data::market_data_sources` in `src/services/core/market_data/market_data_ingestion.rs` (Hint: check module name or path).
+        *   `crate::types::Timestamp`, `crate::types::UserActionContext`, `crate::types::UserContext` in `src/services/core/admin/audit.rs` (Hint: verify existence in `types` module or correct paths).
+        *   `crate::types::Role` in `src/services/core/auth/rbac.rs` (Hint: verify existence in `types` module or correct path).
+        *   `crate::types::{AuthRequest, AuthResponse, LoginRequest, RegistrationRequest, User}` in `src/services/core/auth/user_auth.rs` (Hint: verify existence in `types` module or correct paths).
+    *   Fix any other compilation errors that arise after addressing the initial import issues.
+    *   Ensure `cargo clippy --lib --verbose -- -D warnings` (Step 2 of `ci-pipeline`) passes without any errors or warnings that are treated as errors.
+
+2.  **Ensure Code Formatting (`cargo fmt --check`):**
+    *   Run `cargo fmt --verbose --all -- --check` (Step 1 of `ci-pipeline`) and fix any reported formatting issues.
+
+3.  **Ensure WASM Library Compilation Check (`cargo check --target wasm32-unknown-unknown --lib`):**
+    *   Verify that `cargo check --target wasm32-unknown-unknown --lib --verbose` (Step 3 of `ci-pipeline`) passes.
+
+4.  **Ensure All Tests Pass:**
+    *   Successfully execute Library Tests: `cargo test --lib --verbose` (Step 4 of `ci-pipeline`).
+    *   Successfully execute Unit Tests: `make unit-tests` (which runs `cargo test --test mod`) (Step 5 of `ci-pipeline`).
+    *   Successfully execute Integration Tests: `make integration-tests` (which runs `cargo test --test session_opportunity_integration_test`) (Part of Step 6 of `ci-pipeline`).
+    *   Successfully execute E2E Tests: `make e2e-tests` (which runs `cargo test --test webhook_session_management_test`) (Part of Step 6 of `ci-pipeline`).
+    *   Address any failing tests in these categories.
+
+5.  **Ensure Final Native Compilation Check (`cargo check`):**
+    *   Verify that `cargo check --verbose` (Step 7 of `ci-pipeline`) passes.
+
+6.  **Ensure Final WASM Library Build Verification (`cargo build --target wasm32-unknown-unknown --lib`):**
+    *   Verify that `cargo build --target wasm32-unknown-unknown --lib --verbose` (Step 8 of `ci-pipeline`) passes.
+
+7.  **Overall CI Pipeline Verification:**
+    *   Run the full `make ci` (or `make ci-pipeline`) command.
+    *   Confirm that all 8 steps of the `ci-pipeline` complete successfully and the command exits with a status code of 0.
+
+Success Criteria:
+*   The `make ci` command completes successfully without any errors.
+*   All compilation errors identified in `make_ci_output.log` and any subsequent ones are resolved.
+*   `cargo fmt --check` passes.
+*   `cargo clippy --lib --verbose -- -D warnings` passes.
+*   All test suites (library, unit, integration, E2E) pass.
+*   All compilation and build verification steps (`cargo check` for native and WASM, `cargo build` for WASM) pass. 

@@ -1,6 +1,6 @@
 use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
 use crate::utils::logger::Logger;
-use crate::utils::{ArbitrageError, ArbitrageResult, Result as ArbitrageResultType};
+use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};

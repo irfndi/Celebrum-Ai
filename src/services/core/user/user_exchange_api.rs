@@ -369,7 +369,9 @@ impl UserExchangeApiService {
             if api_key.is_active {
                 if let ApiKeyProvider::Exchange(exchange_id) = &api_key.provider {
                     // Decrypt credentials and use immediately to minimize memory exposure
-                    let decrypted_secret = self.decrypt_string(&api_key.encrypted_secret)?;
+                    let decrypted_secret = self.decrypt_string(
+                        api_key.encrypted_secret.as_ref().map_or("", |s| s.as_str()),
+                    )?;
                     let credentials = ExchangeCredentials {
                         exchange: *exchange_id,
                         api_key: self.decrypt_string(&api_key.encrypted_key)?,
@@ -382,7 +384,7 @@ impl UserExchangeApiService {
                         exchange_type: format!("{:?}", exchange_id), // Convert enum to string
                     };
 
-                    exchange_credentials.push((exchange_id, credentials));
+                    exchange_credentials.push((*exchange_id, credentials));
                 }
             }
         }
@@ -494,24 +496,11 @@ impl UserExchangeApiService {
             .test_api_connection(exchange_id, api_key, secret)
             .await
         {
-            Ok(test_result) => {
-                // Parse test result to determine capabilities
-                let can_read = test_result
-                    .get("can_read")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let can_trade = test_result
-                    .get("can_trade")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-
-                let rate_limit = test_result.get("rate_limit").and_then(|rl| {
-                    Some(RateLimitInfo {
-                        requests_per_minute: rl.get("requests_per_minute")?.as_u64()? as u32,
-                        requests_remaining: rl.get("requests_remaining")?.as_u64()? as u32,
-                        reset_time: rl.get("reset_time")?.as_u64()?,
-                    })
-                });
+            Ok((can_read_result, can_trade_result, rate_limit_info_result)) => {
+                // Directly use the destructured tuple values
+                let can_read = can_read_result;
+                let can_trade = can_trade_result;
+                let rate_limit = rate_limit_info_result;
 
                 Ok((can_read, can_trade, rate_limit))
             }

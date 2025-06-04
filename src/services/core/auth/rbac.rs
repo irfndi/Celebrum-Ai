@@ -8,9 +8,10 @@
 //! - Dynamic permission assignment
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
-use crate::types::{CommandPermission, Role, UserRole};
 use crate::types::UserProfile;
+use crate::types::{CommandPermission, UserRole};
 use crate::utils::ArbitrageResult;
+// Temporary comment to force re-compilation
 use std::collections::HashMap;
 use std::sync::Arc;
 use worker::console_log;
