@@ -187,6 +187,7 @@ impl ApiKeySource {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct ExchangeService {
     client: Client,
     kv: worker::kv::KvStore,

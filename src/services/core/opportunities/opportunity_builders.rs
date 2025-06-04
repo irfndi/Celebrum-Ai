@@ -447,33 +447,26 @@ impl OpportunityBuilder {
         _distribution_strategy: DistributionStrategy,
     ) -> ArbitrageResult<GlobalOpportunity> {
         let priority_score = self.calculate_priority_score(&arbitrage_opportunity);
+        let now = chrono::Utc::now().timestamp_millis() as u64;
 
         let global_opportunity = GlobalOpportunity {
             id: Uuid::new_v4().to_string(),
-            opportunity_id: Uuid::new_v4().to_string(),
+            source: source.clone(),
             opportunity_type: source.clone(),
-            trading_pair: arbitrage_opportunity.trading_pair.clone(),
-            exchanges: arbitrage_opportunity.exchanges.clone(),
-            profit_percentage: arbitrage_opportunity.profit_percentage,
-            confidence_score: arbitrage_opportunity.confidence_score,
-            risk_level: arbitrage_opportunity.risk_level.clone(),
-            created_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at,
-            metadata: serde_json::json!({}),
-            distributed_to: Vec::new(),
-            max_participants: Some(max_participants.unwrap_or(100)),
-            current_participants: 0,
-            distribution_strategy: DistributionStrategy::Broadcast,
-            arbitrage_opportunity: arbitrage_opportunity.clone(),
             target_users: Vec::new(),
-            opportunity_data: OpportunityData::Arbitrage(arbitrage_opportunity.clone()),
-            source,
-            detection_timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            priority: 1,
-            priority_score: 0.0,
+            opportunity_data: OpportunityData::Arbitrage(arbitrage_opportunity.clone()), // All specific opportunity data is here
+            created_at: now,
+            detection_timestamp: now,
+            expires_at,
+            priority: 1,    // Default priority, can be adjusted based on logic
+            priority_score, // Assign calculated priority score
             ai_enhanced: false,
             ai_confidence_score: None,
             ai_insights: None,
+            distributed_to: Vec::new(),
+            max_participants: Some(max_participants.unwrap_or(100)),
+            current_participants: 0,
+            distribution_strategy: DistributionStrategy::Broadcast, // Assuming Broadcast is a valid default or passed in
         };
 
         // Create analytics metadata
@@ -502,33 +495,26 @@ impl OpportunityBuilder {
         _distribution_strategy: DistributionStrategy,
     ) -> ArbitrageResult<GlobalOpportunity> {
         let priority_score = self.calculate_technical_priority_score(&technical_opportunity);
+        let now = chrono::Utc::now().timestamp_millis() as u64;
 
         let global_opportunity = GlobalOpportunity {
             id: Uuid::new_v4().to_string(),
-            opportunity_id: Uuid::new_v4().to_string(),
-            opportunity_type: source.clone(),
-            trading_pair: technical_opportunity.trading_pair.clone(),
-            exchanges: vec![technical_opportunity.exchange.to_string()],
-            profit_percentage: technical_opportunity.expected_return_percentage,
-            confidence_score: technical_opportunity.confidence_score,
-            risk_level: technical_opportunity.risk_level.to_string(),
-            created_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at,
-            metadata: serde_json::json!({}),
-            distributed_to: Vec::new(),
-            max_participants: Some(max_participants.unwrap_or(100)),
-            current_participants: 0,
-            distribution_strategy: DistributionStrategy::Broadcast,
-            arbitrage_opportunity: ArbitrageOpportunity::default(),
+            source: source.clone(),
+            opportunity_type: source.clone(), // Keep source if it's distinct from opportunity_data's source
             target_users: Vec::new(),
             opportunity_data: OpportunityData::Technical(technical_opportunity.clone()),
-            source,
-            detection_timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            priority: 1,
-            priority_score: 0.0,
+            created_at: now,
+            detection_timestamp: now,
+            expires_at,
+            priority: 1,    // Default priority, can be adjusted
+            priority_score, // Assign calculated priority score
             ai_enhanced: false,
             ai_confidence_score: None,
             ai_insights: None,
+            distributed_to: Vec::new(),
+            max_participants: Some(max_participants.unwrap_or(100)),
+            current_participants: 0,
+            distribution_strategy: DistributionStrategy::Broadcast, // Assuming Broadcast is a valid default or passed in
         };
 
         log_info!(

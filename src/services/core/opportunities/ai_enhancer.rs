@@ -566,24 +566,37 @@ mod tests {
     use uuid::Uuid;
 
     fn create_test_arbitrage_opportunity() -> ArbitrageOpportunity {
+        let now = Utc::now().timestamp_millis() as u64;
         ArbitrageOpportunity {
             id: Uuid::new_v4().to_string(),
-            pair: "BTCUSDT".to_string(),
-            long_exchange: ExchangeIdEnum::Binance,
-            short_exchange: ExchangeIdEnum::Bybit,
+            trading_pair: "BTC/USDT".to_string(),
+            exchanges: vec![
+                ExchangeIdEnum::Binance.to_string(),
+                ExchangeIdEnum::Bybit.to_string(),
+            ],
+            profit_percentage: 0.001,
+            confidence_score: 0.8,
+            risk_level: "Low".to_string(),
+            buy_exchange: ExchangeIdEnum::Bybit.to_string(),
+            sell_exchange: ExchangeIdEnum::Binance.to_string(),
+            buy_price: 50000.0,
+            sell_price: 50050.0,
+            volume: 1.0,
+            created_at: now,
+            expires_at: Some(now + 60_000),
+            pair: "BTC/USDT".to_string(),
+            long_exchange: ExchangeIdEnum::Bybit,
+            short_exchange: ExchangeIdEnum::Binance,
             long_rate: Some(50000.0),
-            short_rate: Some(49950.0),
-            rate_difference: 0.001,
-            net_rate_difference: Some(0.001),
-            potential_profit_value: Some(50.0),
-            confidence: 0.8,
-            volume: 1000.0,
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            created_at: chrono::Utc::now().timestamp_millis() as u64,
-            detected_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000),
+            short_rate: Some(50050.0),
+            rate_difference: 50.0,
+            net_rate_difference: Some(45.0), // Assuming some fees
+            potential_profit_value: Some(45.0),
+            confidence: 0.8, // Alias for confidence_score
+            timestamp: now,
+            detected_at: now,
             r#type: ArbitrageType::CrossExchange,
-            details: Some("Test opportunity for AI enhancement".to_string()),
+            details: Some("Test opportunity".to_string()),
             min_exchanges_required: 2,
         }
     }
@@ -591,11 +604,13 @@ mod tests {
     fn create_test_technical_opportunity() -> TechnicalOpportunity {
         TechnicalOpportunity {
             id: Uuid::new_v4().to_string(),
+            trading_pair: "ETHUSDT".to_string(),
+            exchanges: vec![ExchangeIdEnum::Binance.as_str().to_string()],
             symbol: "ETHUSDT".to_string(),
-            exchange: ExchangeIdEnum::Binance,
+            exchange: ExchangeIdEnum::Binance.as_str().to_string(),
             signal_type: TechnicalSignalType::Buy,
-            signal_strength: TechnicalSignalStrength::Strong,
-            risk_level: TechnicalRiskLevel::Medium,
+            signal_strength: TechnicalSignalStrength::Strong.to_f64(), // Assuming a to_f64() method will be added
+            risk_level: TechnicalRiskLevel::Medium.as_str().to_string(),
             entry_price: 3000.0,
             target_price: 3150.0,
             stop_loss: 2950.0,
@@ -603,7 +618,7 @@ mod tests {
             timeframe: "1h".to_string(),
             indicators: serde_json::json!({"RSI": 70, "MACD": "bullish"}),
             created_at: Utc::now().timestamp_millis() as u64,
-            expires_at: Utc::now().timestamp_millis() as u64 + (4 * 60 * 60 * 1000),
+            expires_at: Some(Utc::now().timestamp_millis() as u64 + (4 * 60 * 60 * 1000)),
             metadata: serde_json::json!({"signal_strength": "strong"}),
             pair: "ETHUSDT".to_string(),
             expected_return_percentage: 0.05,
@@ -621,26 +636,43 @@ mod tests {
         // This test focuses on the conversion logic
         let converted = ArbitrageOpportunity {
             id: format!("tech_to_arb_{}", tech_opp.id),
+            trading_pair: tech_opp.symbol.clone(), // from tech_opp.symbol
+            exchanges: vec![
+                tech_opp.exchange.as_str().to_string(),
+                tech_opp.exchange.as_str().to_string(),
+            ], // Assuming same exchange for buy/sell in this conversion context
+            profit_percentage: tech_opp.expected_return_percentage, // from tech_opp
+            confidence_score: tech_opp.confidence, // from tech_opp.confidence
+            risk_level: "medium".to_string(), // Default or map from tech_opp.risk_level if possible
+            buy_exchange: tech_opp.exchange.as_str().to_string(), // from tech_opp.exchange
+            sell_exchange: tech_opp.exchange.as_str().to_string(), // Assuming same for this test conversion
+            buy_price: tech_opp.entry_price,                       // from tech_opp.entry_price
+            sell_price: tech_opp.target_price,                     // from tech_opp.target_price
+            volume: 1000.0,                                        // Default test value
+            created_at: tech_opp.created_at,                       // from tech_opp.created_at
+            expires_at: Some(tech_opp.expires_at.unwrap_or_else(|| {
+                chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000)
+            })),
+            // Aliases and additional fields
             pair: tech_opp.symbol.clone(),
-            long_exchange: tech_opp.exchange.clone(),
-            short_exchange: tech_opp.exchange,
+            long_exchange: ExchangeIdEnum::from_string(&tech_opp.exchange)
+                .unwrap_or(ExchangeIdEnum::Binance),
+            short_exchange: ExchangeIdEnum::from_string(&tech_opp.exchange)
+                .unwrap_or(ExchangeIdEnum::Binance),
             long_rate: None,
             short_rate: None,
             rate_difference: tech_opp.expected_return_percentage,
             net_rate_difference: Some(tech_opp.expected_return_percentage),
             potential_profit_value: Some(tech_opp.expected_return_percentage * 1000.0),
-            confidence: 0.8,
-            volume: 1000.0,
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            created_at: chrono::Utc::now().timestamp_millis() as u64,
-            detected_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000),
-            r#type: ArbitrageType::CrossExchange,
+            confidence: tech_opp.confidence, // from tech_opp.confidence
+            timestamp: tech_opp.timestamp,   // from tech_opp.timestamp
+            detected_at: tech_opp.created_at, // Assuming detected_at is same as created_at for this conversion
+            r#type: ArbitrageType::CrossExchange, // Default for this conversion
             details: Some(format!(
                 "Technical Signal: {:?} | Confidence: {:.2}",
                 tech_opp.signal_type, tech_opp.confidence
             )),
-            min_exchanges_required: 1,
+            min_exchanges_required: 2, // Arbitrage typically requires 2
         };
 
         assert_eq!(converted.pair, "ETHUSDT");

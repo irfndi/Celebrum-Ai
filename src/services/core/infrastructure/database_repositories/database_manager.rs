@@ -13,7 +13,7 @@ use std::sync::Arc;
 use worker::{kv::KvStore, wasm_bindgen::JsValue, D1Database};
 
 /// Configuration for DatabaseManager
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseManagerConfig {
     pub enable_health_monitoring: bool,
     pub health_check_interval_seconds: u64,
@@ -38,6 +38,36 @@ impl Default for DatabaseManagerConfig {
             enable_connection_pooling: true,
             enable_transaction_support: true,
             enable_migration_support: true,
+        }
+    }
+}
+
+impl DatabaseManagerConfig {
+    pub fn high_reliability() -> Self {
+        Self {
+            enable_health_monitoring: true,
+            health_check_interval_seconds: 15,
+            enable_metrics_collection: true,
+            enable_auto_recovery: true,
+            max_retry_attempts: 5,
+            connection_timeout_seconds: 20,
+            enable_connection_pooling: true,
+            enable_transaction_support: true,
+            enable_migration_support: true,
+        }
+    }
+
+    pub fn high_performance() -> Self {
+        Self {
+            enable_health_monitoring: true,
+            health_check_interval_seconds: 60,
+            enable_metrics_collection: false,
+            enable_auto_recovery: true,
+            max_retry_attempts: 2,
+            connection_timeout_seconds: 10,
+            enable_connection_pooling: true,
+            enable_transaction_support: true,
+            enable_migration_support: false,
         }
     }
 }
@@ -174,7 +204,7 @@ pub struct DatabaseManager {
     db: Arc<D1Database>,
     config: DatabaseManagerConfig,
     registry: Arc<std::sync::Mutex<RepositoryRegistry>>,
-    cache: Option<KvStore>,
+    cache: Arc<std::sync::Mutex<Option<KvStore>>>,
 
     // Specialized repositories
     user_repository: Option<Arc<UserRepository>>,
@@ -203,7 +233,7 @@ impl DatabaseManager {
             db,
             config,
             registry: Arc::new(std::sync::Mutex::new(RepositoryRegistry::new())),
-            cache: None,
+            cache: Arc::new(std::sync::Mutex::new(None)),
             user_repository: None,
             invitation_repository: None,
             metrics: Arc::new(std::sync::Mutex::new(metrics)),
@@ -212,8 +242,11 @@ impl DatabaseManager {
     }
 
     /// Set cache store
-    pub fn with_cache(mut self, cache: KvStore) -> Self {
-        self.cache = Some(cache);
+    pub fn with_cache(self, cache_store: KvStore) -> Self {
+        {
+            let mut cache_guard = self.cache.lock().unwrap();
+            *cache_guard = Some(cache_store);
+        } // cache_guard is dropped here, releasing the lock
         self
     }
 
@@ -225,8 +258,10 @@ impl DatabaseManager {
         let user_config = UserRepositoryConfig::default();
         let mut user_repo = UserRepository::new(self.db.clone(), user_config);
 
-        if let Some(ref cache) = self.cache {
-            user_repo = user_repo.with_cache(cache.clone());
+        if let Ok(cache_guard) = self.cache.lock() {
+            if let Some(ref actual_cache_store) = *cache_guard {
+                user_repo = user_repo.with_cache(actual_cache_store.clone());
+            }
         }
 
         user_repo.initialize().await?;
@@ -253,8 +288,10 @@ impl DatabaseManager {
         let invitation_config = InvitationRepositoryConfig::default();
         let mut invitation_repo = InvitationRepository::new(self.db.clone(), invitation_config);
 
-        if let Some(ref cache) = self.cache {
-            invitation_repo = invitation_repo.with_cache(cache.clone());
+        if let Ok(cache_guard) = self.cache.lock() {
+            if let Some(ref actual_cache_store) = *cache_guard {
+                invitation_repo = invitation_repo.with_cache(actual_cache_store.clone());
+            }
         }
 
         invitation_repo.initialize().await?;
@@ -1659,7 +1696,7 @@ mod tests {
 
     #[test]
     fn test_repository_registry() {
-        let mut registry = RepositoryRegistry::new();
+        let registry = RepositoryRegistry::new();
         assert_eq!(registry.get_repository_names().len(), 0);
 
         // Note: We can't easily test repository registration without implementing

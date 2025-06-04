@@ -1,7 +1,7 @@
-use crate::utils::{ArbitrageResult, ArbitrageError};
-use worker::{Env, kv::KvStore};
+use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use worker::{kv::KvStore, Env};
 
 /// System configuration service for super admin operations
 #[derive(Debug, Clone)]
@@ -18,10 +18,11 @@ impl SystemConfigService {
     /// Get system configuration
     pub async fn get_system_config(&self) -> ArbitrageResult<SystemConfig> {
         let config_key = "system_config";
-        
+
         if let Some(config_data) = self.kv_store.get(config_key).text().await? {
-            let config = serde_json::from_str::<SystemConfig>(&config_data)
-                .map_err(|e| ArbitrageError::DatabaseError(format!("Failed to parse system config: {}", e)))?;
+            let config = serde_json::from_str::<SystemConfig>(&config_data).map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to parse system config: {}", e))
+            })?;
             Ok(config)
         } else {
             // Return default configuration if none exists
@@ -32,10 +33,12 @@ impl SystemConfigService {
     /// Update system configuration (super admin only)
     pub async fn update_system_config(&self, config: SystemConfig) -> ArbitrageResult<()> {
         let config_key = "system_config";
-        let config_data = serde_json::to_string(&config)
-            .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize system config: {}", e)))?;
+        let config_data = serde_json::to_string(&config).map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to serialize system config: {}", e))
+        })?;
 
-        self.kv_store.put(config_key, &config_data)?
+        self.kv_store
+            .put(config_key, &config_data)?
             .execute()
             .await?;
 
@@ -45,10 +48,11 @@ impl SystemConfigService {
     /// Get feature flags configuration
     pub async fn get_feature_flags(&self) -> ArbitrageResult<FeatureFlagsConfig> {
         let flags_key = "feature_flags";
-        
+
         if let Some(flags_data) = self.kv_store.get(flags_key).text().await? {
-            let flags = serde_json::from_str::<FeatureFlagsConfig>(&flags_data)
-                .map_err(|e| ArbitrageError::DatabaseError(format!("Failed to parse feature flags: {}", e)))?;
+            let flags = serde_json::from_str::<FeatureFlagsConfig>(&flags_data).map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to parse feature flags: {}", e))
+            })?;
             Ok(flags)
         } else {
             Ok(FeatureFlagsConfig::default())
@@ -58,23 +62,131 @@ impl SystemConfigService {
     /// Update feature flags (super admin only)
     pub async fn update_feature_flags(&self, flags: FeatureFlagsConfig) -> ArbitrageResult<()> {
         let flags_key = "feature_flags";
-        let flags_data = serde_json::to_string(&flags)
-            .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize feature flags: {}", e)))?;
+        let flags_data = serde_json::to_string(&flags).map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to serialize feature flags: {}", e))
+        })?;
 
-        self.kv_store.put(flags_key, &flags_data)?
+        self.kv_store.put(flags_key, &flags_data)?.execute().await?;
+
+        Ok(())
+    }
+
+    /// Get current system configuration (alias for get_system_config)
+    pub async fn get_current_config(&self) -> ArbitrageResult<SystemConfig> {
+        self.get_system_config().await
+    }
+
+    /// Update specific configuration value
+    pub async fn update_config(
+        &self,
+        config_key: &str,
+        config_value: serde_json::Value,
+    ) -> ArbitrageResult<()> {
+        let mut system_config = self.get_system_config().await?;
+
+        // Update the specific field based on config_key
+        match config_key {
+            "max_concurrent_users" => {
+                if let Some(value) = config_value.as_u64() {
+                    system_config.max_concurrent_users = value as u32;
+                }
+            }
+            "session_timeout_minutes" => {
+                if let Some(value) = config_value.as_u64() {
+                    system_config.session_timeout_minutes = value as u32;
+                }
+            }
+            "log_level" => {
+                if let Some(value) = config_value.as_str() {
+                    system_config.log_level = value.to_string();
+                }
+            }
+            _ => {
+                return Err(ArbitrageError::validation_error(format!(
+                    "Unknown config key: {}",
+                    config_key
+                )));
+            }
+        }
+
+        system_config.updated_at = chrono::Utc::now().timestamp_millis() as u64;
+        self.update_system_config(system_config).await
+    }
+
+    /// Enable maintenance mode
+    pub async fn enable_maintenance_mode(&self) -> ArbitrageResult<()> {
+        let mut maintenance = self.get_maintenance_mode().await?;
+        maintenance.enabled = true;
+        maintenance.started_at = Some(chrono::Utc::now().timestamp_millis() as u64);
+        maintenance.updated_at = chrono::Utc::now().timestamp_millis() as u64;
+        self.update_maintenance_mode(maintenance).await
+    }
+
+    /// Disable maintenance mode
+    pub async fn disable_maintenance_mode(&self) -> ArbitrageResult<()> {
+        let mut maintenance = self.get_maintenance_mode().await?;
+        maintenance.enabled = false;
+        maintenance.started_at = None;
+        maintenance.updated_at = chrono::Utc::now().timestamp_millis() as u64;
+        self.update_maintenance_mode(maintenance).await
+    }
+
+    /// Get maintenance mode configuration
+    pub async fn get_maintenance_mode(&self) -> ArbitrageResult<MaintenanceMode> {
+        let maintenance_key = "maintenance_mode";
+
+        if let Some(maintenance_data) = self.kv_store.get(maintenance_key).text().await? {
+            let maintenance =
+                serde_json::from_str::<MaintenanceMode>(&maintenance_data).map_err(|e| {
+                    ArbitrageError::database_error(format!(
+                        "Failed to parse maintenance mode: {}",
+                        e
+                    ))
+                })?;
+            Ok(maintenance)
+        } else {
+            Ok(MaintenanceMode::default())
+        }
+    }
+
+    /// Update maintenance mode configuration
+    pub async fn update_maintenance_mode(
+        &self,
+        maintenance: MaintenanceMode,
+    ) -> ArbitrageResult<()> {
+        let maintenance_key = "maintenance_mode";
+        let maintenance_data = serde_json::to_string(&maintenance).map_err(|e| {
+            ArbitrageError::serialization_error(format!(
+                "Failed to serialize maintenance mode: {}",
+                e
+            ))
+        })?;
+
+        self.kv_store
+            .put(maintenance_key, &maintenance_data)?
             .execute()
             .await?;
 
         Ok(())
     }
 
+    /// Health check for system config service
+    pub async fn health_check(&self) -> ArbitrageResult<bool> {
+        // Try to read system config to verify KV store connectivity
+        match self.get_system_config().await {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    }
+
     /// Get rate limiting configuration
     pub async fn get_rate_limits(&self) -> ArbitrageResult<RateLimitConfig> {
         let limits_key = "rate_limits";
-        
+
         if let Some(limits_data) = self.kv_store.get(limits_key).text().await? {
-            let limits = serde_json::from_str::<RateLimitConfig>(&limits_data)
-                .map_err(|e| ArbitrageError::DatabaseError(format!("Failed to parse rate limits: {}", e)))?;
+            let limits = serde_json::from_str::<RateLimitConfig>(&limits_data).map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to parse rate limits: {}", e))
+            })?;
             Ok(limits)
         } else {
             Ok(RateLimitConfig::default())
@@ -84,10 +196,12 @@ impl SystemConfigService {
     /// Update rate limiting configuration (super admin only)
     pub async fn update_rate_limits(&self, limits: RateLimitConfig) -> ArbitrageResult<()> {
         let limits_key = "rate_limits";
-        let limits_data = serde_json::to_string(&limits)
-            .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize rate limits: {}", e)))?;
+        let limits_data = serde_json::to_string(&limits).map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to serialize rate limits: {}", e))
+        })?;
 
-        self.kv_store.put(limits_key, &limits_data)?
+        self.kv_store
+            .put(limits_key, &limits_data)?
             .execute()
             .await?;
 
@@ -97,10 +211,11 @@ impl SystemConfigService {
     /// Get API configuration
     pub async fn get_api_config(&self) -> ArbitrageResult<ApiConfig> {
         let api_key = "api_config";
-        
+
         if let Some(api_data) = self.kv_store.get(api_key).text().await? {
-            let api_config = serde_json::from_str::<ApiConfig>(&api_data)
-                .map_err(|e| ArbitrageError::DatabaseError(format!("Failed to parse API config: {}", e)))?;
+            let api_config = serde_json::from_str::<ApiConfig>(&api_data).map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to parse API config: {}", e))
+            })?;
             Ok(api_config)
         } else {
             Ok(ApiConfig::default())
@@ -110,12 +225,11 @@ impl SystemConfigService {
     /// Update API configuration (super admin only)
     pub async fn update_api_config(&self, config: ApiConfig) -> ArbitrageResult<()> {
         let api_key = "api_config";
-        let api_data = serde_json::to_string(&config)
-            .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize API config: {}", e)))?;
+        let api_data = serde_json::to_string(&config).map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to serialize API config: {}", e))
+        })?;
 
-        self.kv_store.put(api_key, &api_data)?
-            .execute()
-            .await?;
+        self.kv_store.put(api_key, &api_data)?.execute().await?;
 
         Ok(())
     }
@@ -123,10 +237,15 @@ impl SystemConfigService {
     /// Get maintenance mode status
     pub async fn get_maintenance_mode(&self) -> ArbitrageResult<MaintenanceMode> {
         let maintenance_key = "maintenance_mode";
-        
+
         if let Some(maintenance_data) = self.kv_store.get(maintenance_key).text().await? {
-            let maintenance = serde_json::from_str::<MaintenanceMode>(&maintenance_data)
-                .map_err(|e| ArbitrageError::DatabaseError(format!("Failed to parse maintenance mode: {}", e)))?;
+            let maintenance =
+                serde_json::from_str::<MaintenanceMode>(&maintenance_data).map_err(|e| {
+                    ArbitrageError::database_error(format!(
+                        "Failed to parse maintenance mode: {}",
+                        e
+                    ))
+                })?;
             Ok(maintenance)
         } else {
             Ok(MaintenanceMode::default())
@@ -136,10 +255,15 @@ impl SystemConfigService {
     /// Set maintenance mode (super admin only)
     pub async fn set_maintenance_mode(&self, maintenance: MaintenanceMode) -> ArbitrageResult<()> {
         let maintenance_key = "maintenance_mode";
-        let maintenance_data = serde_json::to_string(&maintenance)
-            .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize maintenance mode: {}", e)))?;
+        let maintenance_data = serde_json::to_string(&maintenance).map_err(|e| {
+            ArbitrageError::serialization_error(format!(
+                "Failed to serialize maintenance mode: {}",
+                e
+            ))
+        })?;
 
-        self.kv_store.put(maintenance_key, &maintenance_data)?
+        self.kv_store
+            .put(maintenance_key, &maintenance_data)?
             .execute()
             .await?;
 
@@ -334,4 +458,4 @@ pub struct ConfigSummary {
     pub rate_limits: RateLimitConfig,
     pub api_config: ApiConfig,
     pub maintenance_mode: MaintenanceMode,
-} 
+}

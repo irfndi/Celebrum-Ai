@@ -1,5 +1,5 @@
 //! Role-Based Access Control (RBAC) Service
-//! 
+//!
 //! Comprehensive RBAC system supporting:
 //! - Role management (SuperAdmin, Admin, Premium, Basic, Free)
 //! - Permission checking and validation
@@ -9,11 +9,11 @@
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::services::core::user::UserProfileService;
-use crate::types::{UserRole, UserProfile};
+use crate::types::{UserAccessLevel, UserProfile, UserRole};
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use worker::console_log;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
+use worker::console_log;
 
 /// RBAC Service for role and permission management
 pub struct RBACService {
@@ -54,31 +54,49 @@ impl RBACService {
     }
 
     /// Get user permissions based on profile
-    pub async fn get_user_permissions(&self, user_profile: &UserProfile) -> ArbitrageResult<super::UserPermissions> {
-        console_log!("👑 Getting permissions for user {} with role {:?}", user_profile.user_id, user_profile.role);
+    pub async fn get_user_permissions(
+        &self,
+        user_profile: &UserProfile,
+    ) -> ArbitrageResult<super::UserPermissions> {
+        console_log!(
+            "👑 Getting permissions for user {} with role {:?}",
+            user_profile.user_id,
+            user_profile.access_level
+        );
 
         // Get role-based permissions
-        let role_permissions = self.role_manager.get_role_permissions(&user_profile.role);
+        let role_permissions = self
+            .role_manager
+            .get_role_permissions(&user_profile.access_level);
 
         // Get subscription-based permissions
-        let subscription_permissions = self.permission_manager.get_subscription_permissions(&user_profile.subscription_tier);
+        let subscription_permissions = self.permission_manager.get_subscription_permissions(
+            &user_profile.subscription_tier.to_string().to_lowercase(),
+        );
 
         // Combine permissions
         let mut all_permissions = role_permissions;
         all_permissions.extend(subscription_permissions);
 
         // Check if user is admin
-        let is_admin = matches!(user_profile.role, UserRole::SuperAdmin | UserRole::Admin);
+        let is_admin = matches!(
+            user_profile.access_level,
+            UserAccessLevel::SuperAdmin | UserAccessLevel::Admin
+        );
 
         // Determine daily opportunity limit
         let daily_opportunity_limit = self.get_daily_opportunity_limit(user_profile);
 
-        console_log!("✅ Loaded {} permissions for user {}", all_permissions.len(), user_profile.user_id);
+        console_log!(
+            "✅ Loaded {} permissions for user {}",
+            all_permissions.len(),
+            user_profile.user_id
+        );
 
         Ok(super::UserPermissions {
-            role: user_profile.role.clone(),
-            subscription_tier: user_profile.subscription_tier.clone(),
-            can_trade: user_profile.can_trade,
+            role: user_profile.access_level.clone(),
+            subscription_tier: user_profile.subscription_tier.to_string().to_lowercase(),
+            can_trade: user_profile.access_level.can_trade(),
             daily_opportunity_limit,
             permissions: all_permissions,
             is_admin,
@@ -86,12 +104,24 @@ impl RBACService {
     }
 
     /// Check if user has specific permission
-    pub async fn check_permission(&self, user_profile: &UserProfile, permission: &str) -> ArbitrageResult<bool> {
-        console_log!("🔍 Checking permission '{}' for user {} with role {:?}", permission, user_profile.user_id, user_profile.role);
+    pub async fn check_permission(
+        &self,
+        user_profile: &UserProfile,
+        permission: &str,
+    ) -> ArbitrageResult<bool> {
+        console_log!(
+            "🔍 Checking permission '{}' for user {} with role {:?}",
+            permission,
+            user_profile.user_id,
+            user_profile.access_level
+        );
 
         // Super admin has all permissions
-        if matches!(user_profile.role, UserRole::SuperAdmin) {
-            console_log!("✅ Super admin access granted for permission '{}'", permission);
+        if matches!(user_profile.access_level, UserAccessLevel::SuperAdmin) {
+            console_log!(
+                "✅ Super admin access granted for permission '{}'",
+                permission
+            );
             return Ok(true);
         }
 
@@ -99,7 +129,9 @@ impl RBACService {
         let user_permissions = self.get_user_permissions(user_profile).await?;
 
         // Check if permission exists
-        let has_permission = user_permissions.permissions.contains(&permission.to_string());
+        let has_permission = user_permissions
+            .permissions
+            .contains(&permission.to_string());
 
         console_log!("✅ Permission check result: {}", has_permission);
         Ok(has_permission)
@@ -108,25 +140,30 @@ impl RBACService {
     /// Get daily opportunity limit based on role and subscription
     fn get_daily_opportunity_limit(&self, user_profile: &UserProfile) -> i32 {
         // Role-based limits
-        let role_limit = match user_profile.role {
+        let role_limit = match user_profile.access_level {
             UserRole::SuperAdmin => 999, // Unlimited
-            UserRole::Admin => 999,       // Unlimited
-            UserRole::Premium => 999,     // Unlimited
-            UserRole::Basic => 10,        // Basic limit
-            UserRole::Free => 3,          // Free limit
+            UserRole::Admin => 999,      // Unlimited
+            UserRole::Premium => 999,    // Unlimited
+            UserRole::Basic => 10,       // Basic limit
+            UserRole::Free => 3,         // Free limit
         };
 
         // Subscription-based limits
         let subscription_limit = match user_profile.subscription_tier.as_str() {
-            "enterprise" => 999,  // Unlimited
-            "premium" => 999,     // Unlimited
-            "basic" => 10,        // Basic limit
-            "free" => 3,          // Free limit
-            _ => 3,               // Default to free
+            "enterprise" => 999, // Unlimited
+            "premium" => 999,    // Unlimited
+            "basic" => 10,       // Basic limit
+            "free" => 3,         // Free limit
+            _ => 3,              // Default to free
         };
 
         // Use the higher of the two limits
-        role_limit.max(subscription_limit).max(user_profile.daily_opportunity_limit)
+        role_limit.max(subscription_limit).max(
+            user_profile
+                .subscription
+                .daily_opportunity_limit
+                .unwrap_or(0) as i32,
+        )
     }
 }
 
@@ -141,126 +178,121 @@ impl RoleManager {
         let mut role_permissions = HashMap::new();
 
         // Super Admin - All permissions
-        role_permissions.insert(UserRole::SuperAdmin, vec![
-            // System administration
-            "system.admin".to_string(),
-            "system.config".to_string(),
-            "system.monitoring".to_string(),
-            "system.maintenance".to_string(),
-            
-            // User management
-            "users.create".to_string(),
-            "users.read".to_string(),
-            "users.update".to_string(),
-            "users.delete".to_string(),
-            "users.manage_roles".to_string(),
-            
-            // Trading features
-            "trading.manual".to_string(),
-            "trading.automated".to_string(),
-            "trading.advanced".to_string(),
-            "trading.unlimited".to_string(),
-            
-            // Opportunities
-            "opportunities.unlimited".to_string(),
-            "opportunities.realtime".to_string(),
-            "opportunities.priority".to_string(),
-            "opportunities.global".to_string(),
-            
-            // AI features
-            "ai.enhanced".to_string(),
-            "ai.custom".to_string(),
-            "ai.unlimited".to_string(),
-            
-            // Analytics
-            "analytics.advanced".to_string(),
-            "analytics.admin".to_string(),
-            "analytics.export".to_string(),
-            
-            // Beta features
-            "beta.access".to_string(),
-            "beta.admin".to_string(),
-        ]);
+        role_permissions.insert(
+            UserRole::SuperAdmin,
+            vec![
+                // System administration
+                "system.admin".to_string(),
+                "system.config".to_string(),
+                "system.monitoring".to_string(),
+                "system.maintenance".to_string(),
+                // User management
+                "users.create".to_string(),
+                "users.read".to_string(),
+                "users.update".to_string(),
+                "users.delete".to_string(),
+                "users.manage_roles".to_string(),
+                // Trading features
+                "trading.manual".to_string(),
+                "trading.automated".to_string(),
+                "trading.advanced".to_string(),
+                "trading.unlimited".to_string(),
+                // Opportunities
+                "opportunities.unlimited".to_string(),
+                "opportunities.realtime".to_string(),
+                "opportunities.priority".to_string(),
+                "opportunities.global".to_string(),
+                // AI features
+                "ai.enhanced".to_string(),
+                "ai.custom".to_string(),
+                "ai.unlimited".to_string(),
+                // Analytics
+                "analytics.advanced".to_string(),
+                "analytics.admin".to_string(),
+                "analytics.export".to_string(),
+                // Beta features
+                "beta.access".to_string(),
+                "beta.admin".to_string(),
+            ],
+        );
 
         // Admin - Administrative permissions
-        role_permissions.insert(UserRole::Admin, vec![
-            // User support
-            "users.read".to_string(),
-            "users.update".to_string(),
-            "users.support".to_string(),
-            
-            // System monitoring
-            "system.monitoring".to_string(),
-            "system.health".to_string(),
-            
-            // Trading features
-            "trading.manual".to_string(),
-            "trading.automated".to_string(),
-            "trading.unlimited".to_string(),
-            
-            // Opportunities
-            "opportunities.unlimited".to_string(),
-            "opportunities.realtime".to_string(),
-            "opportunities.priority".to_string(),
-            
-            // AI features
-            "ai.enhanced".to_string(),
-            "ai.unlimited".to_string(),
-            
-            // Analytics
-            "analytics.advanced".to_string(),
-            "analytics.support".to_string(),
-            
-            // Beta features
-            "beta.access".to_string(),
-        ]);
+        role_permissions.insert(
+            UserRole::Admin,
+            vec![
+                // User support
+                "users.read".to_string(),
+                "users.update".to_string(),
+                "users.support".to_string(),
+                // System monitoring
+                "system.monitoring".to_string(),
+                "system.health".to_string(),
+                // Trading features
+                "trading.manual".to_string(),
+                "trading.automated".to_string(),
+                "trading.unlimited".to_string(),
+                // Opportunities
+                "opportunities.unlimited".to_string(),
+                "opportunities.realtime".to_string(),
+                "opportunities.priority".to_string(),
+                // AI features
+                "ai.enhanced".to_string(),
+                "ai.unlimited".to_string(),
+                // Analytics
+                "analytics.advanced".to_string(),
+                "analytics.support".to_string(),
+                // Beta features
+                "beta.access".to_string(),
+            ],
+        );
 
         // Premium - Premium user permissions
-        role_permissions.insert(UserRole::Premium, vec![
-            // Trading features
-            "trading.manual".to_string(),
-            "trading.automated".to_string(),
-            
-            // Opportunities
-            "opportunities.unlimited".to_string(),
-            "opportunities.realtime".to_string(),
-            
-            // AI features
-            "ai.enhanced".to_string(),
-            "ai.custom".to_string(),
-            
-            // Analytics
-            "analytics.advanced".to_string(),
-            
-            // Beta features
-            "beta.access".to_string(),
-        ]);
+        role_permissions.insert(
+            UserRole::Premium,
+            vec![
+                // Trading features
+                "trading.manual".to_string(),
+                "trading.automated".to_string(),
+                // Opportunities
+                "opportunities.unlimited".to_string(),
+                "opportunities.realtime".to_string(),
+                // AI features
+                "ai.enhanced".to_string(),
+                "ai.custom".to_string(),
+                // Analytics
+                "analytics.advanced".to_string(),
+                // Beta features
+                "beta.access".to_string(),
+            ],
+        );
 
         // Basic - Basic user permissions
-        role_permissions.insert(UserRole::Basic, vec![
-            // Trading features
-            "trading.manual".to_string(),
-            
-            // Opportunities
-            "opportunities.limited".to_string(),
-            "opportunities.delayed".to_string(),
-            
-            // AI features
-            "ai.basic".to_string(),
-            
-            // Analytics
-            "analytics.basic".to_string(),
-        ]);
+        role_permissions.insert(
+            UserRole::Basic,
+            vec![
+                // Trading features
+                "trading.manual".to_string(),
+                // Opportunities
+                "opportunities.limited".to_string(),
+                "opportunities.delayed".to_string(),
+                // AI features
+                "ai.basic".to_string(),
+                // Analytics
+                "analytics.basic".to_string(),
+            ],
+        );
 
         // Free - Free user permissions
-        role_permissions.insert(UserRole::Free, vec![
-            // Opportunities
-            "opportunities.limited".to_string(),
-            "opportunities.delayed".to_string(),
-            
-            // Analytics
-            "analytics.basic".to_string(),
-        ]);
+        role_permissions.insert(
+            UserRole::Free,
+            vec![
+                // Opportunities
+                "opportunities.limited".to_string(),
+                "opportunities.delayed".to_string(),
+                // Analytics
+                "analytics.basic".to_string(),
+            ],
+        );
 
         Self { role_permissions }
     }
@@ -294,40 +326,54 @@ impl PermissionManager {
         let mut subscription_permissions = HashMap::new();
 
         // Enterprise subscription
-        subscription_permissions.insert("enterprise".to_string(), vec![
-            "subscription.enterprise".to_string(),
-            "team.management".to_string(),
-            "api.custom".to_string(),
-            "support.dedicated".to_string(),
-            "sla.guaranteed".to_string(),
-            "whitelabel.access".to_string(),
-        ]);
+        subscription_permissions.insert(
+            "enterprise".to_string(),
+            vec![
+                "subscription.enterprise".to_string(),
+                "team.management".to_string(),
+                "api.custom".to_string(),
+                "support.dedicated".to_string(),
+                "sla.guaranteed".to_string(),
+                "whitelabel.access".to_string(),
+            ],
+        );
 
         // Premium subscription
-        subscription_permissions.insert("premium".to_string(), vec![
-            "subscription.premium".to_string(),
-            "notifications.realtime".to_string(),
-            "analytics.advanced".to_string(),
-            "support.priority".to_string(),
-            "api.integrations".to_string(),
-        ]);
+        subscription_permissions.insert(
+            "premium".to_string(),
+            vec![
+                "subscription.premium".to_string(),
+                "notifications.realtime".to_string(),
+                "analytics.advanced".to_string(),
+                "support.priority".to_string(),
+                "api.integrations".to_string(),
+            ],
+        );
 
         // Basic subscription
-        subscription_permissions.insert("basic".to_string(), vec![
-            "subscription.basic".to_string(),
-            "notifications.standard".to_string(),
-            "analytics.standard".to_string(),
-            "support.standard".to_string(),
-        ]);
+        subscription_permissions.insert(
+            "basic".to_string(),
+            vec![
+                "subscription.basic".to_string(),
+                "notifications.standard".to_string(),
+                "analytics.standard".to_string(),
+                "support.standard".to_string(),
+            ],
+        );
 
         // Free subscription
-        subscription_permissions.insert("free".to_string(), vec![
-            "subscription.free".to_string(),
-            "notifications.limited".to_string(),
-            "support.community".to_string(),
-        ]);
+        subscription_permissions.insert(
+            "free".to_string(),
+            vec![
+                "subscription.free".to_string(),
+                "notifications.limited".to_string(),
+                "support.community".to_string(),
+            ],
+        );
 
-        Self { subscription_permissions }
+        Self {
+            subscription_permissions,
+        }
     }
 
     /// Get permissions for a subscription tier
@@ -402,4 +448,4 @@ pub mod permissions {
     pub const SUBSCRIPTION_BASIC: &str = "subscription.basic";
     pub const SUBSCRIPTION_PREMIUM: &str = "subscription.premium";
     pub const SUBSCRIPTION_ENTERPRISE: &str = "subscription.enterprise";
-} 
+}

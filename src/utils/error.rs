@@ -259,6 +259,12 @@ impl ArbitrageError {
             .with_status(403)
             .with_code("ACCESS_DENIED")
     }
+
+    pub fn timeout_error(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::NetworkError, message)
+            .with_status(408)
+            .with_code("TIMEOUT_ERROR")
+    }
 }
 
 // Implement From conversions for common error types

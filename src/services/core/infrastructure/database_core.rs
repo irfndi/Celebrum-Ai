@@ -55,6 +55,20 @@ pub struct DatabaseHealth {
     pub uptime_seconds: u64,
 }
 
+impl Default for DatabaseHealth {
+    fn default() -> Self {
+        Self {
+            is_healthy: false,
+            connection_count: 0,
+            avg_query_time_ms: 0.0,
+            total_queries: 0,
+            failed_queries: 0,
+            last_error: None,
+            uptime_seconds: 0,
+        }
+    }
+}
+
 /// Query execution statistics
 #[derive(Debug, Clone)]
 pub struct QueryStats {
@@ -68,9 +82,9 @@ pub struct QueryStats {
 impl DatabaseCore {
     /// Create new DatabaseCore with optimized settings for high concurrency
     pub fn new(env: &Env) -> ArbitrageResult<Self> {
-        let db = env
-            .d1("ArbEdgeD1")
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to get D1 database: {}", e)))?;
+        let db = env.d1("ArbEdgeD1").map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to get D1 database: {}", e))
+        })?;
 
         Ok(Self {
             db: Arc::new(db),
@@ -89,9 +103,9 @@ impl DatabaseCore {
         retries: u32,
         batch_size: usize,
     ) -> ArbitrageResult<Self> {
-        let db = env
-            .d1("ArbEdgeD1")
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to get D1 database: {}", e)))?;
+        let db = env.d1("ArbEdgeD1").map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to get D1 database: {}", e))
+        })?;
 
         Ok(Self {
             db: Arc::new(db),
@@ -100,6 +114,11 @@ impl DatabaseCore {
             max_retries: retries,
             batch_size,
         })
+    }
+
+    /// Get reference to the D1 database
+    pub fn get_database(&self) -> Arc<D1Database> {
+        self.db.clone()
     }
 
     /// Execute a single query with retry logic and performance tracking
@@ -156,7 +175,10 @@ impl DatabaseCore {
     /// Execute operations within a transaction
     pub async fn execute_transaction<F, T>(&self, operations: F) -> ArbitrageResult<T>
     where
-        F: FnOnce(&Self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ArbitrageResult<T>> + '_>>,
+        F: FnOnce(
+            &Self,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = ArbitrageResult<T>> + '_>>,
     {
         // Begin transaction
         self.execute_query("BEGIN TRANSACTION", &[]).await?;
@@ -182,15 +204,21 @@ impl DatabaseCore {
         params: &[JsValue],
     ) -> ArbitrageResult<Vec<HashMap<String, Value>>> {
         let stmt = self.db.prepare(sql);
-        
+
         let result = stmt
             .bind(params)
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+            })?
             .all()
             .await
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to execute query: {}", e))
+            })?;
 
-        Ok(result.results::<HashMap<String, Value>>())
+        result.results::<HashMap<String, Value>>().map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to parse query results: {}", e))
+        })
     }
 
     /// Query single row for SELECT operations
@@ -200,13 +228,17 @@ impl DatabaseCore {
         params: &[JsValue],
     ) -> ArbitrageResult<Option<HashMap<String, Value>>> {
         let stmt = self.db.prepare(sql);
-        
+
         let result = stmt
             .bind(params)
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+            })?
             .first::<HashMap<String, Value>>(None)
             .await
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to execute query: {}", e))
+            })?;
 
         Ok(result)
     }
@@ -224,7 +256,7 @@ impl DatabaseCore {
 
         let placeholders = columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
         let columns_str = columns.join(", ");
-        
+
         // Build bulk insert SQL
         let values_placeholders = rows
             .iter()
@@ -256,12 +288,13 @@ impl DatabaseCore {
     ) -> ArbitrageResult<DatabaseResult> {
         // Define allowed column names to prevent SQL injection
         let allowed_columns = self.get_allowed_columns_for_table(table)?;
-        
+
         // Validate all column names against whitelist
         for (column, _) in updates {
             if !allowed_columns.contains(&column.to_string()) {
                 return Err(ArbitrageError::validation_error(format!(
-                    "Column '{}' is not allowed for table '{}'", column, table
+                    "Column '{}' is not allowed for table '{}'",
+                    column, table
                 )));
             }
         }
@@ -272,10 +305,7 @@ impl DatabaseCore {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let sql = format!(
-            "UPDATE {} SET {} WHERE {}",
-            table, set_clause, where_clause
-        );
+        let sql = format!("UPDATE {} SET {} WHERE {}", table, set_clause, where_clause);
 
         // Combine update values and where parameters
         let mut all_params = Vec::new();
@@ -330,11 +360,12 @@ impl DatabaseCore {
             ],
             _ => {
                 return Err(ArbitrageError::validation_error(format!(
-                    "Table '{}' is not supported for bulk updates", table
+                    "Table '{}' is not supported for bulk updates",
+                    table
                 )));
             }
         };
-        
+
         Ok(allowed_columns)
     }
 
@@ -344,7 +375,7 @@ impl DatabaseCore {
 
         // Test basic connectivity
         let test_result = self.query_first("SELECT 1 as test", &[]).await;
-        
+
         let query_time = chrono::Utc::now().timestamp_millis() - start_time;
         let is_healthy = test_result.is_ok();
 
@@ -352,7 +383,7 @@ impl DatabaseCore {
             is_healthy,
             connection_count: 1, // D1 doesn't expose connection pool info
             avg_query_time_ms: query_time as f64,
-            total_queries: 0, // Would be tracked by metrics collector
+            total_queries: 0,  // Would be tracked by metrics collector
             failed_queries: 0, // Would be tracked by metrics collector
             last_error: if is_healthy {
                 None
@@ -372,19 +403,27 @@ impl DatabaseCore {
 
     // ============= INTERNAL HELPER METHODS =============
 
-    async fn execute_query_internal(&self, sql: &str, params: &[JsValue]) -> ArbitrageResult<InternalResult> {
+    async fn execute_query_internal(
+        &self,
+        sql: &str,
+        params: &[JsValue],
+    ) -> ArbitrageResult<InternalResult> {
         let stmt = self.db.prepare(sql);
-        
+
         let result = stmt
             .bind(params)
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters: {}", e)))?
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+            })?
             .run()
             .await
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to execute query: {}", e))
+            })?;
 
         Ok(InternalResult {
-            rows_affected: result.changes() as u64,
-            last_insert_id: result.meta().last_row_id.map(|id| id as u64),
+            rows_affected: result.meta().and_then(|m| Some(m.changes)).unwrap_or(0) as u64,
+            last_insert_id: result.meta().and_then(|m| m.last_row_id).map(|id| id as u64),
         })
     }
 
@@ -395,7 +434,9 @@ impl DatabaseCore {
         let mut results = Vec::new();
 
         for operation in chunk {
-            let result = self.execute_query(&operation.sql, &operation.params).await?;
+            let result = self
+                .execute_query(&operation.sql, &operation.params)
+                .await?;
             results.push(result);
         }
 
@@ -408,8 +449,15 @@ impl DatabaseCore {
     }
 
     async fn sleep_ms(&self, ms: u64) {
-        use wasm_timer::Delay;
-        Delay::new(std::time::Duration::from_millis(ms)).await;
+        #[cfg(target_arch = "wasm32")]
+        {
+            use gloo_timers::future::TimeoutFuture;
+            TimeoutFuture::new(ms as u32).await;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        }
     }
 
     // ============= UTILITY METHODS FOR DATA EXTRACTION =============
@@ -424,7 +472,10 @@ impl DatabaseCore {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .ok_or_else(|| {
-                ArbitrageError::parse_error(format!("Missing or invalid string field: {}", field_name))
+                ArbitrageError::parse_error(format!(
+                    "Missing or invalid string field: {}",
+                    field_name
+                ))
             })
     }
 
@@ -550,7 +601,7 @@ impl DatabaseCore {
     ) -> ArbitrageResult<Option<HashMap<String, Value>>> {
         let sql = "SELECT * FROM user_profiles WHERE user_id = ?";
         let params = vec![user_id.into()];
-        
+
         self.query_first(sql, &params).await
     }
 
@@ -561,7 +612,7 @@ impl DatabaseCore {
     ) -> ArbitrageResult<Option<HashMap<String, Value>>> {
         let sql = "SELECT * FROM user_profiles WHERE telegram_id = ?";
         let params = vec![JsValue::from_f64(telegram_id as f64)];
-        
+
         self.query_first(sql, &params).await
     }
 }
@@ -574,7 +625,9 @@ impl DatabaseCore {
         analytics_data: &[(&str, &str, u64, &str)], // (user_id, metric_type, timestamp, data_json)
     ) -> ArbitrageResult<DatabaseResult> {
         if analytics_data.is_empty() {
-            return Err(ArbitrageError::validation_error("No analytics data to store"));
+            return Err(ArbitrageError::validation_error(
+                "No analytics data to store",
+            ));
         }
 
         let columns = &["user_id", "metric_type", "timestamp", "data_json"];
@@ -646,4 +699,4 @@ mod tests {
         assert_eq!(health.failed_queries, 5);
         assert!(health.last_error.is_none());
     }
-} 
+}

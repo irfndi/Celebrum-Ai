@@ -9,76 +9,95 @@
     clippy::useless_vec
 )]
 
-use arb_edge::services::core::infrastructure::notifications::{
-    AlertTrigger, Notification, NotificationAnalytics, NotificationChannel, NotificationHistory,
-    NotificationService, NotificationTemplate,
+use arb_edge::services::core::infrastructure::notification_module::template_engine::{
+    ChannelTemplate,
+    NotificationTemplate,
+    TemplateCategory,
+    TemplateFormat,
+    // AttachmentType, // Add if needed for TemplateAttachment
+    TemplateVariable,
+    VariableType,
+};
+use arb_edge::services::core::infrastructure::notification_module::{
+    DeliveryStatus, // Keep if used directly from notification_module
+    // ChannelResult, // Assuming this is defined elsewhere or not used
+    NotificationChannel,  // Keep if used directly from notification_module
+    NotificationPriority, // Keep if used directly from notification_module
+    // NotificationCoordinator, // Assuming this is defined elsewhere or not used in this specific test context
+    // NotificationRequest, // Assuming this is defined elsewhere or not used
+    NotificationType, // Keep if used directly from notification_module
 };
 use arb_edge::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::json;
 use std::collections::HashMap;
 
-// Mock notification priority and delivery status enums (since they're strings in the actual codebase)
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NotificationPriority {
-    Low,
-    Medium,
-    High,
-    Critical,
-}
+// // Mock notification priority and delivery status enums (since they're strings in the actual codebase)
+// // Commented out as this local mock definition might be intended to be replaced or removed.
+// #[derive(Debug, Clone, PartialEq, Eq)]
+// pub enum NotificationPriority {
+//     Low,
+//     Medium,
+//     High,
+//     Critical,
+// }
+//
+// impl NotificationPriority {
+//     pub fn as_str(&self) -> &'static str {
+//         match self {
+//             NotificationPriority::Low => "low",
+//             NotificationPriority::Medium => "medium",
+//             NotificationPriority::High => "high",
+//             NotificationPriority::Critical => "critical",
+//         }
+//     }
+// }
+//
+// impl PartialOrd for NotificationPriority {
+//     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+//         Some(self.cmp(other))
+//     }
+// }
+//
+// impl Ord for NotificationPriority {
+//     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+//         let self_val = match self {
+//             NotificationPriority::Low => 0,
+//             NotificationPriority::Medium => 1,
+//             NotificationPriority::High => 2,
+//             NotificationPriority::Critical => 3,
+//         };
+//         let other_val = match other {
+//             NotificationPriority::Low => 0,
+//             NotificationPriority::Medium => 1,
+//             NotificationPriority::High => 2,
+//             NotificationPriority::Critical => 3,
+//         };
+//         self_val.cmp(&other_val)
+//     }
+// }
 
-impl NotificationPriority {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            NotificationPriority::Low => "low",
-            NotificationPriority::Medium => "medium",
-            NotificationPriority::High => "high",
-            NotificationPriority::Critical => "critical",
-        }
-    }
-}
-
-impl PartialOrd for NotificationPriority {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for NotificationPriority {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let self_val = match self {
-            NotificationPriority::Low => 0,
-            NotificationPriority::Medium => 1,
-            NotificationPriority::High => 2,
-            NotificationPriority::Critical => 3,
-        };
-        let other_val = match other {
-            NotificationPriority::Low => 0,
-            NotificationPriority::Medium => 1,
-            NotificationPriority::High => 2,
-            NotificationPriority::Critical => 3,
-        };
-        self_val.cmp(&other_val)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum DeliveryStatus {
-    Pending,
-    Sent,
-    Failed,
-    Retrying,
-}
-
-impl DeliveryStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            DeliveryStatus::Pending => "pending",
-            DeliveryStatus::Sent => "sent",
-            DeliveryStatus::Failed => "failed",
-            DeliveryStatus::Retrying => "retrying",
-        }
-    }
-}
+// // The local DeliveryStatus enum and its implementation are commented out.
+// // This is because `DeliveryStatus` is also listed as a potential import from
+// // `arb_edge::services::core::infrastructure::notification_module`,
+// // and using the imported version might be preferred to avoid conflicts or redundancy.
+// #[derive(Debug, Clone, PartialEq)]
+// pub enum DeliveryStatus {
+//     Pending,
+//     Sent,
+//     Failed,
+//     Retrying,
+// }
+//
+// impl DeliveryStatus {
+//     pub fn as_str(&self) -> &'static str {
+//         match self {
+//             DeliveryStatus::Pending => "pending",
+//             DeliveryStatus::Sent => "sent",
+//             DeliveryStatus::Failed => "failed",
+//             DeliveryStatus::Retrying => "retrying",
+//         }
+//     }
+// }
 
 // Mock notification config
 #[derive(Debug, Clone)]
@@ -123,45 +142,142 @@ impl MockNotificationService {
         let mut templates = HashMap::new();
 
         // Add default templates
-        templates.insert("opportunity_alert".to_string(), NotificationTemplate {
-            template_id: "opportunity_alert".to_string(),
-            name: "Opportunity Alert".to_string(),
-            description: Some("Alert for new trading opportunities".to_string()),
-            category: "opportunity".to_string(),
-            title_template: "🚨 New {opportunity_type} Opportunity: {trading_pair}".to_string(),
-            message_template: "💰 Expected Return: {expected_return}%\n🎯 Confidence: {confidence}%\n⏰ Valid for: {time_horizon}".to_string(),
-            priority: "high".to_string(),
-            channels: vec![NotificationChannel::Telegram],
-            variables: vec!["opportunity_type".to_string(), "trading_pair".to_string(), "expected_return".to_string(), "confidence".to_string(), "time_horizon".to_string()],
-            is_system_template: true,
-            is_active: true,
-            created_at: chrono::Utc::now().timestamp_millis() as u64,
-            updated_at: chrono::Utc::now().timestamp_millis() as u64,
-        });
+        let opportunity_variables = vec![
+            TemplateVariable {
+                name: "opportunity_type".to_string(),
+                variable_type: VariableType::Text,
+                description: "Type of the opportunity".to_string(),
+                required: true,
+                default_value: None,
+                validation_pattern: None,
+                format_options: HashMap::new(),
+            },
+            TemplateVariable {
+                name: "trading_pair".to_string(),
+                variable_type: VariableType::Text,
+                description: "The trading pair".to_string(),
+                required: true,
+                default_value: None,
+                validation_pattern: None,
+                format_options: HashMap::new(),
+            },
+            TemplateVariable {
+                name: "expected_return".to_string(),
+                variable_type: VariableType::Number, // Corrected type
+                description: "Expected return percentage".to_string(),
+                required: true,
+                default_value: None,
+                validation_pattern: None,
+                format_options: HashMap::new(),
+            },
+            TemplateVariable {
+                name: "confidence_level".to_string(),
+                variable_type: VariableType::Text, // Corrected type
+                description: "Confidence level".to_string(),
+                required: false,
+                default_value: Some("medium".to_string()),
+                validation_pattern: None,
+                format_options: HashMap::new(),
+            },
+            TemplateVariable {
+                name: "valid_until".to_string(),
+                variable_type: VariableType::DateTime,
+                description: "Validity period of the alert".to_string(),
+                required: false,
+                default_value: None,
+                validation_pattern: None,
+                format_options: HashMap::new(),
+            },
+        ];
+
+        let mut opportunity_channel_templates = HashMap::new();
+        opportunity_channel_templates.insert(
+            NotificationChannel::Telegram.as_str().to_string(), // Use NotificationChannel variant and convert to string for key
+            ChannelTemplate {
+                channel: NotificationChannel::Telegram.as_str().to_string(), // channel field is a String
+                subject: Some("New Opportunity Alert!".to_string()),
+                title: Some("{{opportunity_type}} Opportunity".to_string()),
+                body: "Pair: {{trading_pair}}, Return: {{expected_return}}%, Confidence: {{confidence_level}}, Valid: {{valid_until}}".to_string(),
+                footer: Some("Trade responsibly.".to_string()),
+                format: TemplateFormat::Markdown,
+                attachments: Vec::new(), // attachments is Vec<TemplateAttachment>
+                styling: HashMap::new(),
+            }
+        );
+
+        templates.insert(
+            "opportunity_alert".to_string(),
+            NotificationTemplate {
+                template_id: "opportunity_alert".to_string(),
+                name: "Opportunity Alert".to_string(),
+                description: "Alert for new trading opportunities".to_string(),
+                category: TemplateCategory::Custom("opportunity".to_string()), // Updated
+                version: "1.0".to_string(),                                    // Added default
+                language: "en".to_string(),                                    // Added default
+                channel_templates: opportunity_channel_templates,              // Updated
+                variables: opportunity_variables,                              // Updated
+                metadata: HashMap::new(),                                      // Added default
+                is_active: true,
+                created_at: chrono::Utc::now().timestamp_millis() as u64,
+                updated_at: chrono::Utc::now().timestamp_millis() as u64,
+                usage_count: 0,     // Added default
+                last_used_at: None, // Added default
+            },
+        );
+
+        let system_variables = vec![
+            TemplateVariable {
+                name: "system_message".to_string(),
+                variable_type: VariableType::Text,
+                description: "The main content of the system alert".to_string(),
+                required: true,
+                default_value: None,
+                validation_pattern: None,
+                format_options: HashMap::new(),
+            },
+            TemplateVariable {
+                name: "severity".to_string(),
+                variable_type: VariableType::Text,
+                description: "Severity of the alert (e.g., Info, Warning, Error)".to_string(),
+                required: false,
+                default_value: Some("Info".to_string()),
+                validation_pattern: None,
+                format_options: HashMap::new(),
+            },
+        ];
+
+        let mut system_channel_templates = HashMap::new();
+        system_channel_templates.insert(
+            NotificationChannel::Email.as_str().to_string(), // Use NotificationChannel variant and convert to string for key
+            ChannelTemplate {
+                channel: NotificationChannel::Email.as_str().to_string(), // channel field is a String
+                subject: Some("System Alert: {{severity}}".to_string()),
+                title: Some("System Alert".to_string()),
+                body: "{{system_message}}".to_string(),
+                footer: Some("Please review system logs for more details.".to_string()),
+                format: TemplateFormat::Html,
+                attachments: Vec::new(), // attachments is Vec<TemplateAttachment>
+                styling: HashMap::new(),
+            },
+        );
 
         templates.insert(
             "system_alert".to_string(),
             NotificationTemplate {
                 template_id: "system_alert".to_string(),
                 name: "System Alert".to_string(),
-                description: Some("System maintenance and error alerts".to_string()),
-                category: "system".to_string(),
-                title_template: "⚠️ System Alert: {alert_type}".to_string(),
-                message_template:
-                    "🔧 Issue: {description}\n📊 Severity: {severity}\n🕐 Time: {timestamp}"
-                        .to_string(),
-                priority: "critical".to_string(),
-                channels: vec![NotificationChannel::Email],
-                variables: vec![
-                    "alert_type".to_string(),
-                    "description".to_string(),
-                    "severity".to_string(),
-                    "timestamp".to_string(),
-                ],
-                is_system_template: true,
+                description: "System maintenance and error alerts".to_string(),
+                category: TemplateCategory::Custom("system".to_string()), // Updated
+                version: "1.0".to_string(),                               // Added default
+                language: "en".to_string(),                               // Added default
+                channel_templates: system_channel_templates,              // Updated
+                variables: system_variables,                              // Updated
+                metadata: HashMap::new(),                                 // Added default
                 is_active: true,
                 created_at: chrono::Utc::now().timestamp_millis() as u64,
                 updated_at: chrono::Utc::now().timestamp_millis() as u64,
+                usage_count: 0,     // Added default
+                last_used_at: None, // Added default
             },
         );
 
@@ -235,14 +351,23 @@ impl MockNotificationService {
         template: &NotificationTemplate,
         recipient: &str,
         variables: HashMap<String, String>,
-        priority: NotificationPriority,
+        priority: NotificationPriority, // This priority is for the MockNotification, not directly from NotificationTemplate
     ) -> ArbitrageResult<MockNotification> {
-        let mut title = template.title_template.clone();
-        let mut message = template.message_template.clone();
+        // For simplicity in this mock, we'll pick the first channel template available.
+        // A real implementation would iterate or select based on context/channel preference.
+        let channel_template = template.channel_templates.values().next().ok_or_else(|| {
+            ArbitrageError::internal_error(
+                "No channel templates defined for this notification template",
+            )
+        })?;
+
+        let mut title = channel_template.title.clone().unwrap_or_default();
+        let mut message = channel_template.body.clone();
 
         // Replace variables in templates
         for (key, value) in &variables {
-            let placeholder = format!("{{{}}}", key);
+            // Assuming variables in templates are like {{variable_name}}
+            let placeholder = format!("{{{{{}}}}}", key);
             title = title.replace(&placeholder, value);
             message = message.replace(&placeholder, value);
         }
@@ -251,8 +376,11 @@ impl MockNotificationService {
             notification_id: format!("notif_{}", uuid::Uuid::new_v4()),
             template_id: template.template_id.clone(),
             recipient: recipient.to_string(),
-            channel: template.channels[0].clone(),
-            priority,
+            channel: channel_template
+                .channel
+                .parse()
+                .unwrap_or_else(|_| NotificationChannel::Custom(channel_template.channel.clone())), // Attempt to parse, fallback to Custom
+            priority, // Use the priority passed to this function for the MockNotification
             subject: title,
             body: message,
             variables,
@@ -329,6 +457,55 @@ impl MockNotificationService {
             .count();
 
         successful as f64 / self.delivery_log.len() as f64
+    }
+
+    async fn mock_send_notification_to_channel(
+        &mut self,
+        notification: &MockNotification, // This function now takes a MockNotification
+        _channel: &NotificationChannel,  // The specific channel is now part of MockNotification
+    ) -> ArbitrageResult<()> {
+        if let Some(ref error_type) = self.error_simulation {
+            return match error_type.as_str() {
+                "channel_unavailable" => {
+                    Err(ArbitrageError::validation_error("Channel unavailable"))
+                }
+                "authentication_failed" => Err(ArbitrageError::validation_error(
+                    "Channel authentication failed",
+                )),
+                _ => Err(ArbitrageError::validation_error(
+                    "Unknown channel delivery error",
+                )),
+            };
+        }
+
+        // Simulate sending to a specific channel
+        // The actual channel is now within notification.channel
+        println!(
+            "Simulating sending notification {} to channel {:?}: Title='{}', Body='{}'",
+            notification.notification_id,
+            notification.channel, // Use the channel from the MockNotification
+            notification.subject,
+            notification.body
+        );
+
+        // Update delivery log for the specific channel if needed, or rely on overall status
+        // Find the notification in the main list to update its status, if this function implies final delivery.
+        // For this mock, we assume this function is part of the send process and the main status update happens elsewhere or is implied.
+        if let Some(n) = self
+            .notifications
+            .iter_mut()
+            .find(|n_item| n_item.notification_id == notification.notification_id)
+        {
+            n.status = DeliveryStatus::Sent; // Or a more specific status if available
+            n.sent_at = Some(chrono::Utc::now().timestamp_millis() as u64);
+        }
+
+        self.delivery_log.push((
+            notification.notification_id.clone(),
+            DeliveryStatus::Sent, // Simplified for mock
+        ));
+
+        Ok(())
     }
 }
 
@@ -565,25 +742,35 @@ mod tests {
 
         let template = opportunity_template.unwrap();
         assert_eq!(template.template_id, "opportunity_alert");
-        assert_eq!(template.channels[0], NotificationChannel::Telegram);
-        assert_eq!(template.priority, "high");
+
         assert!(!template.variables.is_empty());
 
         // Test custom template creation
         let custom_template = NotificationTemplate {
             template_id: "custom_alert".to_string(),
             name: "Custom Alert".to_string(),
-            description: Some("Custom alert template".to_string()),
-            category: "custom".to_string(),
-            title_template: "Custom: {title}".to_string(),
-            message_template: "Message: {message}".to_string(),
-            priority: "medium".to_string(),
-            channels: vec![NotificationChannel::Push],
-            variables: vec!["title".to_string(), "message".to_string()],
-            is_system_template: false,
+            description: "Custom alert template".to_string(),
+            category: TemplateCategory::Custom("custom".to_string()),
+            variables: vec![
+                TemplateVariable::new(
+                    "title".to_string(),
+                    VariableType::Text,
+                    "Notification title".to_string(),
+                ),
+                TemplateVariable::new(
+                    "message".to_string(),
+                    VariableType::Text,
+                    "Notification message".to_string(),
+                ),
+            ],
             is_active: true,
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             updated_at: chrono::Utc::now().timestamp_millis() as u64,
+            language: "en".to_string(),
+            channel_templates: std::collections::HashMap::new(),
+            metadata: std::collections::HashMap::new(),
+            version: "1.0".to_string(),
+            last_used_at: None,
         };
 
         mock_service

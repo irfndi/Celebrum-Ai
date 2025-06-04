@@ -339,8 +339,21 @@ impl MockExchangeService {
             high: None,
             low: None,
             volume: Some(volume),
-            timestamp: Some(chrono::Utc::now()),
-            datetime: None,
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            datetime: chrono::Utc::now().to_rfc3339(),
+            // Initialize other fields as per struct definition
+            open: None,
+            close: None,
+            previous_close: None,
+            change: None,
+            percentage: None,
+            average: None,
+            base_volume: None,
+            quote_volume: None,
+            vwap: None,
+            bid_volume: None,
+            ask_volume: None,
+            info: serde_json::Value::Null,
         })
     }
 
@@ -375,8 +388,21 @@ impl MockExchangeService {
             high: None,
             low: None,
             volume: Some(volume),
-            timestamp: Some(chrono::Utc::now()),
-            datetime: None,
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            datetime: chrono::Utc::now().to_rfc3339(),
+            // Initialize other fields as per struct definition
+            open: None,
+            close: None,
+            previous_close: None,
+            change: None,
+            percentage: None,
+            average: None,
+            base_volume: None,
+            quote_volume: None,
+            vwap: None,
+            bid_volume: None,
+            ask_volume: None,
+            info: serde_json::Value::Null,
         })
     }
 
@@ -454,8 +480,9 @@ impl MockExchangeService {
             symbol: symbol.to_string(),
             bids,
             asks,
-            timestamp: Some(chrono::Utc::now()),
-            datetime: None,
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            datetime: chrono::Utc::now().to_rfc3339(),
+            nonce: None, // Added nonce as it's part of the struct
         })
     }
 

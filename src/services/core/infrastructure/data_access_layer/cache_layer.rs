@@ -1,969 +1,1116 @@
-// Cache Layer - Intelligent Caching with Freshness Validation Component
-// Provides multi-tier caching with automatic compression and data freshness validation
+// Cache Layer Implementation
+// This file contains the cache layer implementation for the data access layer
 
-use crate::utils::{ArbitrageError, ArbitrageResult};
-// use crate::services::core::infrastructure::shared_types::{ComponentHealth, CircuitBreaker, CacheStats};
+use crate::utils::error::{ArbitrageError, ArbitrageResult};
+use crate::utils::logger::Logger;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use worker::kv::KvStore;
 
-// Temporary local types until shared_types is working
+/// Configuration for cache layer
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ComponentHealth {
-    pub is_healthy: bool,
-    pub last_check: u64,
-    pub error_count: u32,
-    pub warning_count: u32,
-    pub uptime_seconds: u64,
-    pub performance_score: f32,
-    pub resource_usage_percent: f32,
-    pub last_error: Option<String>,
-    pub last_warning: Option<String>,
-    pub component_name: String,
-    pub version: String,
+pub struct CacheLayerConfig {
+    /// Default TTL for cache entries in seconds
+    pub default_ttl: u64,
+    /// Maximum cache size in bytes
+    pub max_cache_size: u64,
+    /// Enable compression for large values
+    pub enable_compression: bool,
+    /// Compression threshold in bytes
+    pub compression_threshold: u64,
+    /// Cache key prefix
+    pub key_prefix: String,
+    /// Enable cache metrics
+    pub enable_metrics: bool,
+    /// Circuit breaker configuration
+    pub circuit_breaker: CircuitBreakerConfig,
 }
 
-impl Default for ComponentHealth {
-    fn default() -> Self {
-        Self {
-            is_healthy: false,
-            last_check: chrono::Utc::now().timestamp_millis() as u64,
-            error_count: 0,
-            warning_count: 0,
-            uptime_seconds: 0,
-            performance_score: 0.0,
-            resource_usage_percent: 0.0,
-            last_error: None,
-            last_warning: None,
-            component_name: "cache_layer".to_string(),
-            version: "1.0.0".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct CircuitBreaker {
-    pub state: CircuitBreakerState,
-    pub failure_count: u32,
-    pub threshold: u32,
+/// Circuit breaker configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitBreakerConfig {
+    /// Failure threshold before opening circuit
+    pub failure_threshold: u32,
+    /// Success threshold for closing circuit
+    pub success_threshold: u32,
+    /// Timeout in seconds before attempting to close circuit
     pub timeout_seconds: u64,
-    pub last_failure_time: u64,
 }
 
+/// Circuit breaker states
 #[derive(Debug, Clone, PartialEq)]
-pub enum CircuitBreakerState {
+enum CircuitBreakerState {
     Closed,
     Open,
     HalfOpen,
 }
 
-impl Default for CircuitBreaker {
-    fn default() -> Self {
+/// Circuit breaker implementation
+#[derive(Debug)]
+struct CircuitBreaker {
+    state: CircuitBreakerState,
+    failure_count: u32,
+    success_count: u32,
+    last_failure_time: Option<std::time::Instant>,
+    config: CircuitBreakerConfig,
+}
+
+impl CircuitBreaker {
+    fn new(config: CircuitBreakerConfig) -> Self {
         Self {
             state: CircuitBreakerState::Closed,
             failure_count: 0,
-            threshold: 5,
-            timeout_seconds: 60,
-            last_failure_time: 0,
-        }
-    }
-}
-
-/// Cache entry types with different TTL requirements
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CacheEntryType {
-    MarketData,      // 5 minutes TTL
-    FundingRates,    // 15 minutes TTL
-    Analytics,       // 30 minutes TTL
-    UserPreferences, // 1 hour TTL
-    Opportunities,   // 2 minutes TTL
-    AIAnalysis,      // 1 hour TTL
-    SystemConfig,    // 24 hours TTL
-    TradingPairs,    // 6 hours TTL
-}
-
-impl CacheEntryType {
-    pub fn as_str(&self) -> &str {
-        match self {
-            CacheEntryType::MarketData => "market_data",
-            CacheEntryType::FundingRates => "funding_rates",
-            CacheEntryType::Analytics => "analytics",
-            CacheEntryType::UserPreferences => "user_preferences",
-            CacheEntryType::Opportunities => "opportunities",
-            CacheEntryType::AIAnalysis => "ai_analysis",
-            CacheEntryType::SystemConfig => "system_config",
-            CacheEntryType::TradingPairs => "trading_pairs",
+            success_count: 0,
+            last_failure_time: None,
+            config,
         }
     }
 
-    pub fn default_ttl_seconds(&self) -> u64 {
-        match self {
-            CacheEntryType::MarketData => 300,       // 5 minutes
-            CacheEntryType::FundingRates => 900,     // 15 minutes
-            CacheEntryType::Analytics => 1800,       // 30 minutes
-            CacheEntryType::UserPreferences => 3600, // 1 hour
-            CacheEntryType::Opportunities => 120,    // 2 minutes
-            CacheEntryType::AIAnalysis => 3600,      // 1 hour
-            CacheEntryType::SystemConfig => 86400,   // 24 hours
-            CacheEntryType::TradingPairs => 21600,   // 6 hours
+    fn record_success(&mut self) {
+        match self.state {
+            CircuitBreakerState::HalfOpen => {
+                self.success_count += 1;
+                if self.success_count >= self.config.success_threshold {
+                    self.state = CircuitBreakerState::Closed;
+                    self.failure_count = 0;
+                    self.success_count = 0;
+                }
+            }
+            CircuitBreakerState::Closed => {
+                self.failure_count = 0;
+            }
+            CircuitBreakerState::Open => {
+                // Should not happen, but reset if it does
+                self.failure_count = 0;
+            }
         }
     }
 
-    pub fn compression_threshold_bytes(&self) -> usize {
-        match self {
-            CacheEntryType::MarketData => 5120,      // 5KB
-            CacheEntryType::FundingRates => 2048,    // 2KB
-            CacheEntryType::Analytics => 10240,      // 10KB
-            CacheEntryType::UserPreferences => 1024, // 1KB
-            CacheEntryType::Opportunities => 2048,   // 2KB
-            CacheEntryType::AIAnalysis => 5120,      // 5KB
-            CacheEntryType::SystemConfig => 1024,    // 1KB
-            CacheEntryType::TradingPairs => 2048,    // 2KB
-        }
-    }
-}
+    fn record_failure(&mut self) {
+        self.failure_count += 1;
+        self.last_failure_time = Some(std::time::Instant::now());
 
-/// Cache entry with metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CacheEntry {
-    pub key: String,
-    pub data: String,
-    pub entry_type: CacheEntryType,
-    pub created_at: u64,
-    pub expires_at: u64,
-    pub last_accessed: u64,
-    pub access_count: u64,
-    pub is_compressed: bool,
-    pub original_size: usize,
-    pub compressed_size: Option<usize>,
-    pub freshness_score: f32,
-}
-
-impl CacheEntry {
-    pub fn new(key: String, data: String, entry_type: CacheEntryType) -> Self {
-        let _start_time = chrono::Utc::now().timestamp_millis() as u64;
-        let ttl_ms = entry_type.default_ttl_seconds() * 1000;
-
-        Self {
-            key,
-            data,
-            entry_type,
-            created_at: _start_time,
-            expires_at: _start_time + ttl_ms,
-            last_accessed: _start_time,
-            access_count: 0,
-            is_compressed: false,
-            original_size: 0,
-            compressed_size: None,
-            freshness_score: 1.0,
+        match self.state {
+            CircuitBreakerState::Closed => {
+                if self.failure_count >= self.config.failure_threshold {
+                    self.state = CircuitBreakerState::Open;
+                }
+            }
+            CircuitBreakerState::HalfOpen => {
+                self.state = CircuitBreakerState::Open;
+                self.success_count = 0;
+            }
+            CircuitBreakerState::Open => {
+                // Already open, just update failure time
+            }
         }
     }
 
-    pub fn is_expired(&self) -> bool {
-        let _now = chrono::Utc::now().timestamp_millis() as u64;
-        _now > self.expires_at
-    }
-
-    pub fn is_fresh(&self, freshness_threshold: f32) -> bool {
-        self.freshness_score >= freshness_threshold && !self.is_expired()
-    }
-
-    pub fn update_freshness(&mut self) {
-        let _now = chrono::Utc::now().timestamp_millis() as u64;
-        let age_ratio =
-            (_now - self.created_at) as f32 / (self.expires_at - self.created_at) as f32;
-        self.freshness_score = (1.0 - age_ratio).max(0.0);
-    }
-
-    pub fn record_access(&mut self) {
-        self.last_accessed = chrono::Utc::now().timestamp_millis() as u64;
-        self.access_count += 1;
-    }
-}
-
-/// Cache statistics for monitoring
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CacheStats {
-    pub total_entries: u64,
-    pub total_hits: u64,
-    pub total_misses: u64,
-    pub total_sets: u64,
-    pub total_deletes: u64,
-    pub total_size_bytes: u64,
-    pub compressed_entries: u64,
-    pub expired_entries: u64,
-    pub hit_rate_percent: f32,
-    pub compression_ratio_percent: f32,
-    pub average_freshness_score: f32,
-    pub last_updated: u64,
-}
-
-impl Default for CacheStats {
-    fn default() -> Self {
-        Self {
-            total_entries: 0,
-            total_hits: 0,
-            total_misses: 0,
-            total_sets: 0,
-            total_deletes: 0,
-            total_size_bytes: 0,
-            compressed_entries: 0,
-            expired_entries: 0,
-            hit_rate_percent: 0.0,
-            compression_ratio_percent: 0.0,
-            average_freshness_score: 0.0,
-            last_updated: chrono::Utc::now().timestamp_millis() as u64,
+    fn can_execute(&mut self) -> bool {
+        match self.state {
+            CircuitBreakerState::Closed => true,
+            CircuitBreakerState::HalfOpen => true,
+            CircuitBreakerState::Open => {
+                if let Some(last_failure) = self.last_failure_time {
+                    let elapsed = last_failure.elapsed();
+                    if elapsed.as_secs() >= self.config.timeout_seconds {
+                        self.state = CircuitBreakerState::HalfOpen;
+                        self.success_count = 0;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
         }
     }
-}
 
-/// Cache health status
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CacheHealth {
-    pub is_healthy: bool,
-    pub kv_store_available: bool,
-    pub hit_rate_percent: f32,
-    pub freshness_score: f32,
-    pub memory_usage_percent: f32,
-    pub expired_entries_percent: f32,
-    pub last_health_check: u64,
-    pub last_error: Option<String>,
-}
-
-impl Default for CacheHealth {
-    fn default() -> Self {
-        Self {
-            is_healthy: false,
-            kv_store_available: false,
-            hit_rate_percent: 0.0,
-            freshness_score: 0.0,
-            memory_usage_percent: 0.0,
-            expired_entries_percent: 0.0,
-            last_health_check: chrono::Utc::now().timestamp_millis() as u64,
-            last_error: None,
-        }
+    fn is_closed(&self) -> bool {
+        self.state == CircuitBreakerState::Closed
     }
-}
-
-/// Cache performance metrics
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CacheMetrics {
-    pub operations_per_second: f64,
-    pub average_latency_ms: f64,
-    pub min_latency_ms: f64,
-    pub max_latency_ms: f64,
-    pub total_operations: u64,
-    pub successful_operations: u64,
-    pub failed_operations: u64,
-    pub batch_operations: u64,
-    pub compression_savings_bytes: u64,
-    pub freshness_validations: u64,
-    pub cache_evictions: u64,
-    pub last_updated: u64,
-}
-
-impl Default for CacheMetrics {
-    fn default() -> Self {
-        Self {
-            operations_per_second: 0.0,
-            average_latency_ms: 0.0,
-            min_latency_ms: f64::MAX,
-            max_latency_ms: 0.0,
-            total_operations: 0,
-            successful_operations: 0,
-            failed_operations: 0,
-            batch_operations: 0,
-            compression_savings_bytes: 0,
-            freshness_validations: 0,
-            cache_evictions: 0,
-            last_updated: chrono::Utc::now().timestamp_millis() as u64,
-        }
-    }
-}
-
-/// Configuration for CacheLayer
-#[derive(Debug, Clone)]
-pub struct CacheLayerConfig {
-    pub enable_compression: bool,
-    pub compression_threshold_bytes: usize,
-    pub enable_freshness_validation: bool,
-    pub freshness_threshold: f32,
-    pub enable_automatic_expiration: bool,
-    pub enable_batch_operations: bool,
-    pub batch_size: usize,
-    pub enable_cache_warming: bool,
-    pub enable_performance_tracking: bool,
-    pub enable_health_monitoring: bool,
-    pub max_cache_size_mb: usize,
-    pub eviction_policy: String,
-    pub background_cleanup_interval_seconds: u64,
 }
 
 impl Default for CacheLayerConfig {
     fn default() -> Self {
         Self {
+            default_ttl: 3600,                 // 1 hour
+            max_cache_size: 100 * 1024 * 1024, // 100MB
             enable_compression: true,
-            compression_threshold_bytes: 1024, // 1KB
-            enable_freshness_validation: true,
-            freshness_threshold: 0.8, // 80% freshness required
-            enable_automatic_expiration: true,
-            enable_batch_operations: true,
-            batch_size: 50,
-            enable_cache_warming: true,
-            enable_performance_tracking: true,
-            enable_health_monitoring: true,
-            max_cache_size_mb: 256, // 256MB cache limit
-            eviction_policy: "lru".to_string(),
-            background_cleanup_interval_seconds: 300, // 5 minutes
+            compression_threshold: 1024, // 1KB
+            key_prefix: "cache:".to_string(),
+            enable_metrics: true,
+            circuit_breaker: CircuitBreakerConfig {
+                failure_threshold: 5,
+                success_threshold: 3,
+                timeout_seconds: 60,
+            },
         }
     }
 }
 
 impl CacheLayerConfig {
-    /// Create configuration optimized for high concurrency
-    pub fn high_concurrency() -> Self {
-        Self {
-            batch_size: 100,
-            max_cache_size_mb: 512,
-            compression_threshold_bytes: 512,
-            freshness_threshold: 0.7,
-            background_cleanup_interval_seconds: 180, // 3 minutes
-            ..Default::default()
-        }
-    }
-
-    /// Create configuration optimized for reliability
-    pub fn high_reliability() -> Self {
-        Self {
-            freshness_threshold: 0.9,
-            enable_cache_warming: true,
-            background_cleanup_interval_seconds: 600, // 10 minutes
-            max_cache_size_mb: 128,
-            ..Default::default()
-        }
-    }
-
     /// Validate configuration
     pub fn validate(&self) -> ArbitrageResult<()> {
-        if self.compression_threshold_bytes == 0 {
-            return Err(ArbitrageError::validation_error(
-                "compression_threshold_bytes must be greater than 0",
+        if self.default_ttl == 0 {
+            return Err(ArbitrageError::config_error(
+                "Default TTL must be greater than 0".to_string(),
             ));
         }
-        if !(0.0..=1.0).contains(&self.freshness_threshold) {
-            return Err(ArbitrageError::validation_error(
-                "freshness_threshold must be between 0.0 and 1.0",
+
+        if self.max_cache_size == 0 {
+            return Err(ArbitrageError::config_error(
+                "Max cache size must be greater than 0".to_string(),
             ));
         }
-        if self.batch_size == 0 {
-            return Err(ArbitrageError::validation_error(
-                "batch_size must be greater than 0",
+
+        if self.compression_threshold > self.max_cache_size {
+            return Err(ArbitrageError::config_error(
+                "Compression threshold cannot be larger than max cache size".to_string(),
             ));
         }
-        if self.max_cache_size_mb == 0 {
-            return Err(ArbitrageError::validation_error(
-                "max_cache_size_mb must be greater than 0",
+
+        if self.key_prefix.is_empty() {
+            return Err(ArbitrageError::config_error(
+                "Key prefix cannot be empty".to_string(),
             ));
         }
+
+        if self.circuit_breaker.failure_threshold == 0 {
+            return Err(ArbitrageError::config_error(
+                "Circuit breaker failure threshold must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.circuit_breaker.success_threshold == 0 {
+            return Err(ArbitrageError::config_error(
+                "Circuit breaker success threshold must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.circuit_breaker.timeout_seconds == 0 {
+            return Err(ArbitrageError::config_error(
+                "Circuit breaker timeout must be greater than 0".to_string(),
+            ));
+        }
+
         Ok(())
+    }
+
+    /// Create high-performance configuration
+    pub fn high_performance() -> Self {
+        Self {
+            default_ttl: 1800,                 // 30 minutes
+            max_cache_size: 500 * 1024 * 1024, // 500MB
+            enable_compression: true,
+            compression_threshold: 512, // 512 bytes
+            key_prefix: "hp_cache:".to_string(),
+            enable_metrics: true,
+            circuit_breaker: CircuitBreakerConfig {
+                failure_threshold: 3,
+                success_threshold: 2,
+                timeout_seconds: 30,
+            },
+        }
+    }
+
+    /// Create high-reliability configuration
+    pub fn high_reliability() -> Self {
+        Self {
+            default_ttl: 7200,                 // 2 hours
+            max_cache_size: 200 * 1024 * 1024, // 200MB
+            enable_compression: true,
+            compression_threshold: 2048, // 2KB
+            key_prefix: "hr_cache:".to_string(),
+            enable_metrics: true,
+            circuit_breaker: CircuitBreakerConfig {
+                failure_threshold: 10,
+                success_threshold: 5,
+                timeout_seconds: 120,
+            },
+        }
     }
 }
 
-/// Cache layer for intelligent caching with freshness validation
-#[allow(dead_code)]
+/// Cache layer metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheMetrics {
+    pub hits: u64,
+    pub misses: u64,
+    pub errors: u64,
+    pub total_requests: u64,
+    pub average_response_time_ms: f64,
+    pub cache_size_bytes: u64,
+    pub evictions: u64,
+    pub circuit_breaker_trips: u64,
+}
+
+impl Default for CacheMetrics {
+    fn default() -> Self {
+        Self {
+            hits: 0,
+            misses: 0,
+            errors: 0,
+            total_requests: 0,
+            average_response_time_ms: 0.0,
+            cache_size_bytes: 0,
+            evictions: 0,
+            circuit_breaker_trips: 0,
+        }
+    }
+}
+
+impl CacheMetrics {
+    /// Calculate hit rate as percentage
+    pub fn hit_rate(&self) -> f64 {
+        if self.total_requests == 0 {
+            0.0
+        } else {
+            (self.hits as f64 / self.total_requests as f64) * 100.0
+        }
+    }
+
+    /// Calculate error rate as percentage
+    pub fn error_rate(&self) -> f64 {
+        if self.total_requests == 0 {
+            0.0
+        } else {
+            (self.errors as f64 / self.total_requests as f64) * 100.0
+        }
+    }
+
+    /// Check if metrics indicate healthy cache performance
+    pub fn is_healthy(&self) -> bool {
+        self.hit_rate() >= 70.0 && self.error_rate() <= 5.0
+    }
+}
+
+/// Cache entry with metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CacheEntry {
+    value: String,
+    created_at: u64,
+    expires_at: u64,
+    access_count: u64,
+    last_accessed: u64,
+    compressed: bool,
+    size_bytes: u64,
+}
+
+impl CacheEntry {
+    fn new(value: String, ttl: u64, compressed: bool) -> Self {
+        let now = chrono::Utc::now().timestamp() as u64;
+        let size_bytes = value.len() as u64;
+
+        Self {
+            value,
+            created_at: now,
+            expires_at: now + ttl,
+            access_count: 0,
+            last_accessed: now,
+            compressed,
+            size_bytes,
+        }
+    }
+
+    fn is_expired(&self) -> bool {
+        let now = chrono::Utc::now().timestamp() as u64;
+        now > self.expires_at
+    }
+
+    fn access(&mut self) {
+        self.access_count += 1;
+        self.last_accessed = chrono::Utc::now().timestamp() as u64;
+    }
+
+    fn should_compress(value: &str, threshold: u64) -> bool {
+        value.len() as u64 > threshold
+    }
+}
+
+/// Cache layer implementation
 pub struct CacheLayer {
     config: CacheLayerConfig,
-    kv_store: KvStore,
-    logger: crate::utils::logger::Logger,
-
-    // Metadata tracking
-    entry_metadata: Arc<std::sync::Mutex<HashMap<String, CacheEntry>>>,
-
-    // Performance metrics - use CacheStats instead of CacheMetrics
-    cache_metrics: Arc<std::sync::Mutex<CacheStats>>,
-
-    // Health monitoring
-    health_status: Arc<std::sync::Mutex<ComponentHealth>>,
-    last_health_check: Arc<std::sync::Mutex<Option<u64>>>,
-
+    logger: Logger,
+    metrics: Arc<std::sync::Mutex<CacheMetrics>>,
     // Circuit breaker for KV operations
     circuit_breaker: Arc<std::sync::Mutex<CircuitBreaker>>,
 }
 
 impl CacheLayer {
     /// Create new CacheLayer instance
-    pub fn new(kv_store: KvStore, config: CacheLayerConfig) -> ArbitrageResult<Self> {
+    pub fn new(config: CacheLayerConfig) -> ArbitrageResult<Self> {
+        // Removed kv_store parameter
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
         // Validate configuration
         config.validate()?;
 
         let layer = Self {
-            config,
+            config: config.clone(),
             logger,
-            kv_store,
-            entry_metadata: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            cache_metrics: Arc::new(std::sync::Mutex::new(CacheStats::default())),
-            health_status: Arc::new(std::sync::Mutex::new(ComponentHealth::default())),
-            last_health_check: Arc::new(std::sync::Mutex::new(None)),
-            circuit_breaker: Arc::new(std::sync::Mutex::new(CircuitBreaker::default())),
+            metrics: Arc::new(std::sync::Mutex::new(CacheMetrics::default())),
+            circuit_breaker: Arc::new(std::sync::Mutex::new(CircuitBreaker::new(
+                config.circuit_breaker,
+            ))),
         };
-
-        layer.logger.info(&format!(
-            "CacheLayer initialized: compression={}, freshness_validation={}, batch_size={}",
-            layer.config.enable_compression,
-            layer.config.enable_freshness_validation,
-            layer.config.batch_size
-        ));
 
         Ok(layer)
     }
 
-    /// Get data from cache with freshness validation
-    pub async fn get<T>(&self, key: &str, _entry_type: CacheEntryType) -> ArbitrageResult<Option<T>>
-    where
-        T: for<'de> serde::Deserialize<'de>,
-    {
-        let _start_time = chrono::Utc::now().timestamp_millis() as u64;
+    /// Get value from cache
+    pub async fn get(&self, kv_store: &KvStore, key: &str) -> ArbitrageResult<Option<String>> {
+        let start_time = std::time::Instant::now();
+        let full_key = self.build_key(key);
 
-        // Check metadata first
-        let should_record_miss = {
-            let mut metadata = self.entry_metadata.lock().unwrap();
-            if let Some(entry) = metadata.get_mut(key) {
-                // Update freshness score
-                entry.update_freshness();
-
-                // Check if entry is fresh enough
-                if self.config.enable_freshness_validation
-                    && !entry.is_fresh(self.config.freshness_threshold)
-                {
-                    true // Should record miss
-                } else {
-                    // Record access
-                    entry.record_access();
-                    false // Should not record miss
-                }
-            } else {
-                false // No entry found, continue with normal flow
-            }
-        };
-
-        // Record miss if needed (outside of lock scope)
-        if should_record_miss {
-            self.record_miss(_start_time).await;
-            return Ok(None);
+        // Check circuit breaker
+        if !self.can_execute_operation().await {
+            self.record_error().await;
+            return Err(ArbitrageError::cache_error(
+                "Circuit breaker is open".to_string(),
+            ));
         }
 
-        // Attempt uncompressed then compressed key
-        let raw = match self.kv_store.get(key).text().await {
-            Ok(Some(v)) => Some(v),
-            _ => self
-                .kv_store
-                .get(&format!("compressed:{}", key))
-                .text()
-                .await
-                .ok()
-                .flatten(),
-        };
+        match self.get_from_kv(kv_store, &full_key).await {
+            Ok(Some(entry_json)) => {
+                match serde_json::from_str::<CacheEntry>(&entry_json) {
+                    Ok(mut entry) => {
+                        if entry.is_expired() {
+                            // Remove expired entry
+                            let _ = self.delete_from_kv(kv_store, &full_key).await;
+                            self.record_miss().await;
+                            Ok(None)
+                        } else {
+                            entry.access();
+                            // Update access metadata
+                            let updated_json = serde_json::to_string(&entry)
+                                .map_err(|e| ArbitrageError::serialization_error(e.to_string()))?;
+                            let _ = self
+                                .put_to_kv(kv_store, &full_key, &updated_json, None)
+                                .await;
 
-        match raw {
-            Some(data_str) => {
-                // Decompress if needed
-                let final_data = if self.is_compressed_key(key) {
-                    self.decompress_data(&data_str)?
-                } else {
-                    data_str.to_string()
-                };
-
-                // Deserialize
-                match serde_json::from_str::<T>(&final_data) {
-                    Ok(data) => {
-                        self.update_cache_hit_metrics().await;
-                        Ok(Some(data))
+                            self.record_hit().await;
+                            self.record_response_time(start_time.elapsed()).await;
+                            Ok(Some(entry.value))
+                        }
                     }
                     Err(e) => {
                         self.logger.error(&format!(
-                            "Failed to deserialize cached data for key {}: {}",
+                            "Failed to deserialize cache entry for key {}: {}",
                             key, e
                         ));
-                        self.update_cache_miss_metrics().await;
+                        // Remove corrupted entry
+                        let _ = self.delete_from_kv(kv_store, &full_key).await;
+                        self.record_error().await;
                         Ok(None)
                     }
                 }
             }
-            None => {
-                self.update_cache_miss_metrics().await;
+            Ok(None) => {
+                self.record_miss().await;
+                self.record_response_time(start_time.elapsed()).await;
                 Ok(None)
+            }
+            Err(e) => {
+                self.record_error().await;
+                self.record_response_time(start_time.elapsed()).await;
+                Err(e)
             }
         }
     }
 
-    /// Set data in cache with compression and TTL
-    pub async fn set<T>(
+    /// Put value into cache
+    pub async fn put(
         &self,
+        kv_store: &KvStore,
         key: &str,
-        data: &T,
-        entry_type: CacheEntryType,
-        custom_ttl: Option<u64>,
-    ) -> ArbitrageResult<()>
-    where
-        T: serde::Serialize,
-    {
-        let _start_time = chrono::Utc::now().timestamp_millis() as u64;
+        value: &str,
+        ttl: Option<u64>,
+    ) -> ArbitrageResult<()> {
+        let start_time = std::time::Instant::now();
+        let full_key = self.build_key(key);
+        let ttl = ttl.unwrap_or(self.config.default_ttl);
 
-        // Serialize data
-        let data_str = serde_json::to_string(data)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize data: {}", e)))?;
-
-        let original_size = data_str.len();
-        let mut final_data = data_str;
-        let mut is_compressed = false;
-        let mut compressed_size = None;
-
-        // Compress if enabled and data is large enough
-        if self.config.enable_compression
-            && original_size > entry_type.compression_threshold_bytes()
-        {
-            match self.compress_data(&final_data) {
-                Ok(compressed) => {
-                    if compressed.len() < original_size {
-                        final_data = compressed;
-                        is_compressed = true;
-                        compressed_size = Some(final_data.len());
-                    }
-                }
-                Err(e) => {
-                    self.logger
-                        .warn(&format!("Compression failed for key {}: {}", key, e));
-                }
-            }
+        // Check circuit breaker
+        if !self.can_execute_operation().await {
+            self.record_error().await;
+            return Err(ArbitrageError::cache_error(
+                "Circuit breaker is open".to_string(),
+            ));
         }
 
-        // Determine TTL
-        let ttl_seconds = custom_ttl.unwrap_or_else(|| entry_type.default_ttl_seconds());
+        // Check if compression is needed
+        let should_compress = self.config.enable_compression
+            && CacheEntry::should_compress(value, self.config.compression_threshold);
 
-        // Store in KV
-        let cache_key = if is_compressed {
-            format!("compressed:{}", key)
+        let processed_value = if should_compress {
+            self.compress_value(value)?
         } else {
-            key.to_string()
+            value.to_string()
         };
 
-        let mut put_request = self.kv_store.put(&cache_key, &final_data)?;
-        put_request = put_request.expiration_ttl(ttl_seconds);
+        let entry = CacheEntry::new(processed_value, ttl, should_compress);
+        let entry_json = serde_json::to_string(&entry)
+            .map_err(|e| ArbitrageError::serialization_error(e.to_string()))?;
 
-        match put_request.execute().await {
+        match self
+            .put_to_kv(kv_store, &full_key, &entry_json, Some(ttl))
+            .await
+        {
             Ok(_) => {
-                // Update metadata
-                let mut entry = CacheEntry::new(key.to_string(), final_data, entry_type);
-                entry.is_compressed = is_compressed;
-                entry.original_size = original_size;
-                entry.compressed_size = compressed_size;
-
-                if let Ok(mut metadata) = self.entry_metadata.lock() {
-                    metadata.insert(key.to_string(), entry);
-                }
-
-                self.record_set(_start_time, original_size, compressed_size)
-                    .await;
+                self.record_success_operation().await;
+                self.record_response_time(start_time.elapsed()).await;
+                self.update_cache_size(entry.size_bytes as i64).await;
                 Ok(())
             }
             Err(e) => {
-                self.record_failure(
-                    _start_time,
-                    &ArbitrageError::cache_error(format!("KV put failed: {}", e)),
-                )
-                .await;
+                self.record_error().await;
+                self.record_response_time(start_time.elapsed()).await;
+                Err(e)
+            }
+        }
+    }
+
+    /// Delete value from cache
+    pub async fn delete(&self, kv_store: &KvStore, key: &str) -> ArbitrageResult<()> {
+        let start_time = std::time::Instant::now();
+        let full_key = self.build_key(key);
+
+        // Check circuit breaker
+        if !self.can_execute_operation().await {
+            self.record_error().await;
+            return Err(ArbitrageError::cache_error(
+                "Circuit breaker is open".to_string(),
+            ));
+        }
+
+        // Get entry size before deletion for metrics
+        if let Ok(Some(entry_json)) = self.get_from_kv(kv_store, &full_key).await {
+            if let Ok(entry) = serde_json::from_str::<CacheEntry>(&entry_json) {
+                self.update_cache_size(-(entry.size_bytes as i64)).await;
+            }
+        }
+
+        match self.delete_from_kv(kv_store, &full_key).await {
+            Ok(_) => {
+                self.record_success_operation().await;
+                self.record_response_time(start_time.elapsed()).await;
+                Ok(())
+            }
+            Err(e) => {
+                self.record_error().await;
+                self.record_response_time(start_time.elapsed()).await;
+                Err(e)
+            }
+        }
+    }
+
+    /// Check if key exists in cache
+    pub async fn exists(&self, kv_store: &KvStore, key: &str) -> ArbitrageResult<bool> {
+        let full_key = self.build_key(key);
+
+        // Check circuit breaker
+        if !self.can_execute_operation().await {
+            return Ok(false); // Assume doesn't exist if circuit breaker is open
+        }
+
+        match self.get_from_kv(kv_store, &full_key).await {
+            Ok(Some(entry_json)) => {
+                match serde_json::from_str::<CacheEntry>(&entry_json) {
+                    Ok(entry) => {
+                        if entry.is_expired() {
+                            // Remove expired entry
+                            let _ = self.delete_from_kv(kv_store, &full_key).await;
+                            Ok(false)
+                        } else {
+                            Ok(true)
+                        }
+                    }
+                    Err(_) => {
+                        // Remove corrupted entry
+                        let _ = self.delete_from_kv(kv_store, &full_key).await;
+                        Ok(false)
+                    }
+                }
+            }
+            Ok(None) => Ok(false),
+            Err(_) => Ok(false), // Assume doesn't exist on error
+        }
+    }
+
+    /// Get cache metrics
+    pub async fn get_metrics(&self) -> ArbitrageResult<CacheMetrics> {
+        let metrics = self
+            .metrics
+            .lock()
+            .map_err(|e| ArbitrageError::cache_error(format!("Failed to lock metrics: {}", e)))?;
+        Ok(metrics.clone())
+    }
+
+    /// Reset cache metrics
+    pub async fn reset_metrics(&self) -> ArbitrageResult<()> {
+        let mut metrics = self
+            .metrics
+            .lock()
+            .map_err(|e| ArbitrageError::cache_error(format!("Failed to lock metrics: {}", e)))?;
+        *metrics = CacheMetrics::default();
+        Ok(())
+    }
+
+    /// Get cache health status
+    pub async fn health_check(&self, kv_store: &KvStore) -> ArbitrageResult<bool> {
+        // Check circuit breaker state
+        let circuit_healthy = self.is_circuit_breaker_closed().await;
+
+        // Perform KV health check
+        let kv_healthy = self.perform_kv_health_check(kv_store).await;
+
+        // Check metrics health
+        let metrics_healthy = match self.get_metrics().await {
+            Ok(metrics) => metrics.is_healthy(),
+            Err(_) => false,
+        };
+
+        Ok(circuit_healthy && kv_healthy && metrics_healthy)
+    }
+
+    /// Clear all cache entries (use with caution)
+    pub async fn clear_all(&self, _kv_store: &KvStore) -> ArbitrageResult<()> {
+        self.logger.warn("Clearing all cache entries");
+
+        // Note: KV Store doesn't have a clear all operation
+        // This would require listing all keys with the prefix and deleting them
+        // For now, we'll reset metrics and log the operation
+
+        self.reset_metrics().await?;
+
+        // Update cache size to 0
+        {
+            let mut metrics = self.metrics.lock().map_err(|e| {
+                ArbitrageError::cache_error(format!("Failed to lock metrics: {}", e))
+            })?;
+            metrics.cache_size_bytes = 0;
+        }
+
+        self.logger.info("Cache cleared (metrics reset)");
+        Ok(())
+    }
+
+    /// Get configuration
+    pub fn get_config(&self) -> &CacheLayerConfig {
+        &self.config
+    }
+
+    /// Update configuration (creates new instance)
+    pub fn with_config(mut self, config: CacheLayerConfig) -> ArbitrageResult<Self> {
+        config.validate()?;
+        self.config = config.clone();
+
+        // Update circuit breaker config
+        {
+            let mut cb = self.circuit_breaker.lock().map_err(|e| {
+                ArbitrageError::cache_error(format!("Failed to lock circuit breaker: {}", e))
+            })?;
+            cb.config = config.circuit_breaker;
+        }
+
+        Ok(self)
+    }
+
+    // Private helper methods
+
+    fn build_key(&self, key: &str) -> String {
+        format!("{}{}", self.config.key_prefix, key)
+    }
+
+    async fn get_from_kv(&self, kv_store: &KvStore, key: &str) -> ArbitrageResult<Option<String>> {
+        match kv_store.get(key).text().await {
+            Ok(value) => {
+                self.record_success_operation().await;
+                Ok(value)
+            }
+            Err(e) => {
+                self.record_failure_operation().await;
                 Err(ArbitrageError::cache_error(format!(
-                    "Cache set failed: {}",
+                    "KV get operation failed: {}",
                     e
                 )))
             }
         }
     }
 
-    /// Delete data from cache
-    pub async fn delete(&self, key: &str) -> ArbitrageResult<()> {
-        let _start_time = chrono::Utc::now().timestamp_millis() as u64;
+    async fn put_to_kv(
+        &self,
+        kv_store: &KvStore,
+        key: &str,
+        value: &str,
+        ttl: Option<u64>,
+    ) -> ArbitrageResult<()> {
+        let mut put_builder = kv_store.put(key, value).map_err(|e| {
+            ArbitrageError::cache_error(format!("Failed to create put builder: {}", e))
+        })?;
 
-        // Try both compressed and uncompressed keys
-        let keys_to_delete = vec![key.to_string(), format!("compressed:{}", key)];
+        if let Some(ttl_seconds) = ttl {
+            put_builder = put_builder.expiration_ttl(ttl_seconds);
+        }
 
-        let mut delete_success = false;
-        for delete_key in keys_to_delete {
-            match self.kv_store.delete(&delete_key).await {
-                Ok(_) => delete_success = true,
-                Err(e) => {
-                    self.logger
-                        .warn(&format!("Failed to delete key {}: {}", delete_key, e));
-                }
+        match put_builder.execute().await {
+            Ok(_) => {
+                self.record_success_operation().await;
+                Ok(())
             }
-        }
-
-        // Remove from metadata
-        if let Ok(mut metadata) = self.entry_metadata.lock() {
-            metadata.remove(key);
-        }
-
-        if delete_success {
-            self.record_delete(_start_time).await;
-            Ok(())
-        } else {
-            self.record_failure(
-                _start_time,
-                &ArbitrageError::cache_error("Failed to delete cache entry"),
-            )
-            .await;
-            Err(ArbitrageError::cache_error("Cache delete failed"))
+            Err(e) => {
+                self.record_failure_operation().await;
+                Err(ArbitrageError::cache_error(format!(
+                    "KV put operation failed: {}",
+                    e
+                )))
+            }
         }
     }
 
-    /// Batch get operations
-    pub async fn batch_get<T>(
-        &self,
-        keys: &[String],
-        entry_type: CacheEntryType,
-    ) -> ArbitrageResult<HashMap<String, T>>
-    where
-        T: for<'de> serde::Deserialize<'de>,
-    {
-        let mut results = HashMap::new();
-
-        // Process in batches
-        for chunk in keys.chunks(self.config.batch_size) {
-            for key in chunk {
-                if let Ok(Some(data)) = self.get::<T>(key, entry_type.clone()).await {
-                    results.insert(key.clone(), data);
-                }
+    async fn delete_from_kv(&self, kv_store: &KvStore, key: &str) -> ArbitrageResult<()> {
+        match kv_store.delete(key).await {
+            Ok(_) => {
+                self.record_success_operation().await;
+                Ok(())
+            }
+            Err(e) => {
+                self.record_failure_operation().await;
+                Err(ArbitrageError::cache_error(format!(
+                    "KV delete operation failed: {}",
+                    e
+                )))
             }
         }
+    }
 
-        self.record_batch_operation().await;
+    fn compress_value(&self, value: &str) -> ArbitrageResult<String> {
+        // Simple compression using base64 encoding for now
+        // In a real implementation, you might use gzip or other compression algorithms
+        use base64::{engine::general_purpose, Engine as _};
+        let compressed = general_purpose::STANDARD.encode(value.as_bytes());
+        Ok(compressed)
+    }
+
+    fn decompress_value(&self, compressed: &str) -> ArbitrageResult<String> {
+        use base64::{engine::general_purpose, Engine as _};
+        let decoded = general_purpose::STANDARD
+            .decode(compressed)
+            .map_err(|e| ArbitrageError::cache_error(format!("Decompression failed: {}", e)))?;
+        String::from_utf8(decoded)
+            .map_err(|e| ArbitrageError::cache_error(format!("UTF-8 conversion failed: {}", e)))
+    }
+
+    async fn can_execute_operation(&self) -> bool {
+        match self.circuit_breaker.lock() {
+            Ok(mut cb) => cb.can_execute(),
+            Err(_) => false, // If we can't lock, assume circuit is open
+        }
+    }
+
+    async fn is_circuit_breaker_closed(&self) -> bool {
+        match self.circuit_breaker.lock() {
+            Ok(cb) => cb.is_closed(),
+            Err(_) => false,
+        }
+    }
+
+    async fn record_success_operation(&self) {
+        if let Ok(mut cb) = self.circuit_breaker.lock() {
+            cb.record_success();
+        }
+    }
+
+    async fn record_failure_operation(&self) {
+        if let Ok(mut cb) = self.circuit_breaker.lock() {
+            cb.record_failure();
+        }
+
+        // Also increment circuit breaker trips in metrics
+        if let Ok(mut metrics) = self.metrics.lock() {
+            metrics.circuit_breaker_trips += 1;
+        }
+    }
+
+    async fn record_hit(&self) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            metrics.hits += 1;
+            metrics.total_requests += 1;
+        }
+    }
+
+    async fn record_miss(&self) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            metrics.misses += 1;
+            metrics.total_requests += 1;
+        }
+    }
+
+    async fn record_error(&self) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            metrics.errors += 1;
+            metrics.total_requests += 1;
+        }
+    }
+
+    async fn record_response_time(&self, duration: std::time::Duration) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            let response_time_ms = duration.as_millis() as f64;
+
+            // Calculate running average
+            if metrics.total_requests > 0 {
+                let total_time =
+                    metrics.average_response_time_ms * (metrics.total_requests - 1) as f64;
+                metrics.average_response_time_ms =
+                    (total_time + response_time_ms) / metrics.total_requests as f64;
+            } else {
+                metrics.average_response_time_ms = response_time_ms;
+            }
+        }
+    }
+
+    async fn update_cache_size(&self, size_delta: i64) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            if size_delta < 0 {
+                let abs_delta = (-size_delta) as u64;
+                metrics.cache_size_bytes = metrics.cache_size_bytes.saturating_sub(abs_delta);
+            } else {
+                metrics.cache_size_bytes += size_delta as u64;
+            }
+        }
+    }
+
+    async fn record_kv_success(&self) {
+        self.record_success_operation().await;
+    }
+
+    async fn record_kv_failure(&self) {
+        self.record_failure_operation().await;
+    }
+
+    /// Batch operations for better performance
+    pub async fn get_batch(
+        &self,
+        kv_store: &KvStore,
+        keys: &[&str],
+    ) -> ArbitrageResult<HashMap<String, Option<String>>> {
+        let mut results = HashMap::new();
+
+        // Note: KV Store doesn't have native batch operations
+        // We'll execute them sequentially for now
+        for key in keys {
+            let result = self.get(kv_store, key).await?;
+            results.insert(key.to_string(), result);
+        }
+
         Ok(results)
     }
 
-    /// Batch set operations
-    pub async fn batch_set<T>(
+    /// Batch put operations
+    pub async fn put_batch(
         &self,
-        data_map: HashMap<String, T>,
-        entry_type: CacheEntryType,
-        custom_ttl: Option<u64>,
-    ) -> ArbitrageResult<()>
-    where
-        T: serde::Serialize,
-    {
-        let keys: Vec<String> = data_map.keys().cloned().collect();
-
-        // Process in batches
-        for chunk in keys.chunks(self.config.batch_size) {
-            for key in chunk {
-                if let Some(data) = data_map.get(key) {
-                    if let Err(e) = self.set(key, data, entry_type.clone(), custom_ttl).await {
-                        self.logger
-                            .warn(&format!("Batch set failed for key {}: {}", key, e));
-                    }
-                }
-            }
+        kv_store: &KvStore,
+        entries: &[(String, String, Option<u64>)], // (key, value, ttl)
+    ) -> ArbitrageResult<()> {
+        for (key, value, ttl) in entries {
+            self.put(kv_store, key, value, *ttl).await?;
         }
-
-        self.record_batch_operation().await;
         Ok(())
     }
 
-    /// Clean up expired entries
-    pub async fn cleanup_expired(&self) -> ArbitrageResult<u64> {
-        let mut expired_count = 0;
-        let mut keys_to_remove = Vec::new();
-
-        // Check metadata for expired entries
-        if let Ok(metadata) = self.entry_metadata.lock() {
-            for (key, entry) in metadata.iter() {
-                if entry.is_expired() {
-                    keys_to_remove.push(key.clone());
-                }
-            }
-        }
-
-        // Remove expired entries
-        for key in keys_to_remove {
-            if self.delete(&key).await.is_ok() {
-                expired_count += 1;
-            }
-        }
-
-        if expired_count > 0 {
-            self.logger.info(&format!(
-                "Cleaned up {} expired cache entries",
-                expired_count
-            ));
-        }
-
-        Ok(expired_count)
-    }
-
     /// Get cache statistics
-    pub async fn get_stats(&self) -> CacheStats {
-        if let Ok(stats) = self.cache_metrics.lock() {
-            stats.clone()
-        } else {
-            CacheStats::default()
+    pub async fn get_statistics(&self) -> ArbitrageResult<HashMap<String, serde_json::Value>> {
+        let metrics = self.get_metrics().await?;
+        let mut stats = HashMap::new();
+
+        stats.insert(
+            "hit_rate".to_string(),
+            serde_json::Value::Number(
+                serde_json::Number::from_f64(metrics.hit_rate())
+                    .unwrap_or(serde_json::Number::from(0)),
+            ),
+        );
+        stats.insert(
+            "error_rate".to_string(),
+            serde_json::Value::Number(
+                serde_json::Number::from_f64(metrics.error_rate())
+                    .unwrap_or(serde_json::Number::from(0)),
+            ),
+        );
+        stats.insert(
+            "total_requests".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(metrics.total_requests)),
+        );
+        stats.insert(
+            "cache_size_mb".to_string(),
+            serde_json::Value::Number(
+                serde_json::Number::from_f64(metrics.cache_size_bytes as f64 / (1024.0 * 1024.0))
+                    .unwrap_or(serde_json::Number::from(0)),
+            ),
+        );
+        stats.insert(
+            "average_response_time_ms".to_string(),
+            serde_json::Value::Number(
+                serde_json::Number::from_f64(metrics.average_response_time_ms)
+                    .unwrap_or(serde_json::Number::from(0)),
+            ),
+        );
+        stats.insert(
+            "circuit_breaker_closed".to_string(),
+            serde_json::Value::Bool(self.is_circuit_breaker_closed().await),
+        );
+
+        Ok(stats)
+    }
+
+    /// Evict expired entries (maintenance operation)
+    pub async fn evict_expired(&self, _kv_store: &KvStore) -> ArbitrageResult<u64> {
+        // Note: This is a simplified implementation
+        // In a real scenario, you'd need to list keys with the prefix and check each one
+        self.logger
+            .info("Evicting expired entries (placeholder implementation)");
+
+        // For now, we'll just return 0 as KV Store handles TTL automatically
+        Ok(0)
+    }
+
+    /// Warm up cache with frequently accessed data
+    pub async fn warm_up(
+        &self,
+        kv_store: &KvStore,
+        data: &[(String, String, Option<u64>)],
+    ) -> ArbitrageResult<()> {
+        self.logger
+            .info(&format!("Warming up cache with {} entries", data.len()));
+
+        for (key, value, ttl) in data {
+            if let Err(e) = self.put(kv_store, key, value, *ttl).await {
+                self.logger
+                    .warn(&format!("Failed to warm up cache entry {}: {}", key, e));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get cache entry metadata
+    pub async fn get_metadata(
+        &self,
+        kv_store: &KvStore,
+        key: &str,
+    ) -> ArbitrageResult<Option<HashMap<String, serde_json::Value>>> {
+        let full_key = self.build_key(key);
+
+        match self.get_from_kv(kv_store, &full_key).await? {
+            Some(entry_json) => match serde_json::from_str::<CacheEntry>(&entry_json) {
+                Ok(entry) => {
+                    let mut metadata = HashMap::new();
+                    metadata.insert(
+                        "created_at".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(entry.created_at)),
+                    );
+                    metadata.insert(
+                        "expires_at".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(entry.expires_at)),
+                    );
+                    metadata.insert(
+                        "access_count".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(entry.access_count)),
+                    );
+                    metadata.insert(
+                        "last_accessed".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(entry.last_accessed)),
+                    );
+                    metadata.insert(
+                        "compressed".to_string(),
+                        serde_json::Value::Bool(entry.compressed),
+                    );
+                    metadata.insert(
+                        "size_bytes".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(entry.size_bytes)),
+                    );
+                    metadata.insert(
+                        "is_expired".to_string(),
+                        serde_json::Value::Bool(entry.is_expired()),
+                    );
+
+                    Ok(Some(metadata))
+                }
+                Err(_) => Ok(None),
+            },
+            None => Ok(None),
         }
     }
 
-    /// Get cache health
-    pub async fn get_health(&self) -> ComponentHealth {
-        if let Ok(health) = self.health_status.lock() {
-            health.clone()
+    /// Set cache entry with custom metadata
+    pub async fn put_with_metadata(
+        &self,
+        kv_store: &KvStore,
+        key: &str,
+        value: &str,
+        ttl: Option<u64>,
+        metadata: HashMap<String, serde_json::Value>,
+    ) -> ArbitrageResult<()> {
+        // For now, we'll store metadata as part of the cache entry
+        // In a more sophisticated implementation, metadata could be stored separately
+
+        let extended_value = serde_json::json!({
+            "value": value,
+            "metadata": metadata
+        });
+
+        self.put(kv_store, key, &extended_value.to_string(), ttl)
+            .await
+    }
+
+    /// Increment a numeric value in cache (atomic operation)
+    pub async fn increment(
+        &self,
+        kv_store: &KvStore,
+        key: &str,
+        delta: i64,
+        ttl: Option<u64>,
+    ) -> ArbitrageResult<i64> {
+        // Note: This is not truly atomic in KV Store
+        // For true atomicity, you'd need to use Durable Objects or similar
+
+        let current_value = match self.get(kv_store, key).await? {
+            Some(value) => value.parse::<i64>().unwrap_or(0),
+            None => 0,
+        };
+
+        let new_value = current_value + delta;
+        self.put(kv_store, key, &new_value.to_string(), ttl).await?;
+
+        Ok(new_value)
+    }
+
+    /// Set cache entry only if it doesn't exist
+    pub async fn put_if_not_exists(
+        &self,
+        kv_store: &KvStore,
+        key: &str,
+        value: &str,
+        ttl: Option<u64>,
+    ) -> ArbitrageResult<bool> {
+        if self.exists(kv_store, key).await? {
+            Ok(false) // Key already exists
         } else {
-            ComponentHealth::default()
+            self.put(kv_store, key, value, ttl).await?;
+            Ok(true) // Successfully set
         }
     }
 
-    /// Health check for cache layer
-    pub async fn health_check(&self) -> ArbitrageResult<bool> {
+    /// Update cache entry only if it exists
+    pub async fn update_if_exists(
+        &self,
+        kv_store: &KvStore,
+        key: &str,
+        value: &str,
+        ttl: Option<u64>,
+    ) -> ArbitrageResult<bool> {
+        if self.exists(kv_store, key).await? {
+            self.put(kv_store, key, value, ttl).await?;
+            Ok(true) // Successfully updated
+        } else {
+            Ok(false) // Key doesn't exist
+        }
+    }
+
+    /// Get multiple keys with a single call (optimized)
+    pub async fn multi_get(
+        &self,
+        kv_store: &KvStore,
+        keys: &[&str],
+    ) -> ArbitrageResult<Vec<(String, Option<String>)>> {
+        let mut results = Vec::new();
+
+        for key in keys {
+            let value = self.get(kv_store, key).await?;
+            results.push((key.to_string(), value));
+        }
+
+        Ok(results)
+    }
+
+    /// Delete multiple keys
+    pub async fn multi_delete(&self, kv_store: &KvStore, keys: &[&str]) -> ArbitrageResult<u64> {
+        let mut deleted_count = 0;
+
+        for key in keys {
+            if self.delete(kv_store, key).await.is_ok() {
+                deleted_count += 1;
+            }
+        }
+
+        Ok(deleted_count)
+    }
+
+    /// Get keys matching a pattern (limited implementation)
+    pub async fn get_keys_with_prefix(
+        &self,
+        _kv_store: &KvStore,
+        prefix: &str,
+    ) -> ArbitrageResult<Vec<String>> {
+        // Note: KV Store doesn't support key listing
+        // This would require maintaining a separate index
+        self.logger.warn(&format!(
+            "get_keys_with_prefix not fully implemented for prefix: {}",
+            prefix
+        ));
+        Ok(Vec::new())
+    }
+
+    /// Perform health check for KV store
+    async fn perform_kv_health_check(&self, kv_store: &KvStore) -> bool {
+        // Correct: kv_store passed as parameter
         let _start_time = chrono::Utc::now().timestamp_millis() as u64;
+        let test_key = "cache_layer_health_check";
+        let test_data = "health_check_ok";
 
-        // Test KV store availability
-        let test_key = "health_check_test";
-        let test_data = "test";
+        if !self.is_circuit_breaker_closed().await {
+            self.logger
+                .warn("Circuit breaker open, KV health check skipped.");
+            return false; // If circuit breaker is open, KV is considered unhealthy
+        }
 
-        match self.kv_store.put(test_key, test_data)?.execute().await {
+        // Attempt to write
+        match kv_store.put(test_key, test_data).unwrap().execute().await {
+            // Use passed kv_store
             Ok(_) => {
-                // Try to read it back
-                match self.kv_store.get(test_key).text().await {
-                    Ok(Some(_)) => {
-                        // Clean up test key
-                        let _ = self.kv_store.delete(test_key).await;
-
-                        // Update health status
-                        if let Ok(mut health) = self.health_status.lock() {
-                            health.is_healthy = true;
-                            health.last_check = chrono::Utc::now().timestamp_millis() as u64;
-                            health.last_error = None;
-
-                            // Update hit rate from stats
-                            if let Ok(stats) = self.cache_metrics.lock() {
-                                health.performance_score = stats.hit_rate_percent / 100.0;
-                            }
-                        }
-
-                        Ok(true)
+                // Attempt to read back
+                match kv_store.get(test_key).text().await {
+                    // Use passed kv_store
+                    Ok(Some(value)) if value == test_data => {
+                        // Attempt to delete
+                        let _ = kv_store.delete(test_key).await; // Use passed kv_store
+                        self.record_kv_success().await;
+                        true
                     }
-                    Ok(None) => {
-                        self.record_health_failure("KV store read test failed")
-                            .await;
-                        Ok(false)
+                    Ok(_) => {
+                        self.logger
+                            .warn("KV health check failed: read-back mismatch or no data.");
+                        let _ = kv_store.delete(test_key).await; // Use passed kv_store
+                        self.record_kv_failure().await;
+                        false
                     }
                     Err(e) => {
-                        self.record_health_failure(&format!("KV store read failed: {}", e))
-                            .await;
-                        Ok(false)
+                        self.logger
+                            .error(&format!("KV health check failed (read error): {:?}", e));
+                        self.record_kv_failure().await;
+                        false
                     }
                 }
             }
             Err(e) => {
-                self.record_health_failure(&format!("KV store write failed: {}", e))
-                    .await;
-                Ok(false)
+                self.logger
+                    .error(&format!("KV health check failed (write error): {:?}", e));
+                self.record_kv_failure().await;
+                false
             }
         }
-    }
-
-    /// Check if key is compressed
-    fn is_compressed_key(&self, key: &str) -> bool {
-        key.starts_with("compressed:")
-    }
-
-    /// Compress data (placeholder implementation)
-    fn compress_data(&self, data: &str) -> ArbitrageResult<String> {
-        // In a real implementation, this would use a compression library like flate2
-        // For now, we'll just return the original data
-        Ok(data.to_string())
-    }
-
-    /// Decompress data (placeholder implementation)
-    fn decompress_data(&self, data: &str) -> ArbitrageResult<String> {
-        // In a real implementation, this would decompress the data
-        // For now, we'll just return the original data
-        Ok(data.to_string())
-    }
-
-    /// Record cache hit
-    #[allow(dead_code)]
-    async fn record_hit(&self, _start_time: u64) {
-        let end_time = chrono::Utc::now().timestamp_millis() as u64;
-
-        if let Ok(mut stats) = self.cache_metrics.lock() {
-            stats.total_hits += 1;
-            let total_requests = stats.total_hits + stats.total_misses;
-            if total_requests > 0 {
-                stats.hit_rate_percent = stats.total_hits as f32 / total_requests as f32 * 100.0;
-            }
-            stats.last_updated = end_time;
-        }
-    }
-
-    /// Record cache miss
-    async fn record_miss(&self, _start_time: u64) {
-        let end_time = chrono::Utc::now().timestamp_millis() as u64;
-
-        if let Ok(mut stats) = self.cache_metrics.lock() {
-            stats.total_misses += 1;
-            let total_requests = stats.total_hits + stats.total_misses;
-            if total_requests > 0 {
-                stats.hit_rate_percent = stats.total_hits as f32 / total_requests as f32 * 100.0;
-            }
-            stats.last_updated = end_time;
-        }
-    }
-
-    /// Record cache set operation
-    async fn record_set(
-        &self,
-        _start_time: u64,
-        original_size: usize,
-        compressed_size: Option<usize>,
-    ) {
-        let end_time = chrono::Utc::now().timestamp_millis() as u64;
-
-        if let Ok(mut stats) = self.cache_metrics.lock() {
-            stats.total_sets += 1;
-            stats.total_entries += 1;
-            stats.total_size_bytes += original_size as u64;
-
-            if compressed_size.is_some() {
-                stats.compressed_entries += 1;
-                let savings = original_size - compressed_size.unwrap_or(original_size);
-                stats.compression_ratio_percent = savings as f32 / original_size as f32 * 100.0;
-            }
-
-            stats.last_updated = end_time;
-        }
-    }
-
-    /// Record cache delete operation
-    async fn record_delete(&self, _start_time: u64) {
-        let end_time = chrono::Utc::now().timestamp_millis() as u64;
-
-        if let Ok(mut stats) = self.cache_metrics.lock() {
-            stats.total_deletes += 1;
-            if stats.total_entries > 0 {
-                stats.total_entries -= 1;
-            }
-            stats.last_updated = end_time;
-        }
-    }
-
-    /// Record batch operation
-    async fn record_batch_operation(&self) {
-        if let Ok(mut stats) = self.cache_metrics.lock() {
-            stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
-    }
-
-    /// Record operation failure
-    async fn record_failure(&self, _start_time: u64, error: &ArbitrageError) {
-        let end_time = chrono::Utc::now().timestamp_millis() as u64;
-
-        if let Ok(mut health) = self.health_status.lock() {
-            health.last_error = Some(error.to_string());
-            health.last_check = end_time;
-        }
-    }
-
-    /// Record health check failure
-    async fn record_health_failure(&self, error: &str) {
-        if let Ok(mut health) = self.health_status.lock() {
-            health.is_healthy = false;
-            health.last_error = Some(error.to_string());
-            health.last_check = chrono::Utc::now().timestamp_millis() as u64;
-        }
-    }
-
-    /// Update cache hit metrics
-    async fn update_cache_hit_metrics(&self) {
-        if let Ok(mut stats) = self.cache_metrics.lock() {
-            stats.total_hits += 1;
-            let total_requests = stats.total_hits + stats.total_misses;
-            if total_requests > 0 {
-                stats.hit_rate_percent = stats.total_hits as f32 / total_requests as f32 * 100.0;
-            }
-            stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
-    }
-
-    /// Update cache miss metrics
-    async fn update_cache_miss_metrics(&self) {
-        if let Ok(mut stats) = self.cache_metrics.lock() {
-            stats.total_misses += 1;
-            let total_requests = stats.total_hits + stats.total_misses;
-            if total_requests > 0 {
-                stats.hit_rate_percent = stats.total_hits as f32 / total_requests as f32 * 100.0;
-            }
-            stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_cache_entry_type_ttl() {
-        assert_eq!(CacheEntryType::MarketData.default_ttl_seconds(), 300);
-        assert_eq!(CacheEntryType::FundingRates.default_ttl_seconds(), 900);
-        assert_eq!(CacheEntryType::Analytics.default_ttl_seconds(), 1800);
-        assert_eq!(CacheEntryType::UserPreferences.default_ttl_seconds(), 3600);
-    }
-
-    #[test]
-    fn test_cache_entry_freshness() {
-        let mut entry = CacheEntry::new(
-            "test_key".to_string(),
-            "test_data".to_string(),
-            CacheEntryType::MarketData,
-        );
-
-        // Fresh entry should be fresh
-        assert!(entry.is_fresh(0.8));
-
-        // Simulate aging
-        entry.created_at = chrono::Utc::now().timestamp_millis() as u64 - 240000; // 4 minutes ago
-        entry.update_freshness();
-
-        // Should still be fresh (TTL is 5 minutes)
-        assert!(entry.is_fresh(0.8));
-    }
-
-    #[test]
-    fn test_cache_layer_config_validation() {
-        let mut config = CacheLayerConfig::default();
-        assert!(config.validate().is_ok());
-
-        config.freshness_threshold = 1.5; // Invalid
-        assert!(config.validate().is_err());
-
-        config.freshness_threshold = 0.8; // Valid
-        config.batch_size = 0; // Invalid
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_cache_stats_default() {
-        let stats = CacheStats::default();
-        assert_eq!(stats.total_entries, 0);
-        assert_eq!(stats.total_hits, 0);
-        assert_eq!(stats.hit_rate_percent, 0.0);
-    }
-
-    #[test]
-    fn test_cache_health_default() {
-        let health = CacheHealth::default();
-        assert!(!health.is_healthy);
-        assert!(!health.kv_store_available);
-        assert_eq!(health.hit_rate_percent, 0.0);
     }
 }

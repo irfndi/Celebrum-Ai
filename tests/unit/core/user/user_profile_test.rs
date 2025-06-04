@@ -386,9 +386,11 @@ impl MockUserProfileService {
             user_id.to_string(),
             exchange,
             api_key_encrypted,
-            secret_encrypted,
-            permissions,
+            Some(secret_encrypted),
+            false, // is_testnet - Assuming false for test, adjust if needed
         );
+        // Note: The 'permissions' argument was removed as it's not part of new_exchange_key
+        // and is handled internally by new_exchange_key or set separately.
 
         self.d1_service
             .mock_store_user_api_key(user_id, &user_api_key)
@@ -438,7 +440,7 @@ impl MockUserProfileService {
     }
 
     async fn mock_store_user_session(&mut self, session: &UserSession) -> ArbitrageResult<()> {
-        let key = format!("user_session:{}", session.telegram_chat_id);
+        let key = format!("user_session:{}", session.telegram_user_id);
         let value = serde_json::to_string(session).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize session: {}", e))
         })?;
@@ -476,8 +478,11 @@ impl MockUserProfileService {
         expires_in_days: Option<u32>,
         created_by: Option<String>,
     ) -> ArbitrageResult<InvitationCode> {
-        let mut invitation = InvitationCode::new(purpose, max_uses, expires_in_days);
-        invitation.created_by = created_by;
+        let created_by_user_id_str =
+            created_by.unwrap_or_else(|| "mock_user_id_for_test".to_string());
+        let invitation =
+            InvitationCode::new(purpose, max_uses, expires_in_days, created_by_user_id_str);
+        // The `created_by` field is already set by InvitationCode::new
 
         self.mock_store_invitation_code(&invitation).await?;
         Ok(invitation)

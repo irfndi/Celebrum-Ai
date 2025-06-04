@@ -281,7 +281,7 @@ impl AIDataRepository {
 
         let success = result
             .meta()
-            .map(|meta| meta.unwrap().changes.unwrap_or(0) > 0)
+            .and_then(|meta| Some(meta.changes > 0))
             .unwrap_or(false);
 
         if success && self.config.enable_caching {

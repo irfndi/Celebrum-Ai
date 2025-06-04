@@ -18,6 +18,7 @@ use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
 pub trait NotificationSender: Send + Sync {
+    fn clone_box(&self) -> Box<dyn NotificationSender>;
     async fn send_opportunity_notification(
         &self,
         chat_id: &str,
@@ -28,10 +29,12 @@ pub trait NotificationSender: Send + Sync {
     async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()>;
 }
 
-// WASM version without Send + Sync bounds
+// WASM version with Send + Sync bounds
 #[cfg(target_arch = "wasm32")]
-#[async_trait::async_trait(?Send)]
-pub trait NotificationSender {
+#[async_trait::async_trait] // Removed ?Send
+pub trait NotificationSender: Send + Sync {
+    fn clone_box(&self) -> Box<dyn NotificationSender>;
+    // Added Send + Sync
     async fn send_opportunity_notification(
         &self,
         chat_id: &str,
@@ -40,10 +43,16 @@ pub trait NotificationSender {
     ) -> ArbitrageResult<bool>;
 
     async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()>;
+}
+
+impl Clone for Box<dyn NotificationSender> {
+    fn clone(&self) -> Box<dyn NotificationSender> {
+        self.clone_box()
+    }
 }
 
 /// Configuration for opportunity distribution
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DistributionConfig {
     pub max_opportunities_per_user_per_hour: u32,
     pub max_opportunities_per_user_per_day: u32,
@@ -79,7 +88,22 @@ pub struct OpportunityDistributionService {
     ai_coordinator: Option<AICoordinator>,
     queue_manager: Option<QueueManager>,
     config: DistributionConfig,
-    notification_sender: Option<Box<dyn NotificationSender>>,
+    notification_sender: Option<Box<dyn NotificationSender>>, // Simplified: Trait itself is Send + Sync
+}
+
+impl Clone for OpportunityDistributionService {
+    fn clone(&self) -> Self {
+        OpportunityDistributionService {
+            database_repositories: self.database_repositories.clone(),
+            data_access_layer: self.data_access_layer.clone(),
+            session_service: self.session_service.clone(),
+            data_ingestion_module: self.data_ingestion_module.clone(),
+            ai_coordinator: self.ai_coordinator.clone(),
+            queue_manager: self.queue_manager.clone(),
+            config: self.config.clone(),
+            notification_sender: self.notification_sender.as_ref().map(|ns| ns.clone_box()),
+        }
+    }
 }
 
 impl OpportunityDistributionService {
@@ -132,30 +156,19 @@ impl OpportunityDistributionService {
         // Create global opportunity with metadata
         let global_opportunity = GlobalOpportunity {
             id: format!("global_arb_{}", opportunity.id),
-            opportunity_id: opportunity.id.clone(),
+            source: OpportunitySource::SystemGenerated, // Added missing field
             opportunity_type: OpportunitySource::SystemGenerated,
-            trading_pair: opportunity.pair.clone(),
-            exchanges: vec![
-                opportunity.long_exchange.as_str().to_string(),
-                opportunity.short_exchange.as_str().to_string(),
-            ],
-            profit_percentage: opportunity.rate_difference * 100.0,
-            confidence_score: opportunity.confidence,
-            risk_level: "medium".to_string(),
             created_at: start_time,
             expires_at: start_time + (10 * 60 * 1000), // 10 minutes
-            metadata: serde_json::json!({}),
             distributed_to: Vec::new(),
             max_participants: Some(100),
             current_participants: 0,
             distribution_strategy: DistributionStrategy::FirstComeFirstServe,
-            arbitrage_opportunity: opportunity.clone(),
             opportunity_data: OpportunityData::Arbitrage(opportunity.clone()),
             ai_insights: None,
-            source: OpportunitySource::SystemGenerated,
             detection_timestamp: start_time,
-            priority: 5,
-            priority_score: 0.5,
+            priority: 5,         // Default priority, can be adjusted by AI
+            priority_score: 0.5, // Default score, can be adjusted by AI
             ai_enhanced: false,
             ai_confidence_score: None,
             target_users: Vec::new(),
@@ -623,7 +636,14 @@ impl OpportunityDistributionService {
         &self,
         opportunity: &GlobalOpportunity,
     ) -> ArbitrageResult<String> {
-        let arb = &opportunity.arbitrage_opportunity;
+        let arb = match &opportunity.opportunity_data {
+            OpportunityData::Arbitrage(arb_data) => arb_data,
+            _ => {
+                return Err(ArbitrageError::internal_error(
+                    "Arbitrage data not found or not of expected type".to_string(),
+                ))
+            }
+        };
 
         let mut message = format!(
             "🚀 **Arbitrage Opportunity**\n\n\
@@ -658,7 +678,15 @@ impl OpportunityDistributionService {
         &self,
         opportunity: &GlobalOpportunity,
     ) -> ArbitrageResult<String> {
-        let arb = &opportunity.arbitrage_opportunity;
+        let arb = match &opportunity.opportunity_data {
+            // Corrected: direct match
+            crate::types::OpportunityData::Arbitrage(arb_data) => arb_data,
+            _ => {
+                return Err(ArbitrageError::internal_error(
+                    "Arbitrage data not found or not of expected type".to_string(),
+                ))
+            }
+        };
 
         let mut message = format!(
             "🚀 **New Arbitrage Opportunity**\n\n\
@@ -703,14 +731,19 @@ impl OpportunityDistributionService {
             .await?;
 
         // Record in analytics
-        let analytics_key = format!("opportunity_sent:{}:{}", user_id, opportunity.id);
+        let analytics_key = format!(
+            "opportunity_sent:{}:{}:{}",
+            user_id,
+            opportunity.id,
+            opportunity.get_pair()
+        ); // Corrected: removed unwrap_or_default()
         let analytics_data = serde_json::json!({
             "user_id": user_id,
             "opportunity_id": opportunity.id,
             "opportunity_type": opportunity.get_opportunity_type(),
             "pair": opportunity.get_pair(),
             "timestamp": chrono::Utc::now().timestamp_millis(),
-            "rate_difference": opportunity.arbitrage_opportunity.rate_difference,
+            "rate_difference": opportunity.opportunity_data.as_arbitrage().map_or(0.0, |ao| ao.rate_difference),
             "ai_enhanced": opportunity.ai_enhanced
         });
 

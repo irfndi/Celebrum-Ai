@@ -24,6 +24,7 @@ use worker::kv::KvStore;
 
 /// Unified opportunity engine that orchestrates all opportunity services
 /// Eliminates redundancy by consolidating logic from personal, group, global, and legacy services
+#[derive(Clone)]
 pub struct OpportunityEngine {
     // Core components
     market_analyzer: Arc<MarketAnalyzer>,
@@ -52,7 +53,7 @@ impl OpportunityEngine {
         let access_manager = Arc::new(AccessManager::new(
             user_profile_service.clone(),
             user_access_service,
-            kv_store.clone(),
+            Arc::new(kv_store.clone()),
         ));
 
         // Create market analyzer without exchange service for now
@@ -607,12 +608,12 @@ impl OpportunityEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{SubscriptionTier, UserAccessLevel, UserConfiguration, UserProfile};
+    use crate::types::{SubscriptionTier, UserAccessLevel, UserProfile};
     use chrono::Utc;
 
     fn create_test_user_profile(user_id: &str) -> UserProfile {
         UserProfile {
-            user_id: "test_user".to_string(),
+            user_id: user_id.to_string(),
             telegram_user_id: Some(123456789),
             username: Some("testuser".to_string()),
             email: Some("test@example.com".to_string()),
@@ -628,13 +629,17 @@ mod tests {
             invitation_code: None,
             beta_expires_at: None,
             updated_at: Utc::now().timestamp_millis() as u64,
-            last_active: Some(Utc::now().timestamp_millis() as u64),
+            last_active: Utc::now().timestamp_millis() as u64, // Corrected: last_active is u64, not Option<u64>
+            invitation_code_used: None,
+            invited_by: None,
+            total_invitations_sent: 0,
+            successful_invitations: 0,
             total_trades: 0,
             total_pnl_usdt: 0.0,
             account_balance_usdt: 0.0,
             profile_metadata: None,
-            telegram_username: Some("testuser".to_string()),
-            subscription: crate::types::UserSubscription::default(),
+            telegram_username: Some("testuser".to_string()), // This was duplicated, user_id is already test_user
+            subscription: crate::types::Subscription::default(), // Corrected to use Subscription::default()
             group_admin_roles: Vec::new(),
         }
     }

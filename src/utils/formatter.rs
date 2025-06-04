@@ -524,7 +524,7 @@ pub fn format_opportunity_message(opportunity: &ArbitrageOpportunity) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
+    use crate::types::{ArbitrageOpportunity, ExchangeIdEnum};
 
     #[test]
     fn test_escape_markdown_v2() {

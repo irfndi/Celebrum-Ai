@@ -1,4 +1,5 @@
 // src/services/positions.rs
+use std::sync::Arc;
 
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::{
@@ -7,69 +8,33 @@ use crate::types::{
     RiskManagementConfig,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use std::collections::HashMap;
-use worker::kv::KvStore;
+// use std::collections::HashMap; // Removed unused import
+// use worker::kv::KvStore; // Replaced with KvOperations trait
+use crate::services::core::trading::{KvOperationError, KvOperations, KvResult};
 
-// Trait for KV store operations that can be implemented by both real KvStore and mock stores
-pub trait KvStoreInterface {
-    #[allow(async_fn_in_trait)]
-    async fn get(&self, key: &str) -> Result<Option<String>, String>;
-    #[allow(async_fn_in_trait)]
-    async fn put(&self, key: &str, value: String) -> Result<(), String>;
+// PositionsService now uses a generic KV store
+#[derive(Clone)]
+pub struct PositionsService<T: KvOperations + Send + Sync + 'static> {
+    kv_store: Arc<T>,
+    user_profile_service: Option<UserProfileService>,
 }
 
-// Implementation of KvStoreInterface for production KvStore
-impl KvStoreInterface for KvStore {
-    async fn get(&self, key: &str) -> Result<Option<String>, String> {
-        self.get(key).text().await.map_err(|e| e.to_string())
-    }
-
-    async fn put(&self, key: &str, value: String) -> Result<(), String> {
-        self.put(key, value)
-            .map_err(|e| e.to_string())?
-            .execute()
-            .await
-            .map_err(|e| e.to_string())
-    }
-}
-
-// Simple in-memory mock for testing
-#[derive(Clone, Default)]
-pub struct InMemoryKvStore {
-    data: std::sync::Arc<std::sync::Mutex<HashMap<String, String>>>,
-}
-
-impl InMemoryKvStore {
-    pub fn new() -> Self {
-        Self {
-            data: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
-        }
-    }
-}
-
-impl KvStoreInterface for InMemoryKvStore {
-    async fn get(&self, key: &str) -> Result<Option<String>, String> {
-        Ok(self.data.lock().unwrap().get(key).cloned())
-    }
-
-    async fn put(&self, key: &str, value: String) -> Result<(), String> {
-        self.data.lock().unwrap().insert(key.to_string(), value);
-        Ok(())
-    }
-}
-
-// Generic PositionsService that works with any KvStoreInterface
-pub struct PositionsService<K: KvStoreInterface> {
-    kv_store: K,
-    user_profile_service: Option<UserProfileService>, // Optional for initialization, required for RBAC
-}
-
-impl<K: KvStoreInterface> PositionsService<K> {
-    pub fn new(kv_store: K) -> Self {
+impl<T: KvOperations + Send + Sync + 'static> PositionsService<T> {
+    pub fn new(kv_store: Arc<T>) -> Self {
         Self {
             kv_store,
-            user_profile_service: None, // Will be injected via set_user_profile_service
+            user_profile_service: None,
         }
+    }
+
+    // Helper to create a KvStore key for a position
+    fn position_key(id: &str) -> String {
+        format!("position:{}", id)
+    }
+
+    // Helper to create a KvStore key for user positions
+    fn user_positions_key(user_id: &str) -> String {
+        format!("user_positions:{}", user_id)
     }
 
     /// Set the UserProfile service for database-based RBAC
@@ -149,6 +114,7 @@ impl<K: KvStoreInterface> PositionsService<K> {
             ));
         }
 
+        let now_ms = chrono::Utc::now().timestamp_millis() as u64;
         let position = ArbitragePosition {
             id: id.clone(),
             user_id: "system".to_string(), // TODO: Use actual user_id
@@ -182,7 +148,7 @@ impl<K: KvStoreInterface> PositionsService<K> {
             },
             short_position: Position {
                 info: serde_json::json!({}),
-                id: None,
+                id: None, // Short position might not have an ID initially
                 symbol: position_data.pair.clone(),
                 timestamp: now,
                 datetime: chrono::DateTime::from_timestamp(now as i64 / 1000, 0)
@@ -191,10 +157,10 @@ impl<K: KvStoreInterface> PositionsService<K> {
                 isolated: Some(false),
                 hedged: Some(false),
                 side: "short".to_string(),
-                amount: 0.0,
+                amount: 0.0, // Assuming short side is not opened yet or handled elsewhere
                 contracts: None,
                 contract_size: None,
-                entry_price: None,
+                entry_price: None, // No entry for short side yet
                 mark_price: None,
                 notional: None,
                 leverage: Some(1.0),
@@ -213,41 +179,59 @@ impl<K: KvStoreInterface> PositionsService<K> {
             realized_pnl: 0.0,
             unrealized_pnl: 0.0,
             total_fees: 0.0,
-            risk_score: 0.5,
-            margin_used: 0.0,
+            risk_score: 0.5,  // This is f64, not Option<f64>
+            margin_used: 0.0, // This is f64, not Option<f64>
             symbol: position_data.pair.clone(),
             side: position_data.side,
             entry_price_long: position_data.entry_price_long,
             take_profit_price: None,
             volatility_score: None,
             calculated_size_usd: calculated_size_usd_for_audit,
-            long_exchange: position_data.exchange,
+            long_exchange: position_data.exchange, // This is ExchangeIdEnum, not Option<ExchangeIdEnum>
             size: Some(final_size_base_currency),
             pnl: Some(0.0),
             unrealized_pnl_percentage: Some(0.0),
-            max_drawdown: Some(0.0),
+            max_drawdown: None,
             created_at: now,
-            holding_period_hours: Some(0.0),
+            holding_period_hours: None,
             trailing_stop_distance: None,
             stop_loss_price: None,
-            current_price: Some(position_data.entry_price_long),
-            max_loss_usd: None,
+            closed_at: None,
+            current_price_long: Some(45100.0),  // Example value
+            current_price_short: Some(45050.0), // Example value
+            updated_at: now_ms,
+            short_exchange: ExchangeIdEnum::Kraken, // Corrected type
+            current_price: None,                    // Should be updated by market data later
+            max_loss_usd: None, // TODO: Calculate if stop_loss_price and size are known
             exchange: position_data.exchange,
-            pair: position_data.pair.clone(),
+            pair: position_data.pair,
             related_positions: Vec::new(),
-            updated_at: now,
+            entry_price_short: 0.0, // Added: Initialize with a default value
             risk_reward_ratio: None,
+            last_optimization_check: None,
+            hedge_position_id: None,
+            position_group_id: None, // TODO: Consider if this needs a value
+            current_state: Some("created".to_string()), // Initial state
+            recommended_action: None,
+            risk_percentage_applied: _risk_percentage_applied_for_audit,
+            optimization_score: None,
         };
 
         // Store position
-        let key = format!("position:{}", id);
+        let key = Self::position_key(&id); // Use helper
         let value = serde_json::to_string(&position).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize position: {}", e))
         })?;
 
-        self.kv_store.put(&key, value).await.map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to store position: {}", e))
-        })?;
+        self.kv_store
+            .put(&key, &position) // Pass position directly, trait method handles serialization
+            .await
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!(
+                    "KV store put operation failed for position {}: {:?}",
+                    position.id, e
+                ))
+            })?;
 
         // Update position index
         self.add_to_position_index(&id).await?;
@@ -256,19 +240,15 @@ impl<K: KvStoreInterface> PositionsService<K> {
     }
 
     pub async fn get_position(&self, id: &str) -> ArbitrageResult<Option<ArbitragePosition>> {
-        let key = format!("position:{}", id);
+        let key = Self::position_key(id); // Use helper
 
-        match self.kv_store.get(&key).await {
-            Ok(Some(value)) => {
-                let position: ArbitragePosition = serde_json::from_str(&value).map_err(|e| {
-                    ArbitrageError::parse_error(format!("Failed to deserialize position: {}", e))
-                })?;
-                Ok(Some(position))
-            }
+        match self.kv_store.get::<ArbitragePosition>(&key).await {
+            Ok(Some(position)) => Ok(Some(position)),
             Ok(None) => Ok(None),
+            Err(KvOperationError::NotFound(_)) => Ok(None), // Explicitly handle NotFound from KvOperations
             Err(e) => Err(ArbitrageError::database_error(format!(
-                "Failed to get position: {}",
-                e
+                "Failed to get position {}: {:?}",
+                id, e
             ))),
         }
     }
@@ -301,14 +281,20 @@ impl<K: KvStoreInterface> PositionsService<K> {
         position.updated_at = chrono::Utc::now().timestamp_millis() as u64;
 
         // Store updated position
-        let key = format!("position:{}", id);
+        let key = Self::position_key(id); // Use helper
         let value = serde_json::to_string(&position).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize position: {}", e))
         })?;
 
-        self.kv_store.put(&key, value).await.map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to store position: {}", e))
-        })?;
+        self.kv_store
+            .put(&key, &position) // Pass position directly, trait method handles serialization
+            .await
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!(
+                    "KV store put operation failed for position {}: {:?}",
+                    position.id, e
+                ))
+            })?;
 
         Ok(Some(position))
     }
@@ -357,19 +343,12 @@ impl<K: KvStoreInterface> PositionsService<K> {
 
     // Helper methods for position index management
     async fn get_position_index(&self) -> ArbitrageResult<Vec<String>> {
-        match self.kv_store.get("positions:index").await {
-            Ok(Some(value)) => {
-                let ids: Vec<String> = serde_json::from_str(&value).map_err(|e| {
-                    ArbitrageError::parse_error(format!(
-                        "Failed to deserialize position index: {}",
-                        e
-                    ))
-                })?;
-                Ok(ids)
-            }
-            Ok(None) => Ok(Vec::new()),
+        match self.kv_store.get::<Vec<String>>("positions:index").await {
+            Ok(Some(ids)) => Ok(ids),
+            Ok(None) => Ok(Vec::new()), // If no index exists, return an empty Vec
+            Err(KvOperationError::NotFound(_)) => Ok(Vec::new()), // Explicitly handle NotFound
             Err(e) => Err(ArbitrageError::database_error(format!(
-                "Failed to get position index: {}",
+                "Failed to get position index: {:?}",
                 e
             ))),
         }
@@ -393,16 +372,15 @@ impl<K: KvStoreInterface> PositionsService<K> {
     }
 
     async fn save_position_index(&self, index: &[String]) -> ArbitrageResult<()> {
-        let value = serde_json::to_string(index).map_err(|e| {
-            ArbitrageError::parse_error(format!("Failed to serialize position index: {}", e))
-        })?;
-
         self.kv_store
-            .put("positions:index", value)
+            .put("positions:index", index)
             .await
             .map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to store position index: {}", e))
-            })?;
+                ArbitrageError::storage_error(format!(
+                    "KV store put operation failed for index: {:?}",
+                    e
+                ))
+            })?; // Removed .execute().await as it's handled by the trait
 
         Ok(())
     }
@@ -452,14 +430,20 @@ impl<K: KvStoreInterface> PositionsService<K> {
         position.max_loss_usd = Some(price_diff * position.size.unwrap_or(0.0));
 
         // Store updated position
-        let key = format!("position:{}", position_id);
+        let key = Self::position_key(position_id); // Use helper
         let value = serde_json::to_string(&position).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize position: {}", e))
         })?;
 
-        self.kv_store.put(&key, value).await.map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to store position: {}", e))
-        })?;
+        self.kv_store
+            .put(&key, &position) // Pass position directly, trait method handles serialization
+            .await
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!(
+                    "KV store put operation failed for position {}: {:?}",
+                    position.id, e
+                ))
+            })?;
 
         Ok(true)
     }
@@ -511,14 +495,20 @@ impl<K: KvStoreInterface> PositionsService<K> {
         }
 
         // Store updated position
-        let key = format!("position:{}", position_id);
+        let key = Self::position_key(position_id); // Use helper
         let value = serde_json::to_string(&position).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize position: {}", e))
         })?;
 
-        self.kv_store.put(&key, value).await.map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to store position: {}", e))
-        })?;
+        self.kv_store
+            .put(&key, &position) // Pass position directly, trait method handles serialization
+            .await
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!(
+                    "KV store put operation failed for position {}: {:?}",
+                    position.id, e
+                ))
+            })?;
 
         Ok(true)
     }
@@ -544,14 +534,20 @@ impl<K: KvStoreInterface> PositionsService<K> {
         position.updated_at = chrono::Utc::now().timestamp_millis() as u64;
 
         // Store updated position
-        let key = format!("position:{}", position_id);
+        let key = Self::position_key(position_id); // Use helper
         let value = serde_json::to_string(&position).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize position: {}", e))
         })?;
 
-        self.kv_store.put(&key, value).await.map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to store position: {}", e))
-        })?;
+        self.kv_store
+            .put(&key, &position) // Pass position directly, trait method handles serialization
+            .await
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!(
+                    "KV store put operation failed for position {}: {:?}",
+                    position.id, e
+                ))
+            })?;
 
         Ok(true)
     }
@@ -646,9 +642,15 @@ impl<K: KvStoreInterface> PositionsService<K> {
             ArbitrageError::parse_error(format!("Failed to serialize position: {}", e))
         })?;
 
-        self.kv_store.put(&key, value).await.map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to store position: {}", e))
-        })?;
+        self.kv_store
+            .put(&key, &position) // Pass position directly, trait method handles serialization
+            .await
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!(
+                    "KV store put operation failed for position {}: {:?}",
+                    position.id, e
+                ))
+            })?;
 
         Ok(true)
     }
@@ -755,9 +757,15 @@ impl<K: KvStoreInterface> PositionsService<K> {
             ArbitrageError::parse_error(format!("Failed to serialize position: {}", e))
         })?;
 
-        self.kv_store.put(&key, value).await.map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to store position: {}", e))
-        })?;
+        self.kv_store
+            .put(&key, &position) // Pass position directly, trait method handles serialization
+            .await
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!(
+                    "KV store put operation failed for position {}: {:?}",
+                    position.id, e
+                ))
+            })?;
 
         Ok(true)
     }
@@ -895,7 +903,8 @@ impl<K: KvStoreInterface> PositionsService<K> {
 
     /// Calculate total exposure across all positions
     pub async fn calculate_total_exposure(&self) -> ArbitrageResult<f64> {
-        let positions = self.get_all_positions().await?;
+        // Removed kv_store argument
+        let positions = self.get_all_positions().await?; // Removed kv_store argument from call
         let total_exposure = positions
             .iter()
             .filter(|pos| pos.status == PositionStatus::Open)
@@ -932,7 +941,7 @@ impl<K: KvStoreInterface> PositionsService<K> {
 
         // Check positions per exchange limit
         let exchange_positions = self
-            .get_positions_by_exchange(&position_data.exchange)
+            .get_positions_by_exchange(&position_data.exchange) // Removed &self.kv_store argument
             .await?;
         let open_positions_count = exchange_positions
             .iter()
@@ -947,7 +956,9 @@ impl<K: KvStoreInterface> PositionsService<K> {
         }
 
         // Check positions per pair limit
-        let pair_positions = self.get_positions_by_pair(&position_data.pair).await?;
+        let pair_positions = self
+            .get_positions_by_pair(&position_data.pair) // Removed &self.kv_store argument
+            .await?;
         let open_pair_positions_count = pair_positions
             .iter()
             .filter(|pos| pos.status == PositionStatus::Open)
@@ -982,7 +993,8 @@ impl<K: KvStoreInterface> PositionsService<K> {
         }
 
         // Call the original create_position method
-        self.create_position(position_data, account_info).await
+        self.create_position(position_data, account_info) // Removed kv_store argument
+            .await
     }
 
     /// RBAC-protected position closure with permission checking
@@ -1066,12 +1078,12 @@ impl<K: KvStoreInterface> PositionsService<K> {
         }
 
         // Call the original get_all_positions method
-        self.get_all_positions().await
+        self.get_all_positions().await // Removed kv_store argument from call
     }
 }
 
 // Type alias for production use with KvStore
-pub type ProductionPositionsService = PositionsService<KvStore>;
+pub type ProductionPositionsService = PositionsService<worker::kv::KvStore>;
 
 // Helper structs for position operations
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1096,43 +1108,112 @@ pub struct UpdatePositionData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::core::trading::{KvOperationError, KvOperations, KvResult};
+    use crate::test_utils::mock_kv_store::MockKvStore;
     use crate::types::ExchangeIdEnum;
+    use std::sync::Arc;
 
     // Helper to create a test position
     fn create_test_position(id: &str, pair: &str) -> ArbitragePosition {
+        let now_ms = chrono::Utc::now().timestamp_millis() as u64;
         ArbitragePosition {
+            entry_price_short: 0.0,  // Added: Initialize with a default value
+            risk_reward_ratio: None, // Added based on struct definition
             id: id.to_string(),
-            exchange: ExchangeIdEnum::Binance,
-            pair: pair.to_string(),
-            side: PositionSide::Long,
-            size: 1000.0, // Base currency amount
-            entry_price_long: 45000.0,
-            current_price: Some(45100.0),
-            pnl: Some(15.5),
+            user_id: "test_user".to_string(),       // Added
+            opportunity_id: "test_opp".to_string(), // Added
+            long_position: Position {
+                // Updated based on Position struct definition
+                info: serde_json::Value::Null,
+                id: Some("long_pos".to_string()),
+                symbol: pair.to_string(),
+                timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                datetime: chrono::Utc::now().to_rfc3339(),
+                isolated: Some(true),
+                hedged: Some(false),
+                side: "long".to_string(), // PositionSide::Long.to_string() or format!("{:?}", PositionSide::Long).to_lowercase(),
+                amount: 1.0,
+                contracts: Some(1.0),
+                contract_size: Some(1.0),
+                entry_price: Some(45000.0),
+                mark_price: Some(45100.0),
+                notional: Some(45000.0),
+                leverage: Some(1.0),
+                collateral: Some(45000.0),
+                initial_margin: Some(1000.0),
+                initial_margin_percentage: Some(0.1),
+                maintenance_margin: Some(500.0),
+                maintenance_margin_percentage: Some(0.05),
+                unrealized_pnl: Some(100.0),
+                realized_pnl: Some(0.0),
+                percentage: Some(1.0),
+            },
+            short_position: Position {
+                // Updated based on Position struct definition
+                info: serde_json::Value::Null,
+                id: Some("short_pos".to_string()),
+                symbol: pair.to_string(),
+                timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                datetime: chrono::Utc::now().to_rfc3339(),
+                isolated: Some(true),
+                hedged: Some(false),
+                side: "short".to_string(), // PositionSide::Short.to_string() or format!("{:?}", PositionSide::Short).to_lowercase(),
+                amount: 1.0,
+                contracts: Some(1.0),
+                contract_size: Some(1.0),
+                entry_price: Some(45000.0),
+                mark_price: Some(44900.0),
+                notional: Some(45000.0),
+                leverage: Some(1.0),
+                collateral: Some(45000.0),
+                initial_margin: Some(1000.0),
+                initial_margin_percentage: Some(0.1),
+                maintenance_margin: Some(500.0),
+                maintenance_margin_percentage: Some(0.05),
+                unrealized_pnl: Some(-100.0),
+                realized_pnl: Some(0.0),
+                percentage: Some(-1.0),
+            },
             status: PositionStatus::Open,
-            created_at: chrono::Utc::now().timestamp_millis() as u64,
-            updated_at: chrono::Utc::now().timestamp_millis() as u64,
-            calculated_size_usd: Some(1000.0 * 45000.0), // Example
-            risk_percentage_applied: None,               // Example
-            // Advanced Risk Management Fields (Task 6)
-            stop_loss_price: None,
+            entry_time: chrono::Utc::now().timestamp_millis() as u64, // Added
+            exit_time: None,                                          // Added
+            realized_pnl: 0.0,                                        // Added
+            unrealized_pnl: 0.0,                                      // Added
+            total_fees: 0.0,                                          // Added
+            risk_score: 0.5,                                          // Added
+            margin_used: 2000.0,                                      // Added
+            symbol: pair.to_string(),                                 // Added
+            side: PositionSide::Long, // This seems to be for the overall arbitrage position
+            entry_price_long: 45000.0,
             take_profit_price: None,
+            volatility_score: None,
+            calculated_size_usd: Some(1000.0 * 45000.0),
+            long_exchange: ExchangeIdEnum::Binance, // Added
+            size: Some(1000.0),                     // Base currency amount - WRAPPED IN SOME
+            pnl: Some(15.5),
+            unrealized_pnl_percentage: None,
+            max_drawdown: None,
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            holding_period_hours: None,
             trailing_stop_distance: None,
+            stop_loss_price: None,
+            closed_at: None,
+            current_price_long: Some(45100.0),  // Example value
+            current_price_short: Some(45050.0), // Example value
+            updated_at: now_ms,
+            short_exchange: ExchangeIdEnum::Kraken, // Corrected type
+            current_price: Some(45100.0),
             max_loss_usd: None,
-            risk_reward_ratio: None,
-            // Multi-Exchange Position Tracking (Task 6)
+            exchange: ExchangeIdEnum::Binance, // This might be redundant or represent the primary exchange
+            pair: pair.to_string(),
             related_positions: Vec::new(),
+            last_optimization_check: None,
             hedge_position_id: None,
             position_group_id: None,
-            // Position Optimization (Task 6)
-            optimization_score: None,
+            current_state: Some("monitoring".to_string()), // Added
             recommended_action: None,
-            last_optimization_check: None,
-            // Advanced Metrics (Task 6)
-            max_drawdown: None,
-            unrealized_pnl_percentage: None,
-            holding_period_hours: None,
-            volatility_score: None,
+            risk_percentage_applied: None,
+            optimization_score: None,
         }
     }
 
@@ -1154,76 +1235,103 @@ mod tests {
         }
     }
 
-    // Test PositionsService with InMemoryKvStore
-    type TestPositionsService = PositionsService<InMemoryKvStore>;
-
     #[tokio::test]
     async fn test_create_position_risk_percentage_sizing() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store);
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(None, Some(0.01), None, 50000.0);
         let result = service.create_position(position_data, &account_info).await;
         assert!(result.is_ok());
         let position = result.unwrap();
-        assert!(position.size > 0.0);
+        assert!(position.size > Some(0.0));
         assert_eq!(position.risk_percentage_applied, Some(0.01));
     }
 
     #[tokio::test]
     async fn test_create_position_risk_percentage_with_max_cap_limiting() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store);
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
-        let position_data = create_test_create_position_data(None, Some(0.1), Some(50.0), 50000.0);
+        let position_data = create_test_create_position_data(None, Some(0.01), Some(50.0), 50000.0);
         let result = service.create_position(position_data, &account_info).await;
         assert!(result.is_ok());
         let position = result.unwrap();
-        assert!(position.size > 0.0);
+        assert!(position.size > Some(0.0));
         // Should be limited by max_size_usd, not the risk percentage
         assert_eq!(position.calculated_size_usd, Some(50.0));
     }
 
     #[tokio::test]
     async fn test_create_position_risk_percentage_with_max_cap_not_limiting() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store);
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(None, Some(0.01), None, 50000.0);
         let result = service.create_position(position_data, &account_info).await;
         assert!(result.is_ok());
         let position = result.unwrap();
-        assert!(position.size > 0.0);
+        assert!(position.size > Some(0.0));
         assert_eq!(position.calculated_size_usd, Some(100.0)); // 10000 * 0.01
     }
 
     #[tokio::test]
     async fn test_create_position_fixed_usd_sizing() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store);
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(Some(1000.0), None, None, 50000.0);
         let result = service.create_position(position_data, &account_info).await;
         assert!(result.is_ok());
         let position = result.unwrap();
-        assert!(position.size > 0.0);
+        assert!(position.size > Some(0.0));
         assert_eq!(position.calculated_size_usd, Some(1000.0));
     }
 
     #[tokio::test]
     async fn test_create_position_error_no_size_specified() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store);
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(None, None, None, 50000.0);
         let result = service.create_position(position_data, &account_info).await;
@@ -1232,10 +1340,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_position_error_zero_entry_price_risk_sizing() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store);
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(None, Some(0.01), None, 0.0);
         let result = service.create_position(position_data, &account_info).await;
@@ -1244,10 +1358,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_position_error_zero_entry_price_fixed_sizing() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store);
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(Some(1000.0), None, None, 0.0);
         let result = service.create_position(position_data, &account_info).await;
@@ -1256,10 +1376,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_position_error_calculated_size_non_positive() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store);
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(None, Some(0.01), None, -10.0);
         let result = service.create_position(position_data, &account_info).await;
@@ -1270,10 +1396,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_stop_loss_long_position() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store.clone()); // Clone Arc for multiple uses
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(Some(1000.0), None, None, 50000.0);
 
@@ -1296,10 +1428,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_stop_loss_validation_error() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store.clone());
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(Some(1000.0), None, None, 50000.0);
 
@@ -1316,10 +1454,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_take_profit_long_position() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store.clone());
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(Some(1000.0), None, None, 50000.0);
 
@@ -1346,10 +1490,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_enable_trailing_stop() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store.clone());
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(Some(1000.0), None, None, 50000.0);
 
@@ -1371,26 +1521,38 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_position_price_and_metrics() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store.clone()); // Pass Arc<MockKvStore>
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(Some(1000.0), None, None, 50000.0);
 
         // Create position
         let position = service
-            .create_position(position_data, &account_info)
+            .create_position(position_data, &account_info) // Removed &kv_store
             .await
             .unwrap();
 
         // Update price
-        let result = service.update_position_price(&position.id, 52000.0).await;
+        let result = service
+            .update_position_price(&position.id, 52000.0) // Removed &kv_store
+            .await;
         assert!(result.is_ok());
         assert!(result.unwrap());
 
         // Verify metrics were calculated
-        let updated_position = service.get_position(&position.id).await.unwrap().unwrap();
+        let updated_position = service
+            .get_position(&position.id) // Removed &kv_store
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(updated_position.current_price, Some(52000.0));
         assert!(updated_position.pnl.is_some());
         assert!(updated_position.unrealized_pnl_percentage.is_some());
@@ -1402,10 +1564,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_risk_triggers_stop_loss() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store.clone());
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
         let position_data = create_test_create_position_data(Some(1000.0), None, None, 50000.0);
 
@@ -1431,10 +1599,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_positions_by_exchange() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store.clone());
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
 
         // Create positions on different exchanges
@@ -1471,10 +1645,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_link_positions() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store.clone());
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
 
         // Create two positions
@@ -1496,22 +1676,32 @@ mod tests {
 
         // Link positions
         let result = service
-            .link_positions(&position1.id, vec![position2.id.clone()])
+            .link_positions(&position1.id, vec![position2.id.clone()]) // Removed &kv_store
             .await;
         assert!(result.is_ok());
         assert!(result.unwrap());
 
         // Verify positions were linked
-        let updated_position = service.get_position(&position1.id).await.unwrap().unwrap();
+        let updated_position = service
+            .get_position(&position1.id) // Removed &kv_store
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(updated_position.related_positions, vec![position2.id]);
     }
 
     #[tokio::test]
     async fn test_analyze_position() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store.clone());
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
 
         // Create position
@@ -1531,24 +1721,32 @@ mod tests {
 
         // Create risk management config
         let config = RiskManagementConfig {
+            max_position_size_percent: 0.1,  // Added
+            max_correlation_threshold: 0.8,  // Added
+            stop_loss_percentage: 0.02,      // Added
+            take_profit_percentage: 0.04,    // Added
+            max_drawdown_percentage: 0.15,   // Added
+            risk_per_trade_percentage: 0.01, // Added
+            min_risk_reward_ratio: 1.5,
+            max_positions_per_exchange: 5,
+            max_positions_per_pair: 2,
+            max_position_size_usd: 10000.0,
+            max_total_exposure_usd: 50000.0,
+            volatility_threshold: 0.05,
+            default_stop_loss_percentage: 2.0,
+            default_take_profit_percentage: 4.0,
             max_portfolio_risk_percentage: 5.0,
             max_single_position_risk_percentage: 2.0,
             enable_stop_loss: true,
             enable_take_profit: true,
             enable_trailing_stop: false,
             correlation_limit: 0.7,
-            volatility_threshold: 0.05,
-            max_position_size_usd: 10000.0,
-            min_risk_reward_ratio: 1.5,
-            default_stop_loss_percentage: 2.0,
-            default_take_profit_percentage: 4.0,
-            max_total_exposure_usd: 50000.0,
-            max_positions_per_exchange: 5,
-            max_positions_per_pair: 2,
         };
 
         // Analyze position
-        let result = service.analyze_position(&position.id, &config).await;
+        let result = service
+            .analyze_position(&position.id, &config) // Removed &kv_store
+            .await;
         assert!(result.is_ok());
         let analysis = result.unwrap();
         assert!(analysis.is_some());
@@ -1562,10 +1760,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_calculate_total_exposure() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store.clone());
         let account_info = AccountInfo {
+            account_id: "test_account".to_string(),
+            exchange: ExchangeIdEnum::Binance,
+            balances: vec![],
             total_balance_usd: 10000.0,
+            available_balance_usd: 10000.0,
+            used_balance_usd: 0.0,
+            last_updated: 0,
         };
 
         // Create multiple positions
@@ -1586,31 +1790,37 @@ mod tests {
             .unwrap();
 
         // Calculate total exposure
-        let result = service.calculate_total_exposure().await;
+        let result = service.calculate_total_exposure().await; // Already correct, no kv_store argument
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 3000.0);
     }
 
     #[tokio::test]
     async fn test_validate_position_risk() {
-        let kv_store = InMemoryKvStore::new();
-        let service = TestPositionsService::new(kv_store);
+        let mock_kv_store = Arc::new(MockKvStore::new());
+        let service = PositionsService::new(mock_kv_store.clone());
 
         let config = RiskManagementConfig {
+            max_position_size_percent: 0.1,  // Added
+            max_correlation_threshold: 0.8,  // Added
+            stop_loss_percentage: 0.02,      // Added
+            take_profit_percentage: 0.04,    // Added
+            max_drawdown_percentage: 0.15,   // Added
+            risk_per_trade_percentage: 0.01, // Added
+            min_risk_reward_ratio: 1.5,
+            max_positions_per_exchange: 5,
+            max_positions_per_pair: 2,
+            max_position_size_usd: 10000.0,
+            max_total_exposure_usd: 50000.0,
+            volatility_threshold: 0.05,
+            default_stop_loss_percentage: 2.0,
+            default_take_profit_percentage: 4.0,
             max_portfolio_risk_percentage: 5.0,
             max_single_position_risk_percentage: 2.0,
             enable_stop_loss: true,
             enable_take_profit: true,
             enable_trailing_stop: false,
             correlation_limit: 0.7,
-            volatility_threshold: 0.05,
-            max_position_size_usd: 10000.0,
-            min_risk_reward_ratio: 1.5,
-            default_stop_loss_percentage: 2.0,
-            default_take_profit_percentage: 4.0,
-            max_total_exposure_usd: 50000.0,
-            max_positions_per_exchange: 5,
-            max_positions_per_pair: 2,
         };
 
         // Test valid position
@@ -1633,6 +1843,7 @@ mod tests {
     #[cfg(test)]
     mod advanced_position_management_tests {
         use super::*;
+        use crate::services::core::trading::{KvOperationError, KvOperations, KvResult};
 
         #[test]
         fn test_position_sizing_with_stop_loss_and_risk_reward() {
@@ -1690,31 +1901,37 @@ mod tests {
         fn test_position_optimization_recommendation() {
             let mut position = create_test_position("opt_test", "BTCUSDT");
             position.optimization_score = Some(0.85);
-            position.recommended_action = Some(PositionAction::Hold);
+            position.recommended_action = Some("hold".to_string()); // Changed to String
             position.last_optimization_check = Some(chrono::Utc::now().timestamp_millis() as u64);
 
             assert_eq!(position.optimization_score, Some(0.85));
-            assert_eq!(position.recommended_action, Some(PositionAction::Hold));
+            assert_eq!(position.recommended_action, Some("hold".to_string())); // Changed to String
             assert!(position.last_optimization_check.is_some());
         }
     }
 
     fn create_test_risk_config() -> RiskManagementConfig {
         RiskManagementConfig {
+            max_position_size_percent: 0.1,  // Added
+            max_correlation_threshold: 0.8,  // Added
+            stop_loss_percentage: 0.02,      // Added
+            take_profit_percentage: 0.04,    // Added
+            max_drawdown_percentage: 0.15,   // Added
+            risk_per_trade_percentage: 0.01, // Added
+            min_risk_reward_ratio: 1.5,
+            max_positions_per_exchange: 5, // Added
+            max_positions_per_pair: 2,     // Added
+            max_position_size_usd: 10000.0,
+            max_total_exposure_usd: 50000.0,
+            volatility_threshold: 0.05,
+            default_stop_loss_percentage: 2.0,
+            default_take_profit_percentage: 4.0,
             max_portfolio_risk_percentage: 5.0,
             max_single_position_risk_percentage: 2.0,
             enable_stop_loss: true,
             enable_take_profit: true,
             enable_trailing_stop: false,
             correlation_limit: 0.7,
-            volatility_threshold: 0.05,
-            max_position_size_usd: 10000.0,
-            min_risk_reward_ratio: 1.5,
-            default_stop_loss_percentage: 2.0,
-            default_take_profit_percentage: 4.0,
-            max_total_exposure_usd: 50000.0,
-            max_positions_per_exchange: 5,
-            max_positions_per_pair: 2,
         }
     }
 }

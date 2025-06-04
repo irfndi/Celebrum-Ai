@@ -4,7 +4,6 @@ use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
-use worker::console_log;
 
 #[cfg(all(
     target_arch = "wasm32",
@@ -20,7 +19,8 @@ macro_rules! console_log {
 }
 
 /// Log levels supported by the logger
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(crate = "::serde")]
 pub enum LogLevel {
     Error = 0,
     Warn = 1,
@@ -170,10 +170,23 @@ fn get_sanitizer() -> &'static DataSanitizer {
 }
 
 /// Simple logger for Cloudflare Workers
-#[derive(Clone)]
+#[derive(Clone, Debug)] // Removed Serialize, Deserialize
 pub struct Logger {
     level: LogLevel,
+    // Potentially other fields like output target (console, file, etc.)
+    // For simplicity, we'll keep it basic for now.
+    // Consider adding a writer field: writer: Arc<Mutex<dyn Write + Send>>,
+    // or using a logging facade like `log` or `tracing`.
     context: HashMap<String, Value>,
+}
+
+impl Default for Logger {
+    fn default() -> Self {
+        Self {
+            level: LogLevel::Info,   // Default log level
+            context: HashMap::new(), // Initialize context as empty
+        }
+    }
 }
 
 impl Logger {

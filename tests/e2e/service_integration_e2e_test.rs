@@ -100,8 +100,8 @@ fn create_test_position(user_id: String, pair: String, size: f64, entry_price: f
         realized_pnl: 0.0,
         leverage: 1.0,
         margin: size * entry_price,
-        timestamp: Some(chrono::Utc::now()),
-        datetime: Some(chrono::Utc::now().to_rfc3339()),
+        timestamp: chrono::Utc::now().timestamp_millis() as u64,
+        datetime: chrono::Utc::now().to_rfc3339(),
     }
 }
 
@@ -578,8 +578,13 @@ mod service_integration_e2e_tests {
 
         // Check individual position risks
         for pos in &updated_positions {
-            let position_pnl_percentage =
-                (pos.unrealized_pnl / (pos.entry_price * pos.size)) * 100.0;
+            let entry_price_val = pos.entry_price_long; // Assuming long side for PnL calc
+            let size_val = pos.size.unwrap_or(0.0);
+            let position_pnl_percentage = if entry_price_val != 0.0 && size_val != 0.0 {
+                (pos.unrealized_pnl / (entry_price_val * size_val)) * 100.0
+            } else {
+                0.0 // Avoid division by zero
+            };
 
             if position_pnl_percentage < -position_risk_threshold {
                 let alert = format!(
@@ -677,8 +682,13 @@ mod service_integration_e2e_tests {
         let mut automated_actions = Vec::new();
 
         for pos in &updated_positions {
-            let position_pnl_percentage =
-                (pos.unrealized_pnl / (pos.entry_price * pos.size)) * 100.0;
+            let entry_price_val = pos.entry_price_long; // Assuming long side for PnL calc
+            let size_val = pos.size.unwrap_or(0.0);
+            let position_pnl_percentage = if entry_price_val != 0.0 && size_val != 0.0 {
+                (pos.unrealized_pnl / (entry_price_val * size_val)) * 100.0
+            } else {
+                0.0 // Avoid division by zero
+            };
 
             // Simulate automated stop-loss triggers
             if position_pnl_percentage < -15.0 {
@@ -987,6 +997,9 @@ mod service_integration_e2e_tests {
                 let confidence_threshold = match user.subscription.tier {
                     SubscriptionTier::Free => 0.9,
                     SubscriptionTier::Basic => 0.8,
+                    SubscriptionTier::Paid => 0.7,
+                    SubscriptionTier::Pro => 0.7,
+                    SubscriptionTier::Admin => 0.6,
                     SubscriptionTier::Premium | SubscriptionTier::Enterprise => 0.6,
                     SubscriptionTier::SuperAdmin => 0.5,
                 };

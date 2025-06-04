@@ -1,19 +1,20 @@
-use crate::types::{
-    UserApiKey, UserProfile, ExchangeIdEnum, ExchangeCredentials, Ticker,
-    SubscriptionTier, AccountStatus,
-};
-use crate::services::core::user::UserProfileService;
-use crate::services::core::trading::exchange::{ExchangeService, ExchangeInterface};
-use crate::services::core::infrastructure::D1Service;
-use crate::utils::{ArbitrageError, ArbitrageResult};
 use crate::log_info;
+use crate::services::core::infrastructure::D1Service;
+use crate::services::core::trading::exchange::{ExchangeInterface, ExchangeService};
+use crate::services::core::user::UserProfileService;
+use crate::types::{
+    AccountStatus, ExchangeCredentials, ExchangeIdEnum, SubscriptionTier, Ticker, UserApiKey,
+    UserProfile,
+};
+use crate::utils::{ArbitrageError, ArbitrageResult};
+use aes_gcm::aead::Aead; // Added Aead for encrypt/decrypt
 use chrono::Utc;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use worker::kv::KvStore;
-use secrecy::{SecretString, ExposeSecret};
 
 /// User Exchange API Management Service
 /// Provides secure CRUD operations, validation, and compatibility checking for user exchange APIs
@@ -113,7 +114,9 @@ impl UserExchangeApiService {
         if !validation_result.is_valid {
             return Err(ArbitrageError::validation_error(format!(
                 "API key validation failed: {}",
-                validation_result.error_message.unwrap_or_else(|| "Unknown error".to_string())
+                validation_result
+                    .error_message
+                    .unwrap_or_else(|| "Unknown error".to_string())
             )));
         }
 
@@ -125,7 +128,11 @@ impl UserExchangeApiService {
             .ok_or_else(|| ArbitrageError::not_found(format!("User not found: {}", user_id)))?;
 
         // Check if user already has this exchange
-        if user_profile.api_keys.iter().any(|key| key.exchange_id == request.exchange_id && key.is_active) {
+        if user_profile
+            .api_keys
+            .iter()
+            .any(|key| key.exchange_id == request.exchange_id && key.is_active)
+        {
             return Err(ArbitrageError::validation_error(format!(
                 "User already has an active API key for exchange: {}",
                 request.exchange_id
@@ -145,7 +152,7 @@ impl UserExchangeApiService {
         if let Some(default_leverage) = request.default_leverage {
             if default_leverage < 1 || default_leverage > 100 {
                 return Err(ArbitrageError::validation_error(format!(
-                    "Default leverage must be between 1 and 100, got: {}", 
+                    "Default leverage must be between 1 and 100, got: {}",
                     default_leverage
                 )));
             }
@@ -158,7 +165,9 @@ impl UserExchangeApiService {
             secret: encrypted_secret,
             passphrase: encrypted_passphrase,
             is_active: true,
-            permissions: validation_result.can_trade.then(|| vec!["trade".to_string()])
+            permissions: validation_result
+                .can_trade
+                .then(|| vec!["trade".to_string()])
                 .unwrap_or_else(|| vec!["read".to_string()]),
             default_leverage: request.default_leverage,
             exchange_type: request.exchange_type,
@@ -212,33 +221,35 @@ impl UserExchangeApiService {
             .api_keys
             .iter()
             .position(|key| key.exchange_id == exchange_id)
-            .ok_or_else(|| ArbitrageError::not_found(format!(
-                "API key not found for exchange: {}",
-                exchange_id
-            )))?;
+            .ok_or_else(|| {
+                ArbitrageError::not_found(format!(
+                    "API key not found for exchange: {}",
+                    exchange_id
+                ))
+            })?;
 
         // Update the API key
         let api_key = &mut user_profile.api_keys[api_key_index];
-        
+
         if let Some(is_active) = request.is_active {
             api_key.is_active = is_active;
         }
-        
+
         if let Some(exchange_type) = request.exchange_type {
             api_key.exchange_type = Some(exchange_type);
         }
-        
+
         if let Some(default_leverage) = request.default_leverage {
             // Validate default_leverage is within reasonable range (1-100)
             if default_leverage < 1 || default_leverage > 100 {
                 return Err(ArbitrageError::validation_error(format!(
-                    "Default leverage must be between 1 and 100, got: {}", 
+                    "Default leverage must be between 1 and 100, got: {}",
                     default_leverage
                 )));
             }
             api_key.default_leverage = Some(default_leverage);
         }
-        
+
         if let Some(permissions) = request.permissions {
             api_key.permissions = permissions;
         }
@@ -263,11 +274,7 @@ impl UserExchangeApiService {
     }
 
     /// Delete an API key
-    pub async fn delete_api_key(
-        &self,
-        user_id: &str,
-        exchange_id: &str,
-    ) -> ArbitrageResult<()> {
+    pub async fn delete_api_key(&self, user_id: &str, exchange_id: &str) -> ArbitrageResult<()> {
         // Get user profile
         let mut user_profile = self
             .user_profile_service
@@ -277,8 +284,10 @@ impl UserExchangeApiService {
 
         // Remove the API key
         let initial_count = user_profile.api_keys.len();
-        user_profile.api_keys.retain(|key| key.exchange_id != exchange_id);
-        
+        user_profile
+            .api_keys
+            .retain(|key| key.exchange_id != exchange_id);
+
         if user_profile.api_keys.len() == initial_count {
             return Err(ArbitrageError::not_found(format!(
                 "API key not found for exchange: {}",
@@ -324,11 +333,20 @@ impl UserExchangeApiService {
             if api_key.is_active {
                 if let Ok(exchange_id) = api_key.exchange_id.parse::<ExchangeIdEnum>() {
                     // Decrypt credentials and use immediately to minimize memory exposure
+                    let decrypted_secret = self.decrypt_string(&api_key.secret)?;
                     let credentials = ExchangeCredentials {
+                        exchange: exchange_id,
                         api_key: self.decrypt_string(&api_key.api_key)?,
-                        secret: self.decrypt_string(&api_key.secret)?,
+                        api_secret: decrypted_secret.clone(),
+                        secret: decrypted_secret,
+                        passphrase: api_key.passphrase.clone(),
+                        sandbox: false,
+                        is_testnet: api_key.is_testnet.unwrap_or(false),
                         default_leverage: api_key.default_leverage.unwrap_or(1),
-                        exchange_type: api_key.exchange_type.clone().unwrap_or_else(|| "spot".to_string()),
+                        exchange_type: api_key
+                            .exchange_type
+                            .clone()
+                            .unwrap_or_else(|| "spot".to_string()),
                     };
 
                     exchange_credentials.push((exchange_id, credentials));
@@ -347,29 +365,28 @@ impl UserExchangeApiService {
         secret: &str,
     ) -> ArbitrageResult<ApiKeyValidationResult> {
         // Try to make a simple API call to test connectivity
-        match self.test_api_connectivity(exchange_id, api_key, secret).await {
-            Ok((can_read, can_trade, rate_limit)) => {
-                Ok(ApiKeyValidationResult {
-                    is_valid: true,
-                    can_read_market_data: can_read,
-                    can_trade,
-                    exchange_status: "connected".to_string(),
-                    rate_limit_info: rate_limit,
-                    error_message: None,
-                    last_validated: Utc::now().timestamp() as u64,
-                })
-            }
-            Err(e) => {
-                Ok(ApiKeyValidationResult {
-                    is_valid: false,
-                    can_read_market_data: false,
-                    can_trade: false,
-                    exchange_status: "error".to_string(),
-                    rate_limit_info: None,
-                    error_message: Some(e.to_string()),
-                    last_validated: Utc::now().timestamp() as u64,
-                })
-            }
+        match self
+            .test_api_connectivity(exchange_id, api_key, secret)
+            .await
+        {
+            Ok((can_read, can_trade, rate_limit)) => Ok(ApiKeyValidationResult {
+                is_valid: true,
+                can_read_market_data: can_read,
+                can_trade,
+                exchange_status: "connected".to_string(),
+                rate_limit_info: rate_limit,
+                error_message: None,
+                last_validated: Utc::now().timestamp() as u64,
+            }),
+            Err(e) => Ok(ApiKeyValidationResult {
+                is_valid: false,
+                can_read_market_data: false,
+                can_trade: false,
+                exchange_status: "error".to_string(),
+                rate_limit_info: None,
+                error_message: Some(e.to_string()),
+                last_validated: Utc::now().timestamp() as u64,
+            }),
         }
     }
 
@@ -385,21 +402,21 @@ impl UserExchangeApiService {
         }
 
         let user_exchanges = self.get_user_api_keys(user_id).await?;
-        
+
         // Check basic requirements
         let arbitrage_compatible = user_exchanges.len() >= 2;
         let technical_compatible = !user_exchanges.is_empty();
-        
+
         // Check supported features
         let mut supported_features = Vec::new();
         let mut missing_features = Vec::new();
-        
+
         if arbitrage_compatible {
             supported_features.push("arbitrage".to_string());
         } else {
             missing_features.push("arbitrage (requires 2+ exchanges)".to_string());
         }
-        
+
         if technical_compatible {
             supported_features.push("technical_analysis".to_string());
         } else {
@@ -439,12 +456,22 @@ impl UserExchangeApiService {
         secret: &str,
     ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
         // Try to get account info or balance to test API
-        match self.exchange_service.test_api_connection(exchange_id, api_key, secret).await {
+        match self
+            .exchange_service
+            .test_api_connection(exchange_id, api_key, secret)
+            .await
+        {
             Ok(test_result) => {
                 // Parse test result to determine capabilities
-                let can_read = test_result.get("can_read").and_then(|v| v.as_bool()).unwrap_or(false);
-                let can_trade = test_result.get("can_trade").and_then(|v| v.as_bool()).unwrap_or(false);
-                
+                let can_read = test_result
+                    .get("can_read")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let can_trade = test_result
+                    .get("can_trade")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
                 let rate_limit = test_result.get("rate_limit").and_then(|rl| {
                     Some(RateLimitInfo {
                         requests_per_minute: rl.get("requests_per_minute")?.as_u64()? as u32,
@@ -461,68 +488,77 @@ impl UserExchangeApiService {
 
     /// AES-GCM encryption for API keys with secure key derivation
     fn encrypt_string(&self, plaintext: &str) -> ArbitrageResult<String> {
-        use aes_gcm::{Aes256Gcm, Key, Nonce, KeyInit, AeadCore, Aead};
-        use base64::{Engine as _, engine::general_purpose};
-        use sha2::{Sha256, Digest};
+        use aes_gcm::{aead::Aead, AeadCore, Aes256Gcm, Key, KeyInit, Nonce};
+        use base64::{engine::general_purpose, Engine as _};
         use rand::rngs::OsRng;
-        
+        use sha2::{Digest, Sha256};
+
         // Derive a 256-bit key from the encryption key using SHA-256
         let mut hasher = Sha256::new();
         hasher.update(self.encryption_key.expose_secret().as_bytes());
         let key_bytes = hasher.finalize();
         let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-        
+
         // Create cipher instance
         let cipher = Aes256Gcm::new(key);
-        
+
         // Generate a random 96-bit nonce
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        
+
         // Encrypt the plaintext
-        let ciphertext = cipher.encrypt(&nonce, plaintext.as_bytes())
+        let ciphertext = cipher
+            .encrypt(&nonce, plaintext.as_bytes())
             .map_err(|e| ArbitrageError::parse_error(format!("Encryption failed: {}", e)))?;
-        
+
         // Combine nonce + ciphertext and encode as base64
         let mut encrypted_data = nonce.to_vec();
         encrypted_data.extend_from_slice(&ciphertext);
-        
+
         Ok(general_purpose::STANDARD.encode(encrypted_data))
     }
 
     /// AES-GCM decryption for API keys
     fn decrypt_string(&self, encrypted: &str) -> ArbitrageResult<String> {
-        use aes_gcm::{Aes256Gcm, Key, Nonce, KeyInit, Aead};
-        use base64::{Engine as _, engine::general_purpose};
-        use sha2::{Sha256, Digest};
-        
+        use aes_gcm::{aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
+        use base64::{engine::general_purpose, Engine as _};
+        use sha2::{Digest, Sha256};
+
         // Decode the base64 encrypted data
-        let encrypted_data = general_purpose::STANDARD.decode(encrypted)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to decode encrypted string: {}", e)))?;
-        
+        let encrypted_data = general_purpose::STANDARD.decode(encrypted).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to decode encrypted string: {}", e))
+        })?;
+
         // Ensure we have at least nonce (12 bytes) + some ciphertext
         if encrypted_data.len() < 12 {
-            return Err(ArbitrageError::parse_error("Invalid encrypted data length".to_string()));
+            return Err(ArbitrageError::parse_error(
+                "Invalid encrypted data length".to_string(),
+            ));
         }
-        
+
         // Derive the same 256-bit key from the encryption key using SHA-256
         let mut hasher = Sha256::new();
         hasher.update(self.encryption_key.expose_secret().as_bytes());
         let key_bytes = hasher.finalize();
         let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-        
+
         // Create cipher instance
         let cipher = Aes256Gcm::new(key);
-        
+
         // Extract nonce (first 12 bytes) and ciphertext (remaining bytes)
         let (nonce_bytes, ciphertext) = encrypted_data.split_at(12);
         let nonce = Nonce::from_slice(nonce_bytes);
-        
+
         // Decrypt the ciphertext
-        let plaintext = cipher.decrypt(nonce, ciphertext)
+        let plaintext = cipher
+            .decrypt(nonce, ciphertext)
             .map_err(|e| ArbitrageError::parse_error(format!("Decryption failed: {}", e)))?;
-        
-        String::from_utf8(plaintext)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to convert decrypted data to string: {}", e)))
+
+        String::from_utf8(plaintext).map_err(|e| {
+            ArbitrageError::parse_error(format!(
+                "Failed to convert decrypted data to string: {}",
+                e
+            ))
+        })
     }
 
     /// Cache validation result
@@ -532,17 +568,27 @@ impl UserExchangeApiService {
         exchange_id: &str,
         result: &ApiKeyValidationResult,
     ) -> ArbitrageResult<()> {
-        let cache_key = format!("{}:{}:{}", Self::API_VALIDATION_CACHE_PREFIX, user_id, exchange_id);
-        let serialized = serde_json::to_string(result)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize validation result: {}", e)))?;
-        
+        let cache_key = format!(
+            "{}:{}:{}",
+            Self::API_VALIDATION_CACHE_PREFIX,
+            user_id,
+            exchange_id
+        );
+        let serialized = serde_json::to_string(result).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize validation result: {}", e))
+        })?;
+
         self.kv_store
             .put(&cache_key, serialized)
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to cache validation result: {:?}", e)))?
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to cache validation result: {:?}", e))
+            })?
             .expiration_ttl(Self::CACHE_TTL_SECONDS)
             .execute()
             .await
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to execute cache put: {:?}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to execute cache put: {:?}", e))
+            })?;
 
         Ok(())
     }
@@ -553,16 +599,24 @@ impl UserExchangeApiService {
         cache_key: &str,
         result: &ExchangeCompatibilityResult,
     ) -> ArbitrageResult<()> {
-        let serialized = serde_json::to_string(result)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize compatibility result: {}", e)))?;
-        
+        let serialized = serde_json::to_string(result).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize compatibility result: {}", e))
+        })?;
+
         self.kv_store
             .put(cache_key, serialized)
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to cache compatibility result: {:?}", e)))?
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!(
+                    "Failed to cache compatibility result: {:?}",
+                    e
+                ))
+            })?
             .expiration_ttl(Self::CACHE_TTL_SECONDS)
             .execute()
             .await
-            .map_err(|e| ArbitrageError::storage_error(format!("Failed to execute cache put: {:?}", e)))?;
+            .map_err(|e| {
+                ArbitrageError::storage_error(format!("Failed to execute cache put: {:?}", e))
+            })?;
 
         Ok(())
     }
@@ -573,6 +627,7 @@ impl UserExchangeApiService {
         cache_key: &str,
     ) -> ArbitrageResult<Option<ExchangeCompatibilityResult>> {
         match self.kv_store.get(cache_key).text().await {
+            // Already correct
             Ok(Some(cached)) => {
                 match serde_json::from_str(&cached) {
                     Ok(result) => Ok(Some(result)),
@@ -592,8 +647,13 @@ impl UserExchangeApiService {
         user_id: &str,
         exchange_id: &str,
     ) -> ArbitrageResult<()> {
-        let cache_key = format!("{}:{}:{}", Self::API_VALIDATION_CACHE_PREFIX, user_id, exchange_id);
-        let _ = self.kv_store.delete(&cache_key).await; // Ignore errors for cache deletion
+        let cache_key = format!(
+            "{}:{}:{}",
+            Self::API_VALIDATION_CACHE_PREFIX,
+            user_id,
+            exchange_id
+        );
+        let _ = self.kv_store.delete(&cache_key).await; // Already correct
         Ok(())
     }
 }
@@ -605,7 +665,9 @@ mod tests {
     #[test]
     fn test_encryption_decryption() {
         let service = UserExchangeApiService::new(
-            Arc::new(UserProfileService::new(D1Service::new(&Env::default()).unwrap())),
+            Arc::new(UserProfileService::new(
+                D1Service::new(&Env::default()).unwrap(),
+            )),
             Arc::new(ExchangeService::new(&Env::default()).unwrap()),
             Arc::new(D1Service::new(&Env::default()).unwrap()),
             KvStore::default(),
@@ -615,7 +677,7 @@ mod tests {
         let original = "test_api_key_12345";
         let encrypted = service.encrypt_string(original).unwrap();
         let decrypted = service.decrypt_string(&encrypted).unwrap();
-        
+
         assert_eq!(original, decrypted);
         assert_ne!(original, encrypted); // Should be different when encrypted
     }
@@ -637,4 +699,4 @@ mod tests {
         assert!(result.arbitrage_compatible);
         assert!(result.technical_compatible);
     }
-} 
+}

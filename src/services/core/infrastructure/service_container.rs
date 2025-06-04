@@ -141,8 +141,8 @@ impl ServiceContainer {
     /// Set the Telegram service for push notifications using Arc for shared ownership
     pub fn set_telegram_service(&mut self, telegram_service: TelegramService) {
         let arc_telegram_service = Arc::new(telegram_service);
-        // self.distribution_service
-        //     .set_notification_sender(Box::new(arc_telegram_service.clone()));
+        self.distribution_service
+            .set_notification_sender(Box::new((*arc_telegram_service).clone()));
         self.telegram_service = Some(arc_telegram_service);
     }
 

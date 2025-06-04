@@ -283,6 +283,7 @@ pub struct TechnicalAnalysisResult {
 }
 
 /// Technical Analysis Service for Global Signal Generation
+#[derive(Clone)]
 pub struct TechnicalAnalysisService {
     config: TechnicalAnalysisConfig,
     active_signals: HashMap<String, TechnicalSignal>,

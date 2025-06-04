@@ -432,6 +432,7 @@ impl MathUtils {
 // ============= MARKET ANALYSIS SERVICE =============
 
 /// Main service for market analysis and technical indicators
+#[derive(Clone)]
 pub struct MarketAnalysisService {
     #[allow(dead_code)] // TODO: Will be used for database operations in future implementation
     database_repositories: DatabaseManager,

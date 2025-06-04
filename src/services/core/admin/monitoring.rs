@@ -1,9 +1,9 @@
 // src/services/core/admin/monitoring.rs
 
-use crate::utils::{ArbitrageResult, ArbitrageError};
-use worker::{Env, kv::KvStore};
+use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use worker::{kv::KvStore, Env};
 
 /// Monitoring service for system health and performance metrics
 #[derive(Debug, Clone)]
@@ -117,9 +117,10 @@ impl MonitoringService {
 
         // Check performance thresholds
         let metrics = &health.performance_metrics;
-        if metrics.cpu_usage_percent > 90.0 
-            || metrics.memory_usage_percent > 90.0 
-            || metrics.error_rate_percent > 5.0 {
+        if metrics.cpu_usage_percent > 90.0
+            || metrics.memory_usage_percent > 90.0
+            || metrics.error_rate_percent > 5.0
+        {
             return ServiceStatus::Degraded;
         }
 
@@ -136,7 +137,7 @@ impl MonitoringService {
         for i in 0..hours {
             let timestamp = now - (i as u64 * hour_ms);
             let metrics_key = format!("metrics_snapshot:{}", timestamp / hour_ms);
-            
+
             if let Some(metrics_data) = self.kv_store.get(&metrics_key).text().await? {
                 if let Ok(snapshot) = serde_json::from_str::<MetricsSnapshot>(&metrics_data) {
                     snapshots.push(snapshot);
@@ -163,16 +164,29 @@ impl MonitoringService {
     pub async fn record_metrics_snapshot(&self, snapshot: MetricsSnapshot) -> ArbitrageResult<()> {
         let hour_ms = 60 * 60 * 1000;
         let metrics_key = format!("metrics_snapshot:{}", snapshot.timestamp / hour_ms);
-        
-        let snapshot_data = serde_json::to_string(&snapshot)
-            .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize metrics snapshot: {}", e)))?;
 
-        self.kv_store.put(&metrics_key, &snapshot_data)?
+        let snapshot_data = serde_json::to_string(&snapshot).map_err(|e| {
+            ArbitrageError::serialization_error(format!(
+                "Failed to serialize metrics snapshot: {}",
+                e
+            ))
+        })?;
+
+        self.kv_store
+            .put(&metrics_key, &snapshot_data)?
             .expiration_ttl(7 * 24 * 60 * 60) // Keep for 7 days
             .execute()
             .await?;
 
         Ok(())
+    }
+
+    /// Health check for monitoring service
+    pub async fn health_check(&self) -> ArbitrageResult<bool> {
+        match self.get_system_health().await {
+            Ok(health) => Ok(matches!(health.overall_status, ServiceStatus::Healthy)),
+            Err(_) => Ok(false),
+        }
     }
 
     /// Get error logs
@@ -200,10 +214,12 @@ impl MonitoringService {
     /// Log an error
     pub async fn log_error(&self, error: ErrorLog) -> ArbitrageResult<()> {
         let log_key = format!("error_log:{}", error.timestamp);
-        let log_data = serde_json::to_string(&error)
-            .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize error log: {}", e)))?;
+        let log_data = serde_json::to_string(&error).map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to serialize error log: {}", e))
+        })?;
 
-        self.kv_store.put(&log_key, &log_data)?
+        self.kv_store
+            .put(&log_key, &log_data)?
             .expiration_ttl(30 * 24 * 60 * 60) // Keep for 30 days
             .execute()
             .await?;
@@ -229,7 +245,8 @@ impl MonitoringService {
 
         // Sort by severity and timestamp
         alerts.sort_by(|a, b| {
-            b.severity.cmp(&a.severity)
+            b.severity
+                .cmp(&a.severity)
                 .then(b.created_at.cmp(&a.created_at))
         });
 
@@ -239,10 +256,12 @@ impl MonitoringService {
     /// Create system alert
     pub async fn create_alert(&self, alert: SystemAlert) -> ArbitrageResult<()> {
         let alert_key = format!("system_alert:{}", alert.id);
-        let alert_data = serde_json::to_string(&alert)
-            .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize alert: {}", e)))?;
+        let alert_data = serde_json::to_string(&alert).map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to serialize alert: {}", e))
+        })?;
 
-        self.kv_store.put(&alert_key, &alert_data)?
+        self.kv_store
+            .put(&alert_key, &alert_data)?
             .execute()
             .await?;
 
@@ -252,18 +271,21 @@ impl MonitoringService {
     /// Resolve system alert
     pub async fn resolve_alert(&self, alert_id: &str) -> ArbitrageResult<()> {
         let alert_key = format!("system_alert:{}", alert_id);
-        
+
         if let Some(alert_data) = self.kv_store.get(&alert_key).text().await? {
-            let mut alert = serde_json::from_str::<SystemAlert>(&alert_data)
-                .map_err(|e| ArbitrageError::DatabaseError(format!("Failed to parse alert: {}", e)))?;
-            
+            let mut alert = serde_json::from_str::<SystemAlert>(&alert_data).map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to parse alert: {}", e))
+            })?;
+
             alert.is_active = false;
             alert.resolved_at = Some(chrono::Utc::now().timestamp_millis() as u64);
-            
-            let updated_data = serde_json::to_string(&alert)
-                .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize alert: {}", e)))?;
 
-            self.kv_store.put(&alert_key, &updated_data)?
+            let updated_data = serde_json::to_string(&alert).map_err(|e| {
+                ArbitrageError::serialization_error(format!("Failed to serialize alert: {}", e))
+            })?;
+
+            self.kv_store
+                .put(&alert_key, &updated_data)?
                 .execute()
                 .await?;
         }
@@ -389,4 +411,4 @@ pub enum AlertSeverity {
     Medium,
     High,
     Critical,
-} 
+}

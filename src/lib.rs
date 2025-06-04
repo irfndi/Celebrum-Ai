@@ -8,6 +8,9 @@ pub mod services;
 pub mod types;
 pub mod utils;
 
+#[cfg(test)]
+pub mod test_utils;
+
 use once_cell::sync::OnceCell;
 use services::core::infrastructure::database_repositories::DatabaseManager;
 use services::core::infrastructure::service_container::ServiceContainer;
@@ -77,7 +80,8 @@ async fn get_service_container(env: &Env) -> Result<Arc<ServiceContainer>> {
     });
 
     let _exchange_service = ExchangeService::new(env)?;
-    let _positions_service = ProductionPositionsService::new(kv_store.clone());
+    #[cfg(target_arch = "wasm32")]
+    let _positions_service = ProductionPositionsService::new(Arc::new(kv_store.clone()));
 
     let container = Arc::new(ServiceContainer::new(env, kv_store.clone()).await?);
 

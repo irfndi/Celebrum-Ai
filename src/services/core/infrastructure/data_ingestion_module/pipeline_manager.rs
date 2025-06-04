@@ -194,28 +194,28 @@ impl PipelineManagerConfig {
     /// Create configuration optimized for high throughput
     pub fn high_throughput() -> Self {
         Self {
-            batch_size: 500,
-            batch_timeout_seconds: 180, // 3 minutes
-            max_concurrent_pipelines: 20,
-            pipeline_timeout_seconds: 60,
-            compression_threshold_bytes: 512, // More aggressive compression
-            enable_batch_processing: true,
-            enable_compression: true,
-            ..Default::default()
+            batch_size: 500,                   // Larger batches for higher throughput
+            batch_timeout_seconds: 180,        // 3 minutes, shorter timeout for faster processing
+            max_concurrent_pipelines: 20,      // More concurrent pipelines
+            pipeline_timeout_seconds: 60,      // Shorter timeout for individual pipelines
+            health_check_interval_seconds: 30, // More frequent health checks
+            r2_bucket_name: "prod-arb-edge-high-throughput".to_string(), // Dedicated bucket for high throughput
+            // Inherit other settings from default, like enable_pipelines, enable_r2_storage, etc.
+            ..Self::default()
         }
     }
 
-    /// Create configuration optimized for reliability
+    /// Create configuration optimized for high reliability
     pub fn high_reliability() -> Self {
         Self {
-            batch_size: 100,
-            batch_timeout_seconds: 600, // 10 minutes
-            max_concurrent_pipelines: 5,
-            pipeline_timeout_seconds: 120,
-            health_check_interval_seconds: 30, // More frequent health checks
-            enable_health_monitoring: true,
-            enable_schema_evolution: true,
-            ..Default::default()
+            batch_size: 100,                    // Smaller batches, easier to retry failed ones
+            batch_timeout_seconds: 600, // 10 minutes, longer timeout to allow for retries and recovery
+            max_concurrent_pipelines: 5, // Fewer concurrent pipelines to reduce load and potential points of failure
+            pipeline_timeout_seconds: 120, // Longer timeout for individual pipelines to handle transient issues
+            health_check_interval_seconds: 120, // Less frequent, but potentially more thorough health checks
+            r2_bucket_name: "prod-arb-edge-high-reliability".to_string(), // Dedicated bucket for high reliability
+            // Inherit other settings from default, like enable_pipelines, enable_r2_storage, etc.
+            ..Self::default()
         }
     }
 
@@ -329,6 +329,7 @@ impl PipelineEvent {
 
 /// Pipeline Manager for Cloudflare Pipelines integration
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct PipelineManager {
     config: PipelineManagerConfig,
     logger: crate::utils::logger::Logger,

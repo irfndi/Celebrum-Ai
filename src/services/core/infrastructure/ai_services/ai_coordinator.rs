@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use uuid;
-use worker::{kv::KvStore, Env};
+use worker::Env; // Removed kv::KvStore
 
 /// Configuration for AICoordinator
 #[derive(Debug, Clone)]
@@ -176,6 +176,7 @@ enum CircuitBreakerState {
 }
 
 /// AI Coordinator for orchestrating all AI services
+#[derive(Clone)]
 pub struct AICoordinator {
     config: AICoordinatorConfig,
     logger: crate::utils::logger::Logger,
@@ -221,17 +222,6 @@ impl AICoordinator {
             None
         };
 
-        let personalization_engine = if config.enable_personalization {
-            let personalization_config = if config.max_concurrent_requests > 100 {
-                PersonalizationEngineConfig::high_concurrency()
-            } else {
-                PersonalizationEngineConfig::default()
-            };
-            Some(PersonalizationEngine::new(personalization_config)?)
-        } else {
-            None
-        };
-
         let ai_cache = if config.enable_ai_caching {
             let cache_config = if config.max_concurrent_requests > 100 {
                 AICacheConfig::high_concurrency()
@@ -239,6 +229,22 @@ impl AICoordinator {
                 AICacheConfig::default()
             };
             Some(AICache::new(cache_config)?)
+        } else {
+            None
+        };
+
+        let personalization_engine = if config.enable_personalization {
+            let personalization_config = if config.max_concurrent_requests > 100 {
+                PersonalizationEngineConfig::high_concurrency()
+            } else {
+                PersonalizationEngineConfig::default()
+            };
+            Some(PersonalizationEngine::new(
+                personalization_config,
+                ai_cache.clone(),
+                None, // feature_extractor_opt
+                None, // model_opt
+            ))
         } else {
             None
         };
@@ -268,30 +274,30 @@ impl AICoordinator {
         Ok(coordinator)
     }
 
-    /// Set cache store for all AI services
-    pub fn with_cache(mut self, cache: KvStore) -> Self {
-        // Set cache for embedding engine
-        if let Some(embedding_engine) = self.embedding_engine.take() {
-            self.embedding_engine = Some(embedding_engine.with_cache(cache.clone()));
-        }
-
-        // Set cache for model router
-        if let Some(model_router) = self.model_router.take() {
-            self.model_router = Some(model_router.with_cache(cache.clone()));
-        }
-
-        // Set cache for personalization engine
-        if let Some(personalization_engine) = self.personalization_engine.take() {
-            self.personalization_engine = Some(personalization_engine.with_cache(cache.clone()));
-        }
-
-        // Set cache for AI cache
-        if let Some(ai_cache) = self.ai_cache.take() {
-            self.ai_cache = Some(ai_cache.with_cache(cache));
-        }
-
-        self
-    }
+    // /// Set cache store for all AI services
+    // pub fn with_cache(mut self, cache: KvStore) -> Self {
+    //     // Set cache for embedding engine
+    //     if let Some(embedding_engine) = self.embedding_engine.take() {
+    //         self.embedding_engine = Some(embedding_engine.with_cache(cache.clone()));
+    //     }
+    //
+    //     // Set cache for model router
+    //     if let Some(model_router) = self.model_router.take() {
+    //         self.model_router = Some(model_router.with_cache(cache.clone()));
+    //     }
+    //
+    //     // Set cache for personalization engine
+    //     if let Some(_personalization_engine) = self.personalization_engine.take() {
+    //         // self.personalization_engine = Some(personalization_engine.with_cache(cache.clone()));
+    //     }
+    //
+    //     // Set cache for AI cache
+    //     if let Some(ai_cache) = self.ai_cache.take() {
+    //         self.ai_cache = Some(ai_cache.with_cache(cache));
+    //     }
+    //
+    //     self
+    // }
 
     /// Generate embeddings for opportunities with intelligent caching
     pub async fn generate_embeddings(

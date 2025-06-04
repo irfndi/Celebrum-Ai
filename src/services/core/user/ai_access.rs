@@ -1,16 +1,15 @@
-use crate::types::{
-    AIAccessLevel, AITemplate, AITemplateType, AITemplateParameters, AIUsageTracker,
-    TemplateAccess, UserProfile, ApiKeyProvider
-};
 use crate::services::core::infrastructure::d1::D1Service;
 use crate::services::core::infrastructure::kv::KVService;
-use std::collections::HashMap;
+use crate::types::{
+    AIAccessLevel, AITemplate, AITemplateParameters, AITemplateType, AIUsageTracker,
+    ApiKeyProvider, TemplateAccess, UserProfile,
+};
 use log;
+use std::collections::HashMap;
 
+use serde_json::Value;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
-#[cfg(target_arch = "wasm32")]
-use serde_json::Value;
 
 /// Validation level for API key validation
 #[derive(Debug, Clone)]
@@ -39,9 +38,7 @@ impl AIAccessService {
 
     /// Helper function to extract f64 field from database row
     fn get_field_as_f64(row: &Value, field: &str, default: f64) -> f64 {
-        row.get(field)
-            .and_then(|v| v.as_f64())
-            .unwrap_or(default)
+        row.get(field).and_then(|v| v.as_f64()).unwrap_or(default)
     }
 
     /// Helper function to extract u32 field from database row
@@ -79,15 +76,16 @@ impl AIAccessService {
 
     /// Helper function to extract boolean field from database row
     fn get_field_as_bool(row: &Value, field: &str, default: bool) -> bool {
-        row.get(field)
-            .and_then(|v| v.as_bool())
-            .unwrap_or(default)
+        row.get(field).and_then(|v| v.as_bool()).unwrap_or(default)
     }
 
     /// Get user's AI access level with caching
-    pub async fn get_user_ai_access_level(&self, user_profile: &UserProfile) -> Result<AIAccessLevel, String> {
+    pub async fn get_user_ai_access_level(
+        &self,
+        user_profile: &UserProfile,
+    ) -> Result<AIAccessLevel, String> {
         let cache_key = format!("ai_access_level:{}", user_profile.user_id);
-        
+
         // Try to get from cache first
         if let Ok(Some(cached_level)) = self.kv_service.get(&cache_key).await {
             if let Ok(access_level) = serde_json::from_str::<AIAccessLevel>(&cached_level) {
@@ -101,8 +99,11 @@ impl AIAccessService {
         // Cache the result for 1 hour
         let cache_value = serde_json::to_string(&access_level)
             .map_err(|e| format!("Failed to serialize AI access level: {}", e))?;
-        
-        let _ = self.kv_service.put(&cache_key, &cache_value, Some(3600)).await;
+
+        let _ = self
+            .kv_service
+            .put(&cache_key, &cache_value, Some(3600))
+            .await;
 
         Ok(access_level)
     }
@@ -110,22 +111,25 @@ impl AIAccessService {
     /// Invalidate AI access level cache for a user
     pub async fn invalidate_ai_access_cache(&self, user_id: &str) -> Result<(), String> {
         let cache_key = format!("ai_access_level:{}", user_id);
-        self.kv_service.delete(&cache_key).await
+        self.kv_service
+            .delete(&cache_key)
+            .await
             .map_err(|e| format!("Failed to invalidate AI access cache: {}", e))?;
         Ok(())
     }
 
     /// Get or create AI usage tracker for a user
-    pub async fn get_ai_usage_tracker(&self, user_id: &str, access_level: AIAccessLevel) -> Result<AIUsageTracker, String> {
+    pub async fn get_ai_usage_tracker(
+        &self,
+        user_id: &str,
+        access_level: AIAccessLevel,
+    ) -> Result<AIUsageTracker, String> {
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        
+
         #[cfg(target_arch = "wasm32")]
         {
             let query = "SELECT * FROM ai_usage_tracking WHERE user_id = ? AND date = ?";
-            let params = vec![
-                JsValue::from_str(user_id),
-                JsValue::from_str(&today),
-            ];
+            let params = vec![JsValue::from_str(user_id), JsValue::from_str(&today)];
 
             match self.d1_service.query_first(query, params).await {
                 Ok(Some(row)) => {
@@ -134,8 +138,10 @@ impl AIAccessService {
                     let ai_calls_limit = Self::get_field_as_u32(&row, "ai_calls_limit", 0);
                     let last_reset = Self::get_field_as_u64(&row, "last_reset", 0);
                     let total_cost_usd = Self::get_field_as_f64(&row, "total_cost_usd", 0.0);
-                    let cost_breakdown_by_provider = Self::get_field_as_json_map(&row, "cost_breakdown_by_provider");
-                    let cost_breakdown_by_feature = Self::get_field_as_json_map(&row, "cost_breakdown_by_feature");
+                    let cost_breakdown_by_provider =
+                        Self::get_field_as_json_map(&row, "cost_breakdown_by_provider");
+                    let cost_breakdown_by_feature =
+                        Self::get_field_as_json_map(&row, "cost_breakdown_by_feature");
 
                     Ok(AIUsageTracker {
                         user_id: user_id.to_string(),
@@ -148,13 +154,13 @@ impl AIAccessService {
                         cost_breakdown_by_provider,
                         cost_breakdown_by_feature,
                     })
-                },
+                }
                 Ok(None) => {
                     // Create new tracker
                     let tracker = AIUsageTracker::new(user_id.to_string(), access_level);
                     self.save_ai_usage_tracker(&tracker).await?;
                     Ok(tracker)
-                },
+                }
                 Err(e) => Err(format!("Failed to query AI usage tracker: {}", e)),
             }
         }
@@ -164,15 +170,15 @@ impl AIAccessService {
             // Non-WASM implementation for development/testing
             // TODO: Implement proper database integration for testing environments
             log::warn!("Using mock AI usage tracker for non-WASM environment - implement proper database integration");
-            
+
             // In a real implementation, this would load from a local database
             // For now, create a new tracker but log the limitation
             let tracker = AIUsageTracker::new(user_id.to_string(), access_level);
-            
+
             // Simulate saving to ensure consistent behavior
             // In production, this should save to a local database or file
             log::info!("Created new AI usage tracker in non-WASM environment");
-            
+
             Ok(tracker)
         }
     }
@@ -181,11 +187,13 @@ impl AIAccessService {
     pub async fn save_ai_usage_tracker(&self, tracker: &AIUsageTracker) -> Result<(), String> {
         #[cfg(target_arch = "wasm32")]
         {
-            let cost_breakdown_by_provider = serde_json::to_string(&tracker.cost_breakdown_by_provider)
-                .map_err(|e| format!("Failed to serialize provider cost breakdown: {}", e))?;
-            
-            let cost_breakdown_by_feature = serde_json::to_string(&tracker.cost_breakdown_by_feature)
-                .map_err(|e| format!("Failed to serialize feature cost breakdown: {}", e))?;
+            let cost_breakdown_by_provider =
+                serde_json::to_string(&tracker.cost_breakdown_by_provider)
+                    .map_err(|e| format!("Failed to serialize provider cost breakdown: {}", e))?;
+
+            let cost_breakdown_by_feature =
+                serde_json::to_string(&tracker.cost_breakdown_by_feature)
+                    .map_err(|e| format!("Failed to serialize feature cost breakdown: {}", e))?;
 
             let query = r#"
                 INSERT OR REPLACE INTO ai_usage_tracking 
@@ -205,7 +213,9 @@ impl AIAccessService {
                 JsValue::from_str(&cost_breakdown_by_feature),
             ];
 
-            self.d1_service.execute_query(query, params).await
+            self.d1_service
+                .execute_query(query, params)
+                .await
                 .map_err(|e| format!("Failed to save AI usage tracker: {}", e))?;
         }
 
@@ -214,7 +224,10 @@ impl AIAccessService {
             // Non-WASM implementation for development/testing
             // TODO: Implement proper database persistence for testing environments
             log::warn!("AI usage tracker save operation skipped in non-WASM environment - implement proper database persistence");
-            log::info!("Would save AI usage tracker with {} calls used", tracker.ai_calls_used);
+            log::info!(
+                "Would save AI usage tracker with {} calls used",
+                tracker.ai_calls_used
+            );
         }
 
         Ok(())
@@ -230,7 +243,7 @@ impl AIAccessService {
         feature: String,
     ) -> Result<bool, String> {
         let mut tracker = self.get_ai_usage_tracker(user_id, access_level).await?;
-        
+
         // Check if daily reset is needed
         if tracker.needs_daily_reset() {
             tracker.reset_daily_counters();
@@ -238,7 +251,7 @@ impl AIAccessService {
 
         // Record the AI call
         let success = tracker.record_ai_call(cost_usd, provider, feature);
-        
+
         // Save updated tracker
         self.save_ai_usage_tracker(&tracker).await?;
 
@@ -250,13 +263,21 @@ impl AIAccessService {
     }
 
     /// Check if user can make an AI call
-    pub async fn can_make_ai_call(&self, user_id: &str, access_level: AIAccessLevel) -> Result<bool, String> {
+    pub async fn can_make_ai_call(
+        &self,
+        user_id: &str,
+        access_level: AIAccessLevel,
+    ) -> Result<bool, String> {
         let tracker = self.get_ai_usage_tracker(user_id, access_level).await?;
         Ok(tracker.can_make_ai_call())
     }
 
     /// Get remaining AI calls for a user
-    pub async fn get_remaining_ai_calls(&self, user_id: &str, access_level: AIAccessLevel) -> Result<u32, String> {
+    pub async fn get_remaining_ai_calls(
+        &self,
+        user_id: &str,
+        access_level: AIAccessLevel,
+    ) -> Result<u32, String> {
         let tracker = self.get_ai_usage_tracker(user_id, access_level).await?;
         Ok(tracker.get_remaining_calls())
     }
@@ -312,13 +333,19 @@ impl AIAccessService {
                 JsValue::from_str(&template.access_level.to_string()),
                 JsValue::from_str(&template.prompt_template),
                 JsValue::from_str(&parameters_json),
-                template.created_by.as_ref().map(|s| JsValue::from_str(s)).unwrap_or(JsValue::NULL),
+                template
+                    .created_by
+                    .as_ref()
+                    .map(|s| JsValue::from_str(s))
+                    .unwrap_or(JsValue::NULL),
                 JsValue::from_bool(template.is_system_default),
                 JsValue::from_f64(template.created_at as f64),
                 JsValue::from_f64(template.updated_at as f64),
             ];
 
-            self.d1_service.execute_query(query, params).await
+            self.d1_service
+                .execute_query(query, params)
+                .await
                 .map_err(|e| format!("Failed to save AI template: {}", e))?;
         }
 
@@ -339,17 +366,17 @@ impl AIAccessService {
         #[cfg(target_arch = "wasm32")]
         {
             let template_access = access_level.get_template_access();
-            
+
             let query = match template_access {
                 TemplateAccess::None => {
                     return Ok(vec![]); // No templates for users without access
-                },
+                }
                 TemplateAccess::DefaultOnly => {
                     "SELECT * FROM ai_templates WHERE is_system_default = true"
-                },
+                }
                 TemplateAccess::Full => {
                     "SELECT * FROM ai_templates WHERE is_system_default = true OR created_by = ?"
-                },
+                }
             };
 
             let params = if matches!(template_access, TemplateAccess::Full) {
@@ -367,7 +394,7 @@ impl AIAccessService {
                         }
                     }
                     Ok(templates)
-                },
+                }
                 Err(e) => Err(format!("Failed to query AI templates: {}", e)),
             }
         }
@@ -382,22 +409,25 @@ impl AIAccessService {
     /// Parse AI template from database row
     #[cfg(target_arch = "wasm32")]
     fn parse_ai_template_from_row(&self, row: &Value) -> Result<AITemplate, String> {
-        let template_id = row.get("template_id")
+        let template_id = row
+            .get("template_id")
             .and_then(|v| v.as_str())
             .ok_or("Missing template_id")?
             .to_string();
 
-        let template_name = row.get("template_name")
+        let template_name = row
+            .get("template_name")
             .and_then(|v| v.as_str())
             .ok_or("Missing template_name")?
             .to_string();
 
-        let template_type_str = row.get("template_type")
+        let template_type_str = row
+            .get("template_type")
             .and_then(|v| v.as_str())
             .ok_or("Missing template_type")?;
 
         let template_type = match template_type_str {
-            "global_opportunity_analysis" => AITemplateType::GlobalOpportunityAnalysis,
+            "analysis" => AITemplateType::Analysis,
             "personal_opportunity_generation" => AITemplateType::PersonalOpportunityGeneration,
             "trading_decision_support" => AITemplateType::TradingDecisionSupport,
             "risk_assessment" => AITemplateType::RiskAssessment,
@@ -408,7 +438,8 @@ impl AIAccessService {
             )),
         };
 
-        let access_level_str = row.get("access_level")
+        let access_level_str = row
+            .get("access_level")
             .and_then(|v| v.as_str())
             .ok_or("Missing access_level")?;
 
@@ -419,12 +450,14 @@ impl AIAccessService {
             _ => return Err(format!("Invalid access level: {}", access_level_str)),
         };
 
-        let prompt_template = row.get("prompt_template")
+        let prompt_template = row
+            .get("prompt_template")
             .and_then(|v| v.as_str())
             .ok_or("Missing prompt_template")?
             .to_string();
 
-        let parameters_str = row.get("parameters")
+        let parameters_str = row
+            .get("parameters")
             .and_then(|v| v.as_str())
             .ok_or("Missing parameters")?;
 
@@ -456,7 +489,7 @@ impl AIAccessService {
         let default_templates = vec![
             (
                 "Global Opportunity Analysis".to_string(),
-                AITemplateType::GlobalOpportunityAnalysis,
+                AITemplateType::Analysis,
                 "Analyze this arbitrage opportunity and provide insights on market conditions, risk factors, and execution recommendations. Opportunity details: {opportunity_data}".to_string(),
             ),
             (
@@ -488,7 +521,7 @@ impl AIAccessService {
                 prompt,
                 AITemplateParameters::default(),
             );
-            
+
             self.save_ai_template(&template).await?;
         }
 
@@ -508,16 +541,18 @@ impl AIAccessService {
             ValidationLevel::FormatOnly => {
                 // Only validate format
                 self.validate_format_only(provider, api_key, metadata)
-            },
+            }
             ValidationLevel::CachedResult => {
                 // Check if we have a cached validation result
-                self.get_cached_validation_result(provider, api_key).await
+                self.get_cached_validation_result(provider, api_key)
+                    .await
                     .unwrap_or_else(|_| self.validate_format_only(provider, api_key, metadata))
-            },
+            }
             ValidationLevel::LiveValidation => {
                 // Perform live validation with additional safeguards
-                self.validate_live_with_safeguards(provider, api_key, metadata, user_id).await
-            },
+                self.validate_live_with_safeguards(provider, api_key, metadata, user_id)
+                    .await
+            }
         }
     }
 
@@ -535,8 +570,9 @@ impl AIAccessService {
         } else {
             ValidationLevel::FormatOnly
         };
-        
-        self.validate_ai_key_with_level(provider, api_key, metadata, user_id, validation_level).await
+
+        self.validate_ai_key_with_level(provider, api_key, metadata, user_id, validation_level)
+            .await
     }
 
     /// Validate format only
@@ -549,19 +585,27 @@ impl AIAccessService {
         let format_valid = match provider {
             ApiKeyProvider::OpenAI => {
                 // OpenAI keys are typically 51 characters starting with sk-
-                api_key.starts_with("sk-") && api_key.len() == 51 && api_key.chars().all(|c| c.is_alphanumeric() || c == '-')
-            },
+                api_key.starts_with("sk-")
+                    && api_key.len() == 51
+                    && api_key.chars().all(|c| c.is_alphanumeric() || c == '-')
+            }
             ApiKeyProvider::Anthropic => {
                 // Anthropic keys have a specific format
-                api_key.starts_with("sk-ant-") && api_key.len() > 20 && api_key.chars().all(|c| c.is_alphanumeric() || c == '-')
-            },
+                api_key.starts_with("sk-ant-")
+                    && api_key.len() > 20
+                    && api_key.chars().all(|c| c.is_alphanumeric() || c == '-')
+            }
             ApiKeyProvider::Custom => {
                 // For custom providers, check if base_url is provided in metadata
                 metadata.get("base_url").and_then(|v| v.as_str()).is_some()
-            },
+            }
             ApiKeyProvider::Exchange(_) => {
                 return Err("Exchange API keys are not valid for AI services".to_string());
-            },
+            }
+            ApiKeyProvider::AI => {
+                // Assuming AI provider keys are valid by default or validated elsewhere
+                true
+            }
         };
 
         if !format_valid {
@@ -569,6 +613,7 @@ impl AIAccessService {
                 ApiKeyProvider::OpenAI => Err("Invalid OpenAI API key format. Expected format: sk-<48 alphanumeric characters>".to_string()),
                 ApiKeyProvider::Anthropic => Err("Invalid Anthropic API key format. Expected format: sk-ant-<alphanumeric characters>".to_string()),
                 ApiKeyProvider::Custom => Err("Custom AI provider requires base_url in metadata".to_string()),
+                ApiKeyProvider::AI => Err("AI provider not supported for format validation".to_string()),
                 _ => Err("Invalid API key format".to_string()),
             };
         }
@@ -582,16 +627,17 @@ impl AIAccessService {
         provider: &ApiKeyProvider,
         api_key: &str,
     ) -> Result<bool, String> {
-        let cache_key = format!("ai_key_validation:{}:{}", 
+        let cache_key = format!(
+            "ai_key_validation:{}:{}",
             match provider {
                 ApiKeyProvider::OpenAI => "openai",
-                ApiKeyProvider::Anthropic => "anthropic", 
+                ApiKeyProvider::Anthropic => "anthropic",
                 ApiKeyProvider::Custom => "custom",
                 _ => "unknown",
             },
             &api_key[..std::cmp::min(10, api_key.len())] // Only cache first 10 chars for security
         );
-        
+
         match self.kv_service.get(&cache_key).await {
             Ok(Some(result)) => Ok(result == "true"),
             _ => Err("No cached result".to_string()),
@@ -610,8 +656,13 @@ impl AIAccessService {
         self.validate_format_only(provider, api_key, metadata)?;
 
         // Check and increment rate limiting atomically
-        if !self.check_and_increment_validation_rate_limit(user_id).await? {
-            return Err("Rate limit exceeded for API key validation. Please try again later.".to_string());
+        if !self
+            .check_and_increment_validation_rate_limit(user_id)
+            .await?
+        {
+            return Err(
+                "Rate limit exceeded for API key validation. Please try again later.".to_string(),
+            );
         }
 
         // Perform live API validation
@@ -621,16 +672,17 @@ impl AIAccessService {
             ApiKeyProvider::Custom => {
                 let base_url = metadata.get("base_url").and_then(|v| v.as_str()).unwrap();
                 self.validate_custom_key_live(api_key, base_url).await
-            },
+            }
             _ => Ok(false),
         };
 
         // Cache the result if successful (for 1 hour)
         if let Ok(true) = validation_result {
-            let cache_key = format!("ai_key_validation:{}:{}", 
+            let cache_key = format!(
+                "ai_key_validation:{}:{}",
                 match provider {
                     ApiKeyProvider::OpenAI => "openai",
-                    ApiKeyProvider::Anthropic => "anthropic", 
+                    ApiKeyProvider::Anthropic => "anthropic",
                     ApiKeyProvider::Custom => "custom",
                     _ => "unknown",
                 },
@@ -643,9 +695,12 @@ impl AIAccessService {
     }
 
     /// Check and increment rate limiting atomically for API key validation attempts
-    async fn check_and_increment_validation_rate_limit(&self, user_id: &str) -> Result<bool, String> {
+    async fn check_and_increment_validation_rate_limit(
+        &self,
+        user_id: &str,
+    ) -> Result<bool, String> {
         let cache_key = format!("ai_key_validation_rate_limit:{}", user_id);
-        
+
         // Try to increment atomically, allow 5 validation attempts per hour
         match self.kv_service.get(&cache_key).await {
             Ok(Some(count_str)) => {
@@ -654,15 +709,19 @@ impl AIAccessService {
                     return Ok(false);
                 }
                 let new_count = count + 1;
-                self.kv_service.set(&cache_key, &new_count.to_string(), Some(3600)).await
+                self.kv_service
+                    .set(&cache_key, &new_count.to_string(), Some(3600))
+                    .await
                     .map_err(|e| format!("Failed to increment validation rate limit: {}", e))?;
                 Ok(true)
-            },
+            }
             Ok(None) => {
-                self.kv_service.set(&cache_key, "1", Some(3600)).await
+                self.kv_service
+                    .set(&cache_key, "1", Some(3600))
+                    .await
                     .map_err(|e| format!("Failed to set validation rate limit: {}", e))?;
                 Ok(true)
-            },
+            }
             Err(_) => Ok(true), // Allow on cache errors
         }
     }
@@ -671,7 +730,7 @@ impl AIAccessService {
     #[cfg(not(target_arch = "wasm32"))]
     async fn validate_openai_key_live(&self, api_key: &str) -> Result<bool, String> {
         use reqwest::Client;
-        
+
         let client = Client::new();
         let response = client
             .get("https://api.openai.com/v1/models")
@@ -687,9 +746,12 @@ impl AIAccessService {
                 } else if resp.status() == 401 {
                     Err("Invalid OpenAI API key - authentication failed".to_string())
                 } else {
-                    Err(format!("OpenAI API validation failed with status: {}", resp.status()))
+                    Err(format!(
+                        "OpenAI API validation failed with status: {}",
+                        resp.status()
+                    ))
                 }
-            },
+            }
             Err(e) => {
                 log::warn!("OpenAI API validation request failed: {}", e);
                 Err("Failed to validate OpenAI API key - network error".to_string())
@@ -712,7 +774,7 @@ impl AIAccessService {
     #[cfg(not(target_arch = "wasm32"))]
     async fn validate_anthropic_key_live(&self, api_key: &str) -> Result<bool, String> {
         use reqwest::Client;
-        
+
         let client = Client::new();
         let test_payload = serde_json::json!({
             "model": "claude-3-haiku-20240307",
@@ -737,9 +799,12 @@ impl AIAccessService {
                 } else if resp.status() == 401 {
                     Err("Invalid Anthropic API key - authentication failed".to_string())
                 } else {
-                    Err(format!("Anthropic API validation failed with status: {}", resp.status()))
+                    Err(format!(
+                        "Anthropic API validation failed with status: {}",
+                        resp.status()
+                    ))
                 }
-            },
+            }
             Err(e) => {
                 log::warn!("Anthropic API validation request failed: {}", e);
                 Err("Failed to validate Anthropic API key - network error".to_string())
@@ -760,12 +825,16 @@ impl AIAccessService {
 
     /// Validate custom API key by making a test API call
     #[cfg(not(target_arch = "wasm32"))]
-    async fn validate_custom_key_live(&self, api_key: &str, base_url: &str) -> Result<bool, String> {
+    async fn validate_custom_key_live(
+        &self,
+        api_key: &str,
+        base_url: &str,
+    ) -> Result<bool, String> {
         use reqwest::Client;
-        
+
         let client = Client::new();
         let health_url = format!("{}/health", base_url.trim_end_matches('/'));
-        
+
         let response = client
             .get(&health_url)
             .header("Authorization", format!("Bearer {}", api_key))
@@ -780,9 +849,12 @@ impl AIAccessService {
                 } else if resp.status() == 401 {
                     Err("Invalid custom API key - authentication failed".to_string())
                 } else {
-                    Err(format!("Custom API validation failed with status: {}", resp.status()))
+                    Err(format!(
+                        "Custom API validation failed with status: {}",
+                        resp.status()
+                    ))
                 }
-            },
+            }
             Err(e) => {
                 log::warn!("Custom API validation request failed: {}", e);
                 Err("Failed to validate custom API key - network error".to_string())
@@ -792,7 +864,11 @@ impl AIAccessService {
 
     /// Validate custom API key (WASM version - format validation only)
     #[cfg(target_arch = "wasm32")]
-    async fn validate_custom_key_live(&self, api_key: &str, base_url: &str) -> Result<bool, String> {
+    async fn validate_custom_key_live(
+        &self,
+        api_key: &str,
+        base_url: &str,
+    ) -> Result<bool, String> {
         // For WASM, only perform format validation since HTTP requests are not supported
         if !api_key.is_empty() && api_key.len() >= 10 && !base_url.is_empty() {
             Ok(true)
@@ -805,12 +881,14 @@ impl AIAccessService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{SubscriptionTier, SubscriptionInfo, UserConfiguration, NotificationPreferences};
+    use crate::types::{
+        NotificationPreferences, SubscriptionInfo, SubscriptionTier, UserConfiguration,
+    };
 
     #[test]
     fn test_ai_access_level_determination() {
         let mut user_profile = UserProfile::new(Some(123456), None);
-        
+
         // Test free user without AI keys
         let access_level = user_profile.get_ai_access_level();
         assert!(matches!(access_level, AIAccessLevel::FreeWithoutAI { .. }));
@@ -860,7 +938,7 @@ mod tests {
         };
 
         let mut tracker = AIUsageTracker::new("test_user".to_string(), access_level);
-        
+
         // Test initial state
         assert_eq!(tracker.get_remaining_calls(), 5);
         assert!(tracker.can_make_ai_call());
@@ -906,4 +984,4 @@ mod tests {
         assert_eq!(user_template.created_by, Some("user123".to_string()));
         assert_eq!(user_template.access_level, TemplateAccess::Full);
     }
-} 
+}

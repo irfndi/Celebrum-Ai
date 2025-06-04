@@ -951,8 +951,10 @@ pub enum RecommendationPriority {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::ArbitrageType;
 
+    use std::collections::HashMap;
+
+    // Mock implementations for testing
     fn create_test_opportunity() -> ArbitrageOpportunity {
         ArbitrageOpportunity::new(
             "BTCUSDT".to_string(),
@@ -1020,7 +1022,7 @@ mod tests {
     #[tokio::test]
     async fn test_ai_beta_service_creation() {
         let config = AiBetaConfig::default();
-        let mut service = AiBetaIntegrationService::new(config);
+        let service = AiBetaIntegrationService::new(config);
 
         assert_eq!(service.user_profiles.lock().unwrap().len(), 0);
         assert_eq!(service.market_sentiment_cache.lock().unwrap().len(), 0);
@@ -1029,19 +1031,19 @@ mod tests {
     #[test]
     fn test_beta_access_check() {
         let config = AiBetaConfig::default();
-        let mut service = AiBetaIntegrationService::new(config);
+        let service = AiBetaIntegrationService::new(config);
 
         let permissions = vec![CommandPermission::AIEnhancedOpportunities];
         assert!(service.check_beta_access(&permissions));
 
-        let no_permissions = vec![CommandPermission::BasicCommands];
+        let no_permissions = vec![CommandPermission::ViewOpportunities];
         assert!(!service.check_beta_access(&no_permissions));
     }
 
     #[tokio::test]
     async fn test_enhance_opportunities() {
         let config = AiBetaConfig::default();
-        let mut service = AiBetaIntegrationService::new(config);
+        let service = AiBetaIntegrationService::new(config);
 
         let opportunities = vec![create_test_opportunity()];
         let enhanced = service
@@ -1056,7 +1058,7 @@ mod tests {
     #[test]
     fn test_personalization_score_calculation() {
         let config = AiBetaConfig::default();
-        let mut service = AiBetaIntegrationService::new(config);
+        let service = AiBetaIntegrationService::new(config);
 
         let opportunity = create_test_opportunity();
         let profile = create_test_profile();
@@ -1086,7 +1088,7 @@ mod tests {
     #[tokio::test]
     async fn test_personalized_recommendations() {
         let config = AiBetaConfig::default();
-        let mut service = AiBetaIntegrationService::new(config);
+        let service = AiBetaIntegrationService::new(config);
 
         let mut profile = create_test_profile();
         profile.historical_performance.max_drawdown = 0.3; // High drawdown
@@ -1111,7 +1113,7 @@ mod tests {
     #[tokio::test]
     async fn test_prediction_tracking_and_success_marking() {
         let config = AiBetaConfig::default();
-        let mut service = AiBetaIntegrationService::new(config);
+        let service = AiBetaIntegrationService::new(config);
 
         // Create and enhance an opportunity to generate a prediction
         let opportunities = vec![create_test_opportunity()];
@@ -1151,7 +1153,7 @@ mod tests {
     #[test]
     fn test_stale_prediction_cleanup() {
         let config = AiBetaConfig::default();
-        let mut service = AiBetaIntegrationService::new(config);
+        let service = AiBetaIntegrationService::new(config);
 
         // Add some test predictions with old timestamps
         let old_timestamp = chrono::Utc::now().timestamp_millis() as u64 - (25 * 60 * 60 * 1000); // 25 hours ago

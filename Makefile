@@ -26,7 +26,7 @@ test-verbose: ## Run tests with verbose output
 
 lib-tests: ## Run library tests only
 	@echo "🧪 Running library tests..."
-	@cargo test --lib
+	@cargo test --lib --verbose
 
 unit-tests: ## Run unit tests
 	@echo "🧪 Running unit tests..."
@@ -60,11 +60,11 @@ build-wasm-release: ## Build release for WASM target
 # Code quality commands
 fmt: ## Format code
 	@echo "🎨 Formatting code..."
-	@cargo fmt
+	@cargo fmt --verbose
 
 fmt-check: ## Check code formatting
 	@echo "🎨 Checking code formatting..."
-	@cargo fmt --all -- --check
+	@cargo fmt --all --verbose -- --check
 
 lint: ## Run clippy lints
 	@echo "🔍 Running clippy..."
@@ -76,7 +76,7 @@ lint-strict: ## Run strict clippy lints
 
 lint-lib: ## Run clippy on library only
 	@echo "🔍 Running clippy on library..."
-	@cargo clippy --lib -- -D warnings
+	@cargo clippy --lib --verbose -- -D warnings
 
 fix: ## Apply automatic fixes
 	@echo "🔧 Applying automatic fixes..."
@@ -88,17 +88,17 @@ ci-pipeline: ## Run comprehensive CI pipeline
 	@echo "🚀 Starting Full CI Pipeline..."
 	@echo "================================"
 	@echo "🎨 Step 1: Code Formatting"
-	@cargo fmt
+	@cargo fmt --verbose
 	@echo "✅ Step 1: Code Formatting Check"
-	@cargo fmt --all -- --check
+	@cargo fmt --verbose --all -- --check
 	@echo "🔍 Step 2: Clippy Linting Check"
-	@cargo clippy --lib -- -D warnings
+	@cargo clippy --lib --verbose -- -D warnings
 	@echo "✅ Step 2: Clippy Linting Passed"
 	@echo "🎯 Step 3: WASM Target Compilation Check"
-	@cargo check --target wasm32-unknown-unknown --lib
+	@cargo check --target wasm32-unknown-unknown --lib --verbose
 	@echo "✅ Step 3: WASM Target Compilation Passed"
 	@echo "🧪 Step 4: Library Tests"
-	@cargo test --lib
+	@cargo test --lib --verbose
 	@echo "✅ Step 4: Library Tests Passed (327 tests)"
 	@echo "🧪 Step 5: Unit Tests"
 	@$(MAKE) unit-tests
@@ -108,10 +108,10 @@ ci-pipeline: ## Run comprehensive CI pipeline
 	@$(MAKE) e2e-tests
 	@echo "✅ Step 6: Integration & E2E Tests Passed (74 tests)"
 	@echo "🔧 Step 7: Final Native Compilation Check"
-	@cargo check
+	@cargo check --verbose
 	@echo "✅ Step 7: Final Native Compilation Check Passed"
 	@echo "🎯 Step 8: Final WASM Build Verification"
-	@cargo build --target wasm32-unknown-unknown --lib --quiet
+	@cargo build --target wasm32-unknown-unknown --lib --verbose
 	@echo "✅ Step 8: Final WASM Build Verification Passed"
 	@echo "🎉 CI Pipeline Completed Successfully!"
 	@echo "📊 Test Summary:"
@@ -150,11 +150,11 @@ clean: ## Clean build artifacts
 
 check: ## Quick build check
 	@echo "🔍 Quick build check..."
-	@cargo check
+	@cargo check --verbose
 
 check-wasm: ## Quick WASM compilation check
 	@echo "🎯 Quick WASM compilation check..."
-	@cargo check --target wasm32-unknown-unknown --lib
+	@cargo check --target wasm32-unknown-unknown --lib --verbose
 
 check-all: lint test build build-wasm check-wasm ## Run all basic checks (lint, test, build native & WASM)
 	@echo "✅ All basic checks completed successfully!"

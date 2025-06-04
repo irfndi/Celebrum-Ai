@@ -1,15 +1,18 @@
-use crate::types::{ArbitrageResult, ArbitrageError, ExchangeIdEnum, FundingRateInfo, Ticker};
 use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
-use crate::services::core::logging::Logger;
-use crate::services::core::market_data::coinmarketcap::{CoinMarketCapService, CmcQuoteData, CmcGlobalMetrics};
-use worker::kv::KvStore;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use worker::*;
+use crate::services::core::market_data::coinmarketcap::{
+    CmcGlobalMetrics, CmcQuoteData, CoinMarketCapService,
+};
+use crate::types::{ExchangeIdEnum, FundingRateInfo, Ticker};
+use crate::utils::logger::Logger;
+use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::{DateTime, Utc};
-use reqwest::{Client, Method};
-use serde_json::{json, Value};
 use futures::future;
+use reqwest::{Client, Method};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use worker::kv::KvStore;
+use worker::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketDataIngestionConfig {
@@ -171,7 +174,7 @@ impl MarketDataIngestionService {
         // TODO: Implement concurrent processing for better performance
         // Current limitation: Rust borrowing rules prevent concurrent access to &mut self
         // Future improvement: Refactor to use Arc<Mutex<Self>> or separate the mutable state
-        
+
         // Ingest data for all monitored pairs and exchanges
         for pair in &self.config.monitored_pairs.clone() {
             for exchange in &self.config.monitored_exchanges.clone() {
@@ -196,8 +199,12 @@ impl MarketDataIngestionService {
 
         // Store aggregated data to pipelines
         if let Some(ref pipelines) = self.pipelines_service {
-            if let Err(e) = self.store_snapshots_to_pipeline(pipelines, &snapshots).await {
-                self.logger.warn(&format!("Failed to store snapshots to pipeline: {}", e));
+            if let Err(e) = self
+                .store_snapshots_to_pipeline(pipelines, &snapshots)
+                .await
+            {
+                self.logger
+                    .warn(&format!("Failed to store snapshots to pipeline: {}", e));
             }
         }
 
@@ -230,7 +237,10 @@ impl MarketDataIngestionService {
 
         // Step 2: Try pipeline data (medium speed)
         if let Some(ref pipelines) = self.pipelines_service {
-            if let Ok(pipeline_data) = self.get_pipeline_market_data(pipelines, exchange, pair).await {
+            if let Ok(pipeline_data) = self
+                .get_pipeline_market_data(pipelines, exchange, pair)
+                .await
+            {
                 self.metrics.pipeline_hits += 1;
                 // Cache the pipeline data for future use
                 let _ = self.cache_market_data(&pipeline_data).await;
@@ -286,7 +296,8 @@ impl MarketDataIngestionService {
 
         // Fetch funding rate data
         if self.config.enable_funding_rates {
-            snapshot.funding_rate_data = self.fetch_binance_funding_rate(&binance_symbol).await.ok();
+            snapshot.funding_rate_data =
+                self.fetch_binance_funding_rate(&binance_symbol).await.ok();
         }
 
         // Fetch volume data
@@ -356,18 +367,19 @@ impl MarketDataIngestionService {
 
     /// Fetch Binance price data
     async fn fetch_binance_price_data(&self, symbol: &str) -> ArbitrageResult<PriceData> {
-        let url = format!("https://api.binance.com/api/v3/ticker/24hr?symbol={}", symbol);
-        
-        let request = Request::new_with_init(
-            &url,
-            RequestInit::new().with_method(Method::Get),
-        )?;
+        let url = format!(
+            "https://api.binance.com/api/v3/ticker/24hr?symbol={}",
+            symbol
+        );
+
+        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
         let mut response = Fetch::Request(request).send().await?;
-        
+
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
-                "Binance price API error: {}", response.status_code()
+                "Binance price API error: {}",
+                response.status_code()
             )));
         }
 
@@ -375,30 +387,37 @@ impl MarketDataIngestionService {
         let data: serde_json::Value = serde_json::from_str(&response_text)?;
 
         Ok(PriceData {
-            price: data["lastPrice"].as_str().unwrap_or("0").parse().unwrap_or(0.0),
+            price: data["lastPrice"]
+                .as_str()
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(0.0),
             bid: data["bidPrice"].as_str().and_then(|s| s.parse().ok()),
             ask: data["askPrice"].as_str().and_then(|s| s.parse().ok()),
             high_24h: data["highPrice"].as_str().and_then(|s| s.parse().ok()),
             low_24h: data["lowPrice"].as_str().and_then(|s| s.parse().ok()),
             change_24h: data["priceChange"].as_str().and_then(|s| s.parse().ok()),
-            change_percentage_24h: data["priceChangePercent"].as_str().and_then(|s| s.parse().ok()),
+            change_percentage_24h: data["priceChangePercent"]
+                .as_str()
+                .and_then(|s| s.parse().ok()),
         })
     }
 
     /// Fetch Binance funding rate
     async fn fetch_binance_funding_rate(&self, symbol: &str) -> ArbitrageResult<FundingRateInfo> {
-        let url = format!("https://fapi.binance.com/fapi/v1/premiumIndex?symbol={}", symbol);
-        
-        let request = Request::new_with_init(
-            &url,
-            RequestInit::new().with_method(Method::Get),
-        )?;
+        let url = format!(
+            "https://fapi.binance.com/fapi/v1/premiumIndex?symbol={}",
+            symbol
+        );
+
+        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
         let mut response = Fetch::Request(request).send().await?;
-        
+
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
-                "Binance funding rate API error: {}", response.status_code()
+                "Binance funding rate API error: {}",
+                response.status_code()
             )));
         }
 
@@ -427,18 +446,19 @@ impl MarketDataIngestionService {
 
     /// Fetch Binance volume data
     async fn fetch_binance_volume_data(&self, symbol: &str) -> ArbitrageResult<VolumeData> {
-        let url = format!("https://api.binance.com/api/v3/ticker/24hr?symbol={}", symbol);
-        
-        let request = Request::new_with_init(
-            &url,
-            RequestInit::new().with_method(Method::Get),
-        )?;
+        let url = format!(
+            "https://api.binance.com/api/v3/ticker/24hr?symbol={}",
+            symbol
+        );
+
+        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
         let mut response = Fetch::Request(request).send().await?;
-        
+
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
-                "Binance volume API error: {}", response.status_code()
+                "Binance volume API error: {}",
+                response.status_code()
             )));
         }
 
@@ -446,7 +466,11 @@ impl MarketDataIngestionService {
         let data: serde_json::Value = serde_json::from_str(&response_text)?;
 
         Ok(VolumeData {
-            volume_24h: data["volume"].as_str().unwrap_or("0").parse().unwrap_or(0.0),
+            volume_24h: data["volume"]
+                .as_str()
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(0.0),
             volume_24h_usd: data["quoteVolume"].as_str().and_then(|s| s.parse().ok()),
             trades_count_24h: data["count"].as_u64(),
         })
@@ -454,18 +478,19 @@ impl MarketDataIngestionService {
 
     /// Fetch Bybit price data
     async fn fetch_bybit_price_data(&self, symbol: &str) -> ArbitrageResult<PriceData> {
-        let url = format!("https://api.bybit.com/v5/market/tickers?category=spot&symbol={}", symbol);
-        
-        let request = Request::new_with_init(
-            &url,
-            RequestInit::new().with_method(Method::Get),
-        )?;
+        let url = format!(
+            "https://api.bybit.com/v5/market/tickers?category=spot&symbol={}",
+            symbol
+        );
+
+        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
         let mut response = Fetch::Request(request).send().await?;
-        
+
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
-                "Bybit price API error: {}", response.status_code()
+                "Bybit price API error: {}",
+                response.status_code()
             )));
         }
 
@@ -476,19 +501,27 @@ impl MarketDataIngestionService {
             if let Some(list) = result.get("list").and_then(|l| l.as_array()) {
                 if let Some(ticker) = list.first() {
                     return Ok(PriceData {
-                        price: ticker["lastPrice"].as_str().unwrap_or("0").parse().unwrap_or(0.0),
+                        price: ticker["lastPrice"]
+                            .as_str()
+                            .unwrap_or("0")
+                            .parse()
+                            .unwrap_or(0.0),
                         bid: ticker["bid1Price"].as_str().and_then(|s| s.parse().ok()),
                         ask: ticker["ask1Price"].as_str().and_then(|s| s.parse().ok()),
                         high_24h: ticker["highPrice24h"].as_str().and_then(|s| s.parse().ok()),
                         low_24h: ticker["lowPrice24h"].as_str().and_then(|s| s.parse().ok()),
                         change_24h: ticker["price24hPcnt"].as_str().and_then(|s| s.parse().ok()),
-                        change_percentage_24h: ticker["price24hPcnt"].as_str().and_then(|s| s.parse::<f64>().ok().map(|v| v * 100.0)),
+                        change_percentage_24h: ticker["price24hPcnt"]
+                            .as_str()
+                            .and_then(|s| s.parse::<f64>().ok().map(|v| v * 100.0)),
                     });
                 }
             }
         }
 
-        Err(ArbitrageError::parse_error("Failed to parse Bybit price data"))
+        Err(ArbitrageError::parse_error(
+            "Failed to parse Bybit price data",
+        ))
     }
 
     /// Fetch Bybit funding rate
@@ -497,17 +530,15 @@ impl MarketDataIngestionService {
             "https://api.bybit.com/v5/market/funding/history?category=linear&symbol={}&limit=1",
             symbol
         );
-        
-        let request = Request::new_with_init(
-            &url,
-            RequestInit::new().with_method(Method::Get),
-        )?;
+
+        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
         let mut response = Fetch::Request(request).send().await?;
-        
+
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
-                "Bybit funding rate API error: {}", response.status_code()
+                "Bybit funding rate API error: {}",
+                response.status_code()
             )));
         }
 
@@ -535,23 +566,26 @@ impl MarketDataIngestionService {
             }
         }
 
-        Err(ArbitrageError::parse_error("Failed to parse Bybit funding rate data"))
+        Err(ArbitrageError::parse_error(
+            "Failed to parse Bybit funding rate data",
+        ))
     }
 
     /// Fetch Bybit volume data
     async fn fetch_bybit_volume_data(&self, symbol: &str) -> ArbitrageResult<VolumeData> {
-        let url = format!("https://api.bybit.com/v5/market/tickers?category=spot&symbol={}", symbol);
-        
-        let request = Request::new_with_init(
-            &url,
-            RequestInit::new().with_method(Method::Get),
-        )?;
+        let url = format!(
+            "https://api.bybit.com/v5/market/tickers?category=spot&symbol={}",
+            symbol
+        );
+
+        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
         let mut response = Fetch::Request(request).send().await?;
-        
+
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
-                "Bybit volume API error: {}", response.status_code()
+                "Bybit volume API error: {}",
+                response.status_code()
             )));
         }
 
@@ -562,7 +596,11 @@ impl MarketDataIngestionService {
             if let Some(list) = result.get("list").and_then(|l| l.as_array()) {
                 if let Some(ticker) = list.first() {
                     return Ok(VolumeData {
-                        volume_24h: ticker["volume24h"].as_str().unwrap_or("0").parse().unwrap_or(0.0),
+                        volume_24h: ticker["volume24h"]
+                            .as_str()
+                            .unwrap_or("0")
+                            .parse()
+                            .unwrap_or(0.0),
                         volume_24h_usd: ticker["turnover24h"].as_str().and_then(|s| s.parse().ok()),
                         trades_count_24h: None, // Bybit doesn't provide trade count in this endpoint
                     });
@@ -570,23 +608,23 @@ impl MarketDataIngestionService {
             }
         }
 
-        Err(ArbitrageError::parse_error("Failed to parse Bybit volume data"))
+        Err(ArbitrageError::parse_error(
+            "Failed to parse Bybit volume data",
+        ))
     }
 
     /// Fetch OKX price data
     async fn fetch_okx_price_data(&self, symbol: &str) -> ArbitrageResult<PriceData> {
         let url = format!("https://www.okx.com/api/v5/market/ticker?instId={}", symbol);
-        
-        let request = Request::new_with_init(
-            &url,
-            RequestInit::new().with_method(Method::Get),
-        )?;
+
+        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
         let mut response = Fetch::Request(request).send().await?;
-        
+
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
-                "OKX price API error: {}", response.status_code()
+                "OKX price API error: {}",
+                response.status_code()
             )));
         }
 
@@ -596,18 +634,26 @@ impl MarketDataIngestionService {
         if let Some(data) = response_json.get("data").and_then(|d| d.as_array()) {
             if let Some(ticker) = data.first() {
                 return Ok(PriceData {
-                    price: ticker["last"].as_str().unwrap_or("0").parse().unwrap_or(0.0),
+                    price: ticker["last"]
+                        .as_str()
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0.0),
                     bid: ticker["bidPx"].as_str().and_then(|s| s.parse().ok()),
                     ask: ticker["askPx"].as_str().and_then(|s| s.parse().ok()),
                     high_24h: ticker["high24h"].as_str().and_then(|s| s.parse().ok()),
                     low_24h: ticker["low24h"].as_str().and_then(|s| s.parse().ok()),
                     change_24h: None, // OKX provides percentage, not absolute change
-                    change_percentage_24h: ticker["priceChangePercent"].as_str().and_then(|s| s.parse::<f64>().ok()),
+                    change_percentage_24h: ticker["priceChangePercent"]
+                        .as_str()
+                        .and_then(|s| s.parse::<f64>().ok()),
                 });
             }
         }
 
-        Err(ArbitrageError::parse_error("Failed to parse OKX price data"))
+        Err(ArbitrageError::parse_error(
+            "Failed to parse OKX price data",
+        ))
     }
 
     /// Get cached market data
@@ -617,33 +663,39 @@ impl MarketDataIngestionService {
         pair: &str,
     ) -> ArbitrageResult<MarketDataSnapshot> {
         let cache_key = format!("market_data:{}:{}", exchange.as_str(), pair);
-        
+
         match self.kv_store.get(&cache_key).text().await {
-            Ok(cached_data) => {
-                match serde_json::from_str::<MarketDataSnapshot>(&cached_data) {
-                    Ok(snapshot) => Ok(snapshot),
-                    Err(e) => Err(ArbitrageError::parse_error(format!(
-                        "Failed to parse cached market data: {}", e
-                    ))),
-                }
-            }
+            Ok(cached_data) => match serde_json::from_str::<MarketDataSnapshot>(&cached_data) {
+                Ok(snapshot) => Ok(snapshot),
+                Err(e) => Err(ArbitrageError::parse_error(format!(
+                    "Failed to parse cached market data: {}",
+                    e
+                ))),
+            },
             Err(e) => Err(ArbitrageError::not_found(format!(
-                "No cached data for {}:{} - {}", exchange.as_str(), pair, e
+                "No cached data for {}:{} - {}",
+                exchange.as_str(),
+                pair,
+                e
             ))),
         }
     }
 
     /// Cache market data
     async fn cache_market_data(&self, snapshot: &MarketDataSnapshot) -> ArbitrageResult<()> {
-        let cache_key = format!("market_data:{}:{}", snapshot.exchange.as_str(), snapshot.symbol);
+        let cache_key = format!(
+            "market_data:{}:{}",
+            snapshot.exchange.as_str(),
+            snapshot.symbol
+        );
         let serialized = serde_json::to_string(snapshot)?;
-        
+
         self.kv_store
             .put(&cache_key, serialized)?
             .expiration_ttl(self.config.cache_ttl_seconds)
             .execute()
             .await?;
-        
+
         Ok(())
     }
 
@@ -654,13 +706,16 @@ impl MarketDataIngestionService {
         exchange: &ExchangeIdEnum,
         pair: &str,
     ) -> ArbitrageResult<MarketDataSnapshot> {
-        let data = pipelines.get_latest_data(&format!("market_data_{}_{}", exchange.as_str(), pair)).await?;
-        
+        let data = pipelines
+            .get_latest_data(&format!("market_data_{}_{}", exchange.as_str(), pair))
+            .await?;
+
         // Parse pipeline data to MarketDataSnapshot
         match serde_json::from_value::<MarketDataSnapshot>(data) {
             Ok(snapshot) => Ok(snapshot),
             Err(e) => Err(ArbitrageError::parse_error(&format!(
-                "Failed to parse pipeline market data: {}", e
+                "Failed to parse pipeline market data: {}",
+                e
             ))),
         }
     }
@@ -673,39 +728,44 @@ impl MarketDataIngestionService {
     ) -> ArbitrageResult<()> {
         let mut errors = Vec::new();
         let mut successful_stores = 0;
-        
+
         for snapshot in snapshots {
             let data = match serde_json::to_value(snapshot) {
                 Ok(data) => data,
                 Err(e) => {
                     let error_msg = format!(
                         "Failed to serialize snapshot for {}:{} - {}",
-                        snapshot.exchange.as_str(), snapshot.symbol, e
+                        snapshot.exchange.as_str(),
+                        snapshot.symbol,
+                        e
                     );
                     self.logger.warn(&error_msg);
                     errors.push(error_msg);
                     continue;
                 }
             };
-            
-            let key = format!("market_data_{}_{}", snapshot.exchange.as_str(), snapshot.symbol);
-            
+
+            let key = format!(
+                "market_data_{}_{}",
+                snapshot.exchange.as_str(),
+                snapshot.symbol
+            );
+
             match pipelines.store_market_data(&key, &data).await {
                 Ok(_) => {
                     successful_stores += 1;
-                    self.logger.debug(&format!("Successfully stored snapshot for {}", key));
+                    self.logger
+                        .debug(&format!("Successfully stored snapshot for {}", key));
                 }
                 Err(e) => {
-                    let error_msg = format!(
-                        "Failed to store snapshot to pipeline for {}: {}",
-                        key, e
-                    );
+                    let error_msg =
+                        format!("Failed to store snapshot to pipeline for {}: {}", key, e);
                     self.logger.warn(&error_msg);
                     errors.push(error_msg);
                 }
             }
         }
-        
+
         // Return aggregated error if any failures occurred
         if !errors.is_empty() {
             let summary = format!(
@@ -716,7 +776,7 @@ impl MarketDataIngestionService {
             );
             return Err(ArbitrageError::storage_error(summary));
         }
-        
+
         self.logger.info(&format!(
             "Successfully stored {} snapshots to pipeline",
             successful_stores
@@ -761,17 +821,21 @@ impl MarketDataIngestionService {
     ) -> ArbitrageResult<MarketDataSnapshot> {
         let snapshot = self.fetch_real_market_data(exchange, pair).await?;
         self.metrics.api_calls += 1;
-        
+
         // Update cache
         let _ = self.cache_market_data(&snapshot).await;
-        
+
         // Store to pipeline
         if let Some(ref pipelines) = self.pipelines_service {
             let data = serde_json::to_value(&snapshot)?;
-            let key = format!("market_data_{}_{}", snapshot.exchange.as_str(), snapshot.symbol);
+            let key = format!(
+                "market_data_{}_{}",
+                snapshot.exchange.as_str(),
+                snapshot.symbol
+            );
             let _ = pipelines.store_market_data(&key, &data).await;
         }
-        
+
         Ok(snapshot)
     }
 }
@@ -876,6 +940,9 @@ mod tests {
         assert!(matches!(DataSource::RealAPI, DataSource::RealAPI));
         assert!(matches!(DataSource::Pipeline, DataSource::Pipeline));
         assert!(matches!(DataSource::Cache, DataSource::Cache));
-        assert!(matches!(DataSource::CoinMarketCap, DataSource::CoinMarketCap));
+        assert!(matches!(
+            DataSource::CoinMarketCap,
+            DataSource::CoinMarketCap
+        ));
     }
-}  
+}

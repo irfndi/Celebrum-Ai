@@ -7,7 +7,9 @@
 //! 4. Beta expiration and auto-downgrade
 //! 5. Invalid/expired invitation code handling
 
-use arb_edge::services::core::infrastructure::d1_database::D1Service;
+use arb_edge::services::core::infrastructure::database_core::DatabaseCore;
+// TODO: Find correct location for D1Service
+// use arb_edge::services::core::infrastructure::database_core::D1Service; // Original problematic import
 // use arb_edge::services::core::invitation::invitation_service::InvitationService;
 use arb_edge::services::core::user::user_profile::UserProfileService;
 use arb_edge::types::{CommandPermission, UserProfile};
@@ -335,7 +337,7 @@ mod invitation_system_e2e_tests {
 
         // **Step 5: Test that basic permissions still work**
         let basic_permissions = vec![
-            (CommandPermission::BasicCommands, "Basic Commands"),
+            (CommandPermission::BasicOpportunities, "Basic Opportunities"),
             (CommandPermission::BasicOpportunities, "Basic Opportunities"),
         ];
 

@@ -54,7 +54,7 @@ impl RBACTestEnvironment {
     fn execute_command(&mut self, user_id: &str, command: &str) -> bool {
         let required_permission = match command {
             "/start" | "/help" | "/opportunities" | "/categories" => {
-                CommandPermission::BasicCommands
+                CommandPermission::BasicOpportunities
             }
             "/balance" | "/orders" | "/positions" => CommandPermission::AdvancedAnalytics,
             "/buy" | "/sell" => CommandPermission::ManualTrading,
@@ -65,7 +65,7 @@ impl RBACTestEnvironment {
             "/admin_stats" | "/admin_users" | "/admin_config" | "/admin_broadcast" => {
                 CommandPermission::SystemAdministration
             }
-            _ => CommandPermission::BasicCommands,
+            _ => CommandPermission::BasicOpportunities,
         };
 
         let has_permission = self.check_permission(user_id, required_permission);
@@ -96,7 +96,7 @@ fn create_rbac_test_user(
                 // For beta access, set beta_expires_at instead of role
                 let future_timestamp =
                     chrono::Utc::now().timestamp_millis() as u64 + (90 * 24 * 60 * 60 * 1000); // 90 days from now
-                user.set_beta_expiration(future_timestamp);
+                user.beta_expires_at = Some(future_timestamp);
                 // Don't set role for beta users - they use beta_expires_at field
             }
             _ => {
@@ -459,7 +459,7 @@ mod rbac_comprehensive_user_journey_tests {
         let super_admin = create_rbac_test_user(
             333333333,
             SubscriptionTier::SuperAdmin,
-            Some(UserRole::SuperAdmin),
+            Some(UserRole::Registered),
         );
         test_env.add_user(super_admin.clone());
 
@@ -509,7 +509,7 @@ mod rbac_comprehensive_user_journey_tests {
 
         // **Step 3: Test All Permission Types**
         let all_permissions = vec![
-            CommandPermission::BasicCommands,
+            CommandPermission::BasicTrading, // Replaced BasicCommands
             CommandPermission::ManualTrading,
             CommandPermission::AutomatedTrading,
             CommandPermission::BasicOpportunities,
@@ -517,8 +517,8 @@ mod rbac_comprehensive_user_journey_tests {
             CommandPermission::AIEnhancedOpportunities,
             CommandPermission::SystemAdministration,
             CommandPermission::UserManagement,
-            CommandPermission::GlobalConfiguration,
-            CommandPermission::GroupAnalytics,
+            CommandPermission::ConfigureSystem, // Replaced GlobalConfiguration
+            CommandPermission::ViewAnalytics,   // Replaced GroupAnalytics
             CommandPermission::AdvancedAnalytics,
             CommandPermission::PremiumFeatures,
         ];
@@ -634,7 +634,7 @@ mod rbac_comprehensive_user_journey_tests {
                 create_rbac_test_user(
                     555555555,
                     SubscriptionTier::SuperAdmin,
-                    Some(UserRole::SuperAdmin),
+                    Some(UserRole::Registered),
                 ),
                 "SuperAdmin",
             ),
@@ -653,7 +653,7 @@ mod rbac_comprehensive_user_journey_tests {
         // **Step 2: Test Permission Hierarchy**
         let permission_tests = vec![
             (
-                CommandPermission::BasicCommands,
+                CommandPermission::BasicTrading, // Replaced BasicCommands
                 vec![true, true, true, true, true],
             ),
             (
@@ -899,7 +899,7 @@ mod rbac_comprehensive_user_journey_tests {
             ),
             (CommandPermission::UserManagement, "User Management"),
             (
-                CommandPermission::GlobalConfiguration,
+                CommandPermission::ConfigureSystem, // Replaced GlobalConfiguration
                 "Global Configuration",
             ),
         ];
@@ -930,42 +930,59 @@ mod rbac_comprehensive_user_journey_tests {
         test_env.add_user(regular_free_user.clone());
 
         println!("\n📊 Beta vs Regular Free User Comparison:");
-        let comparison_features = vec![
-            CommandPermission::BasicCommands,
-            CommandPermission::AIEnhancedOpportunities,
-            CommandPermission::AdvancedAnalytics,
-            CommandPermission::SystemAdministration,
+        // Define comparison features, replacing BasicCommands with specific basic permissions
+        let comparison_features: Vec<(String, Vec<CommandPermission>)> = vec![
+            (
+                "Basic Functionality".to_string(),
+                vec![
+                    CommandPermission::BasicOpportunities,
+                    CommandPermission::BasicTrading,
+                ],
+            ),
+            (
+                "AI Enhanced Opportunities".to_string(),
+                vec![CommandPermission::AIEnhancedOpportunities],
+            ),
+            (
+                "Advanced Analytics".to_string(),
+                vec![CommandPermission::AdvancedAnalytics],
+            ),
+            (
+                "System Administration".to_string(),
+                vec![CommandPermission::SystemAdministration],
+            ),
         ];
 
-        for permission in &comparison_features {
-            let beta_access = test_env.check_permission(&beta_user.user_id, permission.clone());
-            let free_access =
-                test_env.check_permission(&regular_free_user.user_id, permission.clone());
+        for (feature_name, permissions) in &comparison_features {
+            println!("   Feature: {}:", feature_name);
+            for permission in permissions {
+                let beta_access = test_env.check_permission(&beta_user.user_id, permission.clone());
+                let free_access =
+                    test_env.check_permission(&regular_free_user.user_id, permission.clone());
 
-            println!("   {:?}:", permission);
-            println!(
-                "     Beta User: {}",
-                if beta_access {
-                    "✅ GRANTED"
-                } else {
-                    "❌ DENIED"
-                }
-            );
-            println!(
-                "     Free User: {}",
-                if free_access {
-                    "✅ GRANTED"
-                } else {
-                    "❌ DENIED"
-                }
-            );
+                println!("     Permission {:?}:", permission);
+                println!(
+                    "       Beta User: {}",
+                    if beta_access {
+                        "✅ GRANTED"
+                    } else {
+                        "❌ DENIED"
+                    }
+                );
+                println!(
+                    "       Free User: {}",
+                    if free_access {
+                        "✅ GRANTED"
+                    } else {
+                        "❌ DENIED"
+                    }
+                );
 
-            // Verify beta user has at least same access as free user
-            if free_access {
+                // Assert that Beta has at least the same or more access than Free for these features
                 assert!(
-                    beta_access,
-                    "Beta user should have at least same access as free user for {:?}",
-                    permission
+                    beta_access >= free_access,
+                    "Beta user should have at least same access as Free user for {:?} under feature {}",
+                    permission, feature_name
                 );
             }
         }

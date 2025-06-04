@@ -33,6 +33,7 @@ rand = "0.8"
 aes-gcm = "0.10"
 secrecy = "0.8"
 once_cell = "1.19"
+approx = "0.5"
 
 # WASM-specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -54,15 +55,18 @@ tokio = { version = "1.42", features = ["macros", "rt"] }
 sysinfo = "0.32"
 
 [dev-dependencies]
+criterion = "0.5"
 # WASM-compatible dev dependencies
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { version = "1.42", features = ["macros", "rt"] }
 tokio-test = "0.4"
+mockall = "0.12"
 
 # Native dev dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1.42", features = ["macros", "rt-multi-thread"] }
 tokio-test = "0.4"
+mockall = "0.12"
 
 # E2E Tests
 [[test]]

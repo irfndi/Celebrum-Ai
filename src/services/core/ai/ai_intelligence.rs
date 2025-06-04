@@ -131,10 +131,12 @@ impl Default for AiIntelligenceConfig {
 /// - AiPerformanceService: generate_performance_insights()
 /// - AiParameterOptimizationService: optimize_trading_parameters()
 ///   And implement builder pattern for cleaner dependency management
+#[derive(Clone)]
 pub struct AiIntelligenceService {
     config: AiIntelligenceConfig,
     ai_router: AiExchangeRouterService,
     categorization_service: OpportunityCategorizationService,
+    #[cfg(target_arch = "wasm32")]
     positions_service: PositionsService<KvStore>,
     config_service: DynamicConfigService,
     preferences_service: UserTradingPreferencesService,
@@ -153,7 +155,7 @@ impl AiIntelligenceService {
         config: AiIntelligenceConfig,
         ai_router: AiExchangeRouterService,
         categorization_service: OpportunityCategorizationService,
-        positions_service: PositionsService<KvStore>,
+        #[cfg(target_arch = "wasm32")] positions_service: PositionsService<KvStore>,
         config_service: DynamicConfigService,
         preferences_service: UserTradingPreferencesService,
         correlation_service: CorrelationAnalysisService,
@@ -167,6 +169,7 @@ impl AiIntelligenceService {
             config,
             ai_router,
             categorization_service,
+            #[cfg(target_arch = "wasm32")]
             positions_service,
             config_service,
             preferences_service,
@@ -199,11 +202,15 @@ impl AiIntelligenceService {
             .await?;
 
         // Get user's current positions for context
+        #[cfg(target_arch = "wasm32")]
         let positions = self
             .positions_service
             .get_all_positions()
             .await
             .unwrap_or_default();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let positions = Vec::new(); // Empty positions for non-WASM targets
 
         // Get user preferences and configuration
         let preferences = self
@@ -272,11 +279,15 @@ impl AiIntelligenceService {
         }
 
         // Get user's current positions
+        #[cfg(target_arch = "wasm32")]
         let positions = self
             .positions_service
             .get_all_positions()
             .await
             .unwrap_or_default();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let positions = Vec::new(); // Empty positions for non-WASM targets
 
         if positions.is_empty() {
             return Ok(self.create_empty_portfolio_analysis(user_id));
@@ -1990,6 +2001,7 @@ mod tests {
         OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,
     };
     use crate::types::*;
+    use crate::types::{PositionSide, PositionStatus};
 
     fn create_test_config() -> AiIntelligenceConfig {
         AiIntelligenceConfig {
@@ -2246,51 +2258,103 @@ mod tests {
 
     // Helper functions for testing
     fn create_test_position(value: f64) -> ArbitragePosition {
+        let now = chrono::Utc::now().timestamp_millis() as u64;
         ArbitragePosition {
-            position_id: format!("pos_{}", value as u32),
+            id: format!("pos_{}", value as u32),
             user_id: "test_user".to_string(),
             opportunity_id: "test_opp".to_string(),
+            long_position: Position {
+                info: serde_json::Value::Null,
+                id: Some("long_pos_1".to_string()),
+                symbol: "BTCUSDT".to_string(),
+                timestamp: now,
+                datetime: chrono::Utc::now().to_rfc3339(),
+                isolated: Some(true),
+                hedged: Some(false),
+                side: "long".to_string(),
+                amount: 0.1,
+                contracts: Some(0.1),
+                contract_size: Some(1.0),
+                entry_price: Some(50000.0),
+                mark_price: Some(50000.0),
+                notional: Some(5000.0),
+                leverage: Some(1.0),
+                collateral: Some(5000.0),
+                initial_margin: Some(5000.0),
+                initial_margin_percentage: Some(1.0),
+                maintenance_margin: Some(2500.0),
+                maintenance_margin_percentage: Some(0.5),
+                unrealized_pnl: Some(0.0),
+                realized_pnl: Some(0.0),
+                percentage: Some(0.0),
+            },
+            short_position: Position {
+                info: serde_json::Value::Null,
+                id: Some("short_pos_1".to_string()),
+                symbol: "BTCUSDT".to_string(),
+                timestamp: now,
+                datetime: chrono::Utc::now().to_rfc3339(),
+                isolated: Some(true),
+                hedged: Some(false),
+                side: "short".to_string(),
+                amount: 0.1,
+                contracts: Some(0.1),
+                contract_size: Some(1.0),
+                entry_price: Some(50100.0),
+                mark_price: Some(50100.0),
+                notional: Some(5010.0),
+                leverage: Some(1.0),
+                collateral: Some(5010.0),
+                initial_margin: Some(5010.0),
+                initial_margin_percentage: Some(1.0),
+                maintenance_margin: Some(2505.0),
+                maintenance_margin_percentage: Some(0.5),
+                unrealized_pnl: Some(0.0),
+                realized_pnl: Some(0.0),
+                percentage: Some(0.0),
+            },
+            status: PositionStatus::Open,
+            entry_time: now,
+            exit_time: None,
+            realized_pnl: 0.0,
+            unrealized_pnl: 5.0,
+            total_fees: 0.0,
+            risk_score: 0.5,
+            margin_used: 5000.0,
             symbol: "BTCUSDT".to_string(),
-            pair: "BTC/USDT".to_string(),
-            long_exchange: ExchangeIdEnum::Binance,
-            short_exchange: ExchangeIdEnum::Bybit,
-            exchange: ExchangeIdEnum::Binance,
-            long_position_size: 0.1,
-            short_position_size: 0.1,
+            side: PositionSide::Long,
             entry_price_long: 50000.0,
             entry_price_short: 50100.0,
-            current_price_long: Some(50050.0),
-            current_price_short: Some(50150.0),
-            unrealized_pnl: 5.0,
-            realized_pnl: 0.0,
-            pnl: Some(5.0),
-            status: PositionStatus::Open,
-            side: PositionSide::Long,
-            leverage: 1.0,
-            margin_used: 5000.0,
-            created_at: chrono::Utc::now().timestamp_millis() as u64,
-            updated_at: chrono::Utc::now().timestamp_millis() as u64,
-            closed_at: None,
+            take_profit_price: Some(51000.0),
             volatility_score: Some(0.5),
             calculated_size_usd: Some(5000.0),
-            stop_loss_price: Some(49000.0),
-            take_profit_price: Some(51000.0),
-            max_loss_usd: Some(100.0),
-            related_positions: Vec::new(),
-            risk_reward_ratio: Some(2.0),
-            holding_period_hours: Some(24.0),
-            id: Some("test_position_123".to_string()),
+            long_exchange: ExchangeIdEnum::Binance,
+            short_exchange: ExchangeIdEnum::Bybit,
             size: Some(0.1),
+            pnl: Some(5.0),
+            unrealized_pnl_percentage: Some(0.01), // 5 / 50000 * 0.1 (assuming size is in BTC)
+            max_drawdown: Some(0.0),
+            created_at: now,
+            holding_period_hours: Some(0.0),
+            trailing_stop_distance: None,
+            stop_loss_price: Some(49000.0),
             current_price: Some(50050.0),
-            risk_percentage_applied: Some(0.02),
-            trailing_stop_distance: Some(500.0),
+            current_price_long: Some(50050.0),
+            current_price_short: Some(50050.0),
+            max_loss_usd: Some(100.0),
+            exchange: ExchangeIdEnum::Binance, // Assuming primary exchange for the overall position
+            pair: "BTC/USDT".to_string(),
+            related_positions: Vec::new(),
+            closed_at: None,
+            updated_at: now,
+            risk_reward_ratio: Some(2.0),
+            last_optimization_check: None,
             hedge_position_id: None,
             position_group_id: None,
-            optimization_score: Some(0.8),
-            recommended_action: Some(PositionAction::Hold),
-            last_optimization_check: Some(chrono::Utc::now().timestamp_millis() as u64),
-            max_drawdown: Some(0.05),
-            unrealized_pnl_percentage: Some(0.1),
+            current_state: Some("monitoring".to_string()),
+            optimization_score: Some(0.0),
+            recommended_action: Some("hold".to_string()),
+            risk_percentage_applied: Some(0.01),
         }
     }
 

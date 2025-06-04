@@ -11,6 +11,7 @@ use std::sync::Arc;
 use worker::{kv::KvStore, D1Database};
 
 /// Configuration for AnalyticsRepository
+
 #[derive(Debug, Clone)]
 pub struct AnalyticsRepositoryConfig {
     pub enable_caching: bool,
@@ -88,6 +89,7 @@ impl RepositoryConfig for AnalyticsRepositoryConfig {
 }
 
 /// Analytics aggregation data
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyticsAggregation {
     pub user_id: String,
@@ -106,6 +108,7 @@ pub struct AnalyticsAggregation {
 }
 
 /// User analytics summary
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserAnalyticsSummary {
     pub user_id: String,
@@ -124,6 +127,7 @@ pub struct UserAnalyticsSummary {
 }
 
 /// System analytics summary
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemAnalyticsSummary {
     pub total_users: u32,
@@ -170,11 +174,10 @@ impl AnalyticsRepository {
         }
     }
 
-    /// Set cache store
-    pub fn with_cache(mut self, cache: KvStore) -> Self {
-        self.cache = Some(cache);
-        self
-    }
+    // pub fn with_cache(mut self, cache: KvStore) -> Self {
+    //     self.cache = Some(cache);
+    //     self
+    // }
 
     // ============= TRADING ANALYTICS OPERATIONS =============
 
@@ -533,7 +536,8 @@ impl AnalyticsRepository {
                 .first::<HashMap<String, serde_json::Value>>(None)
                 .await
                 .map_err(|e| {
-                    database_error(&format!("Failed to execute system analytics query: {}", e))
+                    let error_message = format!("Failed to execute system analytics query: {}", e);
+                    database_error("fetch_system_analytics", error_message)
                 })?;
 
             if let Some(row) = result {

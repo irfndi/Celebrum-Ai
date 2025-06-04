@@ -12,6 +12,7 @@ use std::sync::Arc;
 use worker::D1Database;
 
 /// Configuration for ConfigRepository
+
 #[derive(Debug, Clone)]
 pub struct ConfigRepositoryConfig {
     pub connection_pool_size: u32,
@@ -75,6 +76,7 @@ impl RepositoryConfig for ConfigRepositoryConfig {
 }
 
 /// Configuration template summary for admin dashboard
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigTemplateSummary {
     pub template_id: String,
@@ -88,6 +90,7 @@ pub struct ConfigTemplateSummary {
 }
 
 /// Configuration preset summary for user selection
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigPresetSummary {
     pub preset_id: String,
@@ -100,6 +103,7 @@ pub struct ConfigPresetSummary {
 }
 
 /// User configuration instance with metadata
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserConfigInstanceWithMetadata {
     pub instance: UserConfigInstance,
@@ -139,11 +143,10 @@ impl ConfigRepository {
         }
     }
 
-    /// Set cache store for caching operations
-    pub fn with_cache(mut self, cache: worker::kv::KvStore) -> Self {
-        self.cache = Some(cache);
-        self
-    }
+    // pub fn with_cache(mut self, cache: worker::kv::KvStore) -> Self {
+    //     self.cache = Some(cache);
+    //     self
+    // }
 
     // ============= CONFIG TEMPLATE OPERATIONS =============
 

@@ -4,10 +4,14 @@
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+
 use worker::kv::KvStore;
 
 /// Notification channels for delivery
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationChannel {
@@ -69,6 +73,34 @@ impl NotificationChannel {
             NotificationChannel::Slack => 40000,
             NotificationChannel::Discord => 2000,
             NotificationChannel::Custom(_) => 4096,
+        }
+    }
+}
+
+impl fmt::Display for NotificationChannel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl FromStr for NotificationChannel {
+    type Err = ArbitrageError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "telegram" => Ok(NotificationChannel::Telegram),
+            "email" => Ok(NotificationChannel::Email),
+            "push" => Ok(NotificationChannel::Push),
+            "webhook" => Ok(NotificationChannel::Webhook),
+            "sms" => Ok(NotificationChannel::Sms),
+            "slack" => Ok(NotificationChannel::Slack),
+            "discord" => Ok(NotificationChannel::Discord),
+            custom if custom.starts_with("custom:") => Ok(NotificationChannel::Custom(
+                custom.trim_start_matches("custom:").to_string(),
+            )),
+            _ => Err(ArbitrageError::validation_error(
+                "Invalid notification channel string",
+            )),
         }
     }
 }

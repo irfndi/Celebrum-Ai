@@ -1,9 +1,13 @@
 // src/services/core/trading/mod.rs
 
-pub mod exchange;
-pub mod positions;
 pub mod ai_exchange_router;
+pub mod exchange;
+pub mod kv_operations;
+pub mod positions;
 
+pub use ai_exchange_router::AiExchangeRouterService;
 pub use exchange::ExchangeService;
 pub use positions::PositionsService;
-pub use ai_exchange_router::AiExchangeRouterService; 
+
+// Re-export items from kv_operations to make them directly accessible under the trading module
+pub use kv_operations::{KvOperationError, KvOperations, KvResult};

@@ -65,7 +65,7 @@ async fn display_user_profile(
 
     // Get full user profile
     let user_profile_service = service_container
-        .get_user_profile_service()
+        .user_profile_service()
         .ok_or_else(|| ArbitrageError::service_unavailable("User profile service not available"))?;
 
     let user_id_str = user_info.user_id.to_string();
@@ -90,7 +90,7 @@ async fn display_user_profile(
 
     // Account Status
     message.push_str("🔐 *Account Status*\n");
-    message.push_str(&format!("Role: {:?}\n", profile.role));
+    message.push_str(&format!("Role: {:?}\n", profile.get_user_role()));
     message.push_str(&format!("Status: {}\n", 
         if profile.is_active { "✅ Active" } else { "❌ Inactive" }
     ));
@@ -110,13 +110,17 @@ async fn display_user_profile(
         message.push_str(&format!("Beta Expires: {}\n", beta_expires.format("%Y-%m-%d")));
     }
     message.push_str(&format!("Trading Enabled: {}\n", 
-        if profile.can_trade { "✅ Yes" } else { "❌ No (Add API keys)" }
+        if profile.access_level.can_trade() { "✅ Yes" } else { "❌ No (Add API keys)" }
     ));
     message.push_str(&format!("Daily Limit: {}\n\n", 
-        if profile.daily_opportunity_limit > 100 { 
-            "Unlimited".to_string() 
-        } else { 
-            profile.daily_opportunity_limit.to_string() 
+        if let Some(limit) = profile.subscription.daily_opportunity_limit {
+            if limit > 100 { 
+                "Unlimited".to_string() 
+            } else { 
+                limit.to_string() 
+            }
+        } else {
+            "Unlimited".to_string()
         }
     ));
 
@@ -505,4 +509,4 @@ impl ToTitleCase for str {
             .collect::<Vec<_>>()
             .join(" ")
     }
-} 
+}

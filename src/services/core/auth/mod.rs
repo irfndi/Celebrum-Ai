@@ -1,5 +1,5 @@
 //! Authentication & Authorization Module
-//! 
+//!
 //! Comprehensive authentication and authorization system with:
 //! - User authentication and session management
 //! - Role-Based Access Control (RBAC)
@@ -8,28 +8,31 @@
 //! - Beta access control
 //! - API key authentication
 
+pub mod middleware;
+pub mod permissions;
 pub mod rbac;
 pub mod session;
-pub mod permissions;
-pub mod middleware;
 pub mod user_auth;
 
 // Re-export main services and types
-pub use rbac::{RBACService, RoleManager, PermissionManager};
-pub use session::{AuthSessionService, SessionValidator, SessionManager, SessionStats, SessionValidationResult};
-pub use permissions::{PermissionChecker, AccessValidator, FeatureGate, FeatureAccessSummary};
-pub use middleware::{AuthMiddleware, AuthenticationResult, AuthorizationResult, AuthMethod};
+pub use middleware::{AuthMethod, AuthMiddleware, AuthenticationResult, AuthorizationResult};
+pub use permissions::{AccessValidator, FeatureAccessSummary, FeatureGate, PermissionChecker};
+pub use rbac::{PermissionManager, RBACService, RoleManager};
+pub use session::{
+    AuthSessionService, SessionManager, SessionStats, SessionValidationResult, SessionValidator,
+};
 pub use user_auth::{
-    UserAuthService, LoginResult, AuthCredentials, TelegramUserInfo, 
-    InvitationValidationResult, InvitationBenefits, OnboardingStatus
+    AuthCredentials, InvitationBenefits, InvitationValidationResult, LoginResult, OnboardingStatus,
+    TelegramUserInfo, UserAuthService,
 };
 
 use crate::types::UserProfile;
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use worker::console_log;
 use std::sync::Arc;
+use worker::console_log;
 
 /// Trait for user profile operations
+#[async_trait::async_trait]
 pub trait UserProfileProvider: Send + Sync {
     async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile>;
     async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()>;
@@ -37,6 +40,7 @@ pub trait UserProfileProvider: Send + Sync {
 }
 
 /// Trait for session management operations
+#[async_trait::async_trait]
 pub trait SessionProvider: Send + Sync {
     async fn validate_session(&self, session_id: &str) -> ArbitrageResult<bool>;
     async fn create_session(&self, user_id: &str) -> ArbitrageResult<String>;
@@ -45,7 +49,7 @@ pub trait SessionProvider: Send + Sync {
 }
 
 /// Main Authentication & Authorization Service
-/// 
+///
 /// Production-ready service with proper dependency injection
 pub struct AuthService {
     rbac_service: RBACService,
@@ -87,16 +91,24 @@ impl AuthService {
 
     /// Check user permission with real user profile lookup
     pub async fn check_permission(&self, user_id: &str, permission: &str) -> ArbitrageResult<bool> {
-        console_log!("🔍 Checking permission '{}' for user: {}", permission, user_id);
+        console_log!(
+            "🔍 Checking permission '{}' for user: {}",
+            permission,
+            user_id
+        );
 
         // Get user profile from provider
         let user_profile = if let Some(provider) = &self.user_profile_provider {
             provider.get_user_profile(user_id).await?
         } else {
-            return Err(ArbitrageError::service_unavailable("User profile provider not configured"));
+            return Err(ArbitrageError::service_unavailable(
+                "User profile provider not configured",
+            ));
         };
 
-        self.permission_checker.check_permission(&user_profile, permission).await
+        self.permission_checker
+            .check_permission(&user_profile, permission)
+            .await
     }
 
     /// Get user permissions based on real user profile
@@ -107,29 +119,47 @@ impl AuthService {
         let user_profile = if let Some(provider) = &self.user_profile_provider {
             provider.get_user_profile(user_id).await?
         } else {
-            return Err(ArbitrageError::service_unavailable("User profile provider not configured"));
+            return Err(ArbitrageError::service_unavailable(
+                "User profile provider not configured",
+            ));
         };
 
-        let user_permissions = self.rbac_service.get_user_permissions(&user_profile).await?;
+        let user_permissions = self
+            .rbac_service
+            .get_user_permissions(&user_profile)
+            .await?;
         Ok(user_permissions.permissions)
     }
 
     /// Validate user access with real data
-    pub async fn validate_user_access(&self, user_id: &str, required_permission: &str) -> ArbitrageResult<bool> {
-        console_log!("🔍 Validating access for user {} permission '{}'", user_id, required_permission);
+    pub async fn validate_user_access(
+        &self,
+        user_id: &str,
+        required_permission: &str,
+    ) -> ArbitrageResult<bool> {
+        console_log!(
+            "🔍 Validating access for user {} permission '{}'",
+            user_id,
+            required_permission
+        );
 
         self.check_permission(user_id, required_permission).await
     }
 
     /// Get feature access summary with real user profile
-    pub async fn get_feature_access_summary(&self, user_id: &str) -> ArbitrageResult<FeatureAccessSummary> {
+    pub async fn get_feature_access_summary(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<FeatureAccessSummary> {
         console_log!("📋 Getting feature access summary for user: {}", user_id);
 
         // Get user profile from provider
         let user_profile = if let Some(provider) = &self.user_profile_provider {
             provider.get_user_profile(user_id).await?
         } else {
-            return Err(ArbitrageError::service_unavailable("User profile provider not configured"));
+            return Err(ArbitrageError::service_unavailable(
+                "User profile provider not configured",
+            ));
         };
 
         let feature_gate = FeatureGate::new_standalone().await?;
@@ -144,7 +174,9 @@ impl AuthService {
         let is_valid = if let Some(provider) = &self.session_provider {
             provider.validate_session(session_id).await?
         } else {
-            return Err(ArbitrageError::service_unavailable("Session provider not configured"));
+            return Err(ArbitrageError::service_unavailable(
+                "Session provider not configured",
+            ));
         };
 
         if !is_valid {
@@ -158,7 +190,9 @@ impl AuthService {
         let user_profile = if let Some(provider) = &self.user_profile_provider {
             provider.get_user_profile(&user_id).await?
         } else {
-            return Err(ArbitrageError::service_unavailable("User profile provider not configured"));
+            return Err(ArbitrageError::service_unavailable(
+                "User profile provider not configured",
+            ));
         };
 
         // Get user permissions
@@ -188,7 +222,9 @@ impl AuthService {
             console_log!("✅ Session created: {}", session_id);
             Ok(session_id)
         } else {
-            Err(ArbitrageError::service_unavailable("Session provider not configured"))
+            Err(ArbitrageError::service_unavailable(
+                "Session provider not configured",
+            ))
         }
     }
 
@@ -201,7 +237,9 @@ impl AuthService {
             console_log!("✅ Session ended: {}", session_id);
             Ok(())
         } else {
-            Err(ArbitrageError::service_unavailable("Session provider not configured"))
+            Err(ArbitrageError::service_unavailable(
+                "Session provider not configured",
+            ))
         }
     }
 
@@ -214,7 +252,10 @@ impl AuthService {
         let rbac_healthy = true; // RBAC is always healthy as it's stateless
         let permission_checker_healthy = true; // Permission checker is always healthy
 
-        let overall_healthy = user_profile_healthy && session_provider_healthy && rbac_healthy && permission_checker_healthy;
+        let overall_healthy = user_profile_healthy
+            && session_provider_healthy
+            && rbac_healthy
+            && permission_checker_healthy;
 
         let status = AuthHealthStatus {
             overall_healthy,
@@ -224,7 +265,14 @@ impl AuthService {
             permission_checker_healthy,
         };
 
-        console_log!("✅ Auth service health check complete: {}", if overall_healthy { "HEALTHY" } else { "UNHEALTHY" });
+        console_log!(
+            "✅ Auth service health check complete: {}",
+            if overall_healthy {
+                "HEALTHY"
+            } else {
+                "UNHEALTHY"
+            }
+        );
 
         Ok(status)
     }
@@ -293,4 +341,4 @@ pub struct AuthHealthStatus {
     pub session_provider_healthy: bool,
     pub rbac_service_healthy: bool,
     pub permission_checker_healthy: bool,
-} 
+}

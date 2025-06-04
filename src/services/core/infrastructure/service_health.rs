@@ -20,7 +20,7 @@ impl HealthStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             HealthStatus::Healthy => "healthy",
-            HealthStatus::Degraded => "degraded", 
+            HealthStatus::Degraded => "degraded",
             HealthStatus::Unhealthy => "unhealthy",
             HealthStatus::Unknown => "unknown",
         }
@@ -70,9 +70,9 @@ pub struct HealthCheckConfig {
 impl Default for HealthCheckConfig {
     fn default() -> Self {
         Self {
-            check_interval_seconds: 30,    // Check every 30 seconds
-            timeout_seconds: 10,           // 10 second timeout per check
-            max_retries: 2,               // 2 retry attempts
+            check_interval_seconds: 30, // Check every 30 seconds
+            timeout_seconds: 10,        // 10 second timeout per check
+            max_retries: 2,             // 2 retry attempts
             critical_services: vec![
                 "database".to_string(),
                 "cache".to_string(),
@@ -87,6 +87,7 @@ impl Default for HealthCheckConfig {
 }
 
 /// Health check function trait for services
+#[async_trait::async_trait]
 pub trait HealthCheckable {
     async fn health_check(&self) -> ArbitrageResult<ServiceHealthCheck>;
     fn service_name(&self) -> &str;
@@ -147,32 +148,39 @@ impl ServiceHealthManager {
     /// Register a service for health monitoring
     pub fn register_service(&mut self, service: Box<dyn HealthCheckable + Send + Sync>) {
         let service_name = service.service_name().to_string();
-        
+
         // Initialize metrics for the service
         if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.insert(service_name.clone(), ServiceMetrics {
-                service_name: service_name.clone(),
-                total_checks: 0,
-                successful_checks: 0,
-                failed_checks: 0,
-                avg_response_time_ms: 0.0,
-                min_response_time_ms: f64::MAX,
-                max_response_time_ms: 0.0,
-                uptime_percentage: 100.0,
-                last_failure_timestamp: None,
-                last_failure_reason: None,
-                consecutive_failures: 0,
-                consecutive_successes: 0,
-            });
+            metrics.insert(
+                service_name.clone(),
+                ServiceMetrics {
+                    service_name: service_name.clone(),
+                    total_checks: 0,
+                    successful_checks: 0,
+                    failed_checks: 0,
+                    avg_response_time_ms: 0.0,
+                    min_response_time_ms: f64::MAX,
+                    max_response_time_ms: 0.0,
+                    uptime_percentage: 100.0,
+                    last_failure_timestamp: None,
+                    last_failure_reason: None,
+                    consecutive_failures: 0,
+                    consecutive_successes: 0,
+                },
+            );
         }
 
         self.services.insert(service_name, service);
     }
 
     /// Perform health check on a specific service
-    pub async fn check_service_health(&self, service_name: &str) -> ArbitrageResult<ServiceHealthCheck> {
-        let service = self.services.get(service_name)
-            .ok_or_else(|| ArbitrageError::validation_error(format!("Service not found: {}", service_name)))?;
+    pub async fn check_service_health(
+        &self,
+        service_name: &str,
+    ) -> ArbitrageResult<ServiceHealthCheck> {
+        let service = self.services.get(service_name).ok_or_else(|| {
+            ArbitrageError::validation_error(format!("Service not found: {}", service_name))
+        })?;
 
         let start_time = Instant::now();
         let mut check_result = None;
@@ -182,8 +190,10 @@ impl ServiceHealthManager {
         for attempt in 0..=self.config.max_retries {
             match tokio::time::timeout(
                 Duration::from_secs(self.config.timeout_seconds),
-                service.health_check()
-            ).await {
+                service.health_check(),
+            )
+            .await
+            {
                 Ok(Ok(result)) => {
                     check_result = Some(result);
                     break;
@@ -212,24 +222,30 @@ impl ServiceHealthManager {
             Some(mut result) => {
                 result.response_time_ms = response_time;
                 result.last_check_timestamp = chrono::Utc::now().timestamp_millis() as u64;
-                
-// Escalate the status if latency pushes it to a worse tier,
-// but never *promote* a worse status to a better one.
-let latency_status = self.determine_status_from_response_time(response_time);
-result.status = match (result.status.clone(), latency_status) {
-    // keep the worse of the two
-    (HealthStatus::Unhealthy, _) | (_, HealthStatus::Unhealthy) => HealthStatus::Unhealthy,
-    (HealthStatus::Degraded, _) | (_, HealthStatus::Degraded)   => HealthStatus::Degraded,
-    _                                                           => HealthStatus::Healthy,
-};
-                
+
+                // Escalate the status if latency pushes it to a worse tier,
+                // but never *promote* a worse status to a better one.
+                let latency_status = self.determine_status_from_response_time(response_time);
+                result.status = match (result.status.clone(), latency_status) {
+                    // keep the worse of the two
+                    (HealthStatus::Unhealthy, _) | (_, HealthStatus::Unhealthy) => {
+                        HealthStatus::Unhealthy
+                    }
+                    (HealthStatus::Degraded, _) | (_, HealthStatus::Degraded) => {
+                        HealthStatus::Degraded
+                    }
+                    _ => HealthStatus::Healthy,
+                };
+
                 self.update_service_metrics(service_name, true, response_time, None);
                 Ok(result)
             }
             None => {
-                let error_msg = last_error.map(|e| e.to_string()).unwrap_or_else(|| "Unknown error".to_string());
+                let error_msg = last_error
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "Unknown error".to_string());
                 self.update_service_metrics(service_name, false, response_time, Some(&error_msg));
-                
+
                 Ok(ServiceHealthCheck {
                     service_name: service_name.to_string(),
                     status: HealthStatus::Unhealthy,
@@ -294,14 +310,14 @@ result.status = match (result.status.clone(), latency_status) {
 
         // Determine overall status
         let overall_status = self.determine_overall_status(&service_checks);
-        
+
         // Check if critical services are healthy
-        let critical_services_healthy = self.config.critical_services.iter()
-            .all(|service| {
-                service_checks.get(service)
-                    .map(|check| check.status == HealthStatus::Healthy)
-                    .unwrap_or(false)
-            });
+        let critical_services_healthy = self.config.critical_services.iter().all(|service| {
+            service_checks
+                .get(service)
+                .map(|check| check.status == HealthStatus::Healthy)
+                .unwrap_or(false)
+        });
 
         let report = SystemHealthReport {
             overall_status,
@@ -362,8 +378,7 @@ result.status = match (result.status.clone(), latency_status) {
     pub async fn is_system_ready(&self) -> bool {
         match self.check_system_health().await {
             Ok(report) => {
-                report.critical_services_healthy && 
-                report.overall_status != HealthStatus::Unhealthy
+                report.critical_services_healthy && report.overall_status != HealthStatus::Unhealthy
             }
             Err(_) => false,
         }
@@ -386,7 +401,10 @@ result.status = match (result.status.clone(), latency_status) {
         }
     }
 
-    fn determine_overall_status(&self, service_checks: &HashMap<String, ServiceHealthCheck>) -> HealthStatus {
+    fn determine_overall_status(
+        &self,
+        service_checks: &HashMap<String, ServiceHealthCheck>,
+    ) -> HealthStatus {
         let mut has_unhealthy = false;
         let mut has_degraded = false;
 
@@ -415,7 +433,13 @@ result.status = match (result.status.clone(), latency_status) {
         }
     }
 
-    fn update_service_metrics(&self, service_name: &str, success: bool, response_time_ms: f64, error_message: Option<&str>) {
+    fn update_service_metrics(
+        &self,
+        service_name: &str,
+        success: bool,
+        response_time_ms: f64,
+        error_message: Option<&str>,
+    ) {
         if let Ok(mut metrics) = self.metrics.lock() {
             if let Some(metric) = metrics.get_mut(service_name) {
                 metric.total_checks += 1;
@@ -426,7 +450,9 @@ result.status = match (result.status.clone(), latency_status) {
                     metric.consecutive_failures = 0;
 
                     // Update response time statistics
-                    let total_time = metric.avg_response_time_ms * (metric.successful_checks - 1) as f64 + response_time_ms;
+                    let total_time = metric.avg_response_time_ms
+                        * (metric.successful_checks - 1) as f64
+                        + response_time_ms;
                     metric.avg_response_time_ms = total_time / metric.successful_checks as f64;
                     metric.min_response_time_ms = metric.min_response_time_ms.min(response_time_ms);
                     metric.max_response_time_ms = metric.max_response_time_ms.max(response_time_ms);
@@ -434,12 +460,14 @@ result.status = match (result.status.clone(), latency_status) {
                     metric.failed_checks += 1;
                     metric.consecutive_failures += 1;
                     metric.consecutive_successes = 0;
-                    metric.last_failure_timestamp = Some(chrono::Utc::now().timestamp_millis() as u64);
+                    metric.last_failure_timestamp =
+                        Some(chrono::Utc::now().timestamp_millis() as u64);
                     metric.last_failure_reason = error_message.map(|s| s.to_string());
                 }
 
                 // Update uptime percentage
-                metric.uptime_percentage = (metric.successful_checks as f64 / metric.total_checks as f64) * 100.0;
+                metric.uptime_percentage =
+                    (metric.successful_checks as f64 / metric.total_checks as f64) * 100.0;
             }
         }
     }
@@ -471,7 +499,7 @@ impl HealthCheckable for PingHealthCheck {
         Ok(ServiceHealthCheck {
             service_name: self.service_name.clone(),
             status: HealthStatus::Healthy,
-            response_time_ms: 0.0, // Will be set by the manager
+            response_time_ms: 0.0,   // Will be set by the manager
             last_check_timestamp: 0, // Will be set by the manager
             error_message: None,
             metadata: HashMap::new(),
@@ -513,8 +541,14 @@ impl HealthCheckable for HttpHealthCheck {
             error_message: None,
             metadata: {
                 let mut metadata = HashMap::new();
-                metadata.insert("endpoint".to_string(), serde_json::Value::String(self.endpoint_url.clone()));
-                metadata.insert("expected_status".to_string(), serde_json::Value::Number(self.expected_status.into()));
+                metadata.insert(
+                    "endpoint".to_string(),
+                    serde_json::Value::String(self.endpoint_url.clone()),
+                );
+                metadata.insert(
+                    "expected_status".to_string(),
+                    serde_json::Value::Number(self.expected_status.into()),
+                );
                 metadata
             },
             dependencies: Vec::new(),
@@ -598,7 +632,7 @@ mod tests {
     async fn test_ping_health_check() {
         let ping_check = PingHealthCheck::new("ping_service");
         let result = ping_check.health_check().await;
-        
+
         assert!(result.is_ok());
         let check = result.unwrap();
         assert_eq!(check.service_name, "ping_service");
@@ -612,4 +646,4 @@ mod tests {
         assert_eq!(manager.services.len(), 0);
         assert_eq!(manager.config.check_interval_seconds, 30);
     }
-} 
+}

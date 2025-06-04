@@ -27,7 +27,7 @@ impl UserActivityService {
         metadata: serde_json::Value,
     ) -> ArbitrageResult<()> {
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         // Store in KV for recent activity tracking
         let activity_key = format!("user_activity:{}:{}", user_id, now);
         let activity_data = serde_json::json!({
@@ -43,7 +43,11 @@ impl UserActivityService {
             .execute()
             .await?;
 
-        console_log!("📊 Recorded activity for user {}: {}", user_id, activity_type);
+        console_log!(
+            "📊 Recorded activity for user {}: {}",
+            user_id,
+            activity_type
+        );
         Ok(())
     }
 
@@ -60,18 +64,23 @@ impl UserActivityService {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
-        self.d1_service.execute(query, &[
-            serde_json::Value::String(analytics.message_id.clone()),
-            serde_json::Value::Number(serde_json::Number::from(analytics.chat_id)),
-            serde_json::Value::String(analytics.user_id.clone().unwrap_or_default()),
-            serde_json::Value::String(analytics.message_type.clone()),
-            serde_json::Value::String(analytics.command.clone().unwrap_or_default()),
-            serde_json::Value::Number(serde_json::Number::from(analytics.timestamp)),
-            serde_json::Value::Number(serde_json::Number::from(analytics.response_time_ms)),
-            serde_json::Value::Bool(analytics.success),
-            serde_json::Value::String(analytics.error_message.clone().unwrap_or_default()),
-            analytics.metadata.clone(),
-        ]).await?;
+        self.d1_service
+            .execute(
+                query,
+                &[
+                    serde_json::Value::String(analytics.message_id.clone()),
+                    serde_json::Value::Number(serde_json::Number::from(analytics.chat_id)),
+                    serde_json::Value::String(analytics.user_id.clone().unwrap_or_default()),
+                    serde_json::Value::String(analytics.message_type.clone()),
+                    serde_json::Value::String(analytics.command.clone().unwrap_or_default()),
+                    serde_json::Value::Number(serde_json::Number::from(analytics.timestamp)),
+                    serde_json::Value::Number(serde_json::Number::from(analytics.response_time_ms)),
+                    serde_json::Value::Bool(analytics.success),
+                    serde_json::Value::String(analytics.error_message.clone().unwrap_or_default()),
+                    analytics.metadata.clone(),
+                ],
+            )
+            .await?;
 
         Ok(())
     }
@@ -90,9 +99,10 @@ impl UserActivityService {
 
         // Get recent activities from KV
         for hour in 0..24 {
-            let hour_timestamp = chrono::Utc::now().timestamp_millis() as u64 - (hour * 3600 * 1000);
+            let hour_timestamp =
+                chrono::Utc::now().timestamp_millis() as u64 - (hour * 3600 * 1000);
             let activity_pattern = format!("user_activity:{}:{}", user_id, hour_timestamp / 1000);
-            
+
             // In a real implementation, we'd use KV list operations
             // For now, we'll just return a summary structure
         }
@@ -106,13 +116,19 @@ impl UserActivityService {
             ORDER BY count DESC
         "#;
 
-        let result = self.d1_service.query(query, &[
-            serde_json::Value::String(user_id.to_string()),
-            serde_json::Value::Number(serde_json::Number::from(start_timestamp)),
-        ]).await?;
+        let result = self
+            .d1_service
+            .query(
+                query,
+                &[
+                    serde_json::Value::String(user_id.to_string()),
+                    serde_json::Value::Number(serde_json::Number::from(start_timestamp)),
+                ],
+            )
+            .await?;
 
         let rows = result.results::<std::collections::HashMap<String, serde_json::Value>>()?;
-        
+
         let summary = serde_json::json!({
             "user_id": user_id,
             "period_days": days,
@@ -127,7 +143,7 @@ impl UserActivityService {
     /// Update user last active timestamp
     pub async fn update_last_active(&self, user_id: &str) -> ArbitrageResult<()> {
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         // Update in KV for fast access
         let last_active_key = format!("user_last_active:{}", user_id);
         self.kv_service
@@ -142,12 +158,12 @@ impl UserActivityService {
     /// Check if user is recently active
     pub async fn is_recently_active(&self, user_id: &str, minutes: u32) -> ArbitrageResult<bool> {
         let last_active_key = format!("user_last_active:{}", user_id);
-        
+
         if let Some(last_active_str) = self.kv_service.get(&last_active_key).text().await? {
             if let Ok(last_active) = last_active_str.parse::<u64>() {
                 let now = chrono::Utc::now().timestamp_millis() as u64;
                 let threshold = minutes as u64 * 60 * 1000; // Convert to milliseconds
-                
+
                 return Ok(now - last_active < threshold);
             }
         }
@@ -194,4 +210,4 @@ mod tests {
         assert!(analytics.success);
         assert!(analytics.response_time_ms > 0);
     }
-} 
+}

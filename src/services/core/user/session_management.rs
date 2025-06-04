@@ -4,7 +4,7 @@ use crate::types::{
     SessionConfig, SessionOutcome,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use serde_json::{self, Value};
+use serde_json::{self};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use worker::wasm_bindgen::JsValue;
@@ -135,6 +135,34 @@ impl SessionManagementService {
             .await?;
 
         Ok(())
+    }
+
+    /// Get session by session ID
+    pub async fn get_session(&self, session_id: &str) -> ArbitrageResult<EnhancedUserSession> {
+        let stmt = self.d1_service.prepare(
+            "SELECT * FROM user_sessions WHERE session_id = ? AND session_state = 'active' ORDER BY created_at DESC LIMIT 1"
+        );
+
+        let result = stmt
+            .bind(&[session_id.into()])
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to bind session_id: {}", e))
+            })?
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to query session: {}", e))
+            })?;
+
+        match result {
+            Some(row) => {
+                let session = self.row_to_session(row)?;
+                // Cache for future lookups
+                self.cache_session(&session).await?;
+                Ok(session)
+            }
+            None => Err(ArbitrageError::session_not_found(session_id.to_string())),
+        }
     }
 
     /// Get session by user ID
@@ -722,12 +750,19 @@ impl SessionManagementService {
         Ok(EnhancedUserSession {
             session_id,
             user_id,
-            telegram_chat_id: telegram_id,
+            telegram_chat_id: telegram_id, // Assuming chat_id is same as telegram_id for now
             telegram_id,
-            last_command: None,
-            current_state: session_state.clone(),
+            last_command: row
+                .get("last_command")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            current_state: session_state.clone(), // Assuming current_state is same as session_state from DB
             session_state,
-            temporary_data: std::collections::HashMap::new(),
+            temporary_data: row
+                .get("temporary_data")
+                .and_then(|v| v.as_str())
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or_default(),
             started_at,
             last_activity_at,
             expires_at,
@@ -736,39 +771,23 @@ impl SessionManagementService {
             metadata,
             created_at,
             updated_at,
-            session_analytics: SessionAnalytics {
-                commands_executed: row
-                    .get("commands_executed")
-                    .unwrap_or(&Value::Number(0.into()))
-                    .as_f64()
-                    .unwrap_or(0.0) as u32,
-                opportunities_viewed: row
-                    .get("opportunities_viewed")
-                    .unwrap_or(&Value::Number(0.into()))
-                    .as_f64()
-                    .unwrap_or(0.0) as u32,
-                trades_executed: row
-                    .get("trades_executed")
-                    .unwrap_or(&Value::Number(0.into()))
-                    .as_f64()
-                    .unwrap_or(0.0) as u32,
-                session_duration_seconds: row
-                    .get("session_duration_seconds")
-                    .unwrap_or(&Value::Number(0.into()))
-                    .as_f64()
-                    .unwrap_or(0.0) as u64,
-                session_duration_ms: row
-                    .get("session_duration_ms")
-                    .unwrap_or(&Value::Number(0.into()))
-                    .as_f64()
-                    .unwrap_or(0.0) as u64,
-                last_activity: row
-                    .get("last_activity")
-                    .unwrap_or(&Value::Number(0.into()))
-                    .as_f64()
-                    .unwrap_or(0.0) as u64,
-            },
-            config: SessionConfig::default(),
+            session_analytics: row
+                .get("session_analytics")
+                .and_then(|v| v.as_str())
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(SessionAnalytics {
+                    commands_executed: 0,
+                    opportunities_viewed: 0,
+                    trades_executed: 0,
+                    session_duration_seconds: 0,
+                    session_duration_ms: 0,
+                    last_activity: last_activity_at, // Use last_activity_at from row as a sensible default
+                }),
+            config: row
+                .get("config")
+                .and_then(|v| v.as_str())
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or_default(),
         })
     }
 

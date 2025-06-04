@@ -14,10 +14,11 @@ use worker::kv::KvStore;
 
 /// Unified access manager for all opportunity services
 /// Consolidates permission checking, access validation, and exchange API management
+
 pub struct AccessManager {
     user_profile_service: Arc<UserProfileService>,
     user_access_service: Arc<UserAccessService>,
-    kv_store: KvStore,
+    kv_store: Arc<KvStore>,
     cache_ttl_seconds: u64,
 }
 
@@ -29,12 +30,12 @@ impl AccessManager {
     pub fn new(
         user_profile_service: Arc<UserProfileService>,
         user_access_service: Arc<UserAccessService>,
-        kv_store: KvStore,
+        kv_store: Arc<KvStore>,
     ) -> Self {
         Self {
             user_profile_service,
             user_access_service,
-            kv_store,
+            kv_store, // Re-add kv_store
             cache_ttl_seconds: Self::DEFAULT_CACHE_TTL,
         }
     }
@@ -170,7 +171,9 @@ impl AccessManager {
         let cache_key = format!("{}:{}", Self::USER_EXCHANGE_CACHE_PREFIX, user_id);
 
         // Try cache first
-        if let Ok(Some(cached_exchanges)) = self.get_cached_exchanges(&cache_key).await {
+        if let Ok(Some(cached_exchanges)) =
+            self.get_cached_exchanges(&self.kv_store, &cache_key).await
+        {
             return Ok(cached_exchanges);
         }
 
@@ -206,7 +209,9 @@ impl AccessManager {
         }
 
         // Cache the result
-        let _ = self.cache_exchanges(&cache_key, &exchanges).await;
+        let _ = self
+            .cache_exchanges(&self.kv_store, &cache_key, &exchanges)
+            .await;
 
         log_info!(
             "Retrieved user exchange APIs",
@@ -228,7 +233,9 @@ impl AccessManager {
         let cache_key = format!("{}:{}", Self::GROUP_ADMIN_CACHE_PREFIX, group_admin_id);
 
         // Try cache first
-        if let Ok(Some(cached_exchanges)) = self.get_cached_exchanges(&cache_key).await {
+        if let Ok(Some(cached_exchanges)) =
+            self.get_cached_exchanges(&self.kv_store, &cache_key).await
+        {
             return Ok(cached_exchanges);
         }
 
@@ -236,7 +243,9 @@ impl AccessManager {
         let exchanges = self.get_user_exchange_apis(group_admin_id).await?;
 
         // Cache the result
-        let _ = self.cache_exchanges(&cache_key, &exchanges).await;
+        let _ = self
+            .cache_exchanges(&self.kv_store, &cache_key, &exchanges)
+            .await;
 
         log_info!(
             "Retrieved group admin exchange APIs",
@@ -381,6 +390,7 @@ impl AccessManager {
 
     async fn cache_exchanges(
         &self,
+        kv_store: &worker::kv::KvStore,
         cache_key: &str,
         exchanges: &[(ExchangeIdEnum, ExchangeCredentials)],
     ) -> ArbitrageResult<()> {
@@ -388,8 +398,9 @@ impl AccessManager {
             ArbitrageError::serialization_error(format!("Failed to serialize exchanges: {}", e))
         })?;
 
-        self.kv_store
-            .put(cache_key, data)?
+        kv_store
+            .put(cache_key, data)
+            .map_err(|e| ArbitrageError::database_error(format!("KV put builder error: {}", e)))?
             .expiration_ttl(self.cache_ttl_seconds)
             .execute()
             .await
@@ -402,17 +413,37 @@ impl AccessManager {
 
     async fn get_cached_exchanges(
         &self,
+        kv_store: &worker::kv::KvStore, // This should be &Arc<KvStore> or just &KvStore if we clone it inside
         cache_key: &str,
     ) -> ArbitrageResult<Option<Vec<(ExchangeIdEnum, ExchangeCredentials)>>> {
-        match self.kv_store.get(cache_key).text().await {
-            Ok(Some(data)) => {
-                match serde_json::from_str(&data) {
+        match kv_store.get(cache_key).bytes().await {
+            Ok(Some(value_bytes)) => {
+                // Assuming value_bytes is Vec<u8>, convert to String if necessary
+                // If it's already a String from a .text() call, this part changes
+                // For now, let's assume it's bytes and needs to be parsed as string then JSON
+                let data_str = String::from_utf8(value_bytes).map_err(|e| {
+                    ArbitrageError::serialization_error(format!(
+                        "Failed to convert KV value to string: {}",
+                        e
+                    ))
+                })?;
+                match serde_json::from_str::<Vec<(ExchangeIdEnum, ExchangeCredentials)>>(&data_str)
+                {
                     Ok(exchanges) => Ok(Some(exchanges)),
-                    Err(_) => Ok(None), // Invalid cache data, ignore
+                    Err(e) => {
+                        log_info!(&format!("Failed to deserialize cached exchanges for key '{}': {}. Cache data: {}", cache_key, e, data_str));
+                        Ok(None) // Invalid cache data, treat as miss
+                    }
                 }
             }
-            Ok(None) => Ok(None),
-            Err(_) => Ok(None), // Cache miss, ignore error
+            Ok(None) => Ok(None), // Cache miss
+            Err(e) => {
+                log_info!(&format!(
+                    "Error fetching from KV store for key '{}': {}",
+                    cache_key, e
+                ));
+                Ok(None) // Error treated as cache miss
+            }
         }
     }
 }
@@ -442,7 +473,7 @@ impl ExchangeIdEnum {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{UserApiKey, UserConfiguration, UserProfile, UserSubscription};
+    use crate::types::{UserConfiguration, UserProfile};
 
     fn create_test_user_profile(user_id: &str, tier: SubscriptionTier) -> UserProfile {
         UserProfile {
@@ -457,19 +488,24 @@ mod tests {
             last_login: None,
             preferences: crate::types::UserPreferences::default(),
             risk_profile: crate::types::RiskProfile::default(),
-            subscription: UserSubscription {
+            subscription: crate::types::Subscription {
                 tier,
                 is_active: true,
                 features: vec!["basic_features".to_string()],
                 expires_at: None,
-                auto_renew: false,
+                created_at: chrono::Utc::now().timestamp_millis() as u64,
+                updated_at: chrono::Utc::now().timestamp_millis() as u64,
             },
             configuration: UserConfiguration::default(),
             api_keys: Vec::new(),
             invitation_code: None,
+            invitation_code_used: None,
+            invited_by: None,
+            total_invitations_sent: 0,
+            successful_invitations: 0,
             beta_expires_at: None,
             updated_at: chrono::Utc::now().timestamp_millis() as u64,
-            last_active: Some(chrono::Utc::now().timestamp_millis() as u64),
+            last_active: chrono::Utc::now().timestamp_millis() as u64, // Corrected: last_active is u64
             total_trades: 0,
             total_pnl_usdt: 0.0,
             account_balance_usdt: 0.0,

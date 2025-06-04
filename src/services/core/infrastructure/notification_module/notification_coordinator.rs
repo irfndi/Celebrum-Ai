@@ -225,7 +225,13 @@ impl NotificationCoordinatorConfig {
             enable_parallel_processing: true,
             template_engine_config: TemplateEngineConfig::high_performance(),
             delivery_manager_config: DeliveryManagerConfig::high_performance(),
-            ..Default::default()
+            // Missing fields from default()
+            enable_coordinator: true,
+            enable_fallback_processing: true,
+            enable_metrics: true,
+            enable_kv_storage: true,
+            kv_key_prefix: "notification:hp:".to_string(),
+            channel_manager_config: ChannelManagerConfig::high_performance(),
         }
     }
 
@@ -235,7 +241,13 @@ impl NotificationCoordinatorConfig {
             enable_fallback_processing: true,
             template_engine_config: TemplateEngineConfig::high_reliability(),
             delivery_manager_config: DeliveryManagerConfig::high_reliability(),
-            ..Default::default()
+            // Missing fields from default()
+            enable_coordinator: true,
+            enable_parallel_processing: false, // Reliability might prefer sequential or limited parallelism
+            enable_metrics: true,
+            enable_kv_storage: true,
+            kv_key_prefix: "notification:hr:".to_string(),
+            channel_manager_config: ChannelManagerConfig::high_reliability(),
         }
     }
 

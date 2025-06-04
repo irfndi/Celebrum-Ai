@@ -258,7 +258,7 @@ impl UserRepository {
 
         let success = result
             .meta()
-            .map(|meta| meta.unwrap().changes.unwrap_or(0) > 0)
+            .map(|meta| meta.changes > 0)
             .unwrap_or(false);
 
         // Invalidate cache if enabled
@@ -384,7 +384,7 @@ impl UserRepository {
 
         let success = result
             .meta()
-            .map(|meta| meta.unwrap().changes.unwrap_or(0) > 0)
+            .map(|meta| meta.changes > 0)
             .unwrap_or(false);
 
         // Invalidate cache if enabled
@@ -590,6 +590,7 @@ impl UserRepository {
                 .unwrap_or(SubscriptionTier::Free),
             access_level: UserAccessLevel::Free, // Default access level
             is_active,
+            is_beta_active: get_bool_field(&row, "is_beta_active", false),
             created_at,
             last_login: Some(last_active),
             preferences: UserPreferences::default(),
@@ -871,6 +872,10 @@ impl Repository for UserRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{
+        RiskProfile, SubscriptionTier, UserAccessLevel, UserPreferences, UserProfile,
+    };
+    use crate::types::{Subscription, UserConfiguration};
 
     #[test]
     fn test_user_repository_config_validation() {
@@ -907,13 +912,17 @@ mod tests {
             last_login: None,
             preferences: UserPreferences::default(),
             risk_profile: RiskProfile::default(),
-            subscription: UserSubscription::default(),
+            subscription: Subscription::default(), // Corrected type
             configuration: UserConfiguration::default(),
             api_keys: Vec::new(),
             invitation_code: None,
+            invitation_code_used: None, // Added missing field
+            invited_by: None,           // Added missing field
+            total_invitations_sent: 0,  // Added missing field
+            successful_invitations: 0,  // Added missing field
             beta_expires_at: None,
             updated_at: current_timestamp_ms(),
-            last_active: Some(current_timestamp_ms()),
+            last_active: current_timestamp_ms(), // Corrected assignment
             total_trades: 0,
             total_pnl_usdt: 0.0,
             account_balance_usdt: 0.0,

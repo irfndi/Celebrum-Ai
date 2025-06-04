@@ -117,27 +117,64 @@ pub fn create_test_opportunity(
 
 /// Create a test arbitrage opportunity
 pub fn create_test_arbitrage_opportunity(
-    id: &str,
-    pair: &str,
+    id_param: &str,
+    pair_param: &str,
     rate_diff: f64,
 ) -> ArbitrageOpportunity {
+    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let long_exchange_enum = ExchangeIdEnum::Binance; // Default for this helper
+    let short_exchange_enum = ExchangeIdEnum::Bybit; // Default for this helper
+
+    let base_price = 50000.0; // Example base price for calculation
+    let long_rate_val = Some(base_price);
+    let short_rate_val = Some(base_price + (base_price * rate_diff));
+    let net_rate_diff_val = Some(rate_diff * 0.95); // Assuming 5% fee/slippage for net calculation
+    let example_volume = 0.1;
+
     ArbitrageOpportunity {
-        id: id.to_string(),
-        pair: pair.to_string(),
-        r#type: ArbitrageType::CrossExchange,
-        long_exchange: ExchangeIdEnum::Binance,
-        short_exchange: ExchangeIdEnum::Bybit,
-        long_rate: Some(50000.0),
-        short_rate: Some(50000.0 + (50000.0 * rate_diff)),
+        id: id_param.to_string(),
+        pair: pair_param.to_string(),         // Alias field
+        trading_pair: pair_param.to_string(), // Canonical field
+
+        long_exchange: long_exchange_enum,
+        short_exchange: short_exchange_enum,
+        buy_exchange: long_exchange_enum.as_str().to_string(),
+        sell_exchange: short_exchange_enum.as_str().to_string(),
+        exchanges: vec![
+            long_exchange_enum.as_str().to_string(),
+            short_exchange_enum.as_str().to_string(),
+        ],
+
+        long_rate: long_rate_val,
+        short_rate: short_rate_val,
+        buy_price: long_rate_val.unwrap_or_default(),
+        sell_price: short_rate_val.unwrap_or_default(),
+
         rate_difference: rate_diff,
-        net_rate_difference: Some(rate_diff * 0.95),
-        potential_profit_value: Some(rate_diff * 100.0),
+        net_rate_difference: net_rate_diff_val,
+        profit_percentage: net_rate_diff_val.unwrap_or(0.0) * 100.0,
+
+        potential_profit_value: Some(
+            net_rate_diff_val.unwrap_or(0.0) * base_price * example_volume,
+        ),
+        volume: example_volume,
+
         details: Some(format!(
-            "Test arbitrage opportunity with {}% rate difference",
-            rate_diff * 100.0
+            "Test arbitrage opportunity for {} with {:.2}% rate difference between {} and {}",
+            pair_param,
+            rate_diff * 100.0,
+            long_exchange_enum.as_str(),
+            short_exchange_enum.as_str()
         )),
-        timestamp: chrono::Utc::now().timestamp_millis() as u64,
-        min_exchanges_required: 2,
+        timestamp: now,
+        created_at: now,
+        detected_at: now,
+
+        confidence_score: rate_diff.abs().min(1.0), // Example: use rate_diff (0-1) as confidence
+        confidence: rate_diff.abs().min(1.0),       // Alias for confidence_score
+
+        // Let other fields take values from Default implementation
+        ..ArbitrageOpportunity::default()
     }
 }
 
@@ -217,7 +254,7 @@ pub fn assert_user_permissions(user: &UserProfile, expected_permissions: &[Comma
         // This would normally check against the user's actual permissions
         // For now, we'll check based on subscription tier and beta access
         let has_permission = match permission {
-            CommandPermission::BasicCommands => true,
+            CommandPermission::BasicOpportunities => true,
             CommandPermission::BasicOpportunities => true,
             CommandPermission::ManualTrading => {
                 has_beta_access

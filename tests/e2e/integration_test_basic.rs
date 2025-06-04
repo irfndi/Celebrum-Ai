@@ -38,7 +38,12 @@ async fn test_user_registration_flow_integration() {
     assert!(user_profile.subscription.is_active);
 
     // Verify configuration defaults
-    assert!(!user_profile.configuration.auto_trading_enabled);
+    assert!(
+        !user_profile
+            .configuration
+            .trading_settings
+            .auto_trading_enabled
+    );
     assert_eq!(user_profile.configuration.risk_tolerance_percentage, 0.02); // 2% default
 
     println!("✅ User profile structure validation completed");

@@ -6,8 +6,9 @@
 use arb_edge::services::core::analysis::market_analysis::{
     OpportunityType, RiskLevel, TimeHorizon,
 };
-use arb_edge::services::core::opportunities::technical_trading::{
-    SignalStrength, TechnicalSignal, TechnicalTradingServiceConfig, TradingSignalType,
+use arb_edge::services::core::analysis::technical_analysis::{
+    SignalStrength, SignalType as TradingSignalType,
+    TechnicalAnalysisConfig as TechnicalTradingServiceConfig, TechnicalSignal,
 };
 use arb_edge::services::core::user::user_trading_preferences::{
     ExperienceLevel, RiskTolerance, TradingFocus,
@@ -17,7 +18,7 @@ use arb_edge::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::json;
 
 // Simple mock structures for testing
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)] // Combined derives
 struct MockTechnicalSignal {
     pub signal_id: String,
     pub exchange_id: String,
@@ -49,6 +50,7 @@ impl MockTechnicalSignal {
         }
     }
 
+    #[allow(dead_code)] // Added to suppress warning as it might not be used everywhere yet
     fn to_technical_signal(&self) -> TechnicalSignal {
         TechnicalSignal {
             signal_id: self.signal_id.clone(),
@@ -56,7 +58,28 @@ impl MockTechnicalSignal {
             trading_pair: self.trading_pair.clone(),
             signal_type: self.signal_type.clone(),
             signal_strength: self.signal_strength.clone(),
-            indicator_source: "Mock".to_string(),
+            // indicator_source: "Mock".to_string(), // This field does not exist in the new TechnicalSignal struct
+            // The new TechnicalSignal has: id, pair, exchange, signal_type, direction, strength, timeframe, current_price, target_price, stop_loss, confidence, description, generated_at, expires_at, metadata
+            // We need to map MockTechnicalSignal fields to these appropriately or adjust MockTechnicalSignal
+            // For now, let's try a basic mapping, assuming some defaults or deriving them
+            id: self.signal_id.clone(),
+            pair: self.trading_pair.clone(),
+            exchange: ExchangeIdEnum::Binance, // Placeholder, ideally this should come from MockTechnicalSignal
+            // signal_type: self.signal_type.clone(), // This is already present
+            direction:
+                arb_edge::services::core::analysis::technical_analysis::SignalDirection::Neutral, // Placeholder
+            // strength: self.signal_strength.clone(), // This is already present
+            timeframe: arb_edge::services::core::analysis::technical_analysis::Timeframe::M5, // Placeholder
+            current_price: self.entry_price, // Renamed from entry_price
+            // target_price: Some(self.entry_price * 1.02), // Already present
+            // stop_loss: Some(self.entry_price * 0.98), // Already present
+            // confidence: self.confidence_score, // Already present
+            description: format!("Mock signal for {}", self.trading_pair),
+            // generated_at: chrono::Utc::now().timestamp_millis() as u64, // Already present
+            // expires_at: chrono::Utc::now().timestamp_millis() as u64 + 3600000, // Already present
+            // metadata: json!({}), // Already present
+            // Ensure all fields from TechnicalSignal are covered
+            // Missing: direction, timeframe, description. Added placeholders.
             entry_price: self.entry_price,
             target_price: Some(self.entry_price * 1.02),
             stop_loss: Some(self.entry_price * 0.98),
@@ -69,6 +92,8 @@ impl MockTechnicalSignal {
 }
 
 // Mock service for testing
+
+#[derive(Debug, Clone)] // Added derive for Clone as it's used in .cloned()
 struct MockTechnicalTradingService {
     config: TechnicalTradingServiceConfig,
     generated_signals: Vec<MockTechnicalSignal>,

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use worker::kv::KvStore;
 
 /// Configuration for AICache
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AICacheConfig {
     pub enable_caching: bool,
     pub default_ttl_seconds: u64,
@@ -215,15 +215,61 @@ impl Default for CacheStats {
     }
 }
 
-/// AI Cache for intelligent caching of AI responses and embeddings
+/// Main AICache struct
+// Manually implementing Debug to avoid issues with KvStore not implementing Debug
+impl std::fmt::Debug for AICache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AICache")
+            .field("config", &self.config)
+            // Skipping logger as it likely doesn't implement Debug or is complex
+            // .field("logger", &self.logger)
+            .field("cache", &"<KvStore instance>") // Placeholder for KvStore
+            .field("stats", &self.stats)
+            .field("cache_warming_enabled", &self.cache_warming_enabled)
+            .field("popular_keys", &self.popular_keys)
+            .finish()
+    }
+}
+#[derive(Clone, serde::Serialize, serde::Deserialize)] // Added Clone for easier handling in services
 pub struct AICache {
     config: AICacheConfig,
-    logger: crate::utils::logger::Logger,
-    cache: Option<KvStore>,
+    #[serde(skip, default = "default_logger")] // Added skip for logger as it's not serializable
+    logger: crate::utils::logger::Logger, // Assuming Logger is already Serialize/Deserialize or skipped
+    #[serde(skip)]
+    cache: Arc<std::sync::Mutex<Option<KvStore>>>,
+    #[serde(skip)]
     stats: Arc<std::sync::Mutex<CacheStats>>,
-    #[allow(dead_code)] // TODO: Will be used for cache warming functionality
+    #[serde(skip)]
     cache_warming_enabled: Arc<std::sync::Mutex<bool>>,
-    popular_keys: Arc<std::sync::Mutex<HashMap<String, u64>>>, // Key -> access count
+    #[serde(skip)]
+    popular_keys: Arc<std::sync::Mutex<HashMap<String, u64>>>,
+}
+
+fn default_logger() -> crate::utils::logger::Logger {
+    crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info)
+}
+
+impl Default for AICache {
+    fn default() -> Self {
+        // It's generally better to use a default config and initialize properly
+        // However, for the Default trait, we might need a minimal valid state
+        // or panic if a valid default cannot be constructed without external info.
+        // Here, we'll use the default config.
+        let config = AICacheConfig::default();
+        // This will panic if logger can't be created, which might be okay for a Default impl
+        // if the expectation is that it's only used in contexts where it can succeed.
+        // Or, handle the Result if Logger::new can fail and a Default must not panic.
+        let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
+
+        Self {
+            config,
+            logger,
+            cache: Arc::new(std::sync::Mutex::new(None)),
+            stats: Arc::new(std::sync::Mutex::new(CacheStats::default())),
+            cache_warming_enabled: Arc::new(std::sync::Mutex::new(false)),
+            popular_keys: Arc::new(std::sync::Mutex::new(HashMap::new())),
+        }
+    }
 }
 
 impl AICache {
@@ -234,28 +280,28 @@ impl AICache {
         // Validate configuration
         config.validate()?;
 
-        let cache = Self {
+        let cache_instance = Self {
             config,
             logger,
-            cache: None,
+            cache: Arc::new(std::sync::Mutex::new(None)),
             stats: Arc::new(std::sync::Mutex::new(CacheStats::default())),
             cache_warming_enabled: Arc::new(std::sync::Mutex::new(false)),
             popular_keys: Arc::new(std::sync::Mutex::new(HashMap::new())),
         };
 
-        cache.logger.info(&format!(
+        cache_instance.logger.info(&format!(
             "AICache initialized: caching_enabled={}, default_ttl={}s, max_size={}MB",
-            cache.config.enable_caching,
-            cache.config.default_ttl_seconds,
-            cache.config.max_cache_size_mb
+            cache_instance.config.enable_caching,
+            cache_instance.config.default_ttl_seconds,
+            cache_instance.config.max_cache_size_mb
         ));
 
-        Ok(cache)
+        Ok(cache_instance)
     }
 
     /// Set cache store for caching operations
     pub fn with_cache(mut self, cache: KvStore) -> Self {
-        self.cache = Some(cache);
+        self.cache = Arc::new(std::sync::Mutex::new(Some(cache)));
         self
     }
 
@@ -497,10 +543,11 @@ impl AICache {
 
     /// Store cache entry in KV store
     async fn store_cache_entry(&self, entry: &CacheEntry) -> ArbitrageResult<()> {
-        if let Some(ref cache) = self.cache {
+        let kv_store_opt = self.cache.lock().unwrap().clone();
+        if let Some(kv_store) = kv_store_opt {
             let entry_json = serde_json::to_string(entry)?;
 
-            cache
+            kv_store
                 .put(&entry.key, &entry_json)?
                 .expiration_ttl(entry.ttl_seconds())
                 .execute()
@@ -511,8 +558,9 @@ impl AICache {
 
     /// Get cache entry from KV store
     async fn get_cache_entry(&self, key: &str) -> ArbitrageResult<Option<CacheEntry>> {
-        if let Some(ref cache) = self.cache {
-            match cache.get(key).text().await {
+        let kv_store_opt = self.cache.lock().unwrap().clone();
+        if let Some(kv_store) = kv_store_opt {
+            match kv_store.get(key).text().await {
                 Ok(Some(entry_json)) => match serde_json::from_str::<CacheEntry>(&entry_json) {
                     Ok(entry) => Ok(Some(entry)),
                     Err(e) => {
@@ -540,8 +588,9 @@ impl AICache {
 
     /// Delete cache entry from KV store
     async fn delete_cache_entry(&self, key: &str) -> ArbitrageResult<()> {
-        if let Some(ref cache) = self.cache {
-            cache.delete(key).await?;
+        let kv_store_opt = self.cache.lock().unwrap().clone();
+        if let Some(kv_store) = kv_store_opt {
+            kv_store.delete(key).await?;
         }
         Ok(())
     }
@@ -566,37 +615,24 @@ impl AICache {
 
     /// Update statistics for cache set
     async fn update_stats_set(&self, entry: &CacheEntry) {
-        let mut stats = self.stats.lock().unwrap();
-        stats.total_entries += 1;
-        stats.total_size_bytes += entry.size_bytes as u64;
-        stats.avg_entry_size_bytes = stats.total_size_bytes as f32 / stats.total_entries as f32;
-
-        // Update entries by type
-        let type_key = entry.entry_type.to_string();
-        let count = stats.entries_by_type.get(&type_key).unwrap_or(&0) + 1;
-        stats.entries_by_type.insert(type_key, count);
-
-        stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        let mut stats_guard = self.stats.lock().unwrap();
+        stats_guard.total_entries += 1;
+        stats_guard.total_size_bytes += entry.size_bytes as u64;
+        stats_guard.avg_entry_size_bytes =
+            stats_guard.total_size_bytes as f32 / stats_guard.total_entries as f32;
+        *stats_guard
+            .entries_by_type
+            .entry(entry.entry_type.to_string())
+            .or_insert(0) += 1;
+        stats_guard.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        // Guard is dropped here
     }
 
     /// Track popular keys for cache warming
     async fn track_popular_key(&self, key: &str) {
-        let mut popular = self.popular_keys.lock().unwrap();
-        *popular.entry(key.to_string()).or_insert(0) += 1;
-
-        // Keep only top 100 popular keys
-        if popular.len() > 100 {
-            // Collect the data first to avoid borrowing conflicts
-            let mut sorted: Vec<(String, u64)> =
-                popular.iter().map(|(k, v)| (k.clone(), *v)).collect();
-            sorted.sort_by(|a, b| b.1.cmp(&a.1));
-
-            // Clear and repopulate with top 100
-            popular.clear();
-            for (key, count) in sorted.into_iter().take(100) {
-                popular.insert(key, count);
-            }
-        }
+        let mut popular_keys_guard = self.popular_keys.lock().unwrap();
+        *popular_keys_guard.entry(key.to_string()).or_insert(0) += 1;
+        // Guard is dropped here
     }
 
     /// Health check

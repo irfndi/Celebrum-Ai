@@ -216,16 +216,25 @@ impl MockUserAccessService {
 
         // Basic eligibility logic
         Ok(match access_level {
-            UserAccessLevel::FreeWithoutAPI => {
-                // Free users get basic opportunities with lower risk
+            UserAccessLevel::Guest
+            | UserAccessLevel::Free
+            | UserAccessLevel::Registered
+            | UserAccessLevel::Verified
+            | UserAccessLevel::FreeWithoutAPI => {
+                // Basic access: Low risk, high confidence
                 opportunity.risk_level == RiskLevel::Low && opportunity.confidence_score >= 70.0
             }
             UserAccessLevel::FreeWithAPI => {
-                // Free users with API get medium risk opportunities
+                // Free with API: Medium risk, moderate confidence
                 opportunity.risk_level != RiskLevel::High && opportunity.confidence_score >= 60.0
             }
-            UserAccessLevel::SubscriptionWithAPI => {
-                // Subscription users get all opportunities
+            UserAccessLevel::Paid
+            | UserAccessLevel::Premium
+            | UserAccessLevel::Admin
+            | UserAccessLevel::SuperAdmin
+            | UserAccessLevel::BetaUser
+            | UserAccessLevel::SubscriptionWithAPI => {
+                // Higher tiers & special access: All opportunities
                 true
             }
         })
@@ -373,9 +382,9 @@ impl MockGlobalOpportunityService {
         for user_id in eligible_users {
             // Check user limits
             if let Some(limits) = self.d1_service.mock_get_user_limits(&user_id).await? {
-                let total_used = limits.arbitrage_opportunities_received
-                    + limits.technical_opportunities_received;
-                let total_limit = limits.arbitrage_limit + limits.technical_limit;
+                let total_used = limits.arbitrage_received_today + limits.technical_received_today;
+                let total_limit =
+                    limits.daily_global_opportunities + limits.daily_technical_opportunities;
                 if total_used >= total_limit {
                     continue; // Skip user who has reached daily limit
                 }
@@ -606,32 +615,32 @@ mod tests {
         service.d1_service.add_mock_user_limits(
             "user1",
             UserOpportunityLimits {
-                user_id: "user1".to_string(),
-                access_level: UserAccessLevel::FreeWithAPI,
-                date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
-                arbitrage_opportunities_received: 3,
-                technical_opportunities_received: 2,
-                arbitrage_limit: 10,
-                technical_limit: 10,
-                last_reset: chrono::Utc::now().timestamp_millis() as u64,
-                is_group_context: false,
-                group_multiplier_applied: false,
+                daily_global_opportunities: 10,
+                daily_technical_opportunities: 10,
+                daily_ai_opportunities: 5,
+                hourly_rate_limit: 100,
+                can_receive_realtime: true,
+                delay_seconds: 0,
+                arbitrage_received_today: 3, // Mock previous usage
+                technical_received_today: 2, // Mock previous usage
+                current_arbitrage_count: 3,  // Mock current count
+                current_technical_count: 2,  // Mock current count
             },
         );
 
         service.d1_service.add_mock_user_limits(
             "user2",
             UserOpportunityLimits {
-                user_id: "user2".to_string(),
-                access_level: UserAccessLevel::FreeWithAPI,
-                date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
-                arbitrage_opportunities_received: 10,
-                technical_opportunities_received: 10,
-                arbitrage_limit: 10,
-                technical_limit: 10,
-                last_reset: chrono::Utc::now().timestamp_millis() as u64,
-                is_group_context: false,
-                group_multiplier_applied: false,
+                daily_global_opportunities: 10,
+                daily_technical_opportunities: 10,
+                daily_ai_opportunities: 5,
+                hourly_rate_limit: 100,
+                can_receive_realtime: true,
+                delay_seconds: 0,
+                arbitrage_received_today: 10, // Mock user at limit
+                technical_received_today: 10, // Mock user at limit
+                current_arbitrage_count: 10,  // Mock current count
+                current_technical_count: 10,  // Mock current count
             },
         );
 
@@ -990,7 +999,6 @@ mod tests {
                 user_id,
                 UserOpportunityLimits {
                     user_id: user_id.to_string(),
-                    access_level: access_level.clone(),
                     date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
                     arbitrage_opportunities_received: opportunities_used / 2,
                     technical_opportunities_received: opportunities_used / 2,

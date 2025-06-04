@@ -3,6 +3,48 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+pub use crate::services::core::analysis::market_analysis::OpportunityType;
+
+/// Represents the type of an order.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum OrderType {
+    Market,
+    Limit,
+    StopLoss,
+    TakeProfit,
+    StopLossLimit,
+    TakeProfitLimit,
+    TrailingStop,
+}
+
+/// Represents the status of an order.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum OrderStatus {
+    Open,
+    Closed,
+    Filled,
+    PartiallyFilled,
+    Canceled, // Consistent spelling with 'Cancelled' if used elsewhere, or 'Canceled'
+    Rejected,
+    PendingNew, // For orders that have been submitted but not yet acknowledged
+    Expired,
+    PendingCancel, // For orders that have a cancel request but not yet confirmed
+}
+
+/// Account status for user accounts
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum AccountStatus {
+    #[default]
+    Active,
+    Inactive,
+    Suspended,
+    Pending,
+    Banned,
+    Verified,
+    Unverified,
+}
 use std::time::{SystemTime, UNIX_EPOCH};
 // UUID is used throughout the file as uuid::Uuid::new_v4()
 // Keeping the full path for clarity
@@ -103,7 +145,7 @@ impl PartialEq<ExchangeIdEnum> for String {
 }
 
 /// User access levels for RBAC system
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UserAccessLevel {
     Guest,
@@ -114,10 +156,15 @@ pub enum UserAccessLevel {
     Premium,
     Admin,
     SuperAdmin,
+    BetaUser, // Added based on test errors
     FreeWithoutAPI,
     FreeWithAPI,
     SubscriptionWithAPI,
 }
+
+/// Alias for UserAccessLevel for contexts where UserRole is more semantically appropriate.
+/// Or for backward compatibility during refactoring.
+pub type UserRole = UserAccessLevel;
 
 impl UserAccessLevel {
     pub fn can_trade(&self) -> bool {
@@ -147,6 +194,34 @@ impl UserAccessLevel {
         self.can_use_ai()
     }
 
+    pub fn get_daily_opportunity_limits(&self) -> (u32, u32) {
+        match self {
+            UserAccessLevel::FreeWithoutAPI => (0, 0),
+            UserAccessLevel::FreeWithAPI => (10, 10),
+            UserAccessLevel::SubscriptionWithAPI => (u32::MAX, u32::MAX),
+            UserAccessLevel::Guest
+            | UserAccessLevel::Free
+            | UserAccessLevel::Registered
+            | UserAccessLevel::Verified => (0, 0),
+            UserAccessLevel::Paid
+            | UserAccessLevel::Premium
+            | UserAccessLevel::Admin
+            | UserAccessLevel::SuperAdmin
+            | UserAccessLevel::BetaUser => (u32::MAX, u32::MAX),
+        }
+    }
+
+    pub fn gets_realtime_opportunities(&self) -> bool {
+        matches!(
+            self,
+            UserAccessLevel::SubscriptionWithAPI
+                | UserAccessLevel::Paid
+                | UserAccessLevel::Premium
+                | UserAccessLevel::Admin
+                | UserAccessLevel::SuperAdmin
+        )
+    }
+
     pub fn can_access_feature(&self, feature: &str) -> bool {
         match feature {
             "basic_trading" => self.can_trade(),
@@ -173,6 +248,7 @@ impl UserAccessLevel {
             UserAccessLevel::Premium => 100,
             UserAccessLevel::Admin | UserAccessLevel::SuperAdmin => u32::MAX,
             UserAccessLevel::SubscriptionWithAPI => 200,
+            UserAccessLevel::BetaUser => 100, // Assuming Beta has similar limits to Premium
         }
     }
 
@@ -186,6 +262,7 @@ impl UserAccessLevel {
             UserAccessLevel::Premium => 10, // 10 seconds
             UserAccessLevel::Admin | UserAccessLevel::SuperAdmin => 0, // No delay
             UserAccessLevel::SubscriptionWithAPI => 5, // 5 seconds
+            UserAccessLevel::BetaUser => 10, // Assuming Beta has similar delay to Premium
         }
     }
 
@@ -218,6 +295,8 @@ pub enum CommandPermission {
     ManualTrading,
     AutomatedTrading,
     SystemAdministration,
+    PremiumFeatures, // Added based on test errors
+    UserManagement,  // Added based on test errors
 }
 
 /// Exchange credentials structure
@@ -274,6 +353,7 @@ pub struct UserProfile {
     pub last_active: u64,
     pub last_login: Option<u64>,
     pub is_active: bool,
+    pub is_beta_active: bool, // Added for beta status
     pub invitation_code_used: Option<String>,
     pub invitation_code: Option<String>,
     pub invited_by: Option<String>,
@@ -289,6 +369,12 @@ pub struct UserProfile {
     pub configuration: UserConfiguration,
 }
 
+impl UserProfile {
+    pub fn get_user_role(&self) -> UserRole {
+        self.access_level.clone()
+    }
+}
+
 /// Subscription structure with detailed subscription information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Subscription {
@@ -296,6 +382,7 @@ pub struct Subscription {
     pub is_active: bool,
     pub expires_at: Option<u64>,
     pub features: Vec<String>,
+    pub daily_opportunity_limit: Option<u32>, // Added for daily limits
     pub created_at: u64,
     pub updated_at: u64,
 }
@@ -307,6 +394,7 @@ impl Default for Subscription {
             is_active: true,
             expires_at: None,
             features: vec!["basic_opportunities".to_string()],
+            daily_opportunity_limit: Some(3), // Default for Free tier
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             updated_at: chrono::Utc::now().timestamp_millis() as u64,
         }
@@ -316,21 +404,28 @@ impl Default for Subscription {
 impl Subscription {
     pub fn new(tier: SubscriptionTier) -> Self {
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        let features = match tier {
-            SubscriptionTier::Free => vec!["basic_opportunities".to_string()],
-            SubscriptionTier::Paid => vec![
-                "basic_opportunities".to_string(),
-                "enhanced_opportunities".to_string(),
-                "real_time_notifications".to_string(),
-            ],
-            SubscriptionTier::Admin | SubscriptionTier::SuperAdmin => vec![
-                "basic_opportunities".to_string(),
-                "enhanced_opportunities".to_string(),
-                "real_time_notifications".to_string(),
-                "admin_features".to_string(),
-                "unlimited_access".to_string(),
-            ],
-            _ => vec!["basic_opportunities".to_string()],
+        let (features, daily_limit) = match tier {
+            SubscriptionTier::Free => (vec!["basic_opportunities".to_string()], Some(3)),
+            SubscriptionTier::Paid => (
+                vec![
+                    "basic_opportunities".to_string(),
+                    "enhanced_opportunities".to_string(),
+                    "real_time_notifications".to_string(),
+                ],
+                Some(10),
+            ),
+
+            SubscriptionTier::Admin | SubscriptionTier::SuperAdmin => (
+                vec![
+                    "basic_opportunities".to_string(),
+                    "enhanced_opportunities".to_string(),
+                    "real_time_notifications".to_string(),
+                    "admin_features".to_string(),
+                    "unlimited_access".to_string(),
+                ],
+                None, // Unlimited or managed elsewhere
+            ),
+            _ => (vec!["basic_opportunities".to_string()], Some(3)), // Fallback
         };
 
         Self {
@@ -338,6 +433,7 @@ impl Subscription {
             is_active: true,
             expires_at: None,
             features,
+            daily_opportunity_limit: daily_limit,
             created_at: now,
             updated_at: now,
         }
@@ -392,6 +488,7 @@ impl UserProfile {
             last_active: now,
             last_login: None,
             is_active: true,
+            is_beta_active: false, // Initialize new field
             invitation_code_used: invitation_code.clone(),
             invitation_code,
             invited_by: None,
@@ -514,6 +611,12 @@ impl UserProfile {
         }
         true
     }
+
+    pub fn has_minimum_exchanges(&self) -> bool {
+        // Define minimum number of exchanges required
+        const MINIMUM_EXCHANGES: usize = 2;
+        self.api_keys.iter().filter(|key| key.is_active).count() >= MINIMUM_EXCHANGES
+    }
 }
 
 /// User session structure
@@ -552,6 +655,10 @@ impl UserSession {
 
     pub fn update_activity(&mut self) {
         self.last_activity = chrono::Utc::now().timestamp_millis() as u64;
+    }
+
+    pub fn is_active(&self) -> bool {
+        matches!(self.state, SessionState::Active) && !self.is_expired()
     }
 }
 
@@ -632,6 +739,10 @@ impl UserApiKey {
     }
 
     pub fn is_ai_key(&self) -> bool {
+        // Clippy suggests using matches! here, but it's already used.
+        // This might be a case where the permissions check should also be part of the matches! macro,
+        // or there's a misunderstanding of the clippy warning.
+        // For now, leaving as is, as it's already using matches! for the provider check.
         self.permissions.contains(&"ai".to_string())
             || matches!(
                 self.provider,
@@ -662,6 +773,8 @@ pub struct UserPreferences {
     pub preferred_trading_pairs: Vec<String>,
     pub timezone: String,
     pub language: String,
+    pub applied_invitation_code: Option<String>, // Added field
+    pub has_beta_features_enabled: Option<bool>, // Added field
 }
 
 impl Default for UserPreferences {
@@ -675,6 +788,8 @@ impl Default for UserPreferences {
             preferred_trading_pairs: vec!["BTC/USDT".to_string(), "ETH/USDT".to_string()],
             timezone: "UTC".to_string(),
             language: "en".to_string(),
+            applied_invitation_code: None, // Initialize new field
+            has_beta_features_enabled: Some(false), // Initialize new field
         }
     }
 }
@@ -1286,6 +1401,19 @@ impl UserOpportunityLimits {
                 current_arbitrage_count: 0,
                 current_technical_count: 0,
             },
+            UserAccessLevel::BetaUser => UserOpportunityLimits {
+                // Assuming Beta has similar limits to Paid
+                daily_global_opportunities: 100,
+                daily_technical_opportunities: 50,
+                daily_ai_opportunities: 25,
+                hourly_rate_limit: 20,
+                can_receive_realtime: true,
+                delay_seconds: 60,
+                arbitrage_received_today: 0,
+                technical_received_today: 0,
+                current_arbitrage_count: 0,
+                current_technical_count: 0,
+            },
             UserAccessLevel::Paid => UserOpportunityLimits {
                 daily_global_opportunities: 100,
                 daily_technical_opportunities: 50,
@@ -1501,6 +1629,16 @@ pub struct RiskManagementConfig {
     pub max_positions_per_pair: u32,
     pub max_position_size_usd: f64,
     pub max_total_exposure_usd: f64,
+    // Fields from test_validate_position_risk
+    pub volatility_threshold: f64,
+    pub default_stop_loss_percentage: f64,
+    pub default_take_profit_percentage: f64,
+    pub max_portfolio_risk_percentage: f64,
+    pub max_single_position_risk_percentage: f64,
+    pub enable_stop_loss: bool,
+    pub enable_take_profit: bool,
+    pub enable_trailing_stop: bool,
+    pub correlation_limit: f64,
 }
 
 /// Distribution strategy for opportunities
@@ -1725,6 +1863,8 @@ impl ArbitrageOpportunity {
 }
 
 /// Position action recommendations
+use std::fmt;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PositionAction {
@@ -1738,6 +1878,23 @@ pub enum PositionAction {
     HedgeRisk,
     TakeProfit,
     StopLoss,
+}
+
+impl fmt::Display for PositionAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PositionAction::Hold => write!(f, "Hold"),
+            PositionAction::IncreasePosition => write!(f, "IncreasePosition"),
+            PositionAction::DecreasePosition => write!(f, "DecreasePosition"),
+            PositionAction::ClosePosition => write!(f, "ClosePosition"),
+            PositionAction::Close => write!(f, "Close"),
+            PositionAction::DecreaseSize => write!(f, "DecreaseSize"),
+            PositionAction::Rebalance => write!(f, "Rebalance"),
+            PositionAction::HedgeRisk => write!(f, "HedgeRisk"),
+            PositionAction::TakeProfit => write!(f, "TakeProfit"),
+            PositionAction::StopLoss => write!(f, "StopLoss"),
+        }
+    }
 }
 
 /// User subscription tier - Simplified for group/channel focus
@@ -2087,14 +2244,13 @@ impl Default for TechnicalOpportunity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalOpportunity {
     pub id: String,
-    pub opportunity_type: OpportunitySource,
-    pub arbitrage_opportunity: ArbitrageOpportunity,
+    pub source: OpportunitySource,           // Added field
+    pub opportunity_type: OpportunitySource, // Retained as it might be used for high-level filtering before accessing opportunity_data
     pub target_users: Vec<String>,
     pub opportunity_data: OpportunityData,
-    pub source: OpportunitySource,
     pub created_at: u64,
     pub detection_timestamp: u64,
-    pub expires_at: u64,
+    pub expires_at: u64, // Retained as it's a primary field for opportunity lifecycle
     pub priority: u32,
     pub priority_score: f64,
     pub ai_enhanced: bool,
@@ -2104,14 +2260,6 @@ pub struct GlobalOpportunity {
     pub max_participants: Option<u32>,
     pub current_participants: u32,
     pub distribution_strategy: DistributionStrategy,
-    // Additional fields used in opportunity_builders.rs
-    pub opportunity_id: String,
-    pub trading_pair: String,
-    pub exchanges: Vec<String>,
-    pub profit_percentage: f64,
-    pub confidence_score: f64,
-    pub risk_level: String,
-    pub metadata: serde_json::Value,
 }
 
 impl Default for GlobalOpportunity {
@@ -2119,11 +2267,10 @@ impl Default for GlobalOpportunity {
         let now = chrono::Utc::now().timestamp_millis() as u64;
         Self {
             id: uuid::Uuid::new_v4().to_string(),
+            source: OpportunitySource::SystemGenerated, // Added field
             opportunity_type: OpportunitySource::SystemGenerated,
-            arbitrage_opportunity: ArbitrageOpportunity::default(),
             target_users: Vec::new(),
             opportunity_data: OpportunityData::Arbitrage(ArbitrageOpportunity::default()),
-            source: OpportunitySource::SystemGenerated,
             created_at: now,
             detection_timestamp: now,
             expires_at: now + 300_000, // 5 minutes
@@ -2136,13 +2283,8 @@ impl Default for GlobalOpportunity {
             max_participants: Some(100),
             current_participants: 0,
             distribution_strategy: DistributionStrategy::Broadcast,
-            opportunity_id: uuid::Uuid::new_v4().to_string(),
-            trading_pair: String::new(),
-            exchanges: Vec::new(),
-            profit_percentage: 0.0,
-            confidence_score: 0.0,
-            risk_level: "medium".to_string(),
-            metadata: serde_json::json!({}),
+            // opportunity_id, trading_pair, exchanges, profit_percentage, confidence_score, risk_level, and metadata
+            // are now part of ArbitrageOpportunity::default() via opportunity_data
         }
     }
 }
@@ -2168,11 +2310,10 @@ impl GlobalOpportunity {
         let now = chrono::Utc::now().timestamp_millis() as u64;
         Self {
             id: uuid::Uuid::new_v4().to_string(),
+            source: source.clone(), // Added field
             opportunity_type: source.clone(),
-            arbitrage_opportunity: arb_opp.clone(),
             target_users: Vec::new(),
             opportunity_data: OpportunityData::Arbitrage(arb_opp.clone()),
-            source,
             created_at: now,
             detection_timestamp: now,
             expires_at,
@@ -2185,13 +2326,15 @@ impl GlobalOpportunity {
             max_participants: Some(100),
             current_participants: 0,
             distribution_strategy: DistributionStrategy::Broadcast,
-            opportunity_id: arb_opp.id.clone(),
-            trading_pair: arb_opp.trading_pair.clone(),
-            exchanges: arb_opp.exchanges.clone(),
-            profit_percentage: arb_opp.profit_percentage,
-            confidence_score: arb_opp.confidence_score,
-            risk_level: arb_opp.risk_level.clone(),
-            metadata: serde_json::json!({}),
+            // opportunity_id, trading_pair, exchanges, profit_percentage, confidence_score, risk_level and metadata
+            // are now part of opportunity_data via ArbitrageOpportunity
+            // opportunity_id: arb_opp.id.clone(),
+            // trading_pair: arb_opp.trading_pair.clone(),
+            // exchanges: arb_opp.exchanges.clone(),
+            // profit_percentage: arb_opp.profit_percentage,
+            // confidence_score: arb_opp.confidence_score,
+            // risk_level: arb_opp.risk_level.clone(),
+            // metadata: serde_json::json!({}),
         }
     }
 }
@@ -2663,6 +2806,13 @@ pub struct TradingFeeRates {
     pub tier_based: bool,
 }
 
+/// Represents a single entry (bid or ask) in an order book.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, PartialOrd)]
+pub struct OrderBookEntry {
+    pub price: f64,
+    pub quantity: f64,
+}
+
 /// Order book structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderBook {
@@ -2748,10 +2898,12 @@ pub struct ArbitragePosition {
     pub symbol: String,
     pub side: PositionSide,
     pub entry_price_long: f64,
+    pub entry_price_short: f64,
     pub take_profit_price: Option<f64>,
     pub volatility_score: Option<f64>,
     pub calculated_size_usd: Option<f64>,
     pub long_exchange: ExchangeIdEnum,
+    pub short_exchange: ExchangeIdEnum,
     // Fields required by positions.rs
     pub size: Option<f64>,
     pub pnl: Option<f64>,
@@ -2762,12 +2914,22 @@ pub struct ArbitragePosition {
     pub trailing_stop_distance: Option<f64>,
     pub stop_loss_price: Option<f64>,
     pub current_price: Option<f64>,
+    pub current_price_long: Option<f64>,
+    pub current_price_short: Option<f64>,
     pub max_loss_usd: Option<f64>,
     pub exchange: ExchangeIdEnum,
     pub pair: String,
     pub related_positions: Vec<String>,
+    pub closed_at: Option<u64>,
     pub updated_at: u64,
     pub risk_reward_ratio: Option<f64>,
+    pub last_optimization_check: Option<u64>,
+    pub hedge_position_id: Option<String>,
+    pub position_group_id: Option<String>,
+    pub current_state: Option<String>, // Added for ai_intelligence.rs
+    pub recommended_action: Option<String>, // Added for ai_intelligence.rs
+    pub risk_percentage_applied: Option<f64>, // Added for ai_intelligence.rs
+    pub optimization_score: Option<f64>, // Added for ai_intelligence.rs
 }
 
 /// Position side enumeration
@@ -2801,6 +2963,18 @@ pub enum TechnicalRiskLevel {
     VeryHigh,
 }
 
+impl TechnicalRiskLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TechnicalRiskLevel::VeryLow => "very_low",
+            TechnicalRiskLevel::Low => "low",
+            TechnicalRiskLevel::Medium => "medium",
+            TechnicalRiskLevel::High => "high",
+            TechnicalRiskLevel::VeryHigh => "very_high",
+        }
+    }
+}
+
 /// Technical signal strength enumeration
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -2810,6 +2984,18 @@ pub enum TechnicalSignalStrength {
     Moderate,
     Strong,
     VeryStrong,
+}
+
+impl TechnicalSignalStrength {
+    pub fn to_f64(&self) -> f64 {
+        match self {
+            TechnicalSignalStrength::VeryWeak => 0.2,
+            TechnicalSignalStrength::Weak => 0.4,
+            TechnicalSignalStrength::Moderate => 0.6,
+            TechnicalSignalStrength::Strong => 0.8,
+            TechnicalSignalStrength::VeryStrong => 1.0,
+        }
+    }
 }
 
 /// Balance structure for financial tracking
@@ -2898,8 +3084,6 @@ pub struct GroupRegistration {
     pub admin_user_ids: Vec<String>,
     pub bot_permissions: serde_json::Value,
     pub enabled_features: Vec<String>,
-    pub global_opportunities_enabled: bool,
-    pub technical_analysis_enabled: bool,
     pub last_activity: Option<u64>,
     pub total_messages_sent: u32,
     pub last_member_count_update: Option<u64>,
@@ -2909,34 +3093,216 @@ pub struct GroupRegistration {
 
 impl Default for GroupRegistration {
     fn default() -> Self {
-        let now = chrono::Utc::now().timestamp_millis() as u64;
         Self {
             group_id: String::new(),
             group_title: String::new(),
-            group_type: "group".to_string(),
+            group_type: String::new(),
             registered_by: String::new(),
-            registered_at: now,
-            is_active: true,
+            registered_at: 0,
+            is_active: false,
             settings: GroupSettings::default(),
             rate_limit_config: GroupRateLimitConfig::default(),
             group_name: String::new(),
-            registration_date: now,
-            subscription_tier: SubscriptionTier::Free,
-            registration_id: uuid::Uuid::new_v4().to_string(),
+            registration_date: 0,
+            subscription_tier: SubscriptionTier::default(),
+            registration_id: String::new(),
             registered_by_user_id: String::new(),
             group_username: None,
             member_count: None,
             admin_user_ids: Vec::new(),
-            bot_permissions: serde_json::json!({}),
-            enabled_features: vec!["arbitrage".to_string()],
-            global_opportunities_enabled: true,
-            technical_analysis_enabled: false,
+            bot_permissions: serde_json::Value::Null,
+            enabled_features: Vec::new(),
             last_activity: None,
             total_messages_sent: 0,
             last_member_count_update: None,
-            created_at: now,
-            updated_at: now,
+            created_at: 0,
+            updated_at: 0,
         }
+    }
+}
+
+impl GroupRegistration {
+    // Helper function to extract a string value from the D1 row
+    fn get_string_from_row(
+        row: &HashMap<String, serde_json::Value>,
+        key: &str,
+    ) -> Result<String, String> {
+        row.get(key)
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| format!("Missing or invalid type for key: {}", key))
+    }
+
+    // Helper function to extract a u64 value from the D1 row
+    fn get_u64_from_row(
+        row: &HashMap<String, serde_json::Value>,
+        key: &str,
+    ) -> Result<u64, String> {
+        row.get(key)
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| format!("Missing or invalid type for key: {}", key))
+    }
+
+    // Helper function to extract a boolean value from the D1 row
+    fn get_bool_from_row(
+        row: &HashMap<String, serde_json::Value>,
+        key: &str,
+    ) -> Result<bool, String> {
+        row.get(key)
+            .and_then(|v| v.as_bool())
+            .ok_or_else(|| format!("Missing or invalid type for key: {}", key))
+    }
+
+    // Helper function to extract an optional string value from the D1 row
+    fn get_optional_string_from_row(
+        row: &HashMap<String, serde_json::Value>,
+        key: &str,
+    ) -> Result<Option<String>, String> {
+        match row.get(key) {
+            Some(v) if v.is_null() => Ok(None),
+            Some(v) => v
+                .as_str()
+                .map(|s| Some(s.to_string()))
+                .ok_or_else(|| format!("Invalid type for optional key: {}", key)),
+            None => Ok(None), // Key not present is also considered as None
+        }
+    }
+
+    // Helper function to extract an optional u64 value from the D1 row
+    fn get_optional_u64_from_row(
+        row: &HashMap<String, serde_json::Value>,
+        key: &str,
+    ) -> Result<Option<u64>, String> {
+        match row.get(key) {
+            Some(v) if v.is_null() => Ok(None),
+            Some(v) => v
+                .as_u64()
+                .map(Some)
+                .ok_or_else(|| format!("Invalid type for optional key: {}", key)),
+            None => Ok(None),
+        }
+    }
+
+    // Helper function to extract an optional u32 value from the D1 row
+    fn get_optional_u32_from_row(
+        row: &HashMap<String, serde_json::Value>,
+        key: &str,
+    ) -> Result<Option<u32>, String> {
+        match row.get(key) {
+            Some(v) if v.is_null() => Ok(None),
+            Some(v) => v
+                .as_u64()
+                .map(|n| Some(n as u32))
+                .ok_or_else(|| format!("Invalid type for optional key: {}", key)),
+            None => Ok(None),
+        }
+    }
+
+    // Helper function to extract a u32 value from the D1 row
+    fn get_u32_from_row(
+        row: &HashMap<String, serde_json::Value>,
+        key: &str,
+    ) -> Result<u32, String> {
+        row.get(key)
+            .and_then(|v| v.as_u64().map(|n| n as u32))
+            .ok_or_else(|| format!("Missing or invalid type for key: {}", key))
+    }
+
+    // Helper function to extract a Vec<String> value from the D1 row
+    fn get_vec_string_from_row(
+        row: &HashMap<String, serde_json::Value>,
+        key: &str,
+    ) -> Result<Vec<String>, String> {
+        row.get(key)
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            })
+            .ok_or_else(|| format!("Missing or invalid type for key: {}", key))
+    }
+
+    // Helper function to extract a serde_json::Value from the D1 row
+    fn get_json_value_from_row(
+        row: &HashMap<String, serde_json::Value>,
+        key: &str,
+    ) -> Result<serde_json::Value, String> {
+        row.get(key)
+            .cloned()
+            .ok_or_else(|| format!("Missing key: {}", key))
+    }
+
+    pub fn from_d1_row(row: HashMap<String, serde_json::Value>) -> Result<Self, String> {
+        let group_id = Self::get_string_from_row(&row, "group_id")?;
+        let group_title = Self::get_string_from_row(&row, "group_title")?;
+        let group_type = Self::get_string_from_row(&row, "group_type")?;
+        let registered_by = Self::get_string_from_row(&row, "registered_by")?;
+        let registered_at = Self::get_u64_from_row(&row, "registered_at")?;
+        let is_active = Self::get_bool_from_row(&row, "is_active")?;
+
+        // Assuming settings and rate_limit_config are stored as JSON strings in D1
+        // and need to be deserialized. If they are stored as separate columns,
+        // this part needs adjustment.
+        let settings_str = Self::get_string_from_row(&row, "settings")?;
+        let settings: GroupSettings = serde_json::from_str(&settings_str)
+            .map_err(|e| format!("Failed to parse settings: {}", e))?;
+
+        let rate_limit_config_str = Self::get_string_from_row(&row, "rate_limit_config")?;
+        let rate_limit_config: GroupRateLimitConfig = serde_json::from_str(&rate_limit_config_str)
+            .map_err(|e| format!("Failed to parse rate_limit_config: {}", e))?;
+
+        let group_name = Self::get_string_from_row(&row, "group_name")?;
+        let registration_date = Self::get_u64_from_row(&row, "registration_date")?;
+
+        let subscription_tier_str = Self::get_string_from_row(&row, "subscription_tier")?;
+        let subscription_tier: SubscriptionTier =
+            serde_json::from_str(&format!("\"{}\"", subscription_tier_str)).map_err(|e| {
+                format!(
+                    "Failed to parse subscription_tier: {}. Input: '{}'",
+                    e, subscription_tier_str
+                )
+            })?;
+
+        let registration_id = Self::get_string_from_row(&row, "registration_id")?;
+        let registered_by_user_id = Self::get_string_from_row(&row, "registered_by_user_id")?;
+        let group_username = Self::get_optional_string_from_row(&row, "group_username")?;
+        let member_count = Self::get_optional_u32_from_row(&row, "member_count")?;
+        let admin_user_ids = Self::get_vec_string_from_row(&row, "admin_user_ids")?;
+        let bot_permissions = Self::get_json_value_from_row(&row, "bot_permissions")?;
+        let enabled_features = Self::get_vec_string_from_row(&row, "enabled_features")?;
+        let last_activity = Self::get_optional_u64_from_row(&row, "last_activity")?;
+        let total_messages_sent = Self::get_u32_from_row(&row, "total_messages_sent")?;
+        let last_member_count_update =
+            Self::get_optional_u64_from_row(&row, "last_member_count_update")?;
+        let created_at = Self::get_u64_from_row(&row, "created_at")?;
+        let updated_at = Self::get_u64_from_row(&row, "updated_at")?;
+
+        Ok(Self {
+            group_id,
+            group_title,
+            group_type,
+            registered_by,
+            registered_at,
+            is_active,
+            settings,
+            rate_limit_config,
+            group_name,
+            registration_date,
+            subscription_tier,
+            registration_id,
+            registered_by_user_id,
+            group_username,
+            member_count,
+            admin_user_ids,
+            bot_permissions,
+            enabled_features,
+            last_activity,
+            total_messages_sent,
+            last_member_count_update,
+            created_at,
+            updated_at,
+        })
     }
 }
 
@@ -2948,6 +3314,131 @@ pub struct GroupSettings {
     pub min_profit_threshold: f64,
     pub max_opportunities_per_day: u32,
     pub notification_settings: NotificationSettings,
+}
+
+/// AI Enhancement Mode for groups
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum AIEnhancementMode {
+    #[default]
+    Disabled,
+    Basic,
+    BYOKOnly,
+    AdminProvided,
+    Mixed,
+    Advanced,
+    Premium,
+}
+
+/// Group Channel Configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupChannelConfig {
+    pub group_id: String,
+    pub admin_user_id: String,
+    pub group_type: String, // "group", "supergroup", "channel"
+    pub is_active: bool,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub settings: serde_json::Value,
+    // Additional fields for group configuration
+    pub opportunities_enabled: bool,
+    pub manual_requests_enabled: bool,
+    pub trading_enabled: bool,
+    pub ai_enhancement_enabled: bool,
+    pub take_action_buttons: bool,
+    pub managed_by_admins: Vec<String>,
+}
+
+impl GroupChannelConfig {
+    pub fn new_group(group_id: String, admin_user_id: String) -> Self {
+        Self {
+            group_id,
+            admin_user_id: admin_user_id.clone(),
+            group_type: "group".to_string(),
+            is_active: true,
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            updated_at: chrono::Utc::now().timestamp_millis() as u64,
+            settings: serde_json::json!({}),
+            opportunities_enabled: true,
+            manual_requests_enabled: true,
+            trading_enabled: true,
+            ai_enhancement_enabled: true,
+            take_action_buttons: true,
+            managed_by_admins: vec![admin_user_id],
+        }
+    }
+
+    pub fn new_channel(group_id: String, admin_user_id: String) -> Self {
+        Self {
+            group_id,
+            admin_user_id: admin_user_id.clone(),
+            group_type: "channel".to_string(),
+            is_active: true,
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            updated_at: chrono::Utc::now().timestamp_millis() as u64,
+            settings: serde_json::json!({}),
+            opportunities_enabled: true,
+            manual_requests_enabled: true,
+            trading_enabled: true,
+            ai_enhancement_enabled: true,
+            take_action_buttons: true,
+            managed_by_admins: vec![admin_user_id],
+        }
+    }
+}
+
+/// Group AI Settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupAISettings {
+    pub group_id: String,
+    pub admin_user_id: String,
+    pub enhancement_mode: AIEnhancementMode,
+    pub byok_enabled: bool,
+    pub group_ai_key_id: Option<String>,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub settings_metadata: serde_json::Value,
+}
+
+impl GroupAISettings {
+    pub fn new(group_id: String, admin_user_id: String) -> Self {
+        Self {
+            group_id,
+            admin_user_id,
+            enhancement_mode: AIEnhancementMode::Disabled,
+            byok_enabled: false,
+            group_ai_key_id: None,
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            updated_at: chrono::Utc::now().timestamp_millis() as u64,
+            settings_metadata: serde_json::json!({}),
+        }
+    }
+}
+
+/// Group Subscription Settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupSubscriptionSettings {
+    pub group_id: String,
+    pub admin_user_id: String,
+    pub subscription_tier: SubscriptionTier,
+    pub is_active: bool,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub settings: serde_json::Value,
+}
+
+impl GroupSubscriptionSettings {
+    pub fn new(group_id: String, admin_user_id: String) -> Self {
+        Self {
+            group_id,
+            admin_user_id,
+            subscription_tier: SubscriptionTier::Free,
+            is_active: true,
+            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            updated_at: chrono::Utc::now().timestamp_millis() as u64,
+            settings: serde_json::json!({}),
+        }
+    }
 }
 
 impl Default for GroupSettings {
@@ -2975,6 +3466,40 @@ pub struct MessageAnalytics {
     pub success: bool,
     pub error_message: Option<String>,
     pub metadata: serde_json::Value,
+}
+
+/// User statistics structure for admin dashboard
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserStatistics {
+    pub total_users: u32,
+    pub active_users: u32,
+    pub free_users: u32,
+    pub paid_users: u32,
+    pub admin_users: u32,
+    pub super_admin_users: u32,
+    pub other_users: u32,
+    pub recently_active_users: u32,
+    pub total_trades: u32,
+    pub total_volume_usdt: f64,
+    pub generated_at: u64,
+}
+
+impl Default for UserStatistics {
+    fn default() -> Self {
+        Self {
+            total_users: 0,
+            active_users: 0,
+            free_users: 0,
+            paid_users: 0,
+            admin_users: 0,
+            super_admin_users: 0,
+            other_users: 0,
+            recently_active_users: 0,
+            total_trades: 0,
+            total_volume_usdt: 0.0,
+            generated_at: chrono::Utc::now().timestamp_millis() as u64,
+        }
+    }
 }
 
 /// Environment configuration structure

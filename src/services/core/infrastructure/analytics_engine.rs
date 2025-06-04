@@ -133,6 +133,7 @@ pub struct AnalyticsEngineConfig {
     pub batch_size: u32,
     pub flush_interval_seconds: u64,
     pub retention_days: u32,
+    pub enable_real_time_analytics: bool,
 }
 
 impl Default for AnalyticsEngineConfig {
@@ -143,6 +144,7 @@ impl Default for AnalyticsEngineConfig {
             batch_size: 100,
             flush_interval_seconds: 60,
             retention_days: 90,
+            enable_real_time_analytics: false,
         }
     }
 }

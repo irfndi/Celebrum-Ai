@@ -269,7 +269,7 @@ impl InvitationRepository {
 
         let success = result
             .meta()
-            .map(|meta| meta.unwrap().changes.unwrap_or(0) > 0)
+            .map(|meta| meta.changes > 0)
             .unwrap_or(false);
 
         // Invalidate cache if enabled
@@ -1134,20 +1134,12 @@ mod tests {
         let db = Arc::new(unsafe { std::mem::zeroed() }); // Mock for testing
         let repo = InvitationRepository::new(db, config);
 
-        let mut invitation = InvitationCode {
-            code: "TEST123".to_string(),
-            code_id: "test_code_id".to_string(),
-            purpose: "testing".to_string(),
-            max_uses: Some(5),
-            current_uses: 0,
-            expires_at: Some(Utc::now().timestamp_millis() as u64 + (30 * 24 * 60 * 60 * 1000)), // 30 days from now
-            is_active: true,
-            created_at: Utc::now().timestamp_millis() as u64,
-            created_by: "admin".to_string(),
-            created_by_user_id: "admin_user_id".to_string(),
-            bonus_percentage: Some(0.1),
-            invitation_type: "beta".to_string(),
-        };
+        let mut invitation = InvitationCode::new(
+            "beta_testing".to_string(),    // purpose
+            Some(1),                       // max_uses
+            Some(30),                      // expires_in_days
+            "test_admin_user".to_string(), // created_by_user_id
+        );
 
         assert!(repo.validate_invitation_code(&invitation).is_ok());
 
