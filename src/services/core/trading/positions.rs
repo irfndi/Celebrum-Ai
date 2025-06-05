@@ -14,9 +14,10 @@ use crate::services::core::trading::{KvOperationError, KvOperations};
 /// Data structure for creating a new position
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CreatePositionData {
-    pub symbol: String,
+    pub pair: String, // Renamed from symbol
     pub side: PositionSide,
     pub size: Option<f64>,
+    pub size_usd: Option<f64>, // Added field
     pub entry_price_long: f64,
     pub entry_price_short: f64,
     pub risk_percentage: Option<f64>,
@@ -25,6 +26,7 @@ pub struct CreatePositionData {
     pub stop_loss_price: Option<f64>,
     pub long_exchange: ExchangeIdEnum,
     pub short_exchange: ExchangeIdEnum,
+    pub exchange: ExchangeIdEnum, // Added field
 }
 
 /// Data structure for updating an existing position
@@ -34,6 +36,8 @@ pub struct UpdatePositionData {
     pub stop_loss_price: Option<f64>,
     pub status: Option<PositionStatus>,
     pub size: Option<f64>,
+    pub current_price: Option<f64>, // Added field
+    pub pnl: Option<f64>,           // Added field
 }
 
 /// Production positions service type alias

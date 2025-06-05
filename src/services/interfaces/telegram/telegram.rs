@@ -44,6 +44,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use uuid;
 use worker::console_log;
+use super::telegram_keyboard::InlineKeyboard;
 
 // ============= USER PREFERENCES AND PERSONALIZATION TYPES =============
 

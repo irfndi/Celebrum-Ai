@@ -140,20 +140,18 @@ impl InvitationService {
             codes.push(invitation);
         }
 
-        // Use proper database transaction for atomic batch insertion
-        // Note: D1 doesn't support real transactions yet, this is a compatibility wrapper
-        self.d1_service
-            .execute_transaction(|_db| {
-                // Since D1 doesn't support real transactions, we'll use individual inserts
-                // This is a limitation of the current D1 implementation
-                // TODO: When D1 supports real transactions, implement proper atomic batch insertion
-                Ok(())
-            })
-            .await?;
-
-        // Store codes individually since D1 doesn't support batch transactions yet
+        let mut queries = Vec::new();
         for code in &codes {
-            self.store_invitation_code(code).await?;
+            // Assuming store_invitation_code generates an INSERT SQL query string and params
+            // This part needs to be adapted based on how store_invitation_code is implemented
+            // For now, let's assume it returns a (String, Vec<String>) tuple for query and params
+            // This is a placeholder and needs to be correctly implemented based on store_invitation_code's actual behavior
+            let (sql, params_values) = self.generate_insert_invitation_query(code)?;
+            queries.push((sql, params_values));
+        }
+
+        if !queries.is_empty() {
+            self.d1_service.execute_transactional_query(queries).await?;
         }
 
         // Use our sanitized logger instead of standard log macro
@@ -616,4 +614,77 @@ pub struct InvitationStatistics {
     pub total_expired: u32,
     pub active_beta_users: u32,
     pub conversion_rate: f64,
+}
+
+impl InvitationService {
+    fn generate_insert_invitation_query(
+        &self,
+        code: &InvitationCode,
+    ) -> Result<(String, Vec<String>)> {
+        let sql = "INSERT INTO invitation_codes (id, code, created_by_admin_id, used_by_user_id, expires_at, created_at, used_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)".to_string();
+        let params = vec![
+            code.id.clone(),
+            code.code.clone(),
+            code.created_by_admin_id.clone(),
+            code.used_by_user_id.clone().unwrap_or_default(), // Handle Option<String>
+            code.expires_at.to_rfc3339(),
+            code.created_at.to_rfc3339(),
+            code.used_at.map(|dt| dt.to_rfc3339()).unwrap_or_default(), // Handle Option<DateTime<Utc>>
+            code.is_active.to_string(),
+        ];
+        Ok((sql, params))
+    }
+
+    pub async fn create_invitation(
+        &self,
+        inviter_id: &str,
+        invitee_email: &str,
+        expires_at: Option<i64>,
+    ) -> ArbitrageResult<Invitation> {
+        let invitation = InvitationCode {
+            id: Uuid::new_v4().to_string(),
+            code: self.generate_unique_code().await?,
+            created_by_admin_id: admin_user_id.to_string(),
+            used_by_user_id: None,
+            expires_at: Utc::now() + Duration::days(self.config.invitation_expiry_days),
+            created_at: Utc::now(),
+            used_at: None,
+            is_active: true,
+        };
+
+        self.store_invitation_code(&invitation_code).await?;
+        Ok(invitation_code)
+    }
+
+    pub async fn get_invitation_by_code(&self, code: &str) -> ArbitrageResult<Option<Invitation>> {
+        let query = "SELECT * FROM invitations WHERE code = ?";
+        self.d1_service.query_first(query, &[code]).await
+    }
+
+    pub async fn update_invitation_status(
+        &self,
+        code: &str,
+        status: InvitationStatus,
+    ) -> ArbitrageResult<()>
+    {
+        let query = "UPDATE invitations SET status = ?, updated_at = ? WHERE code = ?";
+        let updated_at = Utc::now().timestamp();
+        let params = [status.as_str(), &updated_at.to_string(), code];
+        self.d1_service.execute(query, &params).await?;
+        Ok(())
+    }
+
+    pub async fn delete_invitation(&self, code: &str) -> ArbitrageResult<()> {
+        let query = "DELETE FROM invitations WHERE code = ?";
+        self.d1_service.execute(query, &[code]).await?;
+        Ok(())
+    }
+
+    pub async fn get_invitations_by_inviter(
+        &self,
+        inviter_id: &str,
+    ) -> ArbitrageResult<Vec<Invitation>> {
+        let query = "SELECT * FROM invitations WHERE inviter_id = ?";
+        self.d1_service.query_all(query, &[inviter_id]).await
+    }
 }

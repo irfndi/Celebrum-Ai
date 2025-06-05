@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use crate::services::core::user::user_profile::UserProfileService;
+use crate::services::core::user::user_exchange_api::RateLimitInfo;
 use crate::types::{
     CommandPermission, ExchangeCredentials, ExchangeIdEnum, Market, Order, OrderBook, Position,
     Ticker, TradingFeeRates, TradingFees,
@@ -346,7 +347,7 @@ impl ExchangeService {
         });
 
         let response = self
-            .binance_futures_request(endpoint, Method::GET, Some(params), None)
+                            .binance_futures_request(endpoint, Method::Get, Some(params), None)
             .await?;
 
         // Response is an array, get the first (latest) entry
@@ -400,7 +401,7 @@ impl ExchangeService {
         });
 
         let response = self
-            .bybit_request(endpoint, Method::GET, Some(params), None)
+                            .bybit_request(endpoint, Method::Get, Some(params), None)
             .await?;
 
         if let Some(list) = response["result"]["list"].as_array() {
@@ -472,7 +473,7 @@ impl ExchangeInterface for ExchangeService {
         // Implementation for getting ticker data
         let endpoint = format!("/api/v3/ticker/24hr?symbol={}", symbol);
         let response = self
-            .binance_request(&endpoint, Method::GET, None, None)
+            .binance_request(&endpoint, Method::Get, None, None)
             .await?;
 
         // Parse response into Ticker
@@ -612,7 +613,7 @@ impl ExchangeInterface for ExchangeService {
         // Implementation for getting balance
         let endpoint = "/api/v3/account";
         let response = self
-            .binance_request(endpoint, Method::GET, None, Some(credentials))
+            .binance_request(endpoint, Method::Get, None, Some(credentials))
             .await?;
         Ok(response)
     }
@@ -768,7 +769,7 @@ impl ExchangeService {
         _auth: Option<&ExchangeCredentials>,
     ) -> ArbitrageResult<Value> {
         // Use the same implementation as binance_request but with futures base URL
-        self.binance_request(endpoint, Method::GET, None, None)
+        self.binance_request(endpoint, Method::Get, None, None)
             .await
     }
 

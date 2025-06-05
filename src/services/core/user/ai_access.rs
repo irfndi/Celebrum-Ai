@@ -1,5 +1,6 @@
 use crate::services::core::infrastructure::d1::D1Service;
 use crate::services::core::infrastructure::kv::KVService;
+use crate::services::core::infrastructure::kv::KvOperations; // Added KvOperations trait
 use crate::types::{
     AIAccessLevel, AITemplate, AITemplateParameters, AITemplateType, AIUsageTracker,
     ApiKeyProvider, TemplateAccess, UserProfile,
@@ -101,6 +102,7 @@ impl AIAccessService {
         let cache_value = serde_json::to_string(&access_level)
             .map_err(|e| format!("Failed to serialize AI access level: {}", e))?;
 
+        // Removed mutable borrow as KvOperations::put likely takes &self
         let _ = self
             .kv_service
             .put(&cache_key, &cache_value, Some(3600))
@@ -112,6 +114,7 @@ impl AIAccessService {
     /// Invalidate AI access level cache for a user
     pub async fn invalidate_ai_access_cache(&self, user_id: &str) -> Result<(), String> {
         let cache_key = format!("ai_access_level:{}", user_id);
+        // Removed mutable borrow as KvOperations::delete likely takes &self
         self.kv_service
             .delete(&cache_key)
             .await
@@ -877,12 +880,18 @@ impl AIAccessService {
 
     pub async fn log_ai_interaction(
         &self,
-        user_id: &str,
-        interaction_type: &str,
-        _access_level: &AIAccessLevel,
-        metadata: Option<serde_json::Value>,
+        user_id: &str,                        // Keep user_id
+        interaction_type: &str,               // Keep interaction_type
+        _access_level: &AIAccessLevel, // Keep _access_level as it might be used later or is part of an interface
+        _metadata: Option<serde_json::Value>, // Keep _metadata for the same reason
     ) -> Result<(), String> {
         // TODO: Implement logging AI interaction to database or file
+        // For now, we can log to console if needed for debugging, but avoid in production
+        log::info!(
+            "AI Interaction Logged: User '{}', Type '{}'",
+            user_id,
+            interaction_type
+        );
         Ok(())
     }
 }

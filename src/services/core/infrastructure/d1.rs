@@ -109,7 +109,7 @@ impl D1Service {
             .await
             .map_err(|e| ArbitrageError::database_error(format!("D1 execute failed: {}", e)))?;
 
-        Ok(result.meta().and_then(|m| Some(m.changes)).unwrap_or(0) as u64)
+        Ok(result.meta().map_or(0, |actual_meta| actual_meta.changes) as u64)
     }
 
     /// Get the underlying D1 database instance

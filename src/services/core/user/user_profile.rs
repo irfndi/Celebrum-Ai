@@ -555,7 +555,7 @@ impl UserProfileService {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait(?Send)] // Apply ?Send if ApiKeyProvider is used and causes Send issues
 impl UserProfileProvider for UserProfileService {
     async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile> {
         // Call the actual implementation method that returns Option<UserProfile>

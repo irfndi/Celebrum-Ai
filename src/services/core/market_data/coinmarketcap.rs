@@ -1,3 +1,4 @@
+use crate::services::core::infrastructure::analytics_engine::AnalyticsEngine;
 use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
 use crate::utils::logger::Logger;
 use crate::utils::{ArbitrageError, ArbitrageResult};
@@ -91,7 +92,7 @@ pub struct RateLimitStatus {
 pub struct CoinMarketCapService {
     config: CoinMarketCapConfig,
     kv_store: KvStore,
-    pipelines_service: Option<CloudflarePipelinesService>,
+    analytics_engine: Option<AnalyticsEngine>,
     logger: Logger,
 }
 
@@ -99,13 +100,13 @@ impl CoinMarketCapService {
     pub fn new(
         config: CoinMarketCapConfig,
         kv_store: KvStore,
-        pipelines_service: Option<CloudflarePipelinesService>,
+        analytics_engine: Option<AnalyticsEngine>,
         logger: Logger,
     ) -> Self {
         Self {
             config,
             kv_store,
-            pipelines_service,
+            analytics_engine,
             logger,
         }
     }
@@ -549,49 +550,49 @@ impl CoinMarketCapService {
         Err(ArbitrageError::not_found("No cached global metrics"))
     }
 
-    /// Store quotes to pipeline for analytics
-    async fn store_quotes_to_pipeline(&self, quotes: &[CmcQuoteData]) -> ArbitrageResult<()> {
-        if let Some(pipelines) = &self.pipelines_service {
-            for quote in quotes {
-                let event = serde_json::json!({
-                    "timestamp": chrono::Utc::now().timestamp_millis(),
-                    "source": "coinmarketcap",
-                    "data_type": "quote",
-                    "symbol": quote.symbol,
-                    "price": quote.price,
-                    "volume_24h": quote.volume_24h,
-                    "percent_change_1h": quote.percent_change_1h,
-                    "percent_change_24h": quote.percent_change_24h,
-                    "percent_change_7d": quote.percent_change_7d,
-                    "market_cap": quote.market_cap,
-                    "last_updated": quote.last_updated
-                });
-
-                let _ = pipelines.send_event(event).await;
-            }
+    async fn store_latest_quotes_to_pipeline(
+        &mut self,
+        quotes: &HashMap<String, CmcQuote>,
+    ) -> ArbitrageResult<()> {
+        if !self.config.enable_pipelines {
+            return Ok(());
         }
+
+        let data = serde_json::to_value(quotes)?;
+        self.analytics_engine
+            .track_cmc_data("latest_quotes", &data)
+            .await
+            .map_err(|e| {
+                self.logger.error(&format!(
+                    "Failed to send latest quotes to pipeline: {}",
+                    e
+                ));
+                e
+            })?;
+
         Ok(())
     }
 
-    /// Store global metrics to pipeline
     async fn store_global_metrics_to_pipeline(
-        &self,
-        metrics: &CmcGlobalMetrics,
+        &mut self,
+        metrics: &GlobalMetrics,
     ) -> ArbitrageResult<()> {
-        if let Some(pipelines) = &self.pipelines_service {
-            let event = serde_json::json!({
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-                "source": "coinmarketcap",
-                "data_type": "global_metrics",
-                "total_market_cap": metrics.total_market_cap,
-                "total_volume_24h": metrics.total_volume_24h,
-                "bitcoin_dominance": metrics.bitcoin_dominance,
-                "active_cryptocurrencies": metrics.active_cryptocurrencies,
-                "last_updated": metrics.last_updated
-            });
-
-            let _ = pipelines.send_event(event).await;
+        if !self.config.enable_pipelines {
+            return Ok(());
         }
+
+        let data = serde_json::to_value(metrics)?;
+        self.analytics_engine
+            .track_cmc_data("global_metrics", &data)
+            .await
+            .map_err(|e| {
+                self.logger.error(&format!(
+                    "Failed to send global metrics to pipeline: {}",
+                    e
+                ));
+                e
+            })?;
+
         Ok(())
     }
 

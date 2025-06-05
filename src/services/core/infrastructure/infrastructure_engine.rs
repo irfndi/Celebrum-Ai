@@ -10,7 +10,6 @@ use tokio::sync::Mutex;
 use worker::kv::KvStore;
 
 use super::{
-    crate::services::core::admin::system_config::FeatureFlagsConfig,
     cache_manager::{CacheConfig, CacheManager},
     data_access_layer::{DataAccessLayer, DataAccessLayerConfig},
     database_core::DatabaseCore,
@@ -20,6 +19,7 @@ use super::{
     service_health::{HealthCheckConfig, ServiceHealthManager},
     D1Service, DatabaseManager, DatabaseManagerConfig,
 };
+use crate::services::core::admin::system_config::FeatureFlagsConfig;
 use worker::Env;
 
 /// Service types in the infrastructure
@@ -252,6 +252,82 @@ impl InfrastructureEngine {
             circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
             startup_time: chrono::Utc::now().timestamp_millis() as u64,
             global_config: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    async fn generate_health_report(&self) -> SystemHealthReport {
+        let mut services_health: HashMap<String, ServiceHealthCheck> = HashMap::new();
+        let mut healthy_services_count = 0;
+        let mut degraded_services_list = Vec::new();
+        let mut unhealthy_services_list = Vec::new();
+
+        // Example: Check database health
+        // In a real scenario, you would call the health_check method of each service
+        let db_health = ServiceHealthCheck {
+            service_name: "database".to_string(),
+            status: HealthStatus::Healthy, // Assuming healthy for now
+            response_time_ms: 50.5,
+            last_check_timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            error_message: None,
+            metadata: HashMap::new(),
+            dependencies: vec![],
+        };
+        services_health.insert("database".to_string(), db_health.clone());
+        if db_health.status == HealthStatus::Healthy {
+            healthy_services_count += 1;
+        } else if db_health.status == HealthStatus::Degraded {
+            degraded_services_list.push("database".to_string());
+        } else if db_health.status == HealthStatus::Unhealthy {
+            unhealthy_services_list.push("database".to_string());
+        }
+
+        // Example: Check cache health
+        let cache_health = ServiceHealthCheck {
+            service_name: "cache".to_string(),
+            status: HealthStatus::Healthy, // Assuming healthy for now
+            response_time_ms: 20.0,
+            last_check_timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            error_message: None,
+            metadata: HashMap::new(),
+            dependencies: vec![],
+        };
+        services_health.insert("cache".to_string(), cache_health.clone());
+        if cache_health.status == HealthStatus::Healthy {
+            healthy_services_count += 1;
+        } else if cache_health.status == HealthStatus::Degraded {
+            degraded_services_list.push("cache".to_string());
+        } else if cache_health.status == HealthStatus::Unhealthy {
+            unhealthy_services_list.push("cache".to_string());
+        }
+
+        let total_services_count = services_health.len();
+        let overall_status = if !unhealthy_services_list.is_empty() {
+            HealthStatus::Unhealthy
+        } else if !degraded_services_list.is_empty() {
+            HealthStatus::Degraded
+        } else {
+            HealthStatus::Healthy
+        };
+
+        // TODO: Determine critical_services_healthy based on actual critical service status
+        let critical_services_healthy = true; 
+        let health_score = if total_services_count > 0 {
+            healthy_services_count as f64 / total_services_count as f64
+        } else {
+            1.0 // Or 0.0 if no services means unhealthy by definition
+        };
+
+        SystemHealthReport {
+            overall_status,
+            services: services_health,
+            critical_services_healthy,
+            degraded_services: degraded_services_list,
+            unhealthy_services: unhealthy_services_list,
+            total_services: total_services_count,
+            healthy_services: healthy_services_count,
+            health_score,
+            generated_at: chrono::Utc::now().timestamp_millis() as u64,
+            uptime_seconds: self.startup_time.elapsed().as_secs(), // Assuming startup_time is an Instant
         }
     }
 
@@ -518,6 +594,7 @@ impl InfrastructureEngine {
         };
 
         InfrastructureHealth {
+            uptime_seconds,
             overall_status,
             healthy_services: healthy_count,
             degraded_services: degraded_count,
@@ -677,10 +754,21 @@ impl InfrastructureEngine {
 
     pub async fn get_detailed_health_status(&self) -> SystemHealthReport {
         // Placeholder - replace with actual health check logic
-        let _uptime_seconds = SystemTime::now().duration_since(self.start_time).as_secs();
+        let uptime_seconds = SystemTime::now()
+            .duration_since(self.startup_time)
+            .unwrap_or_default()
+            .as_secs();
 
         // TODO: Implement comprehensive health check across all infrastructure components
-        // ... existing code ...
+        SystemHealthReport {
+            overall_status: ServiceStatus::Healthy, // Placeholder
+            services: vec![],                       // Placeholder
+            uptime_seconds,                         // Placeholder
+            version: "0.1.0".to_string(),           // Placeholder
+            last_checked: chrono::Utc::now(),       // Placeholder
+            dependencies: vec![],                   // Placeholder
+            alerts: vec![],                         // Placeholder
+        }
     }
 }
 

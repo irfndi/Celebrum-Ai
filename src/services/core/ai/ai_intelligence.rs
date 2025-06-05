@@ -1569,7 +1569,7 @@ impl AiIntelligenceService {
             okx_symbol
         );
 
-        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::GET))?;
+        let request = Request::new_with_init(&url, RequestInit::new().with_method(Method::Get))?;
 
         let mut response = Fetch::Request(request).send().await?;
 

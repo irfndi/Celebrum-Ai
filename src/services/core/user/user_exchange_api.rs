@@ -4,7 +4,7 @@ use crate::services::core::trading::exchange::{ExchangeInterface, ExchangeServic
 use crate::services::core::user::UserProfileService;
 use crate::types::{ApiKeyProvider, ExchangeCredentials, ExchangeIdEnum, UserApiKey};
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use aes_gcm::{aead::Aead, AeadCore, Aes256Gcm, Key, KeyInit};
+use aes_gcm::{aead::Aead, AeadCore, Aes256Gcm, Key, KeyInit, Nonce};
 use chrono::Utc;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};

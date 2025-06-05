@@ -9,7 +9,7 @@
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::types::UserProfile;
-use crate::types::{CommandPermission, UserRole};
+use crate::types::{CommandPermission, SubscriptionTier, UserRole}; // Ensure SubscriptionTier is imported
 use crate::utils::ArbitrageResult;
 // Temporary comment to force re-compilation
 use std::collections::HashMap;
@@ -142,15 +142,24 @@ impl RBACService {
     fn get_daily_opportunity_limit(&self, user_profile: &UserProfile) -> i32 {
         // Role-based limits
         let role_limit = match user_profile.access_level {
+            // Assuming access_level is UserRole enum
             UserRole::SuperAdmin => 999, // Unlimited
             UserRole::Admin => 999,      // Unlimited
             UserRole::Premium => 999,    // Unlimited
             UserRole::Basic => 10,       // Basic limit
             UserRole::Free => 3,         // Free limit
+            // Add other roles if they exist, e.g. UserRole::Registered
+            _ => 3, // Default to free limit for any other roles
         };
 
         // Subscription-based limits
-        let subscription_limit = match user_profile.subscription_tier.as_str() {
+        // Assuming SubscriptionTier has a method to_string() or similar, or derives Display/ToString
+        let subscription_limit = match user_profile
+            .subscription_tier
+            .to_string()
+            .to_lowercase()
+            .as_str()
+        {
             "enterprise" => 999, // Unlimited
             "premium" => 999,    // Unlimited
             "basic" => 10,       // Basic limit

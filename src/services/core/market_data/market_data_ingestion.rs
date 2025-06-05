@@ -1,3 +1,4 @@
+use crate::services::core::infrastructure::analytics_engine::AnalyticsEngine;
 use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
 use crate::services::core::market_data::coinmarketcap::CoinMarketCapService;
 use crate::types::{ExchangeIdEnum, FundingRateInfo};
@@ -123,8 +124,8 @@ pub struct IngestionMetrics {
 
 pub struct MarketDataIngestionService {
     config: MarketDataIngestionConfig,
-    pipelines_service: Option<CloudflarePipelinesService>,
-    coinmarketcap_service: Option<CoinMarketCapService>,
+    analytics_engine: Option<AnalyticsEngine>,
+    cmc_service: Option<CoinMarketCapService>,
     kv_store: KvStore,
     logger: Logger,
     metrics: IngestionMetrics,
@@ -133,7 +134,7 @@ pub struct MarketDataIngestionService {
 impl MarketDataIngestionService {
     pub fn new(
         config: MarketDataIngestionConfig,
-        pipelines_service: Option<CloudflarePipelinesService>,
+        analytics_engine: Option<AnalyticsEngine>,
         coinmarketcap_service: Option<CoinMarketCapService>,
         kv_store: KvStore,
         logger: Logger,
@@ -159,8 +160,8 @@ impl MarketDataIngestionService {
     }
 
     /// Set or update the pipelines service after initialization
-    pub fn set_pipelines_service(&mut self, pipelines_service: Option<CloudflarePipelinesService>) {
-        self.pipelines_service = pipelines_service;
+    pub fn set_analytics_engine(&mut self, analytics_engine: Option<AnalyticsEngine>) {
+        self.analytics_engine = analytics_engine;
     }
 
     /// Main ingestion method implementing hybrid data access pattern
@@ -196,14 +197,16 @@ impl MarketDataIngestionService {
             }
         }
 
-        // Store aggregated data to pipelines
-        if let Some(ref pipelines) = self.pipelines_service {
+        // Store aggregated data to analytics engine
+        if let Some(ref mut analytics_engine) = self.analytics_engine {
             if let Err(e) = self
-                .store_snapshots_to_pipeline(pipelines, &snapshots)
+                .store_snapshots_to_pipeline(analytics_engine, &snapshots)
                 .await
             {
-                self.logger
-                    .warn(&format!("Failed to store snapshots to pipeline: {}", e));
+                self.logger.warn(&format!(
+                    "Failed to store snapshots to analytics engine: {}",
+                    e
+                ));
             }
         }
 
@@ -234,18 +237,9 @@ impl MarketDataIngestionService {
             return Ok(cached);
         }
 
-        // Step 2: Try pipeline data (medium speed)
-        if let Some(ref pipelines) = self.pipelines_service {
-            if let Ok(pipeline_data) = self
-                .get_pipeline_market_data(pipelines, exchange, pair)
-                .await
-            {
-                self.metrics.pipeline_hits += 1;
-                // Cache the pipeline data for future use
-                let _ = self.cache_market_data(&pipeline_data).await;
-                return Ok(pipeline_data);
-            }
-        }
+        // Step 2: (Pipeline data retrieval was here, removed as AnalyticsEngine is for sending events)
+        // If data retrieval from a pipeline-like source is needed in the future,
+        // it should be implemented via a different service or mechanism.
 
         // Step 3: Fetch from real APIs (slowest but most current)
         let snapshot = self.fetch_real_market_data(exchange, pair).await?;
@@ -275,7 +269,7 @@ impl MarketDataIngestionService {
     }
 
     /// Fetch data from Binance API
-    async fn fetch_binance_data(&self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
+    async fn fetch_binance_data(&mut self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
         let binance_symbol = pair.replace("-", "").to_uppercase();
         let mut snapshot = MarketDataSnapshot {
             exchange: ExchangeIdEnum::Binance,
@@ -308,7 +302,7 @@ impl MarketDataIngestionService {
     }
 
     /// Fetch data from Bybit API
-    async fn fetch_bybit_data(&self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
+    async fn fetch_bybit_data(&mut self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
         let bybit_symbol = pair.replace("-", "").to_uppercase();
         let mut snapshot = MarketDataSnapshot {
             exchange: ExchangeIdEnum::Bybit,
@@ -985,7 +979,6 @@ impl MarketDataIngestionService {
     /// Get market data from pipeline
     async fn get_pipeline_market_data(
         &self,
-        _pipelines: &CloudflarePipelinesService,
         exchange: &ExchangeIdEnum,
         pair: &str,
     ) -> ArbitrageResult<MarketDataSnapshot> {
@@ -1002,31 +995,42 @@ impl MarketDataIngestionService {
 
     /// Store snapshots to pipeline with error collection
     async fn store_snapshots_to_pipeline(
-        &self,
-        _pipelines: &CloudflarePipelinesService,
+        &mut self,
         snapshots: &[MarketDataSnapshot],
     ) -> ArbitrageResult<()> {
-        let mut errors: Vec<String> = Vec::new();
-        let mut successful_stores = 0;
-
-        for snapshot in snapshots {
-            let key = format!(
-                "market_data_{}_{}",
-                snapshot.exchange.as_str(),
-                snapshot.symbol
-            );
-
-            self.logger.debug(&format!(
-                "TODO: Implement pipeline storage for snapshot key {}",
-                key
-            ));
-            successful_stores += 1;
+        if !self.config.enable_pipelines {
+            return Ok(());
         }
-
+    
+        if snapshots.is_empty() {
+            return Ok(());
+        }
+    
+        for snapshot in snapshots {
+            self.analytics_engine
+                .track_market_snapshot(snapshot) // Pass the snapshot directly
+                .await
+                .map_err(|e| {
+                    self.logger.error(&format!(
+                        "Failed to send snapshot to pipeline for {} {}: {}",
+                        snapshot.exchange,
+                        snapshot.symbol,
+                        e
+                    ));
+                    // Decide if you want to return the error or just log and continue
+                    // For now, let's log and continue to process other snapshots
+                    ArbitrageError::pipeline_error(format!(
+                        "Error sending snapshot for {} {}: {}",
+                        snapshot.exchange, snapshot.symbol, e
+                    ))
+                })?;
+        }
+    
         self.logger.info(&format!(
-            "Successfully processed {} snapshots for pipeline (TODO: actual storage not implemented)",
-            successful_stores
+            "Successfully sent {} snapshots to pipeline",
+            snapshots.len()
         ));
+    
         Ok(())
     }
 
@@ -1093,7 +1097,7 @@ impl MarketDataIngestionService {
         exchange: ExchangeIdEnum,
         pairs: Vec<String>,
     ) -> Vec<ArbitrageResult<FundingRateInfo>> {
-        let _errors: Vec<String> = Vec::new();
+        // let _errors: Vec<String> = Vec::new(); // Removed unused variable
         let mut futures = vec![];
 
         for pair in pairs {
@@ -1102,7 +1106,12 @@ impl MarketDataIngestionService {
                     futures.push(Box::pin(self.fetch_binance_funding_rate(&pair))
                         as Pin<
                             Box<
-                                dyn Future<Output = Result<FundingRateInfo, ArbitrageError>> + Send,
+                                dyn Future<
+                                        Output = std::result::Result<
+                                            FundingRateInfo,
+                                            ArbitrageError,
+                                        >,
+                                    > + Send,
                             >,
                         >)
                 }
@@ -1110,13 +1119,18 @@ impl MarketDataIngestionService {
                     futures.push(Box::pin(self.fetch_bybit_funding_rate(&pair))
                         as Pin<
                             Box<
-                                dyn Future<Output = Result<FundingRateInfo, ArbitrageError>> + Send,
+                                dyn Future<
+                                        Output = std::result::Result<
+                                            FundingRateInfo,
+                                            ArbitrageError,
+                                        >,
+                                    > + Send,
                             >,
                         >)
                 }
                 // TODO: Add fetch_okx_funding_rate and other exchanges if they have funding rate methods
                 // Example for OKX if it had one:
-                // ExchangeIdEnum::OKX => futures.push(Box::pin(self.fetch_okx_funding_rate(&pair_owned)) as Pin<Box<dyn Future<Output = Result<FundingRateInfo, ArbitrageError>> + Send>>),
+                // ExchangeIdEnum::OKX => futures.push(Box::pin(self.fetch_okx_funding_rate(&pair_owned)) as Pin<Box<dyn Future<Output = std::result::Result<FundingRateInfo, ArbitrageError>> + Send>>),
                 _ => {
                     let pair_clone_for_error = pair.clone(); // Clone pair for use in the async error block
                                                              // Log or handle unsupported exchange for funding rates
@@ -1129,7 +1143,12 @@ impl MarketDataIngestionService {
                     })
                         as Pin<
                             Box<
-                                dyn Future<Output = Result<FundingRateInfo, ArbitrageError>> + Send,
+                                dyn Future<
+                                        Output = std::result::Result<
+                                            FundingRateInfo,
+                                            ArbitrageError,
+                                        >,
+                                    > + Send,
                             >,
                         >)
                 }

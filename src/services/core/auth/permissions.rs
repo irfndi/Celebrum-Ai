@@ -175,6 +175,7 @@ impl PermissionChecker {
                 )
             }
             UserRole::Basic => {
+                // Assuming UserRole::Basic is a valid variant
                 // Basic user permissions
                 matches!(
                     permission,
@@ -192,6 +193,8 @@ impl PermissionChecker {
                     "opportunities.limited" | "opportunities.delayed" | "analytics.basic"
                 )
             }
+            // Add other roles if they exist, e.g. UserRole::Registered
+            _ => false, // Default to false for any other roles not explicitly handled
         }
     }
 

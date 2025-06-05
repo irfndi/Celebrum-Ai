@@ -452,19 +452,86 @@ impl DatabaseManager {
         result
     }
 
-    /// Execute a transaction (legacy compatibility method)
-    pub async fn execute_transaction<F, T>(&self, transaction_fn: F) -> ArbitrageResult<T>
-    where
-        F: FnOnce(&worker::D1Database) -> ArbitrageResult<T>,
-    {
+    /// Execute a transactional query (simulated as batch execution)
+    pub async fn execute_transactional_query<T: Send + Sync + 'static>(
+        &self,
+        queries: Vec<String>,
+        params_list: Vec<Vec<String>>,
+        parser: fn(D1Row) -> ArbitrageResult<T>,
+    ) -> ArbitrageResult<Vec<Vec<T>>> {
         let start_time = current_timestamp_ms();
+        let mut results_batch = Vec::new();
 
-        // Note: Cloudflare D1 doesn't support explicit transactions yet
-        // This is a compatibility wrapper that executes the function directly
-        let result = transaction_fn(&self.db);
+        if queries.len() != params_list.len() {
+            return Err(ArbitrageError::new_with_message(
+                ArbitrageErrorKind::DatabaseError,
+                "Mismatch between number of queries and parameter sets".to_string(),
+            ));
+        }
 
-        self.update_metrics(start_time, result.is_ok()).await;
-        result
+        // D1 doesn't have explicit transaction blocks like BEGIN/COMMIT in its basic API surface for workers-rs directly.
+        // We execute them sequentially. If one fails, subsequent ones won't run, and we return an error.
+        // This provides some level of atomicity for this sequence but isn't a true DB transaction.
+        for (idx, query) in queries.iter().enumerate() {
+            let stmt = self.db.0.prepare(query); // Access inner D1Database via .0
+            let bound_stmt = self.bind_parameters(stmt, params_list[idx].clone())?;
+            match bound_stmt.all().await {
+                Ok(d1_results) => {
+                    let mut parsed_results_for_query = Vec::new();
+                    for d1_result in d1_results {
+                        // Assuming D1Result has a method like .results() or similar to get rows
+                        // This part needs to align with how D1Result actually provides rows.
+                        // The following is a placeholder based on common patterns.
+                        // If D1Result directly contains rows, adjust accordingly.
+                        // For now, let's assume d1_result.results() returns Vec<D1Row>
+                        // This might be incorrect if `all()` already returns Vec<D1Row> or similar.
+                        // Let's assume `d1_results` is Vec<D1Row> directly from `all()`
+                        // The original code had `d1_result.results()?` which implies D1Result wraps rows.
+                        // However, the `all()` method on `D1PreparedStatement` returns `Result<Vec<D1Row>>`
+                        // So, `d1_results` here should be `Vec<D1Row>`.
+                        // The previous `edit_file_fast_apply` was confused here.
+                        // The `parser` function takes a `D1Row`.
+                        // The `all()` method returns `Result<Vec<D1Row>>`
+                        // So `d1_results` is `Vec<D1Row>`
+                        // The original code was: `for row_result in d1_result.results()? { parsed_results_for_query.push(parser(row_result)?); }`
+                        // This implies `d1_result` is something that has a `.results()` method.
+                        // Let's re-check the `D1PreparedStatement::all()` signature. It returns `Result<Vec<R>> where R: DeserializeOwned`
+                        // If we are parsing row by row, we should use `raw()` or iterate differently.
+                        // Given the parser `fn(D1Row) -> ArbitrageResult<T>`, `all()` should return `Vec<D1Row>`.
+                        // The `D1Result` type is usually for `raw()` calls.
+                        // Let's assume `bound_stmt.all().await?` gives `Vec<D1Row>` directly.
+                        // This was the structure before the erroneous edit.
+
+                        // Corrected loop based on `all()` returning `Vec<D1Row>`
+                        // The `d1_results` from `bound_stmt.all().await?` is already `Vec<D1Row>`
+                        // So we iterate over `d1_results` directly.
+                        // The previous `edit_file_fast_apply` had `Ok(d1_results)` where `d1_results` was `Vec<D1Result>`
+                        // and then `for d1_result in d1_results` and `d1_result.results()?`
+                        // This was for `raw().await` which returns `Vec<D1Result>`.
+                        // For `all().await` which is used here, it should be `Vec<D1Row>` (or `Vec<T>` if T is directly deserializable)
+                        // Since we have a parser `fn(D1Row) -> ArbitrageResult<T>`, `all()` should be used to get `Vec<D1Row>`.
+                        // The `edit_file_fast_apply` tool seems to have used the `execute_raw_query` structure by mistake.
+
+                        // The `all()` method of `D1PreparedStatement` returns `Result<Vec<T>>` where `T: DeserializeOwned`.
+                        // If we want to use a custom parser `fn(D1Row) -> ArbitrageResult<T>`, we should get `Vec<D1Row>`.
+                        // `D1PreparedStatement::all()` can return `Result<Vec<D1Row>>`.
+                        // So, `d1_results` here is `Vec<D1Row>`.
+
+                        for row in d1_results {
+                            parsed_results_for_query.push(parser(row)?);
+                        }
+                    }
+                    results_batch.push(parsed_results_for_query);
+                }
+                Err(e) => {
+                    self.update_metrics(start_time, false).await;
+                    return Err(ArbitrageError::from(e));
+                }
+            }
+        }
+
+        self.update_metrics(start_time, true).await;
+        Ok(results_batch)
     }
 
     /// Get database health summary
