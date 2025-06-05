@@ -18,7 +18,7 @@ pub enum KvOperationError {
 pub type KvResult<T> = Result<T, KvOperationError>;
 
 #[cfg(target_arch = "wasm32")]
-#[async_trait]
+#[async_trait(?Send)]
 pub trait KvOperations {
     async fn put<T: Serialize + Send + ?Sized>(&self, key: &str, value: &T) -> KvResult<()>;
     async fn get<T: DeserializeOwned + Send>(&self, key: &str) -> KvResult<Option<T>>;
@@ -39,7 +39,6 @@ impl KvOperations for worker::kv::KvStore {
     async fn put<T: Serialize + Send + ?Sized>(&self, key: &str, value: &T) -> KvResult<()> {
         let serialized = serde_json::to_string(value)?;
         self.put(key, serialized)
-            .await
             .map_err(|e| KvOperationError::Storage(e.to_string()))?
             .execute()
             .await

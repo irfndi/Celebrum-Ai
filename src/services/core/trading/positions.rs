@@ -668,12 +668,11 @@ impl<T: KvOperations + Send + Sync + 'static> PositionsService<T> {
                 position.short_position.mark_price = Some(current_price);
                 // Use entry_price_short directly since it's f64
                 // If PnL calculation needs a specific fallback, that logic should be here.
-                let pnl_basis_price = if position.entry_price_short > 0.0 {
+                if position.entry_price_short > 0.0 {
                     position.entry_price_short
                 } else {
                     current_price // Or handle error / specific logic if entry_price_short is required
-                };
-                pnl_basis_price // Corrected: Ensure this is the expression returned by the block
+                } // Corrected: Ensure this is the expression returned by the block
             }
             PositionSide::Both => {
                 // For 'Both', we might need to update both long and short current prices

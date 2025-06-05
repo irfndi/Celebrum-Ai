@@ -460,12 +460,12 @@ impl GroupManagementService {
             enhancement_mode: row
                 .get("enhancement_mode")
                 .and_then(|v| v.as_str())
-                .and_then(|s| match s {
-                    "disabled" => Some(crate::types::AIEnhancementMode::Disabled),
-                    "basic" => Some(crate::types::AIEnhancementMode::Basic),
-                    "advanced" => Some(crate::types::AIEnhancementMode::Advanced),
-                    "premium" => Some(crate::types::AIEnhancementMode::Premium),
-                    _ => Some(crate::types::AIEnhancementMode::Disabled),
+                .map(|s| match s {
+                    "disabled" => crate::types::AIEnhancementMode::Disabled,
+                    "basic" => crate::types::AIEnhancementMode::Basic,
+                    "advanced" => crate::types::AIEnhancementMode::Advanced,
+                    "premium" => crate::types::AIEnhancementMode::Premium,
+                    _ => crate::types::AIEnhancementMode::Disabled,
                 })
                 .unwrap_or(crate::types::AIEnhancementMode::Disabled),
             byok_enabled: row

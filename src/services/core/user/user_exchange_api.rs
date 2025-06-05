@@ -130,7 +130,7 @@ impl UserExchangeApiService {
             // Check if this key is for the same provider and is active
             match (&key.provider, &request.exchange_id) {
                 (crate::types::ApiKeyProvider::Exchange(provider), exchange_id) => {
-                    provider.to_string() == exchange_id.to_string() && key.is_active
+                    *provider == *exchange_id && key.is_active
                 }
                 _ => false,
             }
@@ -174,10 +174,11 @@ impl UserExchangeApiService {
             ),
             encrypted_key: encrypted_api_key,
             encrypted_secret: Some(encrypted_secret),
-            permissions: validation_result
-                .can_trade
-                .then(|| vec!["trade".to_string()])
-                .unwrap_or_else(|| vec!["read".to_string()]),
+            permissions: if validation_result.can_trade {
+                vec!["trade".to_string()]
+            } else {
+                vec!["read".to_string()]
+            },
             is_active: true,
             is_read_only: !validation_result.can_trade,
             created_at: Utc::now().timestamp() as u64,
@@ -320,7 +321,7 @@ impl UserExchangeApiService {
         // Remove the API key
         let initial_count = user_profile.api_keys.len();
         user_profile.api_keys.retain(|key| match &key.provider {
-            ApiKeyProvider::Exchange(exchange) => &exchange.to_string() != exchange_id,
+            ApiKeyProvider::Exchange(exchange) => exchange.to_string() != exchange_id,
             _ => true,
         });
 

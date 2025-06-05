@@ -36,6 +36,7 @@ once_cell = "1.19"
 approx = "0.5"
 md5 = "0.7"
 http = "1.0"
+parking_lot = "0.12"
 
 # WASM-specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]

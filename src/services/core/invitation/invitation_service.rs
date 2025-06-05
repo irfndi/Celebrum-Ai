@@ -14,8 +14,8 @@ pub enum InvitationStatus {
     Expired,
 }
 
-impl<'a> InvitationStatus {
-    pub fn as_str(&self) -> &'a str {
+impl InvitationStatus {
+    pub fn as_str(&self) -> &str {
         match self {
             InvitationStatus::Active => "active",
             InvitationStatus::Used => "used",
@@ -762,7 +762,7 @@ impl InvitationService {
                             .ok_or_else(|| {
                             ArbitrageError::parse_error("Missing expires_at field")
                         })?;
-                        DateTime::parse_from_rfc3339(&expires_str)
+                        DateTime::parse_from_rfc3339(expires_str)
                             .map_err(|e| {
                                 ArbitrageError::parse_error(format!(
                                     "Invalid expires_at format: {}",
@@ -778,7 +778,7 @@ impl InvitationService {
                             .ok_or_else(|| {
                             ArbitrageError::parse_error("Missing created_at field")
                         })?;
-                        DateTime::parse_from_rfc3339(&created_str)
+                        DateTime::parse_from_rfc3339(created_str)
                             .map_err(|e| {
                                 ArbitrageError::parse_error(format!(
                                     "Invalid created_at format: {}",
@@ -799,7 +799,7 @@ impl InvitationService {
                         if let Some(used_str) = first_result.get("used_at").and_then(|v| v.as_str())
                         {
                             Some(
-                                DateTime::parse_from_rfc3339(&used_str)
+                                DateTime::parse_from_rfc3339(used_str)
                                     .map_err(|e| {
                                         ArbitrageError::parse_error(format!(
                                             "Invalid used_at format: {}",
@@ -880,7 +880,7 @@ impl InvitationService {
                             .ok_or_else(|| {
                                 ArbitrageError::parse_error("Missing expires_at field")
                             })?;
-                        DateTime::parse_from_rfc3339(&expires_str)
+                        DateTime::parse_from_rfc3339(expires_str)
                             .map_err(|e| {
                                 ArbitrageError::parse_error(format!(
                                     "Invalid expires_at format: {}",
@@ -896,7 +896,7 @@ impl InvitationService {
                             .ok_or_else(|| {
                                 ArbitrageError::parse_error("Missing created_at field")
                             })?;
-                        DateTime::parse_from_rfc3339(&created_str)
+                        DateTime::parse_from_rfc3339(created_str)
                             .map_err(|e| {
                                 ArbitrageError::parse_error(format!(
                                     "Invalid created_at format: {}",
@@ -916,7 +916,7 @@ impl InvitationService {
                     used_at: {
                         if let Some(used_str) = result_row.get("used_at").and_then(|v| v.as_str()) {
                             Some(
-                                DateTime::parse_from_rfc3339(&used_str)
+                                DateTime::parse_from_rfc3339(used_str)
                                     .map_err(|e| {
                                         ArbitrageError::parse_error(format!(
                                             "Invalid used_at format: {}",

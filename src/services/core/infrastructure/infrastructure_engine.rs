@@ -2,11 +2,11 @@
 // Provides service discovery, dependency management, configuration, and health monitoring
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
-use tokio::sync::Mutex;
 use worker::kv::KvStore;
 
 use super::service_health::HealthStatus;
@@ -341,7 +341,7 @@ impl InfrastructureEngine {
         if self.config.enable_metrics_collection {
             let metrics_config = MetricsCollectorConfig::default();
             self.metrics_collector =
-                Some(MetricsCollector::new(metrics_config, self.kv_store.clone(), &env).await?);
+                Some(MetricsCollector::new(metrics_config, self.kv_store.clone(), env).await?);
             self.register_service(ServiceRegistration {
                 service_name: "metrics_collector".to_string(),
                 service_type: ServiceType::Metrics,
@@ -359,7 +359,7 @@ impl InfrastructureEngine {
         }
 
         // 2. Initialize database core
-        self.database_core = Some(DatabaseCore::new(&env)?);
+        self.database_core = Some(DatabaseCore::new(env)?);
         self.register_service(ServiceRegistration {
             service_name: "database_core".to_string(),
             service_type: ServiceType::Database,
@@ -525,9 +525,10 @@ impl InfrastructureEngine {
         };
 
         let service_name = service_info.registration.service_name.clone();
-        let mut services = self.services.lock().await;
-        services.insert(service_name.clone(), service_info);
-        drop(services);
+        {
+            let mut services = self.services.lock();
+            services.insert(service_name.clone(), service_info);
+        } // Lock is dropped here before the await
 
         // Initialize circuit breaker if enabled
         if self.config.enable_circuit_breaker {
@@ -539,19 +540,19 @@ impl InfrastructureEngine {
 
     /// Get service information
     pub async fn get_service_info(&self, service_name: &str) -> Option<ServiceInfo> {
-        let services = self.services.lock().await;
+        let services = self.services.lock();
         services.get(service_name).cloned()
     }
 
     /// Get all registered services
     pub async fn get_all_services(&self) -> HashMap<String, ServiceInfo> {
-        let services = self.services.lock().await;
+        let services = self.services.lock();
         services.clone()
     }
 
     /// Get infrastructure health summary
     pub async fn get_infrastructure_health(&self) -> InfrastructureHealth {
-        let services = self.services.lock().await;
+        let services = self.services.lock();
         let services_clone = services.clone();
         drop(services);
 
@@ -616,7 +617,7 @@ impl InfrastructureEngine {
         service_name: &str,
         status: ServiceStatus,
     ) -> ArbitrageResult<()> {
-        let mut services = self.services.lock().await;
+        let mut services = self.services.lock();
         if let Some(service) = services.get_mut(service_name) {
             service.status = status;
             service.last_health_check = Some(chrono::Utc::now().timestamp_millis() as u64);
@@ -636,7 +637,7 @@ impl InfrastructureEngine {
             return Err(ArbitrageError::internal_error("Auto-recovery is disabled"));
         }
 
-        let mut services = self.services.lock().await;
+        let mut services = self.services.lock();
         if let Some(service) = services.get_mut(service_name) {
             if service.restart_count >= self.config.max_restart_attempts as u64 {
                 return Err(ArbitrageError::internal_error(
@@ -657,13 +658,13 @@ impl InfrastructureEngine {
 
     /// Get configuration value
     pub async fn get_config(&self, key: &str) -> Option<serde_json::Value> {
-        let config = self.global_config.lock().await;
+        let config = self.global_config.lock();
         config.get(key).cloned()
     }
 
     /// Set configuration value
     pub async fn set_config(&self, key: &str, value: serde_json::Value) -> ArbitrageResult<()> {
-        let mut config = self.global_config.lock().await;
+        let mut config = self.global_config.lock();
         config.insert(key.to_string(), value);
         Ok(())
     }
@@ -675,7 +676,7 @@ impl InfrastructureEngine {
         }
 
         // Update all services to stopped status
-        let mut services = self.services.lock().await;
+        let mut services = self.services.lock();
         for service in services.values_mut() {
             service.status = ServiceStatus::Stopped;
         }
@@ -704,14 +705,14 @@ impl InfrastructureEngine {
             timeout_seconds: self.config.circuit_breaker_timeout_seconds,
         };
 
-        let mut circuit_breakers = self.circuit_breakers.lock().await;
+        let mut circuit_breakers = self.circuit_breakers.lock();
         circuit_breakers.insert(service_name.to_string(), circuit_breaker);
         Ok(())
     }
 
     #[allow(dead_code)] // Will be used for circuit breaker pattern
     async fn check_circuit_breaker(&self, service_name: &str) -> bool {
-        let circuit_breakers = self.circuit_breakers.lock().await;
+        let circuit_breakers = self.circuit_breakers.lock();
         if let Some(breaker) = circuit_breakers.get(service_name) {
             match breaker.state {
                 CircuitBreakerState::Closed => true,
@@ -733,7 +734,7 @@ impl InfrastructureEngine {
 
     #[allow(dead_code)] // Will be used for circuit breaker pattern
     async fn record_circuit_breaker_success(&self, service_name: &str) -> ArbitrageResult<()> {
-        let mut circuit_breakers = self.circuit_breakers.lock().await;
+        let mut circuit_breakers = self.circuit_breakers.lock();
         if let Some(breaker) = circuit_breakers.get_mut(service_name) {
             breaker.success_count += 1;
             breaker.failure_count = 0;
@@ -745,7 +746,7 @@ impl InfrastructureEngine {
 
     #[allow(dead_code)] // Will be used for circuit breaker pattern
     async fn record_circuit_breaker_failure(&self, service_name: &str) -> ArbitrageResult<()> {
-        let mut circuit_breakers = self.circuit_breakers.lock().await;
+        let mut circuit_breakers = self.circuit_breakers.lock();
         if let Some(breaker) = circuit_breakers.get_mut(service_name) {
             breaker.failure_count += 1;
             breaker.last_failure_time = Some(chrono::Utc::now().timestamp_millis() as u64);

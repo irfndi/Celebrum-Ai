@@ -316,7 +316,9 @@ impl UserAuthService {
 
 /// Authentication Provider trait for different auth methods
 pub trait AuthenticationProvider {
+    #[allow(async_fn_in_trait)] // Required for WASM compatibility in Cloudflare Workers
     async fn authenticate(&self, credentials: &AuthCredentials) -> ArbitrageResult<LoginResult>;
+    #[allow(async_fn_in_trait)] // Required for WASM compatibility in Cloudflare Workers
     async fn validate_credentials(&self, credentials: &AuthCredentials) -> ArbitrageResult<bool>;
 }
 

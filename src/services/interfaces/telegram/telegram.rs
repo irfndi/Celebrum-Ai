@@ -13,6 +13,9 @@ use crate::services::core::opportunities::opportunity_distribution::OpportunityD
 use crate::services::core::opportunities::opportunity_engine::OpportunityEngine;
 use crate::services::core::trading::exchange::ExchangeService;
 use crate::services::core::user::session_management::SessionManagementService;
+
+#[cfg(target_arch = "wasm32")]
+use crate::services::core::trading::positions::PositionsService;
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::services::core::user::user_trading_preferences::UserTradingPreferencesService;
 use crate::services::interfaces::telegram::core::bot_client::TelegramConfig;

@@ -108,7 +108,7 @@ impl KvOperations for KVService {
 #[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
 impl KvOperations for KVService {
-    async fn put<T: Serialize + Send + Sync + ?Sized>(
+    async fn put<T: Serialize + Send + ?Sized>(
         &self,
         key: &str,
         value: &T,

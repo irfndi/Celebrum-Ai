@@ -3,27 +3,13 @@ use crate::services::core::infrastructure::kv::KVService;
 use crate::services::core::trading::kv_operations::KvOperations;
 use crate::types::{
     AIAccessLevel, AITemplate, AITemplateParameters, AITemplateType, AIUsageTracker,
-    ApiKeyProvider, TemplateAccess, UserAccessLevel, UserProfile,
+    ApiKeyProvider, TemplateAccess, UserAccessLevel, UserProfile, ValidationLevel,
 };
 use log;
 use std::collections::HashMap;
 use std::time::Duration;
 
 use serde_json::Value;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsValue;
-
-/// Validation level for API key validation
-#[derive(Debug, Clone)]
-pub enum ValidationLevel {
-    /// Only validate format/structure
-    FormatOnly,
-    /// Check cached validation result, fallback to format validation
-    CachedResult,
-    /// Perform live validation with additional safeguards
-    LiveValidation,
-}
-
 /// Service for managing AI access levels, usage tracking, and template management
 pub struct AIAccessService {
     #[allow(dead_code)] // Will be used for user preference storage
@@ -146,9 +132,9 @@ impl AIAccessService {
         #[cfg(target_arch = "wasm32")]
         {
             let query = "SELECT * FROM ai_usage_tracking WHERE user_id = ? AND date = ?";
-            let params = vec![JsValue::from_str(user_id), JsValue::from_str(&_today)];
+            let params = vec![user_id, &_today];
 
-            match self.d1_service.query_first(query, params).await {
+            match self.d1_service.query_first(query, &params).await {
                 Ok(Some(row)) => {
                     // Parse existing tracker using helper functions
                     let ai_calls_used = Self::get_field_as_u32(&row, "ai_calls_used", 0);
@@ -219,19 +205,24 @@ impl AIAccessService {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#;
 
+            let ai_calls_used_str = tracker.ai_calls_used.to_string();
+            let ai_calls_limit_str = tracker.ai_calls_limit.to_string();
+            let last_reset_str = tracker.last_reset.to_string();
+            let total_cost_usd_str = tracker.total_cost_usd.to_string();
+
             let params = vec![
-                JsValue::from_str(&tracker.user_id),
-                JsValue::from_str(&tracker.date),
-                JsValue::from_f64(tracker.ai_calls_used as f64),
-                JsValue::from_f64(tracker.ai_calls_limit as f64),
-                JsValue::from_f64(tracker.last_reset as f64),
-                JsValue::from_f64(tracker.total_cost_usd),
-                JsValue::from_str(&cost_breakdown_by_provider),
-                JsValue::from_str(&cost_breakdown_by_feature),
+                tracker.user_id.as_str(),
+                &tracker.date,
+                &ai_calls_used_str,
+                &ai_calls_limit_str,
+                &last_reset_str,
+                &total_cost_usd_str,
+                &cost_breakdown_by_provider,
+                &cost_breakdown_by_feature,
             ];
 
             self.d1_service
-                .execute_query(query, params)
+                .execute(query, &params)
                 .await
                 .map_err(|e| format!("Failed to save AI usage tracker: {}", e))?;
         }
@@ -312,15 +303,14 @@ impl AIAccessService {
         template_params.prompt_template = prompt_template;
 
         let template = AITemplate {
-            id: uuid::Uuid::new_v4().to_string(),
-            name: template_name,
+            template_id: uuid::Uuid::new_v4().to_string(),
+            template_name,
             template_type,
+            access_level: TemplateAccess::DefaultOnly,
+            prompt_template: template_params.prompt_template.clone(),
             parameters: template_params,
-            access: TemplateAccess {
-                access_level: AIAccessLevel::FreeWithAI,
-                allowed_users: None,
-                allowed_groups: None,
-            },
+            created_by: None,
+            is_system_default: false,
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             updated_at: chrono::Utc::now().timestamp_millis() as u64,
         };
@@ -352,7 +342,7 @@ impl AIAccessService {
     ) -> Result<Vec<AITemplate>, String> {
         #[cfg(target_arch = "wasm32")]
         {
-            let template_access = access_level.get_template_access();
+            let template_access = _access_level.get_template_access();
 
             let query = match template_access {
                 TemplateAccess::None => {
@@ -366,13 +356,13 @@ impl AIAccessService {
                 }
             };
 
-            let params = if matches!(template_access, TemplateAccess::Full) {
-                vec![JsValue::from_str(user_id)]
+            let params: Vec<&str> = if matches!(template_access, TemplateAccess::Full) {
+                vec![_user_id]
             } else {
                 vec![]
             };
 
-            match self.d1_service.query_all(query, params).await {
+            match self.d1_service.query_all(query, &params).await {
                 Ok(rows) => {
                     let mut templates = Vec::new();
                     for row in rows {
@@ -503,21 +493,20 @@ impl AIAccessService {
 
         for (name, template_type, prompt) in default_templates {
             let template = AITemplate {
-                id: format!("system_{}", name.to_lowercase().replace(" ", "_")),
-                name,
+                template_id: format!("system_{}", name.to_lowercase().replace(" ", "_")),
+                template_name: name,
                 template_type,
+                access_level: TemplateAccess::DefaultOnly,
+                prompt_template: prompt.clone(),
                 parameters: AITemplateParameters {
                     model: "gpt-3.5-turbo".to_string(),
                     max_tokens: Some(1000),
                     temperature: Some(0.7),
-                    prompt_template: prompt,
+                    prompt_template: prompt.clone(),
                     variables: std::collections::HashMap::new(),
                 },
-                access: TemplateAccess {
-                    access_level: AIAccessLevel::FreeWithAI,
-                    allowed_users: None,
-                    allowed_groups: None,
-                },
+                created_by: None,
+                is_system_default: true,
                 created_at: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()

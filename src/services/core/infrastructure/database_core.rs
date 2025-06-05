@@ -557,6 +557,7 @@ struct InternalResult {
 /// User profile database operations
 impl DatabaseCore {
     /// Store user profile with optimized SQL
+    #[allow(clippy::too_many_arguments)] // Business requirement: comprehensive user profile storage
     pub async fn store_user_profile(
         &self,
         user_id: &str,

@@ -11,6 +11,9 @@ use crate::services::{
     AiExchangeRouterService, CorrelationAnalysisService, DynamicConfigService,
     OpportunityCategorizationService, UserTradingPreferencesService,
 };
+
+#[cfg(target_arch = "wasm32")]
+use crate::services::PositionsService;
 use crate::types::{
     ArbitrageOpportunity, ArbitragePosition, ArbitrageType, ExchangeIdEnum, GlobalOpportunity,
     OpportunitySource,

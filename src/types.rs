@@ -2406,6 +2406,56 @@ pub enum AIAccessLevel {
     EnterpriseAI,
 }
 
+impl AIAccessLevel {
+    pub fn get_template_access(&self) -> TemplateAccess {
+        match self {
+            AIAccessLevel::FreeWithoutAI => TemplateAccess::None,
+            AIAccessLevel::FreeWithAI => TemplateAccess::DefaultOnly,
+            AIAccessLevel::SubscriptionWithAI
+            | AIAccessLevel::PremiumAI
+            | AIAccessLevel::EnterpriseAI => TemplateAccess::Full,
+        }
+    }
+
+    pub fn can_use_ai_analysis(&self) -> bool {
+        match self {
+            AIAccessLevel::FreeWithoutAI => false,
+            AIAccessLevel::FreeWithAI
+            | AIAccessLevel::SubscriptionWithAI
+            | AIAccessLevel::PremiumAI
+            | AIAccessLevel::EnterpriseAI => true,
+        }
+    }
+
+    pub fn can_create_custom_templates(&self) -> bool {
+        match self {
+            AIAccessLevel::FreeWithoutAI | AIAccessLevel::FreeWithAI => false,
+            AIAccessLevel::SubscriptionWithAI
+            | AIAccessLevel::PremiumAI
+            | AIAccessLevel::EnterpriseAI => true,
+        }
+    }
+
+    pub fn can_generate_personal_ai_opportunities(&self) -> bool {
+        match self {
+            AIAccessLevel::FreeWithoutAI | AIAccessLevel::FreeWithAI => false,
+            AIAccessLevel::SubscriptionWithAI
+            | AIAccessLevel::PremiumAI
+            | AIAccessLevel::EnterpriseAI => true,
+        }
+    }
+
+    pub fn get_daily_ai_limits(&self) -> u32 {
+        match self {
+            AIAccessLevel::FreeWithoutAI => 0,
+            AIAccessLevel::FreeWithAI => 5,
+            AIAccessLevel::SubscriptionWithAI => 100,
+            AIAccessLevel::PremiumAI => 500,
+            AIAccessLevel::EnterpriseAI => u32::MAX,
+        }
+    }
+}
+
 /// Funding rate information structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FundingRateInfo {
@@ -2643,11 +2693,14 @@ pub type UpdateUserPreferencesRequest = UserPreferencesUpdate;
 /// AI template structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AITemplate {
-    pub id: String,
-    pub name: String,
+    pub template_id: String,
+    pub template_name: String,
     pub template_type: AITemplateType,
+    pub access_level: TemplateAccess,
+    pub prompt_template: String,
     pub parameters: AITemplateParameters,
-    pub access: TemplateAccess,
+    pub created_by: Option<String>,
+    pub is_system_default: bool,
     pub created_at: u64,
     pub updated_at: u64,
 }
@@ -2661,6 +2714,9 @@ pub enum AITemplateType {
     RiskAssessment,
     MarketInsight,
     Custom,
+    PersonalOpportunityGeneration,
+    TradingDecisionSupport,
+    PositionSizing,
 }
 
 /// AI template parameters structure
@@ -2673,9 +2729,27 @@ pub struct AITemplateParameters {
     pub variables: HashMap<String, String>,
 }
 
+/// Template access level enum
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplateAccess {
+    None,
+    DefaultOnly,
+    Full,
+}
+
+/// Validation level enum for AI template validation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ValidationLevel {
+    FormatOnly,
+    CachedResult,
+    LiveValidation,
+}
+
 /// Template access control structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TemplateAccess {
+pub struct TemplateAccessControl {
     pub access_level: AIAccessLevel,
     pub allowed_users: Option<Vec<String>>,
     pub allowed_groups: Option<Vec<String>>,

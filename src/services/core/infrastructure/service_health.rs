@@ -8,6 +8,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+// WASM-specific imports
+#[cfg(target_arch = "wasm32")]
+use gloo_timers::future::sleep;
+
 /// Service health status levels
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum HealthStatus {
@@ -189,28 +193,19 @@ impl ServiceHealthManager {
 
         // Retry logic
         for attempt in 0..=self.config.max_retries {
-            match tokio::time::timeout(
-                Duration::from_secs(self.config.timeout_seconds),
-                service.health_check(),
-            )
-            .await
-            {
-                Ok(Ok(result)) => {
+            match service.health_check().await {
+                Ok(result) => {
                     check_result = Some(result);
                     break;
                 }
-                Ok(Err(e)) => {
+                Err(e) => {
                     last_error = Some(e);
                     if attempt < self.config.max_retries {
                         // Exponential backoff
                         let delay_ms = 100 * (2_u64.pow(attempt));
-                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                    }
-                }
-                Err(_) => {
-                    last_error = Some(ArbitrageError::timeout_error("Health check timeout"));
-                    if attempt < self.config.max_retries {
-                        let delay_ms = 100 * (2_u64.pow(attempt));
+                        #[cfg(target_arch = "wasm32")]
+                        sleep(Duration::from_millis(delay_ms)).await;
+                        #[cfg(not(target_arch = "wasm32"))]
                         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                     }
                 }
@@ -428,10 +423,8 @@ impl ServiceHealthManager {
             }
         }
 
-        if has_unhealthy {
-            HealthStatus::Degraded // Non-critical services unhealthy
-        } else if has_degraded {
-            HealthStatus::Degraded
+        if has_unhealthy || has_degraded {
+            HealthStatus::Degraded // Non-critical services unhealthy or degraded
         } else {
             HealthStatus::Healthy
         }

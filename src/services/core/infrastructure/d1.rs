@@ -121,12 +121,10 @@ impl D1Service {
 
     /// Perform a health check on the D1 database
     pub async fn health_check(&self) -> bool {
-        match self
-            .query_first::<serde_json::Value>("SELECT 1 as health", &[])
-            .await
-        {
-            Ok(Some(_)) => true,
-            _ => false,
-        }
+        matches!(
+            self.query_first::<serde_json::Value>("SELECT 1 as health", &[])
+                .await,
+            Ok(Some(_))
+        )
     }
 }
