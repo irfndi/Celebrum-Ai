@@ -15,25 +15,11 @@ use crate::services::core::trading::exchange::ExchangeService;
 use crate::services::core::user::session_management::SessionManagementService;
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::services::core::user::user_trading_preferences::UserTradingPreferencesService;
+use crate::services::interfaces::telegram::core::bot_client::TelegramConfig;
+use crate::services::interfaces::telegram::telegram_keyboard::InlineKeyboard;
 use crate::types::OpportunityData;
 use crate::types::{
-    // AiInsightsSummary, CommandPermission,
-    GroupRateLimitConfig,
-    GroupRegistration,
-    GroupSettings,
-    MessageAnalytics, // UserProfile, UserRole,
-    MessageType,
-    MessageType,
-    TelegramBotCommand,
-    TelegramBotCommand,
-    TelegramConfig,
-    TelegramUpdate,
-    TelegramUpdate,
-    User,
-    User,
-    UserInterfaceConfig,
-    UserInterfaceConfig,
-    UserProfile,
+    GroupRateLimitConfig, GroupRegistration, GroupSettings, MessageAnalytics, UserProfile,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use reqwest::Client;
@@ -44,7 +30,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use uuid;
 use worker::console_log;
-use super::telegram_keyboard::InlineKeyboard;
 
 // ============= USER PREFERENCES AND PERSONALIZATION TYPES =============
 

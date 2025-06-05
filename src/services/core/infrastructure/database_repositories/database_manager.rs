@@ -10,7 +10,10 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use worker::{kv::KvStore, wasm_bindgen::JsValue, D1Database};
+use worker::{
+    console_log, kv::KvStore, wasm_bindgen::JsValue, D1Database, D1Result, Env, Fetch, Method,
+    Request, RequestInit, Response,
+};
 
 /// Configuration for DatabaseManager
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -453,11 +456,13 @@ impl DatabaseManager {
     }
 
     /// Execute a transactional query (simulated as batch execution)
-    pub async fn execute_transactional_query<T: Send + Sync + 'static>(
+    pub async fn execute_transactional_query<
+        T: Send + Sync + 'static + serde::de::DeserializeOwned,
+    >(
         &self,
         queries: Vec<String>,
         params_list: Vec<Vec<String>>,
-        parser: fn(D1Row) -> ArbitrageResult<T>,
+        parser: fn(T) -> ArbitrageResult<T>,
     ) -> ArbitrageResult<Vec<Vec<T>>> {
         let start_time = current_timestamp_ms();
         let mut results_batch = Vec::new();
@@ -473,7 +478,7 @@ impl DatabaseManager {
         // We execute them sequentially. If one fails, subsequent ones won't run, and we return an error.
         // This provides some level of atomicity for this sequence but isn't a true DB transaction.
         for (idx, query) in queries.iter().enumerate() {
-            let stmt = self.db.0.prepare(query); // Access inner D1Database via .0
+            let stmt = self.db.prepare(query); // Access inner D1Database via .0
             let bound_stmt = self.bind_parameters(stmt, params_list[idx].clone())?;
             match bound_stmt.all().await {
                 Ok(d1_results) => {
@@ -495,7 +500,7 @@ impl DatabaseManager {
                         // So `d1_results` is `Vec<D1Row>`
                         // The original code was: `for row_result in d1_result.results()? { parsed_results_for_query.push(parser(row_result)?); }`
                         // This implies `d1_result` is something that has a `.results()` method.
-                        // Let's re-check the `D1PreparedStatement::all()` signature. It returns `Result<Vec<R>> where R: DeserializeOwned`
+                        // Let's re-check the `D1PreparedStatement::all()` signature. It returns `Result<Vec<T>> where T: DeserializeOwned`
                         // If we are parsing row by row, we should use `raw()` or iterate differently.
                         // Given the parser `fn(D1Row) -> ArbitrageResult<T>`, `all()` should return `Vec<D1Row>`.
                         // The `D1Result` type is usually for `raw()` calls.

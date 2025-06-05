@@ -1,6 +1,6 @@
 use crate::services::core::infrastructure::d1::D1Service;
 use crate::services::core::infrastructure::kv::KVService;
-use crate::services::core::infrastructure::kv::KvOperations; // Added KvOperations trait
+use crate::services::core::trading::kv_operations::KvOperations;
 use crate::types::{
     AIAccessLevel, AITemplate, AITemplateParameters, AITemplateType, AIUsageTracker,
     ApiKeyProvider, TemplateAccess, UserProfile,

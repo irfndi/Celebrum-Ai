@@ -304,8 +304,13 @@ impl PermissionChecker {
 
     /// Check if beta access is expired
     fn is_beta_expired(&self, user_profile: &UserProfile) -> bool {
-        if let Some(expires_at) = user_profile.beta_expires_at {
-            chrono::Utc::now() > expires_at
+        if let Some(expires_at_ts) = user_profile.beta_expires_at {
+            if let Some(expires_at_dt) = chrono::DateTime::from_timestamp(expires_at_ts as i64, 0) {
+                chrono::Utc::now() > expires_at_dt
+            } else {
+                // Handle potential error during timestamp conversion, e.g., log or return true/false based on policy
+                true // Or false, depending on how an invalid timestamp should be treated
+            }
         } else {
             false // No expiration set
         }

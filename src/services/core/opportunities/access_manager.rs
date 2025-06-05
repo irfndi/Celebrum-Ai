@@ -186,24 +186,60 @@ impl AccessManager {
         let mut exchanges = Vec::new();
         for api_key in &user_profile.api_keys {
             if api_key.is_active {
-                // Extract exchange from provider
-                let exchange_id = match &api_key.provider {
-                    crate::types::ApiKeyProvider::Exchange(exchange) => *exchange,
-                    _ => continue, // Skip non-exchange API keys
-                };
+                // Match on the provider to handle different API key types
+                match &api_key.provider {
+                    crate::types::ApiKeyProvider::Exchange(exchange_enum_val) => {
+                        let exchange_id = *exchange_enum_val;
 
-                let credentials = ExchangeCredentials {
-                    exchange: exchange_id,
-                    api_key: api_key.encrypted_key.clone(),
-                    api_secret: api_key.encrypted_secret.clone().unwrap_or_default(),
-                    secret: api_key.encrypted_secret.clone().unwrap_or_default(),
-                    passphrase: api_key.passphrase().clone(),
-                    sandbox: api_key.is_testnet,
-                    default_leverage: 1,               // Default value
-                    exchange_type: "spot".to_string(), // Default to spot
-                    is_testnet: api_key.is_testnet,
-                };
-                exchanges.push((exchange_id, credentials));
+                        let credentials = ExchangeCredentials {
+                            exchange: exchange_id,
+                            api_key: api_key.encrypted_key.clone(),
+                            api_secret: api_key.encrypted_secret.clone().unwrap_or_default(),
+                            secret: api_key.encrypted_secret.clone().unwrap_or_default(),
+                            passphrase: api_key.passphrase().clone(),
+                            sandbox: api_key.is_testnet,
+                            default_leverage: 1,
+                            exchange_type: "spot".to_string(),
+                            is_testnet: api_key.is_testnet,
+                        };
+                        exchanges.push((exchange_id, credentials));
+                    }
+                    crate::types::ApiKeyProvider::WalletConnect => {
+                        log_info!(
+                            "WalletConnect API key found, not processing for exchange credentials.",
+                            serde_json::json!({
+                                "user_id": user_id,
+                                "api_key_id": api_key.id, // Assuming ApiKey struct has an 'id' field as per original replace intent
+                                "api_key_provider": "WalletConnect"
+                            })
+                        );
+                        // No credentials pushed for WalletConnect
+                    }
+                    crate::types::ApiKeyProvider::Manual => {
+                        log_info!(
+                            "Manual API key found, not processing for exchange credentials.",
+                            serde_json::json!({
+                                "user_id": user_id,
+                                "api_key_id": api_key.id, // Assuming ApiKey struct has an 'id' field as per original replace intent
+                                "api_key_provider": "Manual"
+                            })
+                        );
+                        // No credentials pushed for Manual
+                    }
+                    _ => {
+                        // This arm ensures that if api_key.provider is not one of the explicitly handled types,
+                        // it's skipped for the purpose of adding to `exchanges`.
+                        // Logging can be added here if necessary for unexpected provider types.
+                        log_info!(
+                            "Skipping unhandled API key provider type for exchange credentials.",
+                            serde_json::json!({
+                                "user_id": user_id,
+                                // "api_key_id": api_key.id, // Optionally log id if available and desired
+                                "provider": format!("{:?}", api_key.provider)
+                            })
+                        );
+                    }
+                }
             }
         }
 

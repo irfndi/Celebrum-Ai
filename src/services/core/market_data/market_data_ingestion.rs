@@ -4,6 +4,7 @@ use crate::services::core::market_data::coinmarketcap::CoinMarketCapService;
 use crate::types::{ExchangeIdEnum, FundingRateInfo};
 use crate::utils::logger::Logger;
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use futures::future::{join_all, Future};
 use reqwest::Client;
@@ -11,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::Future as StdFuture;
 use std::pin::Pin;
+use worker::console_log;
 use worker::kv::KvStore;
-use worker::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketDataIngestionConfig {
@@ -125,6 +126,7 @@ pub struct IngestionMetrics {
 pub struct MarketDataIngestionService {
     config: MarketDataIngestionConfig,
     analytics_engine: Option<AnalyticsEngine>,
+    cloudflare_pipelines_service: Option<CloudflarePipelinesService>, // Assuming this was the intent for pipelines_service
     cmc_service: Option<CoinMarketCapService>,
     kv_store: KvStore,
     logger: Logger,
@@ -135,14 +137,16 @@ impl MarketDataIngestionService {
     pub fn new(
         config: MarketDataIngestionConfig,
         analytics_engine: Option<AnalyticsEngine>,
+        cloudflare_pipelines_service: Option<CloudflarePipelinesService>,
         coinmarketcap_service: Option<CoinMarketCapService>,
         kv_store: KvStore,
         logger: Logger,
     ) -> Self {
         Self {
             config,
-            pipelines_service,
-            coinmarketcap_service,
+            analytics_engine,
+            cloudflare_pipelines_service,
+            cmc_service: coinmarketcap_service,
             kv_store,
             logger,
             metrics: IngestionMetrics {
@@ -253,7 +257,7 @@ impl MarketDataIngestionService {
 
     /// Fetch real market data from exchange APIs
     async fn fetch_real_market_data(
-        &self,
+        &mut self, // Changed to &mut self
         exchange: &ExchangeIdEnum,
         pair: &str,
     ) -> ArbitrageResult<MarketDataSnapshot> {
@@ -334,7 +338,8 @@ impl MarketDataIngestionService {
     }
 
     /// Fetch data from OKX API
-    async fn fetch_okx_data(&self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
+    async fn fetch_okx_data(&mut self, pair: &str) -> ArbitrageResult<MarketDataSnapshot> {
+        // Changed to &mut self
         let okx_symbol = pair.to_uppercase();
         let mut snapshot = MarketDataSnapshot {
             exchange: ExchangeIdEnum::OKX,
@@ -998,39 +1003,42 @@ impl MarketDataIngestionService {
         &mut self,
         snapshots: &[MarketDataSnapshot],
     ) -> ArbitrageResult<()> {
-        if !self.config.enable_pipelines {
+        if self.cloudflare_pipelines_service.is_none() || self.analytics_engine.is_none() {
+            // Check if services are available
             return Ok(());
         }
-    
+
         if snapshots.is_empty() {
             return Ok(());
         }
-    
-        for snapshot in snapshots {
-            self.analytics_engine
-                .track_market_snapshot(snapshot) // Pass the snapshot directly
-                .await
-                .map_err(|e| {
-                    self.logger.error(&format!(
-                        "Failed to send snapshot to pipeline for {} {}: {}",
-                        snapshot.exchange,
-                        snapshot.symbol,
-                        e
-                    ));
-                    // Decide if you want to return the error or just log and continue
-                    // For now, let's log and continue to process other snapshots
-                    ArbitrageError::pipeline_error(format!(
-                        "Error sending snapshot for {} {}: {}",
-                        snapshot.exchange, snapshot.symbol, e
-                    ))
-                })?;
+
+        if let Some(engine) = &mut self.analytics_engine {
+            for snapshot in snapshots {
+                engine
+                    .track_market_snapshot(snapshot) // Pass the snapshot directly
+                    .await
+                    .map_err(|e| {
+                        self.logger.error(&format!(
+                            "Failed to send snapshot to analytics engine for {} {}: {}",
+                            snapshot.exchange, snapshot.symbol, e
+                        ));
+                        ArbitrageError::internal_error(format!(
+                            // Changed to internal_error
+                            "Error sending snapshot to analytics engine for {} {}: {}",
+                            snapshot.exchange, snapshot.symbol, e
+                        ))
+                    })?;
+            }
+        } else {
+            self.logger
+                .info("Analytics engine not configured, skipping pipeline storage.");
         }
-    
+
         self.logger.info(&format!(
             "Successfully sent {} snapshots to pipeline",
             snapshots.len()
         ));
-    
+
         Ok(())
     }
 
@@ -1076,7 +1084,7 @@ impl MarketDataIngestionService {
         let _ = self.cache_market_data(&snapshot).await;
 
         // Store to pipeline
-        if let Some(ref _pipelines) = self.pipelines_service {
+        if let Some(ref _pipelines) = self.cloudflare_pipelines_service {
             let key = format!(
                 "market_data_{}_{}",
                 snapshot.exchange.as_str(),

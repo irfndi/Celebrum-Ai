@@ -1,7 +1,5 @@
 // src/services/core/admin/audit.rs
 
-use crate::services::core::auth::UserContext;
-use crate::services::core::infrastructure::d1::D1Service;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::{DateTime, Utc as Timestamp};
 use serde::{Deserialize, Serialize};

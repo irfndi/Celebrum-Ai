@@ -231,7 +231,7 @@ impl NotificationCoordinatorConfig {
             enable_metrics: true,
             enable_kv_storage: true,
             kv_key_prefix: "notification:hp:".to_string(),
-            channel_manager_config: ChannelManagerConfig::high_performance(),
+            channel_manager_config: ChannelManagerConfig::high_reliability(),
         }
     }
 

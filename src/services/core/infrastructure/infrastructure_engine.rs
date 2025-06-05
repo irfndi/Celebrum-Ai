@@ -20,6 +20,8 @@ use super::{
     D1Service, DatabaseManager, DatabaseManagerConfig,
 };
 use crate::services::core::admin::system_config::FeatureFlagsConfig;
+use crate::services::core::monitoring_module::HealthStatus;
+use crate::services::core::ServiceHealthCheck;
 use worker::Env;
 
 /// Service types in the infrastructure
@@ -310,7 +312,7 @@ impl InfrastructureEngine {
         };
 
         // TODO: Determine critical_services_healthy based on actual critical service status
-        let critical_services_healthy = true; 
+        let critical_services_healthy = true;
         let health_score = if total_services_count > 0 {
             healthy_services_count as f64 / total_services_count as f64
         } else {

@@ -3,7 +3,6 @@
 use crate::log_info;
 use crate::services::core::ai::ai_beta_integration::AiBetaIntegrationService;
 use crate::services::core::opportunities::{
-    crate::services::CacheManager,
     access_manager::AccessManager,
     ai_enhancer::AIEnhancer,
     market_analyzer::MarketAnalyzer,
@@ -12,6 +11,7 @@ use crate::services::core::opportunities::{
 };
 use crate::services::core::user::user_access::UserAccessService;
 use crate::services::core::user::UserProfileService;
+use crate::services::CacheManager;
 use crate::types::{
     ArbitrageOpportunity, ChatContext, DistributionStrategy, GlobalOpportunity, OpportunitySource,
     TechnicalOpportunity,

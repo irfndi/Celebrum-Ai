@@ -5,7 +5,12 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+use worker::console_log;
 use worker::kv::KvStore;
+use worker::Env;
 use worker::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -550,9 +555,9 @@ impl CoinMarketCapService {
         Err(ArbitrageError::not_found("No cached global metrics"))
     }
 
-    async fn store_latest_quotes_to_pipeline(
+    async fn store_quotes_to_pipeline(
         &mut self,
-        quotes: &HashMap<String, CmcQuote>,
+        quotes: &HashMap<String, CmcQuoteData>,
     ) -> ArbitrageResult<()> {
         if !self.config.enable_pipelines {
             return Ok(());
@@ -562,20 +567,13 @@ impl CoinMarketCapService {
         self.analytics_engine
             .track_cmc_data("latest_quotes", &data)
             .await
-            .map_err(|e| {
-                self.logger.error(&format!(
-                    "Failed to send latest quotes to pipeline: {}",
-                    e
-                ));
-                e
-            })?;
-
+            .map_err(|e| CoinMarketCapError::Analytics(e.to_string()))?;
         Ok(())
     }
 
     async fn store_global_metrics_to_pipeline(
         &mut self,
-        metrics: &GlobalMetrics,
+        metrics: &CmcGlobalMetrics,
     ) -> ArbitrageResult<()> {
         if !self.config.enable_pipelines {
             return Ok(());
@@ -585,14 +583,7 @@ impl CoinMarketCapService {
         self.analytics_engine
             .track_cmc_data("global_metrics", &data)
             .await
-            .map_err(|e| {
-                self.logger.error(&format!(
-                    "Failed to send global metrics to pipeline: {}",
-                    e
-                ));
-                e
-            })?;
-
+            .map_err(|e| CoinMarketCapError::Analytics(e.to_string()))?;
         Ok(())
     }
 

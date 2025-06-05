@@ -1,11 +1,35 @@
 use crate::services::core::infrastructure::database_repositories::DatabaseManager;
-// Removed unused imports: UserProfile, SubscriptionTier, UserRole
+use crate::types::{UserProfile, UserRole};
+use crate::utils::{get_current_timestamp, helpers::generate_uuid};
+use crate::{ArbitrageError, ArbitrageResult};
+use async_trait::async_trait;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Arc;
+use worker::console_log;
+use worker::kv::KvStore;
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum InvitationStatus {
+    Active,
+    Used,
+    Expired,
+}
+
+impl<'a> InvitationStatus {
+    pub fn as_str(&self) -> &'a str {
+        match self {
+            InvitationStatus::Active => "active",
+            InvitationStatus::Used => "used",
+            InvitationStatus::Expired => "expired",
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct InvitationConfig {
@@ -89,7 +113,7 @@ impl InvitationService {
         }
 
         let invitation_code = InvitationCode {
-            id: Uuid::new_v4().to_string(),
+            id: generate_uuid(),
             code: self.generate_unique_code().await?,
             created_by_admin_id: admin_user_id.to_string(),
             used_by_user_id: None,
@@ -128,7 +152,7 @@ impl InvitationService {
         for _ in 0..count {
             let code = self.generate_unique_code().await?;
             let invitation = InvitationCode {
-                id: Uuid::new_v4().to_string(),
+                id: generate_uuid(),
                 code,
                 created_by_admin_id: admin_user_id.to_string(),
                 used_by_user_id: None,
@@ -640,11 +664,11 @@ impl InvitationService {
         inviter_id: &str,
         invitee_email: &str,
         expires_at: Option<i64>,
-    ) -> ArbitrageResult<Invitation> {
+    ) -> ArbitrageResult<InvitationCode> {
         let invitation = InvitationCode {
-            id: Uuid::new_v4().to_string(),
+            id: generate_uuid(),
             code: self.generate_unique_code().await?,
-            created_by_admin_id: admin_user_id.to_string(),
+            created_by_admin_id: inviter_id.to_string(),
             used_by_user_id: None,
             expires_at: Utc::now() + Duration::days(self.config.invitation_expiry_days),
             created_at: Utc::now(),
@@ -652,11 +676,14 @@ impl InvitationService {
             is_active: true,
         };
 
-        self.store_invitation_code(&invitation_code).await?;
-        Ok(invitation_code)
+        self.store_invitation_code(&invitation).await?;
+        Ok(invitation)
     }
 
-    pub async fn get_invitation_by_code(&self, code: &str) -> ArbitrageResult<Option<Invitation>> {
+    pub async fn get_invitation_by_code(
+        &self,
+        code: &str,
+    ) -> ArbitrageResult<Option<InvitationCode>> {
         let query = "SELECT * FROM invitations WHERE code = ?";
         self.d1_service.query_first(query, &[code]).await
     }
@@ -665,8 +692,7 @@ impl InvitationService {
         &self,
         code: &str,
         status: InvitationStatus,
-    ) -> ArbitrageResult<()>
-    {
+    ) -> ArbitrageResult<()> {
         let query = "UPDATE invitations SET status = ?, updated_at = ? WHERE code = ?";
         let updated_at = Utc::now().timestamp();
         let params = [status.as_str(), &updated_at.to_string(), code];
@@ -683,7 +709,7 @@ impl InvitationService {
     pub async fn get_invitations_by_inviter(
         &self,
         inviter_id: &str,
-    ) -> ArbitrageResult<Vec<Invitation>> {
+    ) -> ArbitrageResult<Vec<InvitationCode>> {
         let query = "SELECT * FROM invitations WHERE inviter_id = ?";
         self.d1_service.query_all(query, &[inviter_id]).await
     }

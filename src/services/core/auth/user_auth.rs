@@ -115,12 +115,12 @@ impl UserAuthService {
 
         Ok(UserProfile {
             user_id: telegram_id.to_string(),
+            username: None, // Will be updated from Telegram info or other sources
             telegram_user_id: Some(telegram_id),
-            telegram_username: None,   // Will be updated from Telegram info
-            telegram_first_name: None, // Will be updated from Telegram info
-            telegram_last_name: None,
+            telegram_username: None, // Will be updated from Telegram info
             email: None,
             access_level: UserAccessLevel::Free, // Default role for new users
+            subscription_tier: SubscriptionTier::Free, // Default to Free tier
             subscription: Subscription::default(), // Default to free tier via Subscription struct
             is_beta_active: false,               // Default: no beta access
             beta_expires_at: None,
@@ -132,7 +132,7 @@ impl UserAuthService {
             // Initialize other UserProfile fields as per its definition in types.rs
             // Ensure all non-Option fields and fields without a default in UserProfile::default() are covered.
             // Example (check types.rs for actual fields and types):
-            api_keys: std::collections::HashMap::new(),
+            api_keys: Vec::new(),
             risk_profile: RiskProfile::default(),
             last_active: now.timestamp_millis() as u64,
             invitation_code_used: None,

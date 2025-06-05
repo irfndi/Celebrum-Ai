@@ -87,6 +87,7 @@ pub async fn check_user_permissions(user_id: &str, required_tier: &str, env: &En
             types::SubscriptionTier::Premium => "Premium",
             types::SubscriptionTier::Pro => "Pro",
             types::SubscriptionTier::Enterprise => "Enterprise",
+            types::SubscriptionTier::Beta => "Beta",
         };
         kv.put(&user_tier_key, tier_str)?
             .expiration_ttl(3600)
@@ -117,6 +118,7 @@ pub fn check_subscription_tier_permission(
         types::SubscriptionTier::Pro => 4,
         types::SubscriptionTier::Admin => 5,
         types::SubscriptionTier::SuperAdmin => 6,
+        types::SubscriptionTier::Beta => 0, // Or appropriate level for Beta users
     };
 
     let required_level = match required_tier {

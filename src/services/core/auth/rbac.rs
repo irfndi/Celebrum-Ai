@@ -7,11 +7,14 @@
 //! - Feature gating based on roles and subscriptions
 //! - Dynamic permission assignment
 
+use crate::log_info;
 use crate::services::core::infrastructure::service_container::ServiceContainer;
-use crate::types::UserProfile;
-use crate::types::{CommandPermission, SubscriptionTier, UserRole}; // Ensure SubscriptionTier is imported
-use crate::utils::ArbitrageResult;
-// Temporary comment to force re-compilation
+use crate::services::core::user::UserProfileService;
+use crate::types::{
+    ChatContext, CommandPermission, SubscriptionTier, UserAccessLevel, UserProfile, UserRole,
+};
+use crate::{ArbitrageError, ArbitrageResult};
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use worker::console_log;
@@ -68,7 +71,7 @@ impl RBACService {
         // Get role-based permissions
         let role_permissions = self
             .role_manager
-            .get_role_permissions(&user_profile.access_level);
+            .get_role_permissions(&user_profile.access_level.clone()); // Use UserAccessLevel directly
 
         // Get subscription-based permissions
         let subscription_permissions = self.permission_manager.get_subscription_permissions(
@@ -101,6 +104,11 @@ impl RBACService {
             daily_opportunity_limit,
             permissions: all_permissions,
             is_admin,
+            // Assuming UserPermissions might have these fields and expect DateTime<Utc>
+            // If UserPermissions definition is different, this will need adjustment
+            // created_at: DateTime::from_timestamp_millis(user_profile.created_at as i64).unwrap_or_else(|| Utc::now()),
+            // updated_at: DateTime::from_timestamp_millis(user_profile.updated_at as i64).unwrap_or_else(|| Utc::now()),
+            // last_active: DateTime::from_timestamp_millis(user_profile.last_active as i64).unwrap_or_else(|| Utc::now()),
         })
     }
 
@@ -143,11 +151,12 @@ impl RBACService {
         // Role-based limits
         let role_limit = match user_profile.access_level {
             // Assuming access_level is UserRole enum
-            UserRole::SuperAdmin => 999, // Unlimited
-            UserRole::Admin => 999,      // Unlimited
-            UserRole::Premium => 999,    // Unlimited
-            UserRole::Basic => 10,       // Basic limit
-            UserRole::Free => 3,         // Free limit
+            UserRole::SuperAdmin => 999,           // Unlimited
+            UserRole::Admin => 999,                // Unlimited
+            UserAccessLevel::Paid => 999,          // Unlimited
+            UserAccessLevel::Basic => 10,          // Basic limit
+            UserAccessLevel::FreeWithoutAPI => 10, // Basic limit for Free tier without API access
+            UserAccessLevel::Free => 3,            // Free limit with API access
             // Add other roles if they exist, e.g. UserRole::Registered
             _ => 3, // Default to free limit for any other roles
         };
@@ -179,7 +188,7 @@ impl RBACService {
 
 /// Role Manager for handling user roles
 pub struct RoleManager {
-    role_permissions: HashMap<UserRole, Vec<String>>,
+    role_permissions: HashMap<UserAccessLevel, Vec<String>>,
 }
 
 impl RoleManager {
@@ -189,7 +198,7 @@ impl RoleManager {
 
         // Super Admin - All permissions
         role_permissions.insert(
-            UserRole::SuperAdmin,
+            UserAccessLevel::SuperAdmin,
             vec![
                 // System administration
                 "system.admin".to_string(),
@@ -228,7 +237,7 @@ impl RoleManager {
 
         // Admin - Administrative permissions
         role_permissions.insert(
-            UserRole::Admin,
+            UserAccessLevel::Admin,
             vec![
                 // User support
                 "users.read".to_string(),
@@ -258,7 +267,7 @@ impl RoleManager {
 
         // Premium - Premium user permissions
         role_permissions.insert(
-            UserRole::Premium,
+            UserAccessLevel::Premium,
             vec![
                 // Trading features
                 "trading.manual".to_string(),
@@ -278,7 +287,7 @@ impl RoleManager {
 
         // Basic - Basic user permissions
         role_permissions.insert(
-            UserRole::Basic,
+            UserAccessLevel::FreeWithoutAPI,
             vec![
                 // Trading features
                 "trading.manual".to_string(),
@@ -294,7 +303,7 @@ impl RoleManager {
 
         // Free - Free user permissions
         role_permissions.insert(
-            UserRole::Free,
+            UserAccessLevel::Free,
             vec![
                 // Opportunities
                 "opportunities.limited".to_string(),
@@ -308,7 +317,7 @@ impl RoleManager {
     }
 
     /// Get permissions for a specific role
-    pub fn get_role_permissions(&self, role: &UserRole) -> Vec<String> {
+    pub fn get_role_permissions(&self, role: &UserAccessLevel) -> Vec<String> {
         self.role_permissions
             .get(role)
             .cloned()
@@ -316,7 +325,7 @@ impl RoleManager {
     }
 
     /// Check if role has specific permission
-    pub fn role_has_permission(&self, role: &UserRole, permission: &str) -> bool {
+    pub fn role_has_permission(&self, role: &UserAccessLevel, permission: &str) -> bool {
         if let Some(permissions) = self.role_permissions.get(role) {
             permissions.contains(&permission.to_string())
         } else {

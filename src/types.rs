@@ -160,6 +160,7 @@ pub enum UserAccessLevel {
     FreeWithoutAPI,
     FreeWithAPI,
     SubscriptionWithAPI,
+    Basic, // Added to resolve compilation error
 }
 
 /// Alias for UserAccessLevel for contexts where UserRole is more semantically appropriate.
@@ -208,6 +209,7 @@ impl UserAccessLevel {
             | UserAccessLevel::Admin
             | UserAccessLevel::SuperAdmin
             | UserAccessLevel::BetaUser => (u32::MAX, u32::MAX),
+            UserAccessLevel::Basic => (10, 10), // Assuming Basic has similar limits to FreeWithAPI for now
         }
     }
 
@@ -249,6 +251,7 @@ impl UserAccessLevel {
             UserAccessLevel::Admin | UserAccessLevel::SuperAdmin => u32::MAX,
             UserAccessLevel::SubscriptionWithAPI => 200,
             UserAccessLevel::BetaUser => 100, // Assuming Beta has similar limits to Premium
+            UserAccessLevel::Basic => 20, // Assuming Basic has similar limits to Verified for now
         }
     }
 
@@ -263,6 +266,7 @@ impl UserAccessLevel {
             UserAccessLevel::Admin | UserAccessLevel::SuperAdmin => 0, // No delay
             UserAccessLevel::SubscriptionWithAPI => 5, // 5 seconds
             UserAccessLevel::BetaUser => 10, // Assuming Beta has similar delay to Premium
+            UserAccessLevel::Basic => 60,  // Assuming Basic has similar delay to Verified for now
         }
     }
 
@@ -1414,6 +1418,18 @@ impl UserOpportunityLimits {
                 current_arbitrage_count: 0,
                 current_technical_count: 0,
             },
+            UserAccessLevel::Basic => UserOpportunityLimits {
+                daily_global_opportunities: 10,
+                daily_technical_opportunities: 5,
+                daily_ai_opportunities: 5, // AI opportunities with BYOK
+                hourly_rate_limit: 3,
+                can_receive_realtime: false,
+                delay_seconds: 300, // 5 minutes delay
+                arbitrage_received_today: 0,
+                technical_received_today: 0,
+                current_arbitrage_count: 0,
+                current_technical_count: 0,
+            },
             UserAccessLevel::Paid => UserOpportunityLimits {
                 daily_global_opportunities: 100,
                 daily_technical_opportunities: 50,
@@ -1905,6 +1921,7 @@ pub enum SubscriptionTier {
     #[default]
     Free, // Free tier - basic features
     Paid, // Paid tier - enhanced features
+    Beta, // Beta tier for invited users
 
     // Admin levels
     Admin,      // Group/Channel admin
@@ -1920,6 +1937,19 @@ pub enum SubscriptionTier {
 impl SubscriptionTier {
     pub fn get_opportunity_limits(&self) -> UserOpportunityLimits {
         match self {
+            SubscriptionTier::Beta => UserOpportunityLimits {
+                // Assuming Beta has similar limits to Paid
+                daily_global_opportunities: 100,
+                daily_technical_opportunities: 50,
+                daily_ai_opportunities: 25,
+                hourly_rate_limit: 20,
+                can_receive_realtime: true,
+                delay_seconds: 60,
+                arbitrage_received_today: 0,
+                technical_received_today: 0,
+                current_arbitrage_count: 0,
+                current_technical_count: 0,
+            },
             SubscriptionTier::Free => UserOpportunityLimits {
                 daily_global_opportunities: 10,
                 daily_technical_opportunities: 5,
@@ -2026,6 +2056,7 @@ impl std::fmt::Display for SubscriptionTier {
             SubscriptionTier::Premium => "Premium",
             SubscriptionTier::Pro => "Pro",
             SubscriptionTier::Enterprise => "Enterprise",
+            SubscriptionTier::Beta => "Beta",
         };
         write!(f, "{}", s)
     }

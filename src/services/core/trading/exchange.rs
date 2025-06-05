@@ -4,8 +4,8 @@ use reqwest::{Client, Method};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::services::core::user::user_profile::UserProfileService;
 use crate::services::core::user::user_exchange_api::RateLimitInfo;
+use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::{
     CommandPermission, ExchangeCredentials, ExchangeIdEnum, Market, Order, OrderBook, Position,
     Ticker, TradingFeeRates, TradingFees,
@@ -101,7 +101,7 @@ pub trait ExchangeInterface {
         exchange_id: &str,
         api_key: &str,
         secret: &str,
-    ) -> ArbitrageResult<bool>;
+    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)>;
 
     #[allow(async_fn_in_trait)]
     async fn test_api_connection_with_options(
@@ -111,7 +111,8 @@ pub trait ExchangeInterface {
         secret: &str,
         leverage: Option<i32>,
         exchange_type: Option<&str>,
-    ) -> ArbitrageResult<bool>;
+    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)>;
+
 }
 
 // RBAC-protected exchange operations are now handled by UserExchangeApiService
@@ -347,7 +348,7 @@ impl ExchangeService {
         });
 
         let response = self
-                            .binance_futures_request(endpoint, Method::Get, Some(params), None)
+            .binance_futures_request(endpoint, Method::Get, Some(params), None)
             .await?;
 
         // Response is an array, get the first (latest) entry
@@ -401,7 +402,7 @@ impl ExchangeService {
         });
 
         let response = self
-                            .bybit_request(endpoint, Method::Get, Some(params), None)
+            .bybit_request(endpoint, Method::Get, Some(params), None)
             .await?;
 
         if let Some(list) = response["result"]["list"].as_array() {

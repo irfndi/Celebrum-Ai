@@ -5,6 +5,7 @@
 // since direct bindings are not available in the current worker crate version.
 // In production, this would use Cloudflare Analytics Engine REST API with proper authentication.
 
+use crate::services::core::market_data_ingestion::MarketDataSnapshot;
 use crate::types::{ArbitrageOpportunity, ExchangeIdEnum};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
@@ -357,263 +358,6 @@ impl AnalyticsEngineService {
         Ok(())
     }
 
-    /// Track AI model performance metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_ai_model_performance(
-        &mut self,
-        model_id: &str,
-        model_provider: &str,
-        user_id: &str,
-        request_type: &str,
-        latency_ms: u64,
-        tokens_used: Option<u32>,
-        accuracy_score: Option<f32>,
-        cost_usd: Option<f32>,
-        success: bool,
-        error_type: Option<String>,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = AIModelPerformanceEvent {
-            model_id: model_id.to_string(),
-            model_provider: model_provider.to_string(),
-            user_id: user_id.to_string(),
-            request_type: request_type.to_string(),
-            latency_ms,
-            tokens_used,
-            accuracy_score,
-            cost_usd,
-            success,
-            error_type,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("ai_model_performance", &event).await?;
-
-        self.logger.info(&format!(
-            "Tracked AI model performance: model={}, latency={}ms, success={}",
-            model_id, latency_ms, success
-        ));
-
-        Ok(())
-    }
-
-    /// Track user engagement metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_user_engagement(
-        &mut self,
-        user_id: &str,
-        session_id: &str,
-        session_duration_ms: u64,
-        commands_used: u32,
-        opportunities_viewed: u32,
-        opportunities_executed: u32,
-        ai_features_used: u32,
-        subscription_tier: &str,
-        chat_context: &str,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = UserEngagementEvent {
-            user_id: user_id.to_string(),
-            session_id: session_id.to_string(),
-            session_duration_ms,
-            commands_used,
-            opportunities_viewed,
-            opportunities_executed,
-            ai_features_used,
-            subscription_tier: subscription_tier.to_string(),
-            chat_context: chat_context.to_string(),
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("user_engagement", &event).await?;
-
-        self.logger.info(&format!(
-            "Tracked user engagement: user={}, session_duration={}ms, commands={}",
-            user_id, session_duration_ms, commands_used
-        ));
-
-        Ok(())
-    }
-
-    /// Track system performance metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_system_performance(
-        &mut self,
-        service_name: &str,
-        operation: &str,
-        latency_ms: u64,
-        success: bool,
-        error_type: Option<String>,
-        memory_usage_mb: Option<f32>,
-        cpu_usage_percent: Option<f32>,
-        concurrent_users: Option<u32>,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = SystemPerformanceEvent {
-            service_name: service_name.to_string(),
-            operation: operation.to_string(),
-            latency_ms,
-            success,
-            error_type,
-            memory_usage_mb,
-            cpu_usage_percent,
-            concurrent_users,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("system_performance", &event).await?;
-
-        Ok(())
-    }
-
-    /// Track market data ingestion metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_market_data_ingestion(
-        &mut self,
-        exchange: &str,
-        data_type: &str,
-        symbols_processed: u32,
-        data_size_bytes: u64,
-        processing_time_ms: u64,
-        pipeline_latency_ms: Option<u64>,
-        cache_hit_rate: Option<f32>,
-        api_rate_limit_remaining: Option<u32>,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = MarketDataIngestionEvent {
-            exchange: exchange.to_string(),
-            data_type: data_type.to_string(),
-            symbols_processed,
-            data_size_bytes,
-            processing_time_ms,
-            pipeline_latency_ms,
-            cache_hit_rate,
-            api_rate_limit_remaining,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("market_data_ingestion", &event).await?;
-
-        Ok(())
-    }
-
-    /// Get real-time metrics for dashboard
-    pub async fn get_real_time_metrics(&self) -> ArbitrageResult<RealTimeMetrics> {
-        if !self.config.enabled {
-            return Ok(RealTimeMetrics::default());
-        }
-
-        let Some(ref analytics_engine) = self.analytics_engine else {
-            return Err(ArbitrageError::service_unavailable(
-                "Analytics Engine not available",
-            ));
-        };
-
-        // Query Analytics Engine for real-time metrics
-        let now = chrono::Utc::now().timestamp() as u64;
-        let one_hour_ago = now - 3600;
-        let one_day_ago = now - 86400;
-
-        // Query active users (unique users in last hour)
-        let active_users = self
-            .query_active_users(analytics_engine, one_hour_ago, now)
-            .await?;
-
-        // Query opportunity metrics
-        let opportunity_metrics = self
-            .query_opportunity_metrics(analytics_engine, one_hour_ago, now)
-            .await?;
-
-        // Query system performance
-        let system_metrics = self
-            .query_system_performance(analytics_engine, one_hour_ago, now)
-            .await?;
-
-        // Query AI model performance
-        let ai_metrics = self
-            .query_ai_performance(analytics_engine, one_day_ago, now)
-            .await?;
-
-        // Query top performing pairs
-        let top_pairs = self
-            .query_top_performing_pairs(analytics_engine, one_day_ago, now)
-            .await?;
-
-        // Query exchange performance
-        let exchange_performance = self
-            .query_exchange_performance(analytics_engine, one_day_ago, now)
-            .await?;
-
-        Ok(RealTimeMetrics {
-            active_users,
-            opportunities_per_minute: opportunity_metrics.opportunities_per_minute,
-            conversion_rate_percent: opportunity_metrics.conversion_rate,
-            average_latency_ms: system_metrics.average_latency,
-            ai_model_success_rate: ai_metrics.success_rate,
-            system_health_score: system_metrics.health_score,
-            top_performing_pairs: top_pairs,
-            exchange_performance,
-            last_updated: now,
-        })
-    }
-
-    /// Get user-specific analytics
-    pub async fn get_user_analytics(&self, user_id: &str) -> ArbitrageResult<UserAnalytics> {
-        if !self.config.enabled {
-            return Ok(UserAnalytics::default(user_id));
-        }
-
-        let Some(ref analytics_engine) = self.analytics_engine else {
-            return Err(ArbitrageError::service_unavailable(
-                "Analytics Engine not available",
-            ));
-        };
-
-        // Query Analytics Engine for user-specific metrics
-        let now = chrono::Utc::now().timestamp() as u64;
-        let thirty_days_ago = now - (30 * 86400);
-
-        // Query user engagement events
-        let engagement_data = self
-            .query_user_engagement(analytics_engine, user_id, thirty_days_ago, now)
-            .await?;
-
-        // Query user opportunity conversion data
-        let conversion_data = self
-            .query_user_conversions(analytics_engine, user_id, thirty_days_ago, now)
-            .await?;
-
-        // Query user AI usage
-        let ai_usage_data = self
-            .query_user_ai_usage(analytics_engine, user_id, thirty_days_ago, now)
-            .await?;
-
-        Ok(UserAnalytics {
-            user_id: user_id.to_string(),
-            total_opportunities_viewed: engagement_data.total_opportunities_viewed,
-            total_opportunities_executed: conversion_data.total_executed,
-            success_rate_percent: conversion_data.success_rate,
-            total_profit_loss: conversion_data.total_profit_loss,
-            favorite_pairs: conversion_data.favorite_pairs,
-            favorite_exchanges: conversion_data.favorite_exchanges,
-            ai_usage_frequency: ai_usage_data.usage_frequency,
-            session_frequency_per_week: engagement_data.session_frequency_per_week,
-            last_activity: engagement_data.last_activity,
-        })
-    }
-
     /// Send event to Analytics Engine
     async fn send_event<T: Serialize>(
         &mut self,
@@ -655,8 +399,8 @@ impl AnalyticsEngineService {
     /// Track CoinMarketCap data
     pub async fn track_cmc_data(
         &mut self,
-        event_type: &str, // e.g., "latest_quotes", "global_metrics"
-        data: &serde_json::Value,     // The actual CMC data
+        event_type: &str,         // e.g., "latest_quotes", "global_metrics"
+        data: &serde_json::Value, // The actual CMC data
     ) -> ArbitrageResult<()> {
         if !self.config.enabled {
             return Ok(());
@@ -671,10 +415,8 @@ impl AnalyticsEngineService {
 
         self.send_event("cmc_data", &event).await?;
 
-        self.logger.info(&format!(
-            "Tracked CMC data: event_type={}",
-            event_type
-        ));
+        self.logger
+            .info(&format!("Tracked CMC data: event_type={}", event_type));
         Ok(())
     }
 
@@ -691,7 +433,10 @@ impl AnalyticsEngineService {
             exchange: snapshot.exchange.to_string(),
             symbol: snapshot.symbol.clone(),
             price: snapshot.price_data.as_ref().map(|pd| pd.price),
-            funding_rate: snapshot.funding_rate_data.as_ref().map(|fr| fr.funding_rate),
+            funding_rate: snapshot
+                .funding_rate_data
+                .as_ref()
+                .map(|fr| fr.funding_rate),
             volume_24h: snapshot.volume_data.as_ref().map(|vd| vd.volume_24h),
             source: snapshot.source.to_string(), // Convert DataSource enum to string
             timestamp: snapshot.timestamp,
@@ -745,263 +490,6 @@ impl AnalyticsEngineService {
         ));
 
         Ok(())
-    }
-
-    /// Track AI model performance metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_ai_model_performance(
-        &mut self,
-        model_id: &str,
-        model_provider: &str,
-        user_id: &str,
-        request_type: &str,
-        latency_ms: u64,
-        tokens_used: Option<u32>,
-        accuracy_score: Option<f32>,
-        cost_usd: Option<f32>,
-        success: bool,
-        error_type: Option<String>,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = AIModelPerformanceEvent {
-            model_id: model_id.to_string(),
-            model_provider: model_provider.to_string(),
-            user_id: user_id.to_string(),
-            request_type: request_type.to_string(),
-            latency_ms,
-            tokens_used,
-            accuracy_score,
-            cost_usd,
-            success,
-            error_type,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("ai_model_performance", &event).await?;
-
-        self.logger.info(&format!(
-            "Tracked AI model performance: model={}, latency={}ms, success={}",
-            model_id, latency_ms, success
-        ));
-
-        Ok(())
-    }
-
-    /// Track user engagement metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_user_engagement(
-        &mut self,
-        user_id: &str,
-        session_id: &str,
-        session_duration_ms: u64,
-        commands_used: u32,
-        opportunities_viewed: u32,
-        opportunities_executed: u32,
-        ai_features_used: u32,
-        subscription_tier: &str,
-        chat_context: &str,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = UserEngagementEvent {
-            user_id: user_id.to_string(),
-            session_id: session_id.to_string(),
-            session_duration_ms,
-            commands_used,
-            opportunities_viewed,
-            opportunities_executed,
-            ai_features_used,
-            subscription_tier: subscription_tier.to_string(),
-            chat_context: chat_context.to_string(),
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("user_engagement", &event).await?;
-
-        self.logger.info(&format!(
-            "Tracked user engagement: user={}, session_duration={}ms, commands={}",
-            user_id, session_duration_ms, commands_used
-        ));
-
-        Ok(())
-    }
-
-    /// Track system performance metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_system_performance(
-        &mut self,
-        service_name: &str,
-        operation: &str,
-        latency_ms: u64,
-        success: bool,
-        error_type: Option<String>,
-        memory_usage_mb: Option<f32>,
-        cpu_usage_percent: Option<f32>,
-        concurrent_users: Option<u32>,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = SystemPerformanceEvent {
-            service_name: service_name.to_string(),
-            operation: operation.to_string(),
-            latency_ms,
-            success,
-            error_type,
-            memory_usage_mb,
-            cpu_usage_percent,
-            concurrent_users,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("system_performance", &event).await?;
-
-        Ok(())
-    }
-
-    /// Track market data ingestion metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_market_data_ingestion(
-        &mut self,
-        exchange: &str,
-        data_type: &str,
-        symbols_processed: u32,
-        data_size_bytes: u64,
-        processing_time_ms: u64,
-        pipeline_latency_ms: Option<u64>,
-        cache_hit_rate: Option<f32>,
-        api_rate_limit_remaining: Option<u32>,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = MarketDataIngestionEvent {
-            exchange: exchange.to_string(),
-            data_type: data_type.to_string(),
-            symbols_processed,
-            data_size_bytes,
-            processing_time_ms,
-            pipeline_latency_ms,
-            cache_hit_rate,
-            api_rate_limit_remaining,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("market_data_ingestion", &event).await?;
-
-        Ok(())
-    }
-
-    /// Get real-time metrics for dashboard
-    pub async fn get_real_time_metrics(&self) -> ArbitrageResult<RealTimeMetrics> {
-        if !self.config.enabled {
-            return Ok(RealTimeMetrics::default());
-        }
-
-        let Some(ref analytics_engine) = self.analytics_engine else {
-            return Err(ArbitrageError::service_unavailable(
-                "Analytics Engine not available",
-            ));
-        };
-
-        // Query Analytics Engine for real-time metrics
-        let now = chrono::Utc::now().timestamp() as u64;
-        let one_hour_ago = now - 3600;
-        let one_day_ago = now - 86400;
-
-        // Query active users (unique users in last hour)
-        let active_users = self
-            .query_active_users(analytics_engine, one_hour_ago, now)
-            .await?;
-
-        // Query opportunity metrics
-        let opportunity_metrics = self
-            .query_opportunity_metrics(analytics_engine, one_hour_ago, now)
-            .await?;
-
-        // Query system performance
-        let system_metrics = self
-            .query_system_performance(analytics_engine, one_hour_ago, now)
-            .await?;
-
-        // Query AI model performance
-        let ai_metrics = self
-            .query_ai_performance(analytics_engine, one_day_ago, now)
-            .await?;
-
-        // Query top performing pairs
-        let top_pairs = self
-            .query_top_performing_pairs(analytics_engine, one_day_ago, now)
-            .await?;
-
-        // Query exchange performance
-        let exchange_performance = self
-            .query_exchange_performance(analytics_engine, one_day_ago, now)
-            .await?;
-
-        Ok(RealTimeMetrics {
-            active_users,
-            opportunities_per_minute: opportunity_metrics.opportunities_per_minute,
-            conversion_rate_percent: opportunity_metrics.conversion_rate,
-            average_latency_ms: system_metrics.average_latency,
-            ai_model_success_rate: ai_metrics.success_rate,
-            system_health_score: system_metrics.health_score,
-            top_performing_pairs: top_pairs,
-            exchange_performance,
-            last_updated: now,
-        })
-    }
-
-    /// Get user-specific analytics
-    pub async fn get_user_analytics(&self, user_id: &str) -> ArbitrageResult<UserAnalytics> {
-        if !self.config.enabled {
-            return Ok(UserAnalytics::default(user_id));
-        }
-
-        let Some(ref analytics_engine) = self.analytics_engine else {
-            return Err(ArbitrageError::service_unavailable(
-                "Analytics Engine not available",
-            ));
-        };
-
-        // Query Analytics Engine for user-specific metrics
-        let now = chrono::Utc::now().timestamp() as u64;
-        let thirty_days_ago = now - (30 * 86400);
-
-        // Query user engagement events
-        let engagement_data = self
-            .query_user_engagement(analytics_engine, user_id, thirty_days_ago, now)
-            .await?;
-
-        // Query user opportunity conversion data
-        let conversion_data = self
-            .query_user_conversions(analytics_engine, user_id, thirty_days_ago, now)
-            .await?;
-
-        // Query user AI usage
-        let ai_usage_data = self
-            .query_user_ai_usage(analytics_engine, user_id, thirty_days_ago, now)
-            .await?;
-
-        Ok(UserAnalytics {
-            user_id: user_id.to_string(),
-            total_opportunities_viewed: engagement_data.total_opportunities_viewed,
-            total_opportunities_executed: conversion_data.total_executed,
-            success_rate_percent: conversion_data.success_rate,
-            total_profit_loss: conversion_data.total_profit_loss,
-            favorite_pairs: conversion_data.favorite_pairs,
-            favorite_exchanges: conversion_data.favorite_exchanges,
-            ai_usage_frequency: ai_usage_data.usage_frequency,
-            session_frequency_per_week: engagement_data.session_frequency_per_week,
-            last_activity: engagement_data.last_activity,
-        })
     }
 
     /// Query user engagement data from Analytics Engine
@@ -1287,9 +775,9 @@ impl UserAnalytics {
 /// Event for CoinMarketCap data
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CmcDataEvent {
-    pub event_type: String, // e.g., "latest_quotes", "global_metrics"
+    pub event_type: String,      // e.g., "latest_quotes", "global_metrics"
     pub data: serde_json::Value, // The actual CMC data
-    pub source: String, // "coinmarketcap"
+    pub source: String,          // "coinmarketcap"
     pub timestamp: u64,
 }
 
@@ -1315,23 +803,6 @@ impl Default for AnalyticsEngineConfig {
             flush_interval_seconds: 60,
             retention_days: 90,
             enable_real_time_analytics: false,
-        }
-    }
-}
-
-impl UserAnalytics {
-    fn default(user_id: &str) -> Self {
-        Self {
-            user_id: user_id.to_string(),
-            total_opportunities_viewed: 0,
-            total_opportunities_executed: 0,
-            success_rate_percent: 0.0,
-            total_profit_loss: 0.0,
-            favorite_pairs: Vec::new(),
-            favorite_exchanges: Vec::new(),
-            ai_usage_frequency: 0.0,
-            session_frequency_per_week: 0.0,
-            last_activity: chrono::Utc::now().timestamp() as u64,
         }
     }
 }

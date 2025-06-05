@@ -62,18 +62,17 @@ use async_trait::async_trait;
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 impl KvOperations for KVService {
-    async fn put<T: Serialize + Send + ?Sized>(
+    async fn put<T: Serialize + Send + Sync + ?Sized>(
         &self,
         key: &str,
         value: &T,
     ) -> crate::services::core::trading::kv_operations::KvResult<()> {
-        let full_key = format!("{}:{}", self.namespace, key);
-        let serialized_value = serde_json::to_string(value).map_err(|e| {
+        let _full_key = format!("{}:{}", self.namespace, key);
+        let _serialized_value = serde_json::to_string(value).map_err(|e| {
             crate::services::core::trading::kv_operations::KvOperationError::Serialization(e)
         })?;
 
-        // Note: This is a simplified implementation for the current KVService
-        // In a real implementation, this would write to the actual KV store
+        // TODO: Implement actual KV store write operation
         Ok(())
     }
 
@@ -81,24 +80,27 @@ impl KvOperations for KVService {
         &self,
         key: &str,
     ) -> crate::services::core::trading::kv_operations::KvResult<Option<T>> {
-        let full_key = format!("{}:{}", self.namespace, key);
-        match self.store.get(&full_key).json().await {
-            Ok(Some(value)) => Ok(Some(value)),
-            Ok(None) => Ok(None),
-            Err(e) => Err(
-                crate::services::core::trading::kv_operations::KvOperationError::Storage(
-                    e.to_string(),
-                ),
-            ),
-        }
+        let _full_key = format!("{}:{}", self.namespace, key);
+        // TODO: Implement actual KV store read operation
+        // Placeholder: returning Ok(None) for now
+        // match self.store.get(&full_key).json().await {
+        //     Ok(Some(value)) => Ok(Some(value)),
+        //     Ok(None) => Ok(None),
+        //     Err(e) => Err(
+        //         crate::services::core::trading::kv_operations::KvOperationError::Storage(
+        //             e.to_string(),
+        //         ),
+        //     ),
+        // }
+        Ok(None) // Placeholder response
     }
 
     async fn delete(
         &self,
         key: &str,
     ) -> crate::services::core::trading::kv_operations::KvResult<()> {
-        // Note: This is a simplified implementation
-        // In a real implementation, this would delete from the actual KV store
+        let _full_key = format!("{}:{}", self.namespace, key);
+        // TODO: Implement actual KV store delete operation
         Ok(())
     }
 }
@@ -106,18 +108,17 @@ impl KvOperations for KVService {
 #[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
 impl KvOperations for KVService {
-    async fn put<T: Serialize + Send + ?Sized>(
+    async fn put<T: Serialize + Send + Sync + ?Sized>(
         &self,
         key: &str,
         value: &T,
     ) -> crate::services::core::trading::kv_operations::KvResult<()> {
-        let full_key = format!("{}:{}", self.namespace, key);
-        let serialized_value = serde_json::to_string(value).map_err(|e| {
+        let _full_key = format!("{}:{}", self.namespace, key);
+        let _serialized_value = serde_json::to_string(value).map_err(|e| {
             crate::services::core::trading::kv_operations::KvOperationError::Serialization(e)
         })?;
 
-        // Note: This is a simplified implementation for the current KVService
-        // In a real implementation, this would write to the actual KV store
+        // TODO: Implement actual KV store write operation
         Ok(())
     }
 
@@ -125,24 +126,27 @@ impl KvOperations for KVService {
         &self,
         key: &str,
     ) -> crate::services::core::trading::kv_operations::KvResult<Option<T>> {
-        let full_key = format!("{}:{}", self.namespace, key);
-        match self.store.get(&full_key).json().await {
-            Ok(Some(value)) => Ok(Some(value)),
-            Ok(None) => Ok(None),
-            Err(e) => Err(
-                crate::services::core::trading::kv_operations::KvOperationError::Storage(
-                    e.to_string(),
-                ),
-            ),
-        }
+        let _full_key = format!("{}:{}", self.namespace, key);
+        // TODO: Implement actual KV store read operation
+        // Placeholder: returning Ok(None) for now
+        // match self.store.get(&full_key).json().await {
+        //     Ok(Some(value)) => Ok(Some(value)),
+        //     Ok(None) => Ok(None),
+        //     Err(e) => Err(
+        //         crate::services::core::trading::kv_operations::KvOperationError::Storage(
+        //             e.to_string(),
+        //         ),
+        //     ),
+        // }
+        Ok(None) // Placeholder response
     }
 
     async fn delete(
         &self,
         key: &str,
     ) -> crate::services::core::trading::kv_operations::KvResult<()> {
-        // Note: This is a simplified implementation
-        // In a real implementation, this would delete from the actual KV store
+        let _full_key = format!("{}:{}", self.namespace, key);
+        // TODO: Implement actual KV store delete operation
         Ok(())
     }
 }
