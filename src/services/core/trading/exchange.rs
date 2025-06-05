@@ -112,7 +112,6 @@ pub trait ExchangeInterface {
         leverage: Option<i32>,
         exchange_type: Option<&str>,
     ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)>;
-
 }
 
 // RBAC-protected exchange operations are now handled by UserExchangeApiService

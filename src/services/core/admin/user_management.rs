@@ -5,7 +5,6 @@ use crate::types::{
     UserProfile, UserSession, UserStatistics,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use serde::{Deserialize, Serialize};
 use worker::{kv::KvStore, Env};
 
 /// User management service for super admin operations

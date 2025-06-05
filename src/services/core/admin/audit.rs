@@ -1,7 +1,6 @@
 // src/services/core/admin/audit.rs
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use chrono::{DateTime, Utc as Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::{kv::KvStore, Env};
