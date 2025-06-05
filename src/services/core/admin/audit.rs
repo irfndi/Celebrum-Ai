@@ -91,6 +91,7 @@ pub struct SystemHealthMetrics {
 #[derive(Clone)]
 pub struct AuditService {
     kv_store: KvStore,
+    #[allow(dead_code)] // Will be used for environment configuration
     env: Env,
     config: AuditConfig,
 }

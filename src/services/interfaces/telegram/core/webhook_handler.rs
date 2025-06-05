@@ -1,7 +1,7 @@
 // src/services/interfaces/telegram/core/webhook_handler.rs
 
 //! Telegram Webhook Handler
-//! 
+//!
 //! Processes incoming webhook updates from Telegram including:
 //! - Message processing
 //! - Callback query handling
@@ -85,8 +85,18 @@ impl WebhookHandler {
     }
 
     /// Handle text message
-    async fn handle_text_message(&self, chat_id: i64, user_id: i64, text: &str) -> ArbitrageResult<String> {
-        console_log!("📝 Text message: '{}' from user {} in chat {}", text, user_id, chat_id);
+    async fn handle_text_message(
+        &self,
+        chat_id: i64,
+        user_id: i64,
+        text: &str,
+    ) -> ArbitrageResult<String> {
+        console_log!(
+            "📝 Text message: '{}' from user {} in chat {}",
+            text,
+            user_id,
+            chat_id
+        );
 
         // Check if it's a command
         if text.starts_with('/') {
@@ -98,18 +108,31 @@ impl WebhookHandler {
     }
 
     /// Handle bot command
-    async fn handle_command(&self, chat_id: i64, user_id: i64, command: &str) -> ArbitrageResult<String> {
-        console_log!("🤖 Command: '{}' from user {} in chat {}", command, user_id, chat_id);
+    async fn handle_command(
+        &self,
+        chat_id: i64,
+        user_id: i64,
+        command: &str,
+    ) -> ArbitrageResult<String> {
+        console_log!(
+            "🤖 Command: '{}' from user {} in chat {}",
+            command,
+            user_id,
+            chat_id
+        );
 
         // Parse command and arguments
         let parts: Vec<&str> = command.split_whitespace().collect();
-        let cmd = parts.get(0).unwrap_or(&"");
+        let cmd = parts.first().unwrap_or(&"");
         let args = &parts[1..];
 
         match *cmd {
             "/start" => self.handle_start_command(chat_id, user_id, args).await,
             "/help" => self.handle_help_command(chat_id, user_id, args).await,
-            "/opportunities" => self.handle_opportunities_command(chat_id, user_id, args).await,
+            "/opportunities" => {
+                self.handle_opportunities_command(chat_id, user_id, args)
+                    .await
+            }
             "/balance" => self.handle_balance_command(chat_id, user_id, args).await,
             "/settings" => self.handle_settings_command(chat_id, user_id, args).await,
             "/admin" => self.handle_admin_command(chat_id, user_id, args).await,
@@ -121,9 +144,19 @@ impl WebhookHandler {
     }
 
     /// Handle regular text (not a command)
-    async fn handle_regular_text(&self, chat_id: i64, user_id: i64, text: &str) -> ArbitrageResult<String> {
-        console_log!("💭 Regular text: '{}' from user {} in chat {}", text, user_id, chat_id);
-        
+    async fn handle_regular_text(
+        &self,
+        chat_id: i64,
+        user_id: i64,
+        text: &str,
+    ) -> ArbitrageResult<String> {
+        console_log!(
+            "💭 Regular text: '{}' from user {} in chat {}",
+            text,
+            user_id,
+            chat_id
+        );
+
         // TODO: Implement natural language processing
         // For now, just echo the message
         Ok(format!("Received: {}", text))
@@ -131,7 +164,7 @@ impl WebhookHandler {
 
     /// Handle callback query (inline button press)
     async fn handle_callback_query(&self, callback_query: &Value) -> ArbitrageResult<String> {
-        let query_id = callback_query
+        let _query_id = callback_query
             .get("id")
             .and_then(|id| id.as_str())
             .ok_or_else(|| ArbitrageError::validation_error("Missing callback query ID"))?;
@@ -155,7 +188,7 @@ impl WebhookHandler {
 
     /// Handle inline query
     async fn handle_inline_query(&self, inline_query: &Value) -> ArbitrageResult<String> {
-        let query_id = inline_query
+        let _query_id = inline_query
             .get("id")
             .and_then(|id| id.as_str())
             .ok_or_else(|| ArbitrageError::validation_error("Missing inline query ID"))?;
@@ -190,7 +223,11 @@ impl WebhookHandler {
             .and_then(|id| id.as_i64())
             .ok_or_else(|| ArbitrageError::validation_error("Missing user ID"))?;
 
-        console_log!("✅ Chosen inline result: '{}' from user {}", result_id, user_id);
+        console_log!(
+            "✅ Chosen inline result: '{}' from user {}",
+            result_id,
+            user_id
+        );
 
         // TODO: Implement chosen inline result handling
         Ok(format!("Chosen inline result '{}' processed", result_id))
@@ -204,43 +241,93 @@ impl WebhookHandler {
 
     /// Handle document message
     async fn handle_document_message(&self, chat_id: i64, user_id: i64) -> ArbitrageResult<String> {
-        console_log!("📄 Document message from user {} in chat {}", user_id, chat_id);
+        console_log!(
+            "📄 Document message from user {} in chat {}",
+            user_id,
+            chat_id
+        );
         Ok("Document message processed".to_string())
     }
 
     /// Handle location message
     async fn handle_location_message(&self, chat_id: i64, user_id: i64) -> ArbitrageResult<String> {
-        console_log!("📍 Location message from user {} in chat {}", user_id, chat_id);
+        console_log!(
+            "📍 Location message from user {} in chat {}",
+            user_id,
+            chat_id
+        );
         Ok("Location message processed".to_string())
     }
 
     // Command handlers (placeholders for now)
-    async fn handle_start_command(&self, chat_id: i64, user_id: i64, _args: &[&str]) -> ArbitrageResult<String> {
+    async fn handle_start_command(
+        &self,
+        chat_id: i64,
+        user_id: i64,
+        _args: &[&str],
+    ) -> ArbitrageResult<String> {
         console_log!("🚀 Start command from user {} in chat {}", user_id, chat_id);
         Ok("Welcome to ArbEdge! Use /help to see available commands.".to_string())
     }
 
-    async fn handle_help_command(&self, chat_id: i64, user_id: i64, _args: &[&str]) -> ArbitrageResult<String> {
+    async fn handle_help_command(
+        &self,
+        chat_id: i64,
+        user_id: i64,
+        _args: &[&str],
+    ) -> ArbitrageResult<String> {
         console_log!("❓ Help command from user {} in chat {}", user_id, chat_id);
         Ok("Available commands:\n/start - Start the bot\n/help - Show this help\n/opportunities - View opportunities\n/balance - Check balance\n/settings - User settings".to_string())
     }
 
-    async fn handle_opportunities_command(&self, chat_id: i64, user_id: i64, _args: &[&str]) -> ArbitrageResult<String> {
-        console_log!("💰 Opportunities command from user {} in chat {}", user_id, chat_id);
+    async fn handle_opportunities_command(
+        &self,
+        chat_id: i64,
+        user_id: i64,
+        _args: &[&str],
+    ) -> ArbitrageResult<String> {
+        console_log!(
+            "💰 Opportunities command from user {} in chat {}",
+            user_id,
+            chat_id
+        );
         Ok("Opportunities feature not implemented yet".to_string())
     }
 
-    async fn handle_balance_command(&self, chat_id: i64, user_id: i64, _args: &[&str]) -> ArbitrageResult<String> {
-        console_log!("💳 Balance command from user {} in chat {}", user_id, chat_id);
+    async fn handle_balance_command(
+        &self,
+        chat_id: i64,
+        user_id: i64,
+        _args: &[&str],
+    ) -> ArbitrageResult<String> {
+        console_log!(
+            "💳 Balance command from user {} in chat {}",
+            user_id,
+            chat_id
+        );
         Ok("Balance feature not implemented yet".to_string())
     }
 
-    async fn handle_settings_command(&self, chat_id: i64, user_id: i64, _args: &[&str]) -> ArbitrageResult<String> {
-        console_log!("⚙️ Settings command from user {} in chat {}", user_id, chat_id);
+    async fn handle_settings_command(
+        &self,
+        chat_id: i64,
+        user_id: i64,
+        _args: &[&str],
+    ) -> ArbitrageResult<String> {
+        console_log!(
+            "⚙️ Settings command from user {} in chat {}",
+            user_id,
+            chat_id
+        );
         Ok("Settings feature not implemented yet".to_string())
     }
 
-    async fn handle_admin_command(&self, chat_id: i64, user_id: i64, _args: &[&str]) -> ArbitrageResult<String> {
+    async fn handle_admin_command(
+        &self,
+        chat_id: i64,
+        user_id: i64,
+        _args: &[&str],
+    ) -> ArbitrageResult<String> {
         console_log!("👑 Admin command from user {} in chat {}", user_id, chat_id);
         // TODO: Check if user is admin
         Ok("Admin feature not implemented yet".to_string())
@@ -251,4 +338,4 @@ impl Default for WebhookHandler {
     fn default() -> Self {
         Self::new()
     }
-} 
+}

@@ -1,8 +1,9 @@
 // src/services/exchange.rs
 
-use reqwest::{Client, Method};
+use reqwest::Client;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use worker::Method;
 
 use crate::services::core::user::user_exchange_api::RateLimitInfo;
 use crate::services::core::user::user_profile::UserProfileService;

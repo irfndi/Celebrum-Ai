@@ -6,12 +6,20 @@ pub mod core;
 // Interface services for different platforms
 pub mod interfaces {
     pub mod telegram {
+        pub mod core;
+        // Temporarily commented out to fix main compilation issues
+        // pub mod commands;
+        // pub mod features;
+        // pub mod utils;
         #[allow(clippy::module_inception)]
         pub mod telegram;
         pub mod telegram_keyboard;
 
         pub use telegram::TelegramService;
         pub use telegram_keyboard::{InlineKeyboard, InlineKeyboardButton};
+
+        // Temporarily commented out problematic re-exports
+        // pub use telegram::{ModularTelegramService, UserInfo, UserPermissions};
     }
 
     pub mod api {

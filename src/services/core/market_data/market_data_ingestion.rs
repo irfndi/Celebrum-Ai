@@ -1,18 +1,15 @@
-use crate::services::core::infrastructure::analytics_engine::AnalyticsEngine;
+use crate::services::core::infrastructure::analytics_engine::AnalyticsEngineService;
 use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
 use crate::services::core::market_data::coinmarketcap::CoinMarketCapService;
 use crate::types::{ExchangeIdEnum, FundingRateInfo};
 use crate::utils::logger::Logger;
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use async_trait::async_trait;
+
 use chrono::{TimeZone, Utc};
-use futures::future::{join_all, Future};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::future::Future as StdFuture;
-use std::pin::Pin;
-use worker::console_log;
+
 use worker::kv::KvStore;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +107,17 @@ pub enum DataSource {
     CoinMarketCap,
 }
 
+impl std::fmt::Display for DataSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DataSource::RealAPI => write!(f, "real_api"),
+            DataSource::Pipeline => write!(f, "pipeline"),
+            DataSource::Cache => write!(f, "cache"),
+            DataSource::CoinMarketCap => write!(f, "coinmarketcap"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IngestionMetrics {
     pub total_requests: u64,
@@ -125,8 +133,9 @@ pub struct IngestionMetrics {
 
 pub struct MarketDataIngestionService {
     config: MarketDataIngestionConfig,
-    analytics_engine: Option<AnalyticsEngine>,
+    analytics_engine: Option<AnalyticsEngineService>,
     cloudflare_pipelines_service: Option<CloudflarePipelinesService>, // Assuming this was the intent for pipelines_service
+    #[allow(dead_code)] // Will be used for price data fallback
     cmc_service: Option<CoinMarketCapService>,
     kv_store: KvStore,
     logger: Logger,
@@ -136,7 +145,7 @@ pub struct MarketDataIngestionService {
 impl MarketDataIngestionService {
     pub fn new(
         config: MarketDataIngestionConfig,
-        analytics_engine: Option<AnalyticsEngine>,
+        analytics_engine: Option<AnalyticsEngineService>,
         cloudflare_pipelines_service: Option<CloudflarePipelinesService>,
         coinmarketcap_service: Option<CoinMarketCapService>,
         kv_store: KvStore,
@@ -164,7 +173,7 @@ impl MarketDataIngestionService {
     }
 
     /// Set or update the pipelines service after initialization
-    pub fn set_analytics_engine(&mut self, analytics_engine: Option<AnalyticsEngine>) {
+    pub fn set_analytics_engine(&mut self, analytics_engine: Option<AnalyticsEngineService>) {
         self.analytics_engine = analytics_engine;
     }
 
@@ -202,11 +211,8 @@ impl MarketDataIngestionService {
         }
 
         // Store aggregated data to analytics engine
-        if let Some(ref mut analytics_engine) = self.analytics_engine {
-            if let Err(e) = self
-                .store_snapshots_to_pipeline(analytics_engine, &snapshots)
-                .await
-            {
+        if let Some(ref mut _analytics_engine) = self.analytics_engine {
+            if let Err(e) = self.store_snapshots_to_pipeline(&snapshots).await {
                 self.logger.warn(&format!(
                     "Failed to store snapshots to analytics engine: {}",
                     e
@@ -490,7 +496,7 @@ impl MarketDataIngestionService {
         })?;
 
         let item = if data.is_array() {
-            data.as_array().and_then(|arr| arr.get(0)).cloned()
+            data.as_array().and_then(|arr| arr.first()).cloned()
         } else if data.is_object() {
             Some(data.clone()) // Clone the Value if it's already an object
         } else {
@@ -655,7 +661,7 @@ impl MarketDataIngestionService {
         })?;
 
         if let Some(ticker_list) = data["result"]["list"].as_array() {
-            if let Some(ticker) = ticker_list.get(0) {
+            if let Some(ticker) = ticker_list.first() {
                 // Assuming first item is the relevant one
                 return Ok(PriceData {
                     price: ticker["lastPrice"]
@@ -734,7 +740,7 @@ impl MarketDataIngestionService {
         })?;
 
         if let Some(rate_list) = data["result"]["list"].as_array() {
-            if let Some(rate_item) = rate_list.get(0) {
+            if let Some(rate_item) = rate_list.first() {
                 // Assuming first item is the latest funding rate
                 let rate_item_clone = rate_item.clone(); // Clone for use in info field
                 let symbol_clone = rate_item["symbol"].as_str().unwrap_or_default().to_string();
@@ -827,7 +833,7 @@ impl MarketDataIngestionService {
         })?;
 
         if let Some(ticker_list) = data["result"]["list"].as_array() {
-            if let Some(ticker) = ticker_list.get(0) {
+            if let Some(ticker) = ticker_list.first() {
                 // Assuming first item is the relevant one
                 return Ok(VolumeData {
                     volume_24h: ticker["volume24h"]
@@ -894,7 +900,7 @@ impl MarketDataIngestionService {
         })?;
 
         if let Some(ticker_list) = data["data"].as_array() {
-            if let Some(ticker) = ticker_list.get(0) {
+            if let Some(ticker) = ticker_list.first() {
                 // Assuming first item for the specified instId
                 return Ok(PriceData {
                     price: ticker["last"]
@@ -982,6 +988,7 @@ impl MarketDataIngestionService {
     }
 
     /// Get market data from pipeline
+    #[allow(dead_code)] // Will be used for pipeline data integration
     async fn get_pipeline_market_data(
         &self,
         exchange: &ExchangeIdEnum,
@@ -1014,20 +1021,7 @@ impl MarketDataIngestionService {
 
         if let Some(engine) = &mut self.analytics_engine {
             for snapshot in snapshots {
-                engine
-                    .track_market_snapshot(snapshot) // Pass the snapshot directly
-                    .await
-                    .map_err(|e| {
-                        self.logger.error(&format!(
-                            "Failed to send snapshot to analytics engine for {} {}: {}",
-                            snapshot.exchange, snapshot.symbol, e
-                        ));
-                        ArbitrageError::internal_error(format!(
-                            // Changed to internal_error
-                            "Error sending snapshot to analytics engine for {} {}: {}",
-                            snapshot.exchange, snapshot.symbol, e
-                        ))
-                    })?;
+                engine.track_market_snapshot(snapshot).await?;
             }
         } else {
             self.logger
@@ -1099,71 +1093,28 @@ impl MarketDataIngestionService {
         Ok(snapshot)
     }
 
-    // Method to get all funding rates concurrently, dispatching by exchange
+    // Method to get all funding rates sequentially, dispatching by exchange
     pub async fn get_all_funding_rates_concurrently(
         &mut self,
         exchange: ExchangeIdEnum,
         pairs: Vec<String>,
     ) -> Vec<ArbitrageResult<FundingRateInfo>> {
-        // let _errors: Vec<String> = Vec::new(); // Removed unused variable
-        let mut futures = vec![];
+        let mut results = Vec::new();
 
         for pair in pairs {
-            match exchange {
-                ExchangeIdEnum::Binance => {
-                    futures.push(Box::pin(self.fetch_binance_funding_rate(&pair))
-                        as Pin<
-                            Box<
-                                dyn Future<
-                                        Output = std::result::Result<
-                                            FundingRateInfo,
-                                            ArbitrageError,
-                                        >,
-                                    > + Send,
-                            >,
-                        >)
-                }
-                ExchangeIdEnum::Bybit => {
-                    futures.push(Box::pin(self.fetch_bybit_funding_rate(&pair))
-                        as Pin<
-                            Box<
-                                dyn Future<
-                                        Output = std::result::Result<
-                                            FundingRateInfo,
-                                            ArbitrageError,
-                                        >,
-                                    > + Send,
-                            >,
-                        >)
-                }
+            let result = match exchange {
+                ExchangeIdEnum::Binance => self.fetch_binance_funding_rate(&pair).await,
+                ExchangeIdEnum::Bybit => self.fetch_bybit_funding_rate(&pair).await,
                 // TODO: Add fetch_okx_funding_rate and other exchanges if they have funding rate methods
-                // Example for OKX if it had one:
-                // ExchangeIdEnum::OKX => futures.push(Box::pin(self.fetch_okx_funding_rate(&pair_owned)) as Pin<Box<dyn Future<Output = std::result::Result<FundingRateInfo, ArbitrageError>> + Send>>),
-                _ => {
-                    let pair_clone_for_error = pair.clone(); // Clone pair for use in the async error block
-                                                             // Log or handle unsupported exchange for funding rates
-                                                             // For now, push an error result for this pair
-                    futures.push(Box::pin(async move {
-                        Err(ArbitrageError::service_unavailable(format!(
-                            "Funding rates not supported for {:?} on pair {}",
-                            exchange, pair_clone_for_error
-                        )))
-                    })
-                        as Pin<
-                            Box<
-                                dyn Future<
-                                        Output = std::result::Result<
-                                            FundingRateInfo,
-                                            ArbitrageError,
-                                        >,
-                                    > + Send,
-                            >,
-                        >)
-                }
-            }
+                _ => Err(ArbitrageError::service_unavailable(format!(
+                    "Funding rates not supported for {:?} on pair {}",
+                    exchange, pair
+                ))),
+            };
+            results.push(result);
         }
 
-        join_all(futures).await
+        results
     }
 }
 

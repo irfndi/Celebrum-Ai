@@ -12,13 +12,13 @@ use serde_json;
 use std::sync::Arc;
 use uuid;
 use worker::kv::KvStore;
-use worker::Env;
 
 /// User Exchange API Management Service
 /// Provides secure CRUD operations, validation, and compatibility checking for user exchange APIs
 pub struct UserExchangeApiService {
     user_profile_service: Arc<UserProfileService>,
     exchange_service: Arc<ExchangeService>,
+    #[allow(dead_code)] // Will be used for API key audit logging
     d1_service: Arc<D1Service>,
     kv_store: KvStore,
     encryption_key: SecretString,
@@ -152,7 +152,7 @@ impl UserExchangeApiService {
 
         // Validate default_leverage if provided
         if let Some(default_leverage) = request.default_leverage {
-            if default_leverage < 1 || default_leverage > 100 {
+            if !(1..=100).contains(&default_leverage) {
                 return Err(ArbitrageError::validation_error(format!(
                     "Default leverage must be between 1 and 100, got: {}",
                     default_leverage
@@ -273,7 +273,7 @@ impl UserExchangeApiService {
 
         if let Some(default_leverage) = request.default_leverage {
             // Validate default_leverage is within reasonable range (1-100)
-            if default_leverage < 1 || default_leverage > 100 {
+            if !(1..=100).contains(&default_leverage) {
                 return Err(ArbitrageError::validation_error(format!(
                     "Default leverage must be between 1 and 100, got: {}",
                     default_leverage

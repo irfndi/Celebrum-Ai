@@ -7,14 +7,9 @@
 //! - Feature gating based on roles and subscriptions
 //! - Dynamic permission assignment
 
-use crate::log_info;
 use crate::services::core::infrastructure::service_container::ServiceContainer;
-use crate::services::core::user::UserProfileService;
-use crate::types::{
-    ChatContext, CommandPermission, SubscriptionTier, UserAccessLevel, UserProfile, UserRole,
-};
-use crate::{ArbitrageError, ArbitrageResult};
-use async_trait::async_trait;
+use crate::types::{UserAccessLevel, UserProfile, UserRole};
+use crate::ArbitrageResult;
 use std::collections::HashMap;
 use std::sync::Arc;
 use worker::console_log;
@@ -191,6 +186,12 @@ pub struct RoleManager {
     role_permissions: HashMap<UserAccessLevel, Vec<String>>,
 }
 
+impl Default for RoleManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RoleManager {
     /// Create new role manager with predefined permissions
     pub fn new() -> Self {
@@ -337,6 +338,12 @@ impl RoleManager {
 /// Permission Manager for handling subscription-based permissions
 pub struct PermissionManager {
     subscription_permissions: HashMap<String, Vec<String>>,
+}
+
+impl Default for PermissionManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PermissionManager {

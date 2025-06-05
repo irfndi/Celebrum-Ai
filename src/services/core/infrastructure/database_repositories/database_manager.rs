@@ -10,10 +10,10 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use worker::{
-    console_log, kv::KvStore, wasm_bindgen::JsValue, D1Database, D1Result, Env, Fetch, Method,
-    Request, RequestInit, Response,
-};
+use worker::{kv::KvStore, wasm_bindgen::JsValue, D1Database};
+
+// For D1Result JsValue conversion
+use worker::js_sys;
 
 /// Configuration for DatabaseManager
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -462,15 +462,14 @@ impl DatabaseManager {
         &self,
         queries: Vec<String>,
         params_list: Vec<Vec<String>>,
-        parser: fn(T) -> ArbitrageResult<T>,
+        parser: fn(&HashMap<String, JsValue>) -> ArbitrageResult<T>,
     ) -> ArbitrageResult<Vec<Vec<T>>> {
         let start_time = current_timestamp_ms();
         let mut results_batch = Vec::new();
 
         if queries.len() != params_list.len() {
-            return Err(ArbitrageError::new_with_message(
-                ArbitrageErrorKind::DatabaseError,
-                "Mismatch between number of queries and parameter sets".to_string(),
+            return Err(ArbitrageError::database_error(
+                "Mismatch between number of queries and parameter sets",
             ));
         }
 
@@ -478,52 +477,41 @@ impl DatabaseManager {
         // We execute them sequentially. If one fails, subsequent ones won't run, and we return an error.
         // This provides some level of atomicity for this sequence but isn't a true DB transaction.
         for (idx, query) in queries.iter().enumerate() {
-            let stmt = self.db.prepare(query); // Access inner D1Database via .0
-            let bound_stmt = self.bind_parameters(stmt, params_list[idx].clone())?;
-            match bound_stmt.all().await {
-                Ok(d1_results) => {
+            let stmt = self.db.prepare(query);
+            // Convert String params to JsValue
+            let js_params: Vec<worker::wasm_bindgen::JsValue> =
+                params_list[idx].iter().map(|s| s.into()).collect();
+            let bound_stmt = stmt.bind(&js_params).map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+            })?;
+            match bound_stmt.run().await {
+                Ok(d1_result) => {
                     let mut parsed_results_for_query = Vec::new();
-                    for d1_result in d1_results {
-                        // Assuming D1Result has a method like .results() or similar to get rows
-                        // This part needs to align with how D1Result actually provides rows.
-                        // The following is a placeholder based on common patterns.
-                        // If D1Result directly contains rows, adjust accordingly.
-                        // For now, let's assume d1_result.results() returns Vec<D1Row>
-                        // This might be incorrect if `all()` already returns Vec<D1Row> or similar.
-                        // Let's assume `d1_results` is Vec<D1Row> directly from `all()`
-                        // The original code had `d1_result.results()?` which implies D1Result wraps rows.
-                        // However, the `all()` method on `D1PreparedStatement` returns `Result<Vec<D1Row>>`
-                        // So, `d1_results` here should be `Vec<D1Row>`.
-                        // The previous `edit_file_fast_apply` was confused here.
-                        // The `parser` function takes a `D1Row`.
-                        // The `all()` method returns `Result<Vec<D1Row>>`
-                        // So `d1_results` is `Vec<D1Row>`
-                        // The original code was: `for row_result in d1_result.results()? { parsed_results_for_query.push(parser(row_result)?); }`
-                        // This implies `d1_result` is something that has a `.results()` method.
-                        // Let's re-check the `D1PreparedStatement::all()` signature. It returns `Result<Vec<T>> where T: DeserializeOwned`
-                        // If we are parsing row by row, we should use `raw()` or iterate differently.
-                        // Given the parser `fn(D1Row) -> ArbitrageResult<T>`, `all()` should return `Vec<D1Row>`.
-                        // The `D1Result` type is usually for `raw()` calls.
-                        // Let's assume `bound_stmt.all().await?` gives `Vec<D1Row>` directly.
-                        // This was the structure before the erroneous edit.
-
-                        // Corrected loop based on `all()` returning `Vec<D1Row>`
-                        // The `d1_results` from `bound_stmt.all().await?` is already `Vec<D1Row>`
-                        // So we iterate over `d1_results` directly.
-                        // The previous `edit_file_fast_apply` had `Ok(d1_results)` where `d1_results` was `Vec<D1Result>`
-                        // and then `for d1_result in d1_results` and `d1_result.results()?`
-                        // This was for `raw().await` which returns `Vec<D1Result>`.
-                        // For `all().await` which is used here, it should be `Vec<D1Row>` (or `Vec<T>` if T is directly deserializable)
-                        // Since we have a parser `fn(D1Row) -> ArbitrageResult<T>`, `all()` should be used to get `Vec<D1Row>`.
-                        // The `edit_file_fast_apply` tool seems to have used the `execute_raw_query` structure by mistake.
-
-                        // The `all()` method of `D1PreparedStatement` returns `Result<Vec<T>>` where `T: DeserializeOwned`.
-                        // If we want to use a custom parser `fn(D1Row) -> ArbitrageResult<T>`, we should get `Vec<D1Row>`.
-                        // `D1PreparedStatement::all()` can return `Result<Vec<D1Row>>`.
-                        // So, `d1_results` here is `Vec<D1Row>`.
-
-                        for row in d1_results {
-                            parsed_results_for_query.push(parser(row)?);
+                    // d1_result.results() returns Result<Vec<serde_json::Value>, Error>, we need to convert to HashMap
+                    if let Ok(rows) = d1_result.results::<serde_json::Value>() {
+                        for row in rows {
+                            // Convert serde_json::Value row to HashMap for parser compatibility
+                            let mut row_map = HashMap::new();
+                            if let Some(object) = row.as_object() {
+                                for (key, value) in object {
+                                    // Convert serde_json::Value to JsValue for parser compatibility
+                                    let js_value = if value.is_string() {
+                                        js_sys::JsString::from(value.as_str().unwrap_or("")).into()
+                                    } else if value.is_number() {
+                                        js_sys::Number::from(value.as_f64().unwrap_or(0.0)).into()
+                                    } else if value.is_boolean() {
+                                        js_sys::Boolean::from(value.as_bool().unwrap_or(false))
+                                            .into()
+                                    } else if value.is_null() {
+                                        worker::wasm_bindgen::JsValue::NULL
+                                    } else {
+                                        // For objects/arrays, convert to string
+                                        js_sys::JsString::from(value.to_string()).into()
+                                    };
+                                    row_map.insert(key.clone(), js_value);
+                                }
+                            }
+                            parsed_results_for_query.push(parser(&row_map)?);
                         }
                     }
                     results_batch.push(parsed_results_for_query);

@@ -1,17 +1,30 @@
-use crate::services::core::infrastructure::analytics_engine::AnalyticsEngine;
-use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
+use crate::services::core::infrastructure::analytics_engine::AnalyticsEngineService;
 use crate::utils::logger::Logger;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::Utc;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
-use worker::console_log;
 use worker::kv::KvStore;
-use worker::Env;
 use worker::*;
+
+#[derive(Debug, thiserror::Error)]
+pub enum CoinMarketCapError {
+    #[error("API error: {0}")]
+    Api(String),
+    #[error("Rate limit exceeded: {0}")]
+    RateLimit(String),
+    #[error("Quota exceeded: {0}")]
+    Quota(String),
+    #[error("Analytics error: {0}")]
+    Analytics(String),
+    #[error("Cache error: {0}")]
+    Cache(String),
+}
+
+impl From<CoinMarketCapError> for ArbitrageError {
+    fn from(err: CoinMarketCapError) -> Self {
+        ArbitrageError::api_error(err.to_string())
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoinMarketCapConfig {
@@ -26,6 +39,7 @@ pub struct CoinMarketCapConfig {
     pub endpoints_enabled: u32,    // 14 endpoints enabled
     pub currency_conversions_limit: u32, // 1 conversion per request
     pub has_historical_data: bool, // No historical data access
+    pub enable_pipelines: bool,    // Enable analytics pipeline integration
 }
 
 impl Default for CoinMarketCapConfig {
@@ -53,6 +67,7 @@ impl Default for CoinMarketCapConfig {
             endpoints_enabled: 14,         // CMC Basic plan: 14 endpoints
             currency_conversions_limit: 1, // CMC Basic plan: 1 conversion per request
             has_historical_data: false,    // CMC Basic plan: No historical data
+            enable_pipelines: true,        // Enable analytics pipelines by default
         }
     }
 }
@@ -97,7 +112,7 @@ pub struct RateLimitStatus {
 pub struct CoinMarketCapService {
     config: CoinMarketCapConfig,
     kv_store: KvStore,
-    analytics_engine: Option<AnalyticsEngine>,
+    analytics_engine: Option<AnalyticsEngineService>,
     logger: Logger,
 }
 
@@ -105,7 +120,7 @@ impl CoinMarketCapService {
     pub fn new(
         config: CoinMarketCapConfig,
         kv_store: KvStore,
-        analytics_engine: Option<AnalyticsEngine>,
+        analytics_engine: Option<AnalyticsEngineService>,
         logger: Logger,
     ) -> Self {
         Self {
@@ -117,7 +132,7 @@ impl CoinMarketCapService {
     }
 
     /// Get latest quotes for priority symbols with smart quota management
-    pub async fn get_priority_quotes(&self) -> ArbitrageResult<Vec<CmcQuoteData>> {
+    pub async fn get_priority_quotes(&mut self) -> ArbitrageResult<Vec<CmcQuoteData>> {
         // Check rate limit first
         if !self.check_rate_limit().await? {
             self.logger
@@ -158,7 +173,7 @@ impl CoinMarketCapService {
     }
 
     /// Get global market metrics with quota management
-    pub async fn get_global_metrics(&self) -> ArbitrageResult<CmcGlobalMetrics> {
+    pub async fn get_global_metrics(&mut self) -> ArbitrageResult<CmcGlobalMetrics> {
         // Check rate limit first
         if !self.check_rate_limit().await? {
             self.logger
@@ -557,17 +572,16 @@ impl CoinMarketCapService {
 
     async fn store_quotes_to_pipeline(
         &mut self,
-        quotes: &HashMap<String, CmcQuoteData>,
+        quotes: &Vec<CmcQuoteData>,
     ) -> ArbitrageResult<()> {
         if !self.config.enable_pipelines {
             return Ok(());
         }
 
         let data = serde_json::to_value(quotes)?;
-        self.analytics_engine
-            .track_cmc_data("latest_quotes", &data)
-            .await
-            .map_err(|e| CoinMarketCapError::Analytics(e.to_string()))?;
+        if let Some(ref mut engine) = self.analytics_engine {
+            engine.track_cmc_data("latest_quotes", &data).await?;
+        }
         Ok(())
     }
 
@@ -580,10 +594,9 @@ impl CoinMarketCapService {
         }
 
         let data = serde_json::to_value(metrics)?;
-        self.analytics_engine
-            .track_cmc_data("global_metrics", &data)
-            .await
-            .map_err(|e| CoinMarketCapError::Analytics(e.to_string()))?;
+        if let Some(ref mut engine) = self.analytics_engine {
+            engine.track_cmc_data("global_metrics", &data).await?;
+        }
         Ok(())
     }
 
@@ -593,7 +606,7 @@ impl CoinMarketCapService {
     }
 
     /// Force refresh priority data (admin function)
-    pub async fn force_refresh_priority_data(&self) -> ArbitrageResult<Vec<CmcQuoteData>> {
+    pub async fn force_refresh_priority_data(&mut self) -> ArbitrageResult<Vec<CmcQuoteData>> {
         if !self.check_quota_available(1).await? {
             return Err(ArbitrageError::quota_exceeded(
                 "Insufficient quota for force refresh",

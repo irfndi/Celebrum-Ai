@@ -11,6 +11,7 @@ use worker::{kv::KvStore, Env};
 #[derive(Clone)]
 pub struct UserManagementService {
     kv_store: KvStore,
+    #[allow(dead_code)] // Will be used for environment configuration
     env: Env,
 }
 

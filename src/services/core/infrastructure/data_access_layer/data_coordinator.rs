@@ -588,7 +588,7 @@ impl DataCoordinator {
     ) -> ArbitrageResult<()> {
         let _cache_type = self.determine_cache_type(&request.data_type);
         let data_str = serde_json::to_string(data).map_err(|e| {
-            ArbitrageError::serialization_error(&format!("Failed to serialize data: {}", e))
+            ArbitrageError::serialization_error(format!("Failed to serialize data: {}", e))
         })?;
         self.cache_layer
             .put(&self.kv_store, &request.key, &data_str, None) // Correct: &self.kv_store passed to cache_layer

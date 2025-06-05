@@ -338,10 +338,11 @@ impl InfrastructureConfig {
             analytics_config: AnalyticsEngineConfig {
                 enabled: true,
                 dataset_name: "arbitrage_analytics".to_string(),
-                batch_size: 2000,
+                batch_size: Some(2000),
                 flush_interval_seconds: 30,
                 retention_days: 180,
                 enable_real_time_analytics: true,
+                enable_batching: true,
             },
             financial_module_config: FinancialModuleConfig::high_performance(),
         }
@@ -396,10 +397,11 @@ impl InfrastructureConfig {
             analytics_config: AnalyticsEngineConfig {
                 enabled: true,
                 dataset_name: "arbitrage_analytics".to_string(),
-                batch_size: 500,
+                batch_size: Some(500),
                 flush_interval_seconds: 60,
                 retention_days: 365,
                 enable_real_time_analytics: true,
+                enable_batching: true,
             },
             financial_module_config: FinancialModuleConfig::high_reliability(),
         }

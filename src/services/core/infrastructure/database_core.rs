@@ -2,8 +2,7 @@
 // Consolidates all database operations from D1Service with optimized patterns for high concurrency
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +12,9 @@ use worker::{wasm_bindgen::JsValue, D1Database, Env};
 #[derive(Clone)]
 pub struct DatabaseCore {
     db: Arc<D1Database>,
+    #[allow(dead_code)] // Will be used for connection management
     connection_pool_size: usize,
+    #[allow(dead_code)] // Will be used for query timeout handling
     query_timeout_ms: u64,
     max_retries: u32,
     batch_size: usize,
@@ -424,10 +425,10 @@ impl DatabaseCore {
             })?;
 
         Ok(InternalResult {
-            rows_affected: result.meta()?.map_or(0, |m| m.unwrap().changes) as u64,
+            rows_affected: result.meta()?.map_or(0, |m| m.changes.unwrap_or(0)) as u64,
             last_insert_id: result
                 .meta()?
-                .and_then(|m| m.unwrap().last_row_id.map(|id| id as u64)),
+                .and_then(|m| m.last_row_id.map(|id| id as u64)),
         })
     }
 

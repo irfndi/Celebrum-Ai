@@ -32,16 +32,18 @@ use std::sync::Arc;
 use worker::console_log;
 
 /// Trait for user profile operations
-#[async_trait::async_trait]
-pub trait UserProfileProvider: Send + Sync {
+/// Use ?Send for WASM compatibility (Cloudflare Workers)
+#[async_trait::async_trait(?Send)]
+pub trait UserProfileProvider: Sync {
     async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile>;
     async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()>;
     async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()>;
 }
 
 /// Trait for session management operations
-#[async_trait::async_trait]
-pub trait SessionProvider: Send + Sync {
+/// Use ?Send for WASM compatibility (Cloudflare Workers)
+#[async_trait::async_trait(?Send)]
+pub trait SessionProvider: Sync {
     async fn validate_session(&self, session_id: &str) -> ArbitrageResult<bool>;
     async fn create_session(&self, user_id: &str) -> ArbitrageResult<String>;
     async fn update_session_activity(&self, session_id: &str) -> ArbitrageResult<()>;

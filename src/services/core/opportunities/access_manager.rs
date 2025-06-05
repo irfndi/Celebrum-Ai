@@ -204,27 +204,16 @@ impl AccessManager {
                         };
                         exchanges.push((exchange_id, credentials));
                     }
-                    crate::types::ApiKeyProvider::WalletConnect => {
+                    crate::types::ApiKeyProvider::Custom => {
                         log_info!(
-                            "WalletConnect API key found, not processing for exchange credentials.",
+                            "Custom API key found, not processing for exchange credentials.",
                             serde_json::json!({
                                 "user_id": user_id,
-                                "api_key_id": api_key.id, // Assuming ApiKey struct has an 'id' field as per original replace intent
-                                "api_key_provider": "WalletConnect"
+                                "api_key_id": api_key.key_id,
+                                "api_key_provider": "Custom"
                             })
                         );
-                        // No credentials pushed for WalletConnect
-                    }
-                    crate::types::ApiKeyProvider::Manual => {
-                        log_info!(
-                            "Manual API key found, not processing for exchange credentials.",
-                            serde_json::json!({
-                                "user_id": user_id,
-                                "api_key_id": api_key.id, // Assuming ApiKey struct has an 'id' field as per original replace intent
-                                "api_key_provider": "Manual"
-                            })
-                        );
-                        // No credentials pushed for Manual
+                        // No credentials pushed for Custom
                     }
                     _ => {
                         // This arm ensures that if api_key.provider is not one of the explicitly handled types,
@@ -328,6 +317,9 @@ impl AccessManager {
             }
             SubscriptionTier::Enterprise => {
                 // Enterprise tier - full access (no truncation)
+            }
+            SubscriptionTier::Beta => {
+                opportunities.truncate(3); // Beta tier gets limited opportunities during testing
             }
         }
 

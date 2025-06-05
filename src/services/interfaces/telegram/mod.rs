@@ -18,8 +18,10 @@ pub mod utils;
 pub mod telegram;
 pub mod telegram_keyboard;
 
-// Export the new modular service and types
-pub use self::{ModularTelegramService, UserInfo, UserPermissions};
+// Export the new modular service and types - defined below in this file
+// pub use ModularTelegramService;
+// pub use UserInfo; 
+// pub use UserPermissions;
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::services::core::user::user_profile::UserProfileService;
@@ -456,4 +458,9 @@ pub struct UserPermissions {
     pub beta_expires_at: Option<u64>,
     pub can_trade: bool,
     pub is_admin: bool,
-} 
+}
+
+// Export the types so they can be used by command modules and external modules
+pub use UserInfo;
+pub use UserPermissions;
+pub use ModularTelegramService;

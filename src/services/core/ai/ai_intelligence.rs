@@ -9,7 +9,7 @@ use crate::services::core::user::dynamic_config::UserConfigInstance;
 use crate::services::core::user::user_trading_preferences::{TradingFocus, UserTradingPreferences};
 use crate::services::{
     AiExchangeRouterService, CorrelationAnalysisService, DynamicConfigService,
-    OpportunityCategorizationService, PositionsService, UserTradingPreferencesService,
+    OpportunityCategorizationService, UserTradingPreferencesService,
 };
 use crate::types::{
     ArbitrageOpportunity, ArbitragePosition, ArbitrageType, ExchangeIdEnum, GlobalOpportunity,

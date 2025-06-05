@@ -9,6 +9,7 @@ use std::time::SystemTime;
 use tokio::sync::Mutex;
 use worker::kv::KvStore;
 
+use super::service_health::HealthStatus;
 use super::{
     cache_manager::{CacheConfig, CacheManager},
     data_access_layer::{DataAccessLayer, DataAccessLayerConfig},
@@ -17,10 +18,8 @@ use super::{
     notification_module::{NotificationCoordinator, NotificationCoordinatorConfig},
     service_health::SystemHealthReport,
     service_health::{HealthCheckConfig, ServiceHealthManager},
-    D1Service, DatabaseManager, DatabaseManagerConfig,
 };
-use crate::services::core::admin::system_config::FeatureFlagsConfig;
-use crate::services::core::monitoring_module::HealthStatus;
+
 use crate::services::core::ServiceHealthCheck;
 use worker::Env;
 
@@ -214,7 +213,7 @@ pub struct InfrastructureEngine {
     // Service management with async-aware mutexes
     services: Arc<Mutex<HashMap<String, ServiceInfo>>>,
     circuit_breakers: Arc<Mutex<HashMap<String, CircuitBreaker>>>,
-    startup_time: u64,
+    startup_time: SystemTime,
 
     // Configuration management with async-aware mutex
     global_config: Arc<Mutex<HashMap<String, serde_json::Value>>>,
@@ -234,7 +233,7 @@ impl InfrastructureEngine {
             metrics_collector: None,
             services: Arc::new(Mutex::new(HashMap::new())),
             circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
-            startup_time: chrono::Utc::now().timestamp_millis() as u64,
+            startup_time: SystemTime::now(),
             global_config: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -252,11 +251,12 @@ impl InfrastructureEngine {
             metrics_collector: None,
             services: Arc::new(Mutex::new(HashMap::new())),
             circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
-            startup_time: chrono::Utc::now().timestamp_millis() as u64,
+            startup_time: SystemTime::now(),
             global_config: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
+    #[allow(dead_code)] // Will be used for system monitoring
     async fn generate_health_report(&self) -> SystemHealthReport {
         let mut services_health: HashMap<String, ServiceHealthCheck> = HashMap::new();
         let mut healthy_services_count = 0;
@@ -329,7 +329,7 @@ impl InfrastructureEngine {
             healthy_services: healthy_services_count,
             health_score,
             generated_at: chrono::Utc::now().timestamp_millis() as u64,
-            uptime_seconds: self.startup_time.elapsed().as_secs(), // Assuming startup_time is an Instant
+            uptime_seconds: self.startup_time.elapsed().unwrap_or_default().as_secs(),
         }
     }
 
@@ -587,8 +587,10 @@ impl InfrastructureEngine {
             ServiceStatus::Healthy
         };
 
-        let uptime_seconds =
-            (chrono::Utc::now().timestamp_millis() as u64 - self.startup_time) / 1000;
+        let _uptime_seconds = SystemTime::now()
+            .duration_since(self.startup_time)
+            .unwrap_or_default()
+            .as_secs();
         let uptime_percentage = if total_services > 0 {
             (healthy_count + degraded_count) as f64 / total_services as f64 * 100.0
         } else {
@@ -596,7 +598,6 @@ impl InfrastructureEngine {
         };
 
         InfrastructureHealth {
-            uptime_seconds,
             overall_status,
             healthy_services: healthy_count,
             degraded_services: degraded_count,
@@ -621,8 +622,10 @@ impl InfrastructureEngine {
             service.last_health_check = Some(chrono::Utc::now().timestamp_millis() as u64);
 
             // Update uptime
-            let current_time = chrono::Utc::now().timestamp_millis() as u64;
-            service.uptime_seconds = (current_time - self.startup_time) / 1000;
+            service.uptime_seconds = SystemTime::now()
+                .duration_since(self.startup_time)
+                .unwrap_or_default()
+                .as_secs();
         }
         Ok(())
     }
@@ -706,6 +709,7 @@ impl InfrastructureEngine {
         Ok(())
     }
 
+    #[allow(dead_code)] // Will be used for circuit breaker pattern
     async fn check_circuit_breaker(&self, service_name: &str) -> bool {
         let circuit_breakers = self.circuit_breakers.lock().await;
         if let Some(breaker) = circuit_breakers.get(service_name) {
@@ -727,6 +731,7 @@ impl InfrastructureEngine {
         }
     }
 
+    #[allow(dead_code)] // Will be used for circuit breaker pattern
     async fn record_circuit_breaker_success(&self, service_name: &str) -> ArbitrageResult<()> {
         let mut circuit_breakers = self.circuit_breakers.lock().await;
         if let Some(breaker) = circuit_breakers.get_mut(service_name) {
@@ -738,6 +743,7 @@ impl InfrastructureEngine {
         Ok(())
     }
 
+    #[allow(dead_code)] // Will be used for circuit breaker pattern
     async fn record_circuit_breaker_failure(&self, service_name: &str) -> ArbitrageResult<()> {
         let mut circuit_breakers = self.circuit_breakers.lock().await;
         if let Some(breaker) = circuit_breakers.get_mut(service_name) {
@@ -763,13 +769,16 @@ impl InfrastructureEngine {
 
         // TODO: Implement comprehensive health check across all infrastructure components
         SystemHealthReport {
-            overall_status: ServiceStatus::Healthy, // Placeholder
-            services: vec![],                       // Placeholder
-            uptime_seconds,                         // Placeholder
-            version: "0.1.0".to_string(),           // Placeholder
-            last_checked: chrono::Utc::now(),       // Placeholder
-            dependencies: vec![],                   // Placeholder
-            alerts: vec![],                         // Placeholder
+            overall_status: HealthStatus::Healthy,
+            services: HashMap::new(),
+            critical_services_healthy: true,
+            degraded_services: vec![],
+            unhealthy_services: vec![],
+            total_services: 0,
+            healthy_services: 0,
+            health_score: 1.0,
+            generated_at: chrono::Utc::now().timestamp_millis() as u64,
+            uptime_seconds,
         }
     }
 }

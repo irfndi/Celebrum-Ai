@@ -279,7 +279,10 @@ impl AIDataRepository {
             .await
             .map_err(|e| database_error("execute query", e))?;
 
-        let success = result.meta().as_ref().map(|m| m.rows_written).unwrap_or(0) > 0;
+        let success = result
+            .meta()
+            .map_or(0, |m| m.map_or(0, |meta| meta.rows_written.unwrap_or(0)))
+            > 0;
 
         if success && self.config.enable_caching {
             let _ = self.invalidate_insight_cache(user_id).await;

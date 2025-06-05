@@ -26,7 +26,6 @@ use services::core::user::user_profile::UserProfileService;
 use handlers::*;
 
 use std::sync::Arc;
-use std::time::SystemTime;
 use types::ExchangeIdEnum;
 use utils::{ArbitrageError, ArbitrageResult};
 
@@ -55,8 +54,7 @@ async fn get_service_container(env: &Env) -> Result<Arc<ServiceContainer>> {
         .var("ENCRYPTION_KEY")
         .map_err(|_| worker::Error::RustError("Missing ENCRYPTION_KEY".to_string()))?;
     let d1 = env.d1("ARB_EDGE_D1")?;
-    let _database_manager =
-        DatabaseManager::new(Arc::new(d1.clone()), DatabaseManagerConfig::default());
+    let _database_manager = DatabaseManager::new(Arc::new(d1), DatabaseManagerConfig::default());
 
     // These services are initialized and managed by the ServiceContainer
     // let _user_profile_service =
@@ -470,7 +468,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let original_worker_method = req.method();
 
     // Convert worker::Method to http::Method for use with http::Request::builder()
-    let http_method_for_builder = match &original_worker_method {
+    let _http_method_for_builder = match &original_worker_method {
         Method::Get => http::Method::GET,
         Method::Post => http::Method::POST,
         Method::Put => http::Method::PUT,

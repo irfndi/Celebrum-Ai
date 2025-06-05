@@ -18,15 +18,13 @@ use crate::services::core::user::user_trading_preferences::UserTradingPreference
 use crate::services::interfaces::telegram::core::bot_client::TelegramConfig;
 use crate::services::interfaces::telegram::telegram_keyboard::InlineKeyboard;
 use crate::types::OpportunityData;
-use crate::types::{
-    GroupRateLimitConfig, GroupRegistration, GroupSettings, MessageAnalytics, UserProfile,
-};
+use crate::types::{GroupRateLimitConfig, GroupRegistration, GroupSettings, MessageAnalytics};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use uuid;
 use worker::console_log;

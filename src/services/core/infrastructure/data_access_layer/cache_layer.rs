@@ -695,6 +695,7 @@ impl CacheLayer {
         Ok(compressed)
     }
 
+    #[allow(dead_code)] // Will be used for compression optimization
     fn decompress_value(&self, compressed: &str) -> ArbitrageResult<String> {
         use base64::{engine::general_purpose, Engine as _};
         let decoded = general_purpose::STANDARD

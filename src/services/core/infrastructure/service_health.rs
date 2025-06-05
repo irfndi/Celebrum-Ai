@@ -2,7 +2,7 @@
 // Consolidates health check patterns from multiple services with comprehensive monitoring
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use async_trait::async_trait;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;

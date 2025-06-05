@@ -482,6 +482,7 @@ impl AICoordinator {
 
         match &self.personalization_engine {
             Some(engine) => {
+                let opportunities_clone = opportunities.clone();
                 match engine
                     .rank_opportunities_for_user(user_id, opportunities)
                     .await
@@ -494,7 +495,7 @@ impl AICoordinator {
                     Err(e) => {
                         self.handle_service_error(&e).await;
                         if self.config.enable_fallback_strategies {
-                            self.handle_fallback_ranking(opportunities).await
+                            self.handle_fallback_ranking(opportunities_clone).await
                         } else {
                             Err(e)
                         }

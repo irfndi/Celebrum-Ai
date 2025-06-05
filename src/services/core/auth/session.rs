@@ -20,6 +20,7 @@ use worker::console_log;
 /// Integrates with existing SessionManagementService for auth workflows
 pub struct AuthSessionService {
     session_management_service: Arc<SessionManagementService>,
+    #[allow(dead_code)] // Will be used for service discovery and DI
     service_container: Arc<ServiceContainer>,
 }
 

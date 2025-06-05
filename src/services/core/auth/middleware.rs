@@ -11,7 +11,7 @@ use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::types::UserProfile;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;
-use worker::{console_log, Headers, Request};
+use worker::{console_log, Request};
 
 /// Authentication Middleware
 pub struct AuthMiddleware {

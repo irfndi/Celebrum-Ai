@@ -10,7 +10,7 @@ use crate::services::core::infrastructure::service_container::ServiceContainer;
 
 use crate::types::{
     RiskProfile, Subscription, SubscriptionTier, UserAccessLevel, UserConfiguration,
-    UserPreferences, UserProfile, UserRole,
+    UserPreferences, UserProfile,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;

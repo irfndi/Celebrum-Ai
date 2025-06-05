@@ -1,7 +1,7 @@
 // src/services/interfaces/telegram/core/bot_client.rs
 
 //! Telegram Bot API Client
-//! 
+//!
 //! Handles all communication with the Telegram Bot API including:
 //! - Sending messages
 //! - API requests
@@ -187,19 +187,23 @@ impl TelegramBotClient {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     last_error = Some(e);
-                    
+
                     if attempt < self.retry_config.max_retries {
                         let delay = self.calculate_retry_delay(attempt);
-                        console_log!("🔄 Telegram API request failed, retrying in {}ms (attempt {}/{})", 
-                                   delay, attempt + 1, self.retry_config.max_retries);
-                        
+                        console_log!(
+                            "🔄 Telegram API request failed, retrying in {}ms (attempt {}/{})",
+                            delay,
+                            attempt + 1,
+                            self.retry_config.max_retries
+                        );
+
                         // WASM-compatible sleep
                         #[cfg(target_arch = "wasm32")]
                         {
                             use worker::Delay;
                             Delay::from(Duration::from_millis(delay)).await;
                         }
-                        
+
                         #[cfg(not(target_arch = "wasm32"))]
                         {
                             tokio::time::sleep(Duration::from_millis(delay)).await;
@@ -210,7 +214,7 @@ impl TelegramBotClient {
         }
 
         Err(last_error.unwrap_or_else(|| {
-            ArbitrageError::external_service_error("Failed to make Telegram API request after retries")
+            ArbitrageError::api_error("Failed to make Telegram API request after retries")
         }))
     }
 
@@ -227,30 +231,30 @@ impl TelegramBotClient {
             .json(payload)
             .send()
             .await
-            .map_err(|e| ArbitrageError::external_service_error(format!("HTTP request failed: {}", e)))?;
+            .map_err(|e| ArbitrageError::api_error(format!("HTTP request failed: {}", e)))?;
 
         let status = response.status();
         let response_text = response
             .text()
             .await
-            .map_err(|e| ArbitrageError::external_service_error(format!("Failed to read response: {}", e)))?;
+            .map_err(|e| ArbitrageError::api_error(format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(ArbitrageError::external_service_error(format!(
+            return Err(ArbitrageError::api_error(format!(
                 "Telegram API error {}: {}",
                 status, response_text
             )));
         }
 
         serde_json::from_str(&response_text)
-            .map_err(|e| ArbitrageError::external_service_error(format!("Failed to parse response: {}", e)))
+            .map_err(|e| ArbitrageError::api_error(format!("Failed to parse response: {}", e)))
     }
 
     /// Calculate retry delay with exponential backoff
     fn calculate_retry_delay(&self, attempt: u32) -> u64 {
-        let delay = self.retry_config.base_delay_ms as f64 
+        let delay = self.retry_config.base_delay_ms as f64
             * self.retry_config.backoff_multiplier.powi(attempt as i32);
-        
+
         (delay as u64).min(self.retry_config.max_delay_ms)
     }
 
@@ -288,4 +292,4 @@ impl TelegramBotClient {
 
         self.make_api_request(&url, json!({})).await
     }
-}  
+}

@@ -3,7 +3,7 @@ use crate::services::core::infrastructure::kv::KVService;
 use crate::services::core::trading::kv_operations::KvOperations;
 use crate::types::{
     AIAccessLevel, AITemplate, AITemplateParameters, AITemplateType, AIUsageTracker,
-    ApiKeyProvider, TemplateAccess, UserProfile,
+    ApiKeyProvider, TemplateAccess, UserAccessLevel, UserProfile,
 };
 use log;
 use std::collections::HashMap;
@@ -26,6 +26,7 @@ pub enum ValidationLevel {
 
 /// Service for managing AI access levels, usage tracking, and template management
 pub struct AIAccessService {
+    #[allow(dead_code)] // Will be used for user preference storage
     d1_service: D1Service,
     kv_service: KVService,
 }
@@ -39,11 +40,13 @@ impl AIAccessService {
     }
 
     /// Helper function to extract f64 field from database row
+    #[allow(dead_code)] // Will be used for AI access data parsing
     fn get_field_as_f64(row: &Value, field: &str, default: f64) -> f64 {
         row.get(field).and_then(|v| v.as_f64()).unwrap_or(default)
     }
 
     /// Helper function to extract u32 field from database row
+    #[allow(dead_code)] // Will be used for AI access data parsing
     fn get_field_as_u32(row: &Value, field: &str, default: u32) -> u32 {
         row.get(field)
             .and_then(|v| v.as_f64())
@@ -53,6 +56,7 @@ impl AIAccessService {
     }
 
     /// Helper function to extract u64 field from database row
+    #[allow(dead_code)] // Will be used for AI access data parsing
     fn get_field_as_u64(row: &Value, field: &str, default: u64) -> u64 {
         row.get(field)
             .and_then(|v| v.as_f64())
@@ -62,6 +66,7 @@ impl AIAccessService {
     }
 
     /// Helper function to extract string field from database row
+    #[allow(dead_code)] // Will be used for AI access data parsing
     fn get_field_as_string(row: &Value, field: &str) -> Option<String> {
         row.get(field)
             .and_then(|v| v.as_str())
@@ -69,6 +74,7 @@ impl AIAccessService {
     }
 
     /// Helper function to extract JSON field as HashMap from database row
+    #[allow(dead_code)] // Will be used for AI access data parsing
     fn get_field_as_json_map(row: &Value, field: &str) -> HashMap<String, f64> {
         row.get(field)
             .and_then(|v| v.as_str())
@@ -77,6 +83,7 @@ impl AIAccessService {
     }
 
     /// Helper function to extract boolean field from database row
+    #[allow(dead_code)] // Will be used for AI access data parsing
     fn get_field_as_bool(row: &Value, field: &str, default: bool) -> bool {
         row.get(field).and_then(|v| v.as_bool()).unwrap_or(default)
     }
@@ -103,12 +110,18 @@ impl AIAccessService {
             .map_err(|e| format!("Failed to serialize AI access level: {}", e))?;
 
         // Removed mutable borrow as KvOperations::put likely takes &self
-        let _ = self
-            .kv_service
-            .put(&cache_key, &cache_value, Some(3600))
-            .await;
+        let _ = self.kv_service.put(&cache_key, &cache_value).await;
 
-        Ok(access_level)
+        // Convert UserAccessLevel to AIAccessLevel
+        let ai_access_level = match access_level {
+            UserAccessLevel::FreeWithoutAPI => AIAccessLevel::FreeWithoutAI,
+            UserAccessLevel::FreeWithAPI => AIAccessLevel::FreeWithAI,
+            UserAccessLevel::SubscriptionWithAPI => AIAccessLevel::SubscriptionWithAI,
+            UserAccessLevel::Premium => AIAccessLevel::PremiumAI,
+            UserAccessLevel::SuperAdmin => AIAccessLevel::EnterpriseAI,
+            _ => AIAccessLevel::FreeWithoutAI, // Default for all other access levels
+        };
+        Ok(ai_access_level)
     }
 
     /// Invalidate AI access level cache for a user
@@ -335,7 +348,7 @@ impl AIAccessService {
     pub async fn get_user_ai_templates(
         &self,
         _user_id: &str,
-        access_level: &AIAccessLevel,
+        _access_level: &AIAccessLevel,
     ) -> Result<Vec<AITemplate>, String> {
         #[cfg(target_arch = "wasm32")]
         {

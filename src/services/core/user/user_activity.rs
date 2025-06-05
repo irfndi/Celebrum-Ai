@@ -38,7 +38,7 @@ impl UserActivityService {
         });
 
         self.kv_service
-            .put(&activity_key, &activity_data.to_string())?
+            .put(&activity_key, activity_data.to_string())?
             .expiration_ttl(24 * 3600) // 24 hours
             .execute()
             .await?;
@@ -129,7 +129,7 @@ impl UserActivityService {
             .query(
                 query,
                 &[
-                    worker::wasm_bindgen::JsValue::from_str(&user_id.to_string()),
+                    worker::wasm_bindgen::JsValue::from_str(user_id),
                     worker::wasm_bindgen::JsValue::from_f64(start_timestamp as f64),
                 ],
             )
@@ -155,7 +155,7 @@ impl UserActivityService {
         // Update in KV for fast access
         let last_active_key = format!("user_last_active:{}", user_id);
         self.kv_service
-            .put(&last_active_key, &now.to_string())?
+            .put(&last_active_key, now.to_string())?
             .expiration_ttl(30 * 24 * 3600) // 30 days
             .execute()
             .await?;

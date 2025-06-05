@@ -6,7 +6,7 @@
 // In production, this would use Cloudflare Analytics Engine REST API with proper authentication.
 
 use crate::services::core::market_data_ingestion::MarketDataSnapshot;
-use crate::types::{ArbitrageOpportunity, ExchangeIdEnum};
+use crate::types::ArbitrageOpportunity;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -131,10 +131,11 @@ pub type AnalyticsEngine = AnalyticsEngineClient;
 pub struct AnalyticsEngineConfig {
     pub enabled: bool,
     pub dataset_name: String,
-    pub batch_size: u32,
+    pub batch_size: Option<u32>,
     pub flush_interval_seconds: u64,
     pub retention_days: u32,
     pub enable_real_time_analytics: bool,
+    pub enable_batching: bool,
 }
 
 impl Default for AnalyticsEngineConfig {
@@ -142,10 +143,11 @@ impl Default for AnalyticsEngineConfig {
         Self {
             enabled: true,
             dataset_name: "arbitrage_analytics".to_string(),
-            batch_size: 100,
+            batch_size: Some(100),
             flush_interval_seconds: 60,
             retention_days: 90,
             enable_real_time_analytics: false,
+            enable_batching: true,
         }
     }
 }
@@ -263,7 +265,37 @@ pub struct AnalyticsEngineService {
 }
 
 impl AnalyticsEngineService {
+    /// Calculate opportunity risk score (0.0 to 1.0)
+    fn calculate_opportunity_risk(&self, opportunity: &ArbitrageOpportunity) -> f32 {
+        // Basic risk calculation based on rate difference and exchange reliability
+        let rate_risk = (opportunity.rate_difference * 100.0).abs() as f32 / 10.0; // Higher rates = higher risk
+        let exchange_risk = 0.1; // Base exchange risk factor
+
+        // Normalize to 0-1 range
+        (rate_risk + exchange_risk).min(1.0)
+    }
+
+    /// Flush buffered events to Analytics Engine
+    async fn flush_event_buffer(&mut self) -> ArbitrageResult<()> {
+        if self.event_buffer.is_empty() || !self.config.enabled {
+            return Ok(());
+        }
+
+        if let Some(engine) = &self.analytics_engine {
+            engine
+                .write_data_point(&self.event_buffer)
+                .await
+                .map_err(|e| {
+                    ArbitrageError::api_error(format!("Analytics Engine flush failed: {}", e))
+                })?;
+        }
+
+        self.event_buffer.clear();
+        Ok(())
+    }
+
     /// Validate and escape user_id to prevent SQL injection
+    #[allow(dead_code)] // Will be used for user analytics
     fn validate_and_escape_user_id(&self, user_id: &str) -> ArbitrageResult<String> {
         // Validate that user_id contains only allowed characters
         if !user_id
@@ -493,6 +525,7 @@ impl AnalyticsEngineService {
     }
 
     /// Query user engagement data from Analytics Engine
+    #[allow(dead_code)] // Will be used for user analytics
     async fn query_user_engagement(
         &self,
         analytics_engine: &AnalyticsEngine,
@@ -554,6 +587,7 @@ impl AnalyticsEngineService {
     }
 
     /// Query user conversion data from Analytics Engine
+    #[allow(dead_code)] // Will be used for user analytics
     async fn query_user_conversions(
         &self,
         analytics_engine: &AnalyticsEngine,
@@ -654,6 +688,7 @@ impl AnalyticsEngineService {
     }
 
     /// Query user AI usage data from Analytics Engine
+    #[allow(dead_code)] // Will be used for user analytics
     async fn query_user_ai_usage(
         &self,
         analytics_engine: &AnalyticsEngine,
@@ -702,23 +737,27 @@ impl AnalyticsEngineService {
 
 // Helper structs for Analytics Engine query results
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for opportunity analytics
 struct OpportunityMetrics {
     opportunities_per_minute: f32,
     conversion_rate: f32,
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for system analytics
 struct SystemMetrics {
     average_latency: f32,
     health_score: f32,
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for AI analytics
 struct AIMetrics {
     success_rate: f32,
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for user analytics
 struct UserEngagementData {
     total_opportunities_viewed: u64,
     session_frequency_per_week: f32,
@@ -726,6 +765,7 @@ struct UserEngagementData {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for user analytics
 struct UserConversionData {
     total_executed: u64,
     success_rate: f32,
@@ -735,6 +775,7 @@ struct UserConversionData {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for AI usage analytics
 struct UserAIUsageData {
     usage_frequency: f32,
 }
@@ -756,6 +797,7 @@ impl Default for RealTimeMetrics {
 }
 
 impl UserAnalytics {
+    #[allow(dead_code)] // Will be used for default user analytics
     fn default(user_id: &str) -> Self {
         Self {
             user_id: user_id.to_string(),
@@ -792,17 +834,4 @@ pub struct MarketSnapshotEvent {
     // Add other relevant fields from MarketDataSnapshot
     pub source: String, // e.g., "binance", "bybit"
     pub timestamp: u64,
-}
-
-impl Default for AnalyticsEngineConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            dataset_name: "arbitrage_analytics".to_string(),
-            batch_size: 100,
-            flush_interval_seconds: 60,
-            retention_days: 90,
-            enable_real_time_analytics: false,
-        }
-    }
 }

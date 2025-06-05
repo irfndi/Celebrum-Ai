@@ -65,6 +65,7 @@ impl<T: KvOperations + Send + Sync + 'static> PositionsService<T> {
     }
 
     // Helper to create a KvStore key for user positions
+    #[allow(dead_code)] // Will be used for position management
     fn user_positions_key(user_id: &str) -> String {
         format!("user_positions:{}", user_id)
     }
@@ -75,6 +76,7 @@ impl<T: KvOperations + Send + Sync + 'static> PositionsService<T> {
     }
 
     /// Check if user has required permission using database-based RBAC
+    #[allow(dead_code)] // Will be used for permission checking
     async fn check_user_permission(&self, user_id: &str, permission: &CommandPermission) -> bool {
         // If UserProfile service is not available, deny access for security
         let Some(ref user_profile_service) = self.user_profile_service else {

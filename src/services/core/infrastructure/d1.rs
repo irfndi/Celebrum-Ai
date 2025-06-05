@@ -11,7 +11,9 @@ use worker::{D1Database, Env};
 /// D1 Database Service for high-level database operations
 pub struct D1Service {
     database: D1Database,
+    #[allow(dead_code)] // Will be used for connection management
     connection_pool_size: u32,
+    #[allow(dead_code)] // Will be used for query timeout handling
     query_timeout_ms: u64,
 }
 
@@ -109,7 +111,7 @@ impl D1Service {
             .await
             .map_err(|e| ArbitrageError::database_error(format!("D1 execute failed: {}", e)))?;
 
-        Ok(result.meta().map_or(0, |actual_meta| actual_meta.changes) as u64)
+        Ok(result.meta().map_or(0, |m| m.unwrap().changes.unwrap_or(0)) as u64)
     }
 
     /// Get the underlying D1 database instance
