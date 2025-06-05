@@ -2340,7 +2340,7 @@ mod tests {
             entry_price_short: 50100.0,
             take_profit_price: Some(51000.0),
             volatility_score: Some(0.5),
-            calculated_size_usd: Some(5000.0),
+            calculated_size_usd: Some(value), // Use the passed value parameter
             long_exchange: ExchangeIdEnum::Binance,
             short_exchange: ExchangeIdEnum::Bybit,
             size: Some(0.1),

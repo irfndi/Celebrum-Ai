@@ -155,7 +155,7 @@ impl CacheEntry {
     /// Check if entry is expired
     pub fn is_expired(&self) -> bool {
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        now > self.expires_at
+        now >= self.expires_at
     }
 
     /// Update access statistics

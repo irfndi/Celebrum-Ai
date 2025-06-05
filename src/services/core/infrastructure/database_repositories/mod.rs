@@ -212,7 +212,19 @@ pub mod utils {
 
     /// Validate email format
     pub fn validate_email(email: &str) -> ArbitrageResult<()> {
-        if !email.contains('@') || !email.contains('.') {
+        // Basic email validation: must have text before @, @ symbol, and . after @
+        let at_pos = email.find('@');
+        if let Some(at_pos) = at_pos {
+            // Check there's text before @
+            if at_pos == 0 {
+                return Err(validation_error("email", "invalid format"));
+            }
+            // Check there's text after @ and a . in the domain part
+            let domain_part = &email[at_pos + 1..];
+            if domain_part.is_empty() || !domain_part.contains('.') {
+                return Err(validation_error("email", "invalid format"));
+            }
+        } else {
             return Err(validation_error("email", "invalid format"));
         }
         Ok(())

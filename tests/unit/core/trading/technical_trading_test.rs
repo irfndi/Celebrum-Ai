@@ -7,8 +7,8 @@ use arb_edge::services::core::analysis::market_analysis::{
     OpportunityType, RiskLevel, TimeHorizon,
 };
 use arb_edge::services::core::analysis::technical_analysis::{
-    SignalStrength, SignalType as TradingSignalType,
-    TechnicalAnalysisConfig as TechnicalTradingServiceConfig, TechnicalSignal,
+    SignalDirection, SignalStrength, SignalType, SignalType as TradingSignalType,
+    TechnicalAnalysisConfig, TechnicalSignal, Timeframe,
 };
 use arb_edge::services::core::user::user_trading_preferences::{
     ExperienceLevel, RiskTolerance, TradingFocus,
@@ -53,38 +53,19 @@ impl MockTechnicalSignal {
     #[allow(dead_code)] // Added to suppress warning as it might not be used everywhere yet
     fn to_technical_signal(&self) -> TechnicalSignal {
         TechnicalSignal {
-            signal_id: self.signal_id.clone(),
-            exchange_id: self.exchange_id.clone(),
-            trading_pair: self.trading_pair.clone(),
-            signal_type: self.signal_type.clone(),
-            signal_strength: self.signal_strength.clone(),
-            // indicator_source: "Mock".to_string(), // This field does not exist in the new TechnicalSignal struct
-            // The new TechnicalSignal has: id, pair, exchange, signal_type, direction, strength, timeframe, current_price, target_price, stop_loss, confidence, description, generated_at, expires_at, metadata
-            // We need to map MockTechnicalSignal fields to these appropriately or adjust MockTechnicalSignal
-            // For now, let's try a basic mapping, assuming some defaults or deriving them
             id: self.signal_id.clone(),
             pair: self.trading_pair.clone(),
-            exchange: ExchangeIdEnum::Binance, // Placeholder, ideally this should come from MockTechnicalSignal
-            // signal_type: self.signal_type.clone(), // This is already present
-            direction:
-                arb_edge::services::core::analysis::technical_analysis::SignalDirection::Neutral, // Placeholder
-            // strength: self.signal_strength.clone(), // This is already present
-            timeframe: arb_edge::services::core::analysis::technical_analysis::Timeframe::M5, // Placeholder
-            current_price: self.entry_price, // Renamed from entry_price
-            // target_price: Some(self.entry_price * 1.02), // Already present
-            // stop_loss: Some(self.entry_price * 0.98), // Already present
-            // confidence: self.confidence_score, // Already present
-            description: format!("Mock signal for {}", self.trading_pair),
-            // generated_at: chrono::Utc::now().timestamp_millis() as u64, // Already present
-            // expires_at: chrono::Utc::now().timestamp_millis() as u64 + 3600000, // Already present
-            // metadata: json!({}), // Already present
-            // Ensure all fields from TechnicalSignal are covered
-            // Missing: direction, timeframe, description. Added placeholders.
-            entry_price: self.entry_price,
+            exchange: ExchangeIdEnum::Binance, // Placeholder
+            signal_type: self.signal_type.clone(),
+            direction: SignalDirection::Neutral, // Placeholder
+            strength: self.signal_strength.clone(),
+            timeframe: Timeframe::M5, // Placeholder
+            current_price: self.entry_price,
             target_price: Some(self.entry_price * 1.02),
             stop_loss: Some(self.entry_price * 0.98),
-            confidence_score: self.confidence_score,
-            created_at: chrono::Utc::now().timestamp_millis() as u64,
+            confidence: self.confidence_score,
+            description: format!("Mock signal for {}", self.trading_pair),
+            generated_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + 3600000,
             metadata: json!({}),
         }
@@ -95,19 +76,19 @@ impl MockTechnicalSignal {
 
 #[derive(Debug, Clone)] // Added derive for Clone as it's used in .cloned()
 struct MockTechnicalTradingService {
-    config: TechnicalTradingServiceConfig,
+    config: TechnicalAnalysisConfig,
     generated_signals: Vec<MockTechnicalSignal>,
 }
 
 impl MockTechnicalTradingService {
     fn new() -> Self {
         Self {
-            config: TechnicalTradingServiceConfig::default(),
+            config: TechnicalAnalysisConfig::default(),
             generated_signals: Vec::new(),
         }
     }
 
-    fn with_config(mut self, config: TechnicalTradingServiceConfig) -> Self {
+    fn with_config(mut self, config: TechnicalAnalysisConfig) -> Self {
         self.config = config;
         self
     }
@@ -125,18 +106,18 @@ impl MockTechnicalTradingService {
         // Mock RSI calculation
         let mock_rsi = 50.0 + (price % 50.0);
 
-        let (signal_type, signal_strength, confidence) =
-            if mock_rsi > self.config.rsi_strong_threshold {
-                (TradingSignalType::Sell, SignalStrength::Strong, 0.85)
-            } else if mock_rsi > self.config.rsi_overbought_threshold {
-                (TradingSignalType::Sell, SignalStrength::Moderate, 0.70)
-            } else if mock_rsi < (100.0 - self.config.rsi_strong_threshold) {
-                (TradingSignalType::Buy, SignalStrength::Strong, 0.85)
-            } else if mock_rsi < self.config.rsi_oversold_threshold {
-                (TradingSignalType::Buy, SignalStrength::Moderate, 0.70)
-            } else {
-                (TradingSignalType::Hold, SignalStrength::Weak, 0.50)
-            };
+        // Use standard RSI thresholds since config doesn't have them anymore
+        let (signal_type, signal_strength, confidence) = if mock_rsi > 80.0 {
+            (TradingSignalType::Sell, SignalStrength::Strong, 0.85)
+        } else if mock_rsi > 70.0 {
+            (TradingSignalType::Sell, SignalStrength::Medium, 0.70)
+        } else if mock_rsi < 20.0 {
+            (TradingSignalType::Buy, SignalStrength::Strong, 0.85)
+        } else if mock_rsi < 30.0 {
+            (TradingSignalType::Buy, SignalStrength::Medium, 0.70)
+        } else {
+            (TradingSignalType::Hold, SignalStrength::Weak, 0.50)
+        };
 
         MockTechnicalSignal::new(
             &format!("rsi_{}_{}", exchange_id, trading_pair),
@@ -162,7 +143,7 @@ impl MockTechnicalTradingService {
         let (signal_type, signal_strength, confidence) = if short_ma > long_ma * 1.02 {
             (TradingSignalType::Buy, SignalStrength::Strong, 0.80)
         } else if short_ma > long_ma {
-            (TradingSignalType::Buy, SignalStrength::Moderate, 0.65)
+            (TradingSignalType::Buy, SignalStrength::Medium, 0.65)
         } else if short_ma < long_ma * 0.98 {
             (TradingSignalType::Sell, SignalStrength::Strong, 0.80)
         } else {
@@ -183,7 +164,7 @@ impl MockTechnicalTradingService {
     fn filter_by_confidence(&self, signals: &[MockTechnicalSignal]) -> Vec<MockTechnicalSignal> {
         signals
             .iter()
-            .filter(|signal| signal.confidence_score >= self.config.min_confidence_score)
+            .filter(|signal| signal.confidence_score >= self.config.min_confidence_threshold)
             .cloned()
             .collect()
     }
@@ -206,7 +187,7 @@ impl MockTechnicalTradingService {
             .collect()
     }
 
-    fn get_config(&self) -> &TechnicalTradingServiceConfig {
+    fn get_config(&self) -> &TechnicalAnalysisConfig {
         &self.config
     }
 
@@ -221,58 +202,54 @@ mod tests {
 
     #[test]
     fn test_technical_trading_service_config_default() {
-        let config = TechnicalTradingServiceConfig::default();
+        let config = TechnicalAnalysisConfig::default();
 
-        assert_eq!(config.exchanges.len(), 2);
-        assert!(config.exchanges.contains(&ExchangeIdEnum::Binance));
-        assert!(config.exchanges.contains(&ExchangeIdEnum::Bybit));
-        assert_eq!(config.monitored_pairs.len(), 2);
-        assert!(config.monitored_pairs.contains(&"BTC/USDT".to_string()));
-        assert!(config.monitored_pairs.contains(&"ETH/USDT".to_string()));
-        assert_eq!(config.rsi_overbought_threshold, 70.0);
-        assert_eq!(config.rsi_oversold_threshold, 30.0);
-        assert_eq!(config.rsi_strong_threshold, 80.0);
-        assert_eq!(config.ma_short_period, 10);
-        assert_eq!(config.ma_long_period, 20);
-        assert_eq!(config.min_confidence_score, 0.6);
-        assert_eq!(config.signal_expiry_minutes, 60);
+        assert_eq!(config.enabled_exchanges.len(), 4);
+        assert!(config.enabled_exchanges.contains(&ExchangeIdEnum::Binance));
+        assert!(config.enabled_exchanges.contains(&ExchangeIdEnum::Bybit));
+        assert_eq!(config.monitored_pairs.len(), 6);
+        assert!(config.monitored_pairs.contains(&"BTCUSDT".to_string()));
+        assert!(config.monitored_pairs.contains(&"ETHUSDT".to_string()));
+        assert_eq!(config.min_confidence_threshold, 0.7);
+        assert_eq!(config.signal_expiry_hours, 24);
+        assert_eq!(config.max_signals_per_hour, 10);
+        assert!(config.enable_multi_timeframe);
     }
 
     #[test]
     fn test_technical_trading_service_config_custom() {
-        let custom_config = TechnicalTradingServiceConfig {
-            exchanges: vec![
+        let custom_config = TechnicalAnalysisConfig {
+            enabled_exchanges: vec![
                 ExchangeIdEnum::Binance,
                 ExchangeIdEnum::Bybit,
                 ExchangeIdEnum::OKX,
             ],
             monitored_pairs: vec![
-                "BTC/USDT".to_string(),
-                "ETH/USDT".to_string(),
-                "ADA/USDT".to_string(),
+                "BTCUSDT".to_string(),
+                "ETHUSDT".to_string(),
+                "ADAUSDT".to_string(),
             ],
-            rsi_overbought_threshold: 75.0,
-            rsi_oversold_threshold: 25.0,
-            rsi_strong_threshold: 85.0,
-            ma_short_period: 5,
-            ma_long_period: 15,
-            bb_period: 15,
-            bb_std_dev: 1.5,
-            min_confidence_score: 0.70,
-            signal_expiry_minutes: 30,
-            default_stop_loss_percentage: 0.015,
-            default_take_profit_ratio: 2.5,
+            enabled_signals: vec![
+                SignalType::RsiDivergence,
+                SignalType::MovingAverageCrossover,
+                SignalType::BollingerBandBreakout,
+            ],
+            min_confidence_threshold: 0.70,
+            max_signals_per_hour: 10,
+            signal_expiry_hours: 1, // 1 hour instead of 30 minutes
+            enable_multi_timeframe: true,
+            primary_timeframes: vec![Timeframe::H1, Timeframe::H4],
         };
 
         let service = MockTechnicalTradingService::new().with_config(custom_config.clone());
         let config = service.get_config();
 
-        assert_eq!(config.exchanges.len(), 3);
+        assert_eq!(config.enabled_exchanges.len(), 3);
         assert_eq!(config.monitored_pairs.len(), 3);
-        assert_eq!(config.rsi_overbought_threshold, 75.0);
-        assert_eq!(config.rsi_oversold_threshold, 25.0);
-        assert_eq!(config.min_confidence_score, 0.70);
-        assert_eq!(config.signal_expiry_minutes, 30);
+        assert_eq!(config.min_confidence_threshold, 0.70);
+        assert_eq!(config.signal_expiry_hours, 1);
+        assert_eq!(config.max_signals_per_hour, 10);
+        assert!(config.enable_multi_timeframe);
     }
 
     #[test]
@@ -292,7 +269,7 @@ mod tests {
                                                                                         // Let's test with a price that generates moderate signal instead
         let moderate_signal = service.generate_rsi_signal("binance", "ETH/USDT", 25.0); // 50 + (25 % 50) = 50 + 25 = 75 > 70
         assert_eq!(moderate_signal.signal_type, TradingSignalType::Sell);
-        assert_eq!(moderate_signal.signal_strength, SignalStrength::Moderate);
+        assert_eq!(moderate_signal.signal_strength, SignalStrength::Medium);
         assert!(moderate_signal.confidence_score >= 0.70);
     }
 

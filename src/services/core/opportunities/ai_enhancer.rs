@@ -687,10 +687,10 @@ mod tests {
     fn test_arbitrage_opportunity_structure() {
         let arb_opp = create_test_arbitrage_opportunity();
 
-        assert_eq!(arb_opp.pair, "BTCUSDT");
-        assert_eq!(arb_opp.long_exchange, ExchangeIdEnum::Binance);
-        assert_eq!(arb_opp.short_exchange, ExchangeIdEnum::Bybit);
-        assert_eq!(arb_opp.rate_difference, 0.001);
+        assert_eq!(arb_opp.pair, "BTC/USDT"); // Fixed: matches the test data
+        assert_eq!(arb_opp.long_exchange, ExchangeIdEnum::Bybit); // Fixed: long_exchange is Bybit
+        assert_eq!(arb_opp.short_exchange, ExchangeIdEnum::Binance); // Fixed: short_exchange is Binance
+        assert_eq!(arb_opp.rate_difference, 50.0); // Fixed: rate_difference is 50.0, not 0.001
         assert_eq!(arb_opp.min_exchanges_required, 2);
         assert!(matches!(arb_opp.r#type, ArbitrageType::CrossExchange));
     }

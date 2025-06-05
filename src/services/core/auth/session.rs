@@ -341,15 +341,14 @@ mod tests {
     use crate::types::{
         EnhancedSessionState, EnhancedUserSession, SessionAnalytics, SessionConfig,
     };
+    use parking_lot::Mutex;
     use std::collections::HashMap;
-    use std::sync::Arc;
-    use tokio::sync::Mutex; // Use tokio's Mutex for async tests
+    use std::sync::Arc; // Use parking_lot's Mutex for WASM compatibility
 
     // Define a trait that SessionManagementService and its mock can implement
     // This is a better approach for mocking but requires refactoring SessionManagementService
     // For now, we'll create a specific mock struct.
 
-    #[derive(Clone)]
     struct MockSessionManagementService {
         expected_session: Mutex<Option<Option<EnhancedUserSession>>>,
         // Stores user_id -> EnhancedUserSession for start_session/update_activity simulation
@@ -365,7 +364,7 @@ mod tests {
         }
 
         async fn set_expected_validate_session_result(&self, result: Option<EnhancedUserSession>) {
-            *self.expected_session.lock().await = Some(result);
+            *self.expected_session.lock() = Some(result);
         }
 
         // Mocked methods from SessionManagementService that AuthSessionService calls
@@ -373,7 +372,7 @@ mod tests {
             &self,
             _user_id: &str,
         ) -> ArbitrageResult<Option<EnhancedUserSession>> {
-            Ok(self.expected_session.lock().await.take().unwrap_or(None))
+            Ok(self.expected_session.lock().take().unwrap_or(None))
         }
 
         async fn start_session(
@@ -405,13 +404,12 @@ mod tests {
             };
             self.active_sessions_mock
                 .lock()
-                .await
                 .insert(user_id, session.clone());
             Ok(session)
         }
 
         async fn update_activity(&self, user_id: &str) -> ArbitrageResult<()> {
-            let mut sessions = self.active_sessions_mock.lock().await;
+            let mut sessions = self.active_sessions_mock.lock();
             if let Some(session) = sessions.get_mut(user_id) {
                 session.last_activity_at = chrono::Utc::now().timestamp_millis() as u64;
                 session.expires_at = session.last_activity_at + 3600 * 1000; // Extend by 1 hour
@@ -420,7 +418,7 @@ mod tests {
         }
 
         async fn end_session(&self, user_id: &str) -> ArbitrageResult<()> {
-            let mut sessions = self.active_sessions_mock.lock().await;
+            let mut sessions = self.active_sessions_mock.lock();
             if let Some(session) = sessions.get_mut(user_id) {
                 session.session_state = EnhancedSessionState::Terminated;
                 session.current_state = EnhancedSessionState::Terminated;
@@ -571,7 +569,6 @@ mod tests {
         assert!(mock_sms
             .active_sessions_mock
             .lock()
-            .await
             .get(user_id_to_end)
             .unwrap()
             .is_active());
@@ -582,7 +579,7 @@ mod tests {
 
         // // Verify that the mock SessionManagementService's end_session was effectively called
         // // (i.e., session is marked as terminated in the mock's internal state)
-        // let session_in_mock = mock_sms.active_sessions_mock.lock().await.get(user_id_to_end).cloned();
+        // let session_in_mock = mock_sms.active_sessions_mock.lock().get(user_id_to_end).cloned();
         // assert!(session_in_mock.is_some());
         // assert!(!session_in_mock.unwrap().is_active()); // Should be terminated
 

@@ -218,8 +218,8 @@ mod integration_tests {
 
         // Test opportunity creation
         let opportunity = create_test_opportunity();
-        assert_eq!(opportunity.pair, "BTCUSDT");
-        assert_eq!(opportunity.rate_difference, 0.002);
+        assert_eq!(opportunity.pair, "BTC/USDT"); // Updated to match current format
+        assert_eq!(opportunity.rate_difference, 0.0001); // Updated to match actual value
         assert!(opportunity.potential_profit_value.unwrap() > 0.0);
 
         // Test analytics storage

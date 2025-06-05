@@ -196,6 +196,7 @@ impl PipelineManagerConfig {
         Self {
             batch_size: 500,                   // Larger batches for higher throughput
             batch_timeout_seconds: 180,        // 3 minutes, shorter timeout for faster processing
+            compression_threshold_bytes: 512,  // Smaller threshold for faster compression
             max_concurrent_pipelines: 20,      // More concurrent pipelines
             pipeline_timeout_seconds: 60,      // Shorter timeout for individual pipelines
             health_check_interval_seconds: 30, // More frequent health checks
@@ -208,11 +209,11 @@ impl PipelineManagerConfig {
     /// Create configuration optimized for high reliability
     pub fn high_reliability() -> Self {
         Self {
-            batch_size: 100,                    // Smaller batches, easier to retry failed ones
+            batch_size: 100,                   // Smaller batches, easier to retry failed ones
             batch_timeout_seconds: 600, // 10 minutes, longer timeout to allow for retries and recovery
             max_concurrent_pipelines: 5, // Fewer concurrent pipelines to reduce load and potential points of failure
             pipeline_timeout_seconds: 120, // Longer timeout for individual pipelines to handle transient issues
-            health_check_interval_seconds: 120, // Less frequent, but potentially more thorough health checks
+            health_check_interval_seconds: 30, // More frequent health checks for better reliability monitoring
             r2_bucket_name: "prod-arb-edge-high-reliability".to_string(), // Dedicated bucket for high reliability
             // Inherit other settings from default, like enable_pipelines, enable_r2_storage, etc.
             ..Self::default()

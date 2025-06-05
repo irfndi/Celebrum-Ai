@@ -1,10 +1,10 @@
 use crate::services::core::trading::{KvOperationError, KvOperations, KvResult};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 // Mock KV Store for testing
 pub struct MockKvStore {
@@ -31,7 +31,7 @@ impl MockKvStore {
     }
 
     pub async fn mock_put(&mut self, key: &str, value: &str) -> ArbitrageResult<()> {
-        *self.operation_count.lock().await += 1;
+        *self.operation_count.lock() += 1;
 
         if let Some(ref error_type) = self.error_simulation {
             return match error_type.as_str() {
@@ -40,25 +40,25 @@ impl MockKvStore {
                 _ => Err(ArbitrageError::validation_error("Unknown KV error")),
             };
         }
-        self.data.insert(key.to_string(), value.to_string());
+        self.data.lock().insert(key.to_string(), value.to_string());
         Ok(())
     }
 
     pub async fn mock_get(&mut self, key: &str) -> ArbitrageResult<Option<String>> {
-        *self.operation_count.lock().await += 1;
+        *self.operation_count.lock() += 1;
         if let Some(ref error_type) = self.error_simulation {
             return match error_type.as_str() {
                 "kv_get_failed" => Err(ArbitrageError::database_error("KV get operation failed")),
                 _ => Err(ArbitrageError::validation_error("Unknown KV error")),
             };
         }
-        Ok(self.data.get(key).cloned())
+        Ok(self.data.lock().get(key).cloned())
     }
 }
 
 #[async_trait]
 impl KvOperations for MockKvStore {
-    async fn put<T: Serialize + Send>(&self, key: &str, value: &T) -> KvResult<()> {
+    async fn put<T: Serialize + Send + Sync + ?Sized>(&self, key: &str, value: &T) -> KvResult<()> {
         if let Some(ref error_type) = self.error_simulation {
             return match error_type.as_str() {
                 "kv_put_failed" => Err(KvOperationError::Storage(
@@ -68,10 +68,10 @@ impl KvOperations for MockKvStore {
                 _ => Err(KvOperationError::Storage("Unknown KV error".to_string())),
             };
         }
-        let mut data_guard = self.data.lock().await;
+        let mut data_guard = self.data.lock();
         let s_value = serde_json::to_string(value).map_err(KvOperationError::Serialization)?;
         data_guard.insert(key.to_string(), s_value);
-        *self.operation_count.lock().await += 1;
+        *self.operation_count.lock() += 1;
         Ok(())
     }
 
@@ -84,8 +84,8 @@ impl KvOperations for MockKvStore {
                 _ => Err(KvOperationError::Storage("Unknown KV error".to_string())),
             };
         }
-        let data_guard = self.data.lock().await;
-        *self.operation_count.lock().await += 1;
+        let data_guard = self.data.lock();
+        *self.operation_count.lock() += 1;
         match data_guard.get(key) {
             Some(s_val) => {
                 let val: T =
@@ -105,15 +105,16 @@ impl KvOperations for MockKvStore {
                 _ => Err(KvOperationError::Storage("Unknown KV error".to_string())),
             };
         }
-        let mut data_guard = self.data.lock().await;
+        let mut data_guard = self.data.lock();
         data_guard.remove(key);
-        *self.operation_count.lock().await += 1;
+        *self.operation_count.lock() += 1;
         Ok(())
     }
+}
 
-    // Moved mock_delete into the impl block
-    async fn mock_delete(&mut self, key: &str) -> ArbitrageResult<()> {
-        *self.operation_count.lock().await += 1;
+impl MockKvStore {
+    pub async fn mock_delete(&mut self, key: &str) -> ArbitrageResult<()> {
+        *self.operation_count.lock() += 1;
         if let Some(ref error_type) = self.error_simulation {
             return match error_type.as_str() {
                 "kv_delete_failed" => {
@@ -122,7 +123,7 @@ impl KvOperations for MockKvStore {
                 _ => Err(ArbitrageError::validation_error("Unknown KV error")),
             };
         }
-        self.data.lock().await.remove(key);
+        self.data.lock().remove(key);
         Ok(())
     }
-} // Close impl MockKvStore, which now includes mock_delete and the KvOperations trait impl
+}

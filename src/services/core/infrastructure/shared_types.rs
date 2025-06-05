@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_circuit_breaker_default() {
-        let breaker = CircuitBreaker::default();
+        let mut breaker = CircuitBreaker::default();
         assert_eq!(breaker.state, CircuitBreakerState::Closed);
         assert_eq!(breaker.threshold, 5);
         assert!(breaker.can_execute());

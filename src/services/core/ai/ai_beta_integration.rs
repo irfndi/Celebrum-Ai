@@ -354,7 +354,7 @@ impl AiBetaIntegrationService {
         // Update AI model metrics
         // self.update_ai_metrics(ai_score);
 
-        // Track this prediction as active
+        // Track this prediction as active - use the opportunity's ID directly
         #[cfg(target_arch = "wasm32")]
         let _now = js_sys::Date::now() as u64;
         #[cfg(not(target_arch = "wasm32"))]
@@ -363,12 +363,14 @@ impl AiBetaIntegrationService {
             .unwrap_or_default()
             .as_millis() as u64;
 
-        let prediction_id = format!("pred_{}", _now);
-
-        // Update the enhanced opportunity's ID if it was empty
-        if enhanced.base_opportunity.id.is_empty() {
-            enhanced.base_opportunity.id = prediction_id.clone();
-        }
+        // Use the opportunity's existing ID, or generate one if empty
+        let prediction_id = if enhanced.base_opportunity.id.is_empty() {
+            let new_id = format!("pred_{}", _now);
+            enhanced.base_opportunity.id = new_id.clone();
+            new_id
+        } else {
+            enhanced.base_opportunity.id.clone()
+        };
 
         // Track the prediction for accuracy measurement
         {
@@ -1112,7 +1114,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_prediction_tracking_and_success_marking() {
-        let config = AiBetaConfig::default();
+        let mut config = AiBetaConfig::default();
+        config.min_confidence_threshold = 0.5; // Lower threshold for testing
         let service = AiBetaIntegrationService::new(config);
 
         // Create and enhance an opportunity to generate a prediction

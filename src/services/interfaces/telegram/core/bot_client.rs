@@ -22,6 +22,16 @@ pub struct TelegramConfig {
     pub is_test_mode: bool,
 }
 
+impl Default for TelegramConfig {
+    fn default() -> Self {
+        Self {
+            bot_token: String::new(),
+            chat_id: String::new(),
+            is_test_mode: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
     pub max_retries: u32,

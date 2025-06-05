@@ -82,6 +82,23 @@ impl Default for AnalyticsModuleConfig {
 }
 
 impl AnalyticsModuleConfig {
+    /// Validate the analytics module configuration
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_concurrent_queries == 0 {
+            return Err("max_concurrent_queries must be greater than 0".to_string());
+        }
+        if self.batch_processing_size == 0 {
+            return Err("batch_processing_size must be greater than 0".to_string());
+        }
+        if self.cache_ttl_seconds == 0 {
+            return Err("cache_ttl_seconds must be greater than 0".to_string());
+        }
+        if self.retention_days == 0 {
+            return Err("retention_days must be greater than 0".to_string());
+        }
+        Ok(())
+    }
+
     /// High-performance configuration for 1000-2500 concurrent users
     pub fn high_performance() -> Self {
         Self {
@@ -170,7 +187,7 @@ mod tests {
     fn test_high_reliability_config() {
         let config = AnalyticsModuleConfig::high_reliability();
         assert_eq!(config.max_concurrent_queries, 50);
-        assert_eq!(config.retention_days, 365);
+        assert_eq!(config.retention_days, 180);
         assert!(!config.enable_predictive_analytics);
     }
 

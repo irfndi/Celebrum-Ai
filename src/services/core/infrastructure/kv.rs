@@ -3,31 +3,32 @@
 //! Provides key-value storage operations for the ArbEdge platform.
 //! Supports Cloudflare KV and other KV store implementations.
 
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// KV Store service for key-value operations
+/// KV service implementation using cache-based storage with interior mutability
 #[derive(Debug, Clone)]
 pub struct KVService {
+    #[allow(dead_code)] // Used for future KV store implementations
     namespace: String,
-    cache: HashMap<String, CachedValue>,
+    cache: Arc<Mutex<HashMap<String, CachedValue>>>,
     default_ttl: Duration,
 }
 
-/// Cached value with expiration
+/// Cached value with expiration time
 #[derive(Debug, Clone)]
 struct CachedValue {
     value: String,
     expires_at: u64,
 }
 
-/// KV operation result
+/// Result type for KV operations
 pub type KVResult<T> = Result<T, KVError>;
 
-/// KV service errors
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// KV operation errors
+#[derive(Debug, Clone)]
 pub enum KVError {
     NotFound(String),
     SerializationError(String),
@@ -41,115 +42,18 @@ pub enum KVError {
 impl std::fmt::Display for KVError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            KVError::NotFound(key) => write!(f, "Key not found: {}", key),
+            KVError::NotFound(msg) => write!(f, "Not found: {}", msg),
             KVError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
             KVError::NetworkError(msg) => write!(f, "Network error: {}", msg),
             KVError::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
             KVError::QuotaExceeded(msg) => write!(f, "Quota exceeded: {}", msg),
-            KVError::InvalidKey(key) => write!(f, "Invalid key: {}", key),
+            KVError::InvalidKey(msg) => write!(f, "Invalid key: {}", msg),
             KVError::ServiceUnavailable(msg) => write!(f, "Service unavailable: {}", msg),
         }
     }
 }
 
 impl std::error::Error for KVError {}
-
-// Import the KvOperations trait
-use crate::services::core::trading::kv_operations::KvOperations;
-use async_trait::async_trait;
-
-// Implement KvOperations trait for KVService
-#[cfg(not(target_arch = "wasm32"))]
-#[async_trait]
-impl KvOperations for KVService {
-    async fn put<T: Serialize + Send + Sync + ?Sized>(
-        &self,
-        key: &str,
-        value: &T,
-    ) -> crate::services::core::trading::kv_operations::KvResult<()> {
-        let _full_key = format!("{}:{}", self.namespace, key);
-        let _serialized_value = serde_json::to_string(value).map_err(|e| {
-            crate::services::core::trading::kv_operations::KvOperationError::Serialization(e)
-        })?;
-
-        // TODO: Implement actual KV store write operation
-        Ok(())
-    }
-
-    async fn get<T: DeserializeOwned + Send>(
-        &self,
-        key: &str,
-    ) -> crate::services::core::trading::kv_operations::KvResult<Option<T>> {
-        let _full_key = format!("{}:{}", self.namespace, key);
-        // TODO: Implement actual KV store read operation
-        // Placeholder: returning Ok(None) for now
-        // match self.store.get(&full_key).json().await {
-        //     Ok(Some(value)) => Ok(Some(value)),
-        //     Ok(None) => Ok(None),
-        //     Err(e) => Err(
-        //         crate::services::core::trading::kv_operations::KvOperationError::Storage(
-        //             e.to_string(),
-        //         ),
-        //     ),
-        // }
-        Ok(None) // Placeholder response
-    }
-
-    async fn delete(
-        &self,
-        key: &str,
-    ) -> crate::services::core::trading::kv_operations::KvResult<()> {
-        let _full_key = format!("{}:{}", self.namespace, key);
-        // TODO: Implement actual KV store delete operation
-        Ok(())
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-#[async_trait(?Send)]
-impl KvOperations for KVService {
-    async fn put<T: Serialize + Send + ?Sized>(
-        &self,
-        key: &str,
-        value: &T,
-    ) -> crate::services::core::trading::kv_operations::KvResult<()> {
-        let _full_key = format!("{}:{}", self.namespace, key);
-        let _serialized_value = serde_json::to_string(value).map_err(|e| {
-            crate::services::core::trading::kv_operations::KvOperationError::Serialization(e)
-        })?;
-
-        // TODO: Implement actual KV store write operation
-        Ok(())
-    }
-
-    async fn get<T: DeserializeOwned + Send>(
-        &self,
-        key: &str,
-    ) -> crate::services::core::trading::kv_operations::KvResult<Option<T>> {
-        let _full_key = format!("{}:{}", self.namespace, key);
-        // TODO: Implement actual KV store read operation
-        // Placeholder: returning Ok(None) for now
-        // match self.store.get(&full_key).json().await {
-        //     Ok(Some(value)) => Ok(Some(value)),
-        //     Ok(None) => Ok(None),
-        //     Err(e) => Err(
-        //         crate::services::core::trading::kv_operations::KvOperationError::Storage(
-        //             e.to_string(),
-        //         ),
-        //     ),
-        // }
-        Ok(None) // Placeholder response
-    }
-
-    async fn delete(
-        &self,
-        key: &str,
-    ) -> crate::services::core::trading::kv_operations::KvResult<()> {
-        let _full_key = format!("{}:{}", self.namespace, key);
-        // TODO: Implement actual KV store delete operation
-        Ok(())
-    }
-}
 
 /// KV store configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,9 +82,16 @@ impl KVService {
     pub fn new(config: KVConfig) -> Self {
         Self {
             namespace: config.namespace,
-            cache: HashMap::new(),
+            cache: Arc::new(Mutex::new(HashMap::new())),
             default_ttl: Duration::from_secs(config.default_ttl_seconds),
         }
+    }
+
+    /// Put a serializable value (used by AI access and other components)
+    pub async fn put<T: Serialize>(&self, key: &str, value: &T) -> KVResult<()> {
+        let json_value =
+            serde_json::to_string(value).map_err(|e| KVError::SerializationError(e.to_string()))?;
+        self.set(key, &json_value, None).await
     }
 
     /// Get a value by key
@@ -188,7 +99,8 @@ impl KVService {
         self.validate_key(key)?;
 
         // Check cache first
-        if let Some(cached) = self.cache.get(key) {
+        let cache = self.cache.lock().unwrap();
+        if let Some(cached) = cache.get(key) {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -205,7 +117,7 @@ impl KVService {
     }
 
     /// Set a value with optional TTL
-    pub async fn set(&mut self, key: &str, value: &str, ttl: Option<Duration>) -> KVResult<()> {
+    pub async fn set(&self, key: &str, value: &str, ttl: Option<Duration>) -> KVResult<()> {
         self.validate_key(key)?;
         self.validate_value(value)?;
 
@@ -217,7 +129,8 @@ impl KVService {
             + ttl.as_secs();
 
         // Update cache
-        self.cache.insert(
+        let mut cache = self.cache.lock().unwrap();
+        cache.insert(
             key.to_string(),
             CachedValue {
                 value: value.to_string(),
@@ -230,11 +143,12 @@ impl KVService {
     }
 
     /// Delete a key
-    pub async fn delete(&mut self, key: &str) -> KVResult<bool> {
+    pub async fn delete(&self, key: &str) -> KVResult<bool> {
         self.validate_key(key)?;
 
         // Remove from cache
-        let was_cached = self.cache.remove(key).is_some();
+        let mut cache = self.cache.lock().unwrap();
+        let was_cached = cache.remove(key).is_some();
 
         // TODO: Implement actual KV store deletion
         Ok(was_cached)
@@ -242,7 +156,8 @@ impl KVService {
 
     /// List keys with optional prefix
     pub async fn list_keys(&self, prefix: Option<&str>) -> KVResult<Vec<String>> {
-        let mut keys: Vec<String> = self.cache.keys().cloned().collect();
+        let cache = self.cache.lock().unwrap();
+        let mut keys: Vec<String> = cache.keys().cloned().collect();
 
         if let Some(prefix) = prefix {
             keys.retain(|k| k.starts_with(prefix));
@@ -266,7 +181,7 @@ impl KVService {
 
     /// Set multiple values at once
     pub async fn set_multiple(
-        &mut self,
+        &self,
         values: HashMap<String, String>,
         ttl: Option<Duration>,
     ) -> KVResult<()> {
@@ -281,7 +196,8 @@ impl KVService {
         self.validate_key(key)?;
 
         // Check cache first
-        if let Some(cached) = self.cache.get(key) {
+        let cache = self.cache.lock().unwrap();
+        if let Some(cached) = cache.get(key) {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -300,7 +216,8 @@ impl KVService {
     pub async fn get_ttl(&self, key: &str) -> KVResult<Option<Duration>> {
         self.validate_key(key)?;
 
-        if let Some(cached) = self.cache.get(key) {
+        let cache = self.cache.lock().unwrap();
+        if let Some(cached) = cache.get(key) {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -317,13 +234,14 @@ impl KVService {
     }
 
     /// Clear expired entries from cache
-    pub fn cleanup_cache(&mut self) {
+    pub fn cleanup_cache(&self) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        self.cache.retain(|_, cached| cached.expires_at > now);
+        let mut cache = self.cache.lock().unwrap();
+        cache.retain(|_, cached| cached.expires_at > now);
     }
 
     /// Get cache statistics
@@ -333,9 +251,9 @@ impl KVService {
             .unwrap()
             .as_secs();
 
-        let total_entries = self.cache.len();
-        let expired_entries = self
-            .cache
+        let cache = self.cache.lock().unwrap();
+        let total_entries = cache.len();
+        let expired_entries = cache
             .values()
             .filter(|cached| cached.expires_at <= now)
             .count();
@@ -394,7 +312,7 @@ pub async fn get_string(service: &KVService, key: &str) -> KVResult<Option<Strin
     service.get(key).await
 }
 
-pub async fn set_string(service: &mut KVService, key: &str, value: &str) -> KVResult<()> {
+pub async fn set_string(service: &KVService, key: &str, value: &str) -> KVResult<()> {
     service.set(key, value, None).await
 }
 
@@ -411,7 +329,7 @@ where
     }
 }
 
-pub async fn set_json<T>(service: &mut KVService, key: &str, value: &T) -> KVResult<()>
+pub async fn set_json<T>(service: &KVService, key: &str, value: &T) -> KVResult<()>
 where
     T: Serialize,
 {
@@ -427,7 +345,7 @@ mod tests {
     #[tokio::test]
     async fn test_kv_basic_operations() {
         let config = KVConfig::default();
-        let mut kv = KVService::new(config);
+        let kv = KVService::new(config);
 
         // Test set and get
         kv.set("test_key", "test_value", None).await.unwrap();
@@ -439,8 +357,11 @@ mod tests {
         assert!(exists);
 
         // Test delete
-        let deleted = kv.delete("test_key").await.unwrap();
-        assert!(deleted);
+        let deleted1 = kv.delete("test_key").await.unwrap();
+        assert!(deleted1); // Should return true - key was cached
+
+        let deleted2 = kv.delete("test_key").await.unwrap();
+        assert!(!deleted2); // Should return false - key was already removed
 
         // Test get after delete
         let value = kv.get("test_key").await.unwrap();
@@ -450,7 +371,7 @@ mod tests {
     #[tokio::test]
     async fn test_kv_validation() {
         let config = KVConfig::default();
-        let mut kv = KVService::new(config);
+        let kv = KVService::new(config);
 
         // Test empty key
         let result = kv.set("", "value", None).await;
@@ -464,7 +385,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_operations() {
         let config = KVConfig::default();
-        let mut kv = KVService::new(config);
+        let kv = KVService::new(config);
 
         #[derive(Serialize, Deserialize, PartialEq, Debug)]
         struct TestData {
@@ -477,8 +398,8 @@ mod tests {
             value: 42,
         };
 
-        // Test JSON set and get
-        set_json(&mut kv, "json_key", &data).await.unwrap();
+        // Test JSON set and get via put method
+        kv.put("json_key", &data).await.unwrap();
         let retrieved: Option<TestData> = get_json(&kv, "json_key").await.unwrap();
         assert_eq!(retrieved, Some(data));
     }

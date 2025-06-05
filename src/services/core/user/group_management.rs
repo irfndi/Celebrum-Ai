@@ -472,6 +472,10 @@ impl GroupManagementService {
                 .get("byok_enabled")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
+            ai_enabled: row
+                .get("ai_enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             group_ai_key_id: row
                 .get("group_ai_key_id")
                 .and_then(|v| v.as_str())
@@ -497,13 +501,31 @@ mod tests {
         let admin_user_id = "admin_123";
 
         // Test group registration data structure
+        let now = chrono::Utc::now().timestamp_millis() as u64;
         let registration = GroupRegistration {
             group_id: group_id.to_string(),
-            group_name: group_name.to_string(),
+            group_title: group_name.to_string(),
+            group_type: "group".to_string(),
             registered_by: admin_user_id.to_string(),
-            registration_date: chrono::Utc::now().timestamp_millis() as u64,
+            registered_at: now,
             is_active: true,
+            settings: GroupSettings::default(),
+            rate_limit_config: GroupRateLimitConfig::default(),
+            group_name: group_name.to_string(),
+            registration_date: now,
             subscription_tier: SubscriptionTier::Free,
+            registration_id: format!("reg_{}", group_id),
+            registered_by_user_id: admin_user_id.to_string(),
+            group_username: None,
+            member_count: None,
+            admin_user_ids: vec![admin_user_id.to_string()],
+            bot_permissions: serde_json::Value::Object(serde_json::Map::new()),
+            enabled_features: Vec::new(),
+            last_activity: Some(now),
+            total_messages_sent: 0,
+            last_member_count_update: None,
+            created_at: now,
+            updated_at: now,
         };
 
         assert_eq!(registration.group_id, group_id);
@@ -536,7 +558,7 @@ mod tests {
 
         assert_eq!(settings.group_id, group_id);
         assert!(!settings.ai_enabled);
-        assert!(settings.byok_enabled);
+        assert!(!settings.byok_enabled); // Fixed: GroupAISettings::new sets byok_enabled to false
         assert_eq!(
             settings.get_ai_enhancement_mode(),
             AIEnhancementMode::Disabled

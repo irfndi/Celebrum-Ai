@@ -31,7 +31,7 @@ pub trait NotificationSender: Send + Sync {
 
 // WASM version with Send + Sync bounds
 #[cfg(target_arch = "wasm32")]
-#[async_trait::async_trait] // Removed ?Send
+#[async_trait::async_trait(?Send)] // Re-added ?Send for WASM compatibility
 pub trait NotificationSender: Send + Sync {
     fn clone_box(&self) -> Box<dyn NotificationSender>;
     // Added Send + Sync

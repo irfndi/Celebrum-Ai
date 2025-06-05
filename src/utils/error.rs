@@ -368,7 +368,7 @@ macro_rules! arbitrage_error {
 mod tests {
     // Import necessary items from the outer module
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     #[test]
     fn test_arbitrage_error_creation() {
@@ -447,7 +447,10 @@ mod tests {
 
     #[test]
     fn test_from_kv_operation_error_serialization() {
-        let kv_err = KvOperationError::Serialization("failed to serialize".to_string());
+        // Create a real serde_json::Error by trying to parse malformed JSON
+        let malformed_json = "{\"key\": invalid_value}"; // Missing quotes around invalid_value
+        let json_error = serde_json::from_str::<Value>(malformed_json).unwrap_err();
+        let kv_err = KvOperationError::Serialization(json_error);
         let arb_err = ArbitrageError::from(kv_err);
         assert_eq!(arb_err.kind, ErrorKind::Serialization);
         assert_eq!(arb_err.status, Some(400)); // Assuming serialization error maps to 400

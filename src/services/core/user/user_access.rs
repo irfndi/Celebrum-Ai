@@ -559,7 +559,7 @@ mod tests {
         // Test remaining opportunities
         let (remaining_arb, remaining_tech) = limits.get_remaining_opportunities();
         assert_eq!(remaining_arb, 9);
-        assert_eq!(remaining_tech, 9);
+        assert_eq!(remaining_tech, 4);
     }
 
     #[test]

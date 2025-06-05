@@ -997,6 +997,7 @@ mod service_integration_e2e_tests {
                 let confidence_threshold = match user.subscription.tier {
                     SubscriptionTier::Free => 0.9,
                     SubscriptionTier::Basic => 0.8,
+                    SubscriptionTier::Beta => 0.75,
                     SubscriptionTier::Paid => 0.7,
                     SubscriptionTier::Pro => 0.7,
                     SubscriptionTier::Admin => 0.6,

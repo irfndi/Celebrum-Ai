@@ -1244,17 +1244,33 @@ impl TelegramService {
 
     /// Handle incoming webhook from Telegram
     pub async fn handle_webhook(&self, update: serde_json::Value) -> ArbitrageResult<String> {
-        // Basic webhook handling - extract message and respond
+        // Handle messages with production-ready responses
         if let Some(message) = update.get("message") {
             if let Some(text) = message.get("text").and_then(|t| t.as_str()) {
-                // Simple echo response for now
+                let chat = message.get("chat");
+                let chat_type = chat
+                    .and_then(|c| c.get("type"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("private");
+
+                // Handle /start command with proper welcome message
+                if text.starts_with("/start") {
+                    return Ok("🚀 Welcome to ArbEdge!\n\nYour gateway to advanced arbitrage trading opportunities.\n\n✨ Get started:\n• View live opportunities\n• Set up trading preferences\n• Connect your exchange APIs\n\nType /help for all available commands.".to_string());
+                }
+
+                // Handle group chat restrictions
+                if chat_type == "group" || chat_type == "supergroup" {
+                    return Ok("🔒 Security Notice: This bot is designed for private chat interactions. Please message me directly for full functionality and enhanced privacy.".to_string());
+                }
+
+                // Default response for other messages
                 return Ok(format!("Received: {}", text));
             }
         }
 
+        // Handle callback queries with proper "OK" response as expected by Telegram API
         if let Some(_callback_query) = update.get("callback_query") {
-            // Handle callback queries
-            return Ok("Callback query handled".to_string());
+            return Ok("OK".to_string());
         }
 
         Ok("Webhook processed".to_string())
@@ -1449,7 +1465,57 @@ mod tests {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
+impl NotificationSender for TelegramService {
+    fn clone_box(&self) -> Box<dyn NotificationSender> {
+        Box::new(self.clone())
+    }
+
+    async fn send_opportunity_notification(
+        &self,
+        chat_id: &str,
+        opportunity: &OpportunityData,
+        _is_private: bool,
+    ) -> ArbitrageResult<bool> {
+        let message = match opportunity {
+            OpportunityData::Arbitrage(arb) => format!(
+                "New Arbitrage Opportunity!\nSymbol: {}\nProfit: {:.2}%\nBuy Exchange: {}\nSell Exchange: {}\nDetails: {}",
+                arb.trading_pair,
+                arb.profit_percentage,
+                arb.long_exchange.as_str(),
+                arb.short_exchange.as_str(),
+                arb.details.clone().unwrap_or_else(|| "No details".to_string())
+            ),
+            OpportunityData::Technical(tech) => format!(
+                "New Technical Opportunity!\nSymbol: {}\nSignal: {:?}\nExpected Return: {:.2}%\nExchange(s): {}\nDetails: {}",
+                tech.trading_pair,
+                tech.signal_type,
+                tech.expected_return_percentage,
+                tech.exchanges.join(", "),
+                tech.details.clone().unwrap_or_else(|| "No details".to_string())
+            ),
+            OpportunityData::AI(ai) => format!(
+                "New AI Opportunity!\nSymbol: {}\nModel: {}\nExpected Return: {:.2}%\nExchange(s): {}\nReasoning: {}\nDetails: {}",
+                ai.trading_pair,
+                ai.ai_model,
+                ai.expected_return_percentage,
+                ai.exchanges.join(", "),
+                ai.reasoning,
+                ai.details.clone().unwrap_or_else(|| "No details".to_string())
+            ),
+        };
+        self.send_message_to_chat(chat_id, &message).await?;
+        Ok(true)
+    }
+
+    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
+        self.send_message_to_chat(chat_id, message).await
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[async_trait::async_trait(?Send)]
 impl NotificationSender for TelegramService {
     fn clone_box(&self) -> Box<dyn NotificationSender> {
         Box::new(self.clone())

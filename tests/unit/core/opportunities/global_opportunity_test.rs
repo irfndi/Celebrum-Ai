@@ -4,9 +4,7 @@
 // Comprehensive testing of opportunity generation, distribution, user eligibility, and queue management
 
 use arb_edge::services::core::analysis::market_analysis::OpportunityType;
-use arb_edge::types::{
-    ExchangeIdEnum, RiskLevel, StructuredTradingPair, UserAccessLevel, UserOpportunityLimits,
-};
+use arb_edge::types::{ExchangeIdEnum, RiskLevel, UserAccessLevel, UserOpportunityLimits};
 use arb_edge::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -75,7 +73,7 @@ struct MockOpportunity {
     pub risk_level: RiskLevel,
     pub confidence_score: f64,
     pub expected_return: f64,
-    pub trading_pair: StructuredTradingPair,
+    pub trading_pair: String,
     pub exchanges: Vec<ExchangeIdEnum>,
     pub created_at: u64,
     pub expires_at: u64,
@@ -220,7 +218,8 @@ impl MockUserAccessService {
             | UserAccessLevel::Free
             | UserAccessLevel::Registered
             | UserAccessLevel::Verified
-            | UserAccessLevel::FreeWithoutAPI => {
+            | UserAccessLevel::FreeWithoutAPI
+            | UserAccessLevel::Basic => {
                 // Basic access: Low risk, high confidence
                 opportunity.risk_level == RiskLevel::Low && opportunity.confidence_score >= 70.0
             }
@@ -294,12 +293,7 @@ impl MockGlobalOpportunityService {
             risk_level: RiskLevel::Medium,
             confidence_score: 75.0,
             expected_return: 2.5,
-            trading_pair: StructuredTradingPair {
-                symbol: trading_pair.to_string(),
-                base: trading_pair.split('/').next().unwrap_or("BTC").to_string(),
-                quote: trading_pair.split('/').nth(1).unwrap_or("USDT").to_string(),
-                exchange_id: exchanges[0].to_string(),
-            },
+            trading_pair: trading_pair.to_string(),
             exchanges,
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + (30 * 60 * 1000), // 30 minutes
@@ -321,12 +315,7 @@ impl MockGlobalOpportunityService {
             risk_level: RiskLevel::Low,
             confidence_score: 80.0,
             expected_return: 1.8,
-            trading_pair: StructuredTradingPair {
-                symbol: trading_pair.to_string(),
-                base: trading_pair.split('/').next().unwrap_or("ETH").to_string(),
-                quote: trading_pair.split('/').nth(1).unwrap_or("USDT").to_string(),
-                exchange_id: exchange.to_string(),
-            },
+            trading_pair: trading_pair.to_string(),
             exchanges: vec![exchange],
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes

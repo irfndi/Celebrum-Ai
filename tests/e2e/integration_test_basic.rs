@@ -99,7 +99,7 @@ async fn test_user_registration_flow_integration() {
 
     // Verify serialization worked and contains expected fields (using camelCase from serde)
     assert!(user_profile_json.contains(&user_profile.user_id));
-    assert!(user_profile_json.contains("telegramUserId")); // camelCase from serde
+    assert!(user_profile_json.contains("telegram_user_id")); // snake_case (no camelCase annotation)
     assert!(user_profile_json.contains("subscription"));
 
     assert!(preferences_json.contains(&user_preferences.preference_id));

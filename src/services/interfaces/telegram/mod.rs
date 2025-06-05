@@ -458,7 +458,7 @@ pub struct UserPermissions {
     pub beta_expires_at: Option<u64>,
     pub can_trade: bool,
     pub is_admin: bool,
-}
+} 
 
 // Export the types so they can be used by command modules and external modules
 pub use UserInfo;

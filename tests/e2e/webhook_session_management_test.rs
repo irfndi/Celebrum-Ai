@@ -1,4 +1,5 @@
-use arb_edge::services::interfaces::telegram::telegram::{TelegramConfig, TelegramService};
+use arb_edge::services::interfaces::telegram::core::bot_client::TelegramConfig;
+use arb_edge::services::interfaces::telegram::telegram::TelegramService;
 use serde_json::json;
 
 /// E2E Webhook Tests for Session Management Integration
@@ -51,10 +52,7 @@ async fn test_e2e_session_creation_via_start_command() {
 
     // Validate response
     assert!(result.is_ok());
-    let response = result.unwrap();
-    assert!(response.is_some());
-
-    let response_text = response.unwrap();
+    let response_text = result.unwrap();
     assert!(response_text.contains("Welcome to ArbEdge"));
 
     // In real implementation with SessionManagementService, this would also:

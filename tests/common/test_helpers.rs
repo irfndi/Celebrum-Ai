@@ -36,8 +36,7 @@ use arb_edge::services::core::user::user_trading_preferences::{
     UserTradingPreferences,
 };
 use arb_edge::types::{
-    ArbitrageOpportunity, ArbitrageType, CommandPermission, ExchangeIdEnum, SubscriptionTier,
-    UserProfile,
+    ArbitrageOpportunity, CommandPermission, ExchangeIdEnum, SubscriptionTier, UserProfile,
 };
 use serde_json::json;
 

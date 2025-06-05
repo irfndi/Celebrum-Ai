@@ -554,9 +554,10 @@ mod user_journey_e2e_tests {
                 let subscription_match = match user.subscription.tier {
                     SubscriptionTier::Free => opp.confidence_score >= 0.9, // Only high-confidence for free users
                     SubscriptionTier::Basic => opp.confidence_score >= 0.8,
-                    SubscriptionTier::Paid => true, // All opportunities
-                    SubscriptionTier::Admin => true, // All opportunities
-                    SubscriptionTier::Pro => true,  // All opportunities
+                    SubscriptionTier::Beta => opp.confidence_score >= 0.7, // Beta tier access
+                    SubscriptionTier::Paid => true,                        // All opportunities
+                    SubscriptionTier::Admin => true,                       // All opportunities
+                    SubscriptionTier::Pro => true,                         // All opportunities
                     SubscriptionTier::Premium
                     | SubscriptionTier::Enterprise
                     | SubscriptionTier::SuperAdmin => true, // All opportunities
