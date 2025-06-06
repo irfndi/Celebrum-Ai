@@ -3,7 +3,7 @@
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use worker::{kv::KvStore, Env};
+use worker::{console_log, kv::KvStore, Env};
 
 /// Configuration for Audit Service retention periods.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,12 +105,48 @@ impl AuditService {
         }
     }
 
-    /// Log user action for audit trail
+    /// Helper method to store audit events in KV store - reduces duplication
+    async fn store_audit_event(
+        &self,
+        audit_event: &AuditEvent,
+        key_prefix: &str,
+        ttl_seconds: u64,
+    ) -> ArbitrageResult<()> {
+        let audit_key = format!(
+            "{}:{}:{}",
+            key_prefix, audit_event.timestamp, audit_event.event_id
+        );
+        let audit_data = serde_json::to_string(audit_event).map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to serialize audit event: {}", e))
+        })?;
+
+        self.kv_store
+            .put(&audit_key, &audit_data)?
+            .expiration_ttl(ttl_seconds)
+            .execute()
+            .await?;
+
+        Ok(())
+    }
+
+    /// Log user action for audit trail  
     pub async fn log_user_action(
         &self,
         user_id: &str,
         action: UserAuditAction,
         details: Option<String>,
+    ) -> ArbitrageResult<()> {
+        self.log_user_action_with_severity(user_id, action, details, AuditSeverity::Info)
+            .await
+    }
+
+    /// Log user action with configurable severity level
+    pub async fn log_user_action_with_severity(
+        &self,
+        user_id: &str,
+        action: UserAuditAction,
+        details: Option<String>,
+        severity: AuditSeverity,
     ) -> ArbitrageResult<()> {
         let audit_event = AuditEvent {
             event_id: uuid::Uuid::new_v4().to_string(),
@@ -122,24 +158,15 @@ impl AuditService {
             ip_address: None,
             user_agent: None,
             session_id: None,
-            severity: AuditSeverity::Info,
+            severity,
         };
 
-        let audit_key = format!(
-            "audit_user_action:{}:{}",
-            audit_event.timestamp, audit_event.event_id
-        );
-        let audit_data = serde_json::to_string(&audit_event).map_err(|e| {
-            ArbitrageError::serialization_error(format!("Failed to serialize audit action: {}", e))
-        })?;
-
-        self.kv_store
-            .put(&audit_key, &audit_data)?
-            .expiration_ttl(self.config.user_action_ttl_seconds)
-            .execute()
-            .await?;
-
-        Ok(())
+        self.store_audit_event(
+            &audit_event,
+            "audit_user_action",
+            self.config.user_action_ttl_seconds,
+        )
+        .await
     }
 
     /// Log system event for audit trail
@@ -157,21 +184,12 @@ impl AuditService {
             severity: AuditSeverity::Info,
         };
 
-        let audit_key = format!(
-            "audit_system_event:{}:{}",
-            audit_event.timestamp, audit_event.event_id
-        );
-        let audit_data = serde_json::to_string(&audit_event).map_err(|e| {
-            ArbitrageError::serialization_error(format!("Failed to serialize audit event: {}", e))
-        })?;
-
-        self.kv_store
-            .put(&audit_key, &audit_data)?
-            .expiration_ttl(self.config.system_event_ttl_seconds)
-            .execute()
-            .await?;
-
-        Ok(())
+        self.store_audit_event(
+            &audit_event,
+            "audit_system_event",
+            self.config.system_event_ttl_seconds,
+        )
+        .await
     }
 
     /// Log security event for audit trail
@@ -189,24 +207,12 @@ impl AuditService {
             severity: AuditSeverity::Critical,
         };
 
-        let audit_key = format!(
-            "audit_security_event:{}:{}",
-            audit_event.timestamp, audit_event.event_id
-        );
-        let security_data = serde_json::to_string(&audit_event).map_err(|e| {
-            ArbitrageError::serialization_error(format!(
-                "Failed to serialize security event: {}",
-                e
-            ))
-        })?;
-
-        self.kv_store
-            .put(&audit_key, &security_data)?
-            .expiration_ttl(self.config.security_event_ttl_seconds)
-            .execute()
-            .await?;
-
-        Ok(())
+        self.store_audit_event(
+            &audit_event,
+            "audit_security_event",
+            self.config.security_event_ttl_seconds,
+        )
+        .await
     }
 
     /// Get recent audit events
@@ -229,16 +235,36 @@ impl AuditService {
 
     /// Health check for audit service
     pub async fn health_check(&self) -> ArbitrageResult<bool> {
-        // Test KV store connectivity
+        // Test KV store connectivity with cleanup
         let test_key = "audit_health_check";
         let test_value = "test";
 
-        match self.kv_store.put(test_key, test_value) {
-            Ok(put_builder) => match put_builder.execute().await {
-                Ok(_) => Ok(true),
-                Err(_) => Ok(false),
-            },
-            Err(_) => Ok(false),
+        // Test write operation
+        let put_result = self.kv_store.put(test_key, test_value);
+        match put_result {
+            Ok(put_builder) => {
+                match put_builder.execute().await {
+                    Ok(_) => {
+                        // Test successful, now clean up the test key
+                        match self.kv_store.delete(test_key).await {
+                            Ok(_) => Ok(true),
+                            Err(e) => {
+                                // Put succeeded but delete failed - log warning but still report healthy
+                                console_log!("⚠️ Audit health check: cleanup failed but service is healthy: {:?}", e);
+                                Ok(true)
+                            }
+                        }
+                    }
+                    Err(e) => Err(ArbitrageError::kv_error(format!(
+                        "Audit service health check failed during put operation: {:?}",
+                        e
+                    ))),
+                }
+            }
+            Err(e) => Err(ArbitrageError::kv_error(format!(
+                "Audit service health check failed to create put operation: {:?}",
+                e
+            ))),
         }
     }
 }
@@ -262,7 +288,7 @@ pub struct UserAuditAction {
 impl UserAuditAction {
     pub fn new(user_id: String, action_type: String, description: String) -> Self {
         Self {
-            action_id: format!("action_{}", uuid::Uuid::new_v4()),
+            action_id: uuid::Uuid::new_v4().to_string(),
             user_id,
             action_type,
             description,
