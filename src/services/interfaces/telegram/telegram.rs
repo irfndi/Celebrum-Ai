@@ -544,22 +544,8 @@ impl TelegramService {
                 Ok(rows) => {
                     let mut loaded_count = 0;
                     for row in rows.results::<HashMap<String, serde_json::Value>>()? {
-                        // Convert string_row to Value row for GroupRegistration::from_d1_row
-                        let value_row: HashMap<String, serde_json::Value> = row
-                            .into_iter()
-                            .map(|(k, v)| {
-                                (
-                                    k.clone(),
-                                    serde_json::Value::String(v.as_str().unwrap_or("").to_string()),
-                                )
-                            })
-                            .collect();
-
-                        let string_row: std::collections::HashMap<String, String> = value_row
-                            .iter()
-                            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
-                            .collect();
-                        match self.parse_group_registration_from_row(&string_row) {
+                        // Fixed: Parse directly from serde_json::Value without lossy string conversion
+                        match self.parse_group_registration_from_value_row(&row) {
                             Ok(group_registration) => {
                                 self.group_registrations.insert(
                                     group_registration.group_id.to_string(),
@@ -591,88 +577,115 @@ impl TelegramService {
     }
 
     /// Parse group registration from database row
-    fn parse_group_registration_from_row(
+    fn parse_group_registration_from_value_row(
         &self,
-        row: &std::collections::HashMap<String, String>,
+        row: &HashMap<String, serde_json::Value>,
     ) -> ArbitrageResult<GroupRegistration> {
         let group_id = row
             .get("group_id")
+            .and_then(|v| v.as_str())
             .ok_or_else(|| ArbitrageError::parse_error("Missing group_id"))?
-            .clone();
+            .to_string();
 
         let group_type = row
             .get("group_type")
+            .and_then(|v| v.as_str())
             .ok_or_else(|| ArbitrageError::parse_error("Missing group_type"))?
-            .clone();
+            .to_string();
 
-        let group_title = row.get("group_title").cloned();
+        let group_title = row
+            .get("group_title")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-        let group_username = row.get("group_username").cloned();
+        let group_username = row
+            .get("group_username")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-        let member_count = row.get("member_count").and_then(|s| s.parse::<u32>().ok());
+        let member_count = row
+            .get("member_count")
+            .and_then(|v| v.as_u64())
+            .map(|c| c as u32);
 
         let admin_user_ids: Vec<String> = row
             .get("admin_user_ids")
-            .and_then(|s| serde_json::from_str(s).ok())
-            .unwrap_or_default();
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(|s| s.to_string())
+            .collect();
 
         let bot_permissions: Vec<String> = row
             .get("bot_permissions")
-            .and_then(|s| serde_json::from_str(s).ok())
-            .unwrap_or_default();
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(|s| s.to_string())
+            .collect();
 
         let enabled_features: Vec<String> = row
             .get("enabled_features")
-            .and_then(|s| serde_json::from_str(s).ok())
-            .unwrap_or_default();
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(|s| s.to_string())
+            .collect();
 
         let _global_opportunities_enabled = row
             .get("global_opportunities_enabled")
-            .and_then(|s| s.parse::<bool>().ok())
+            .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
         let _technical_analysis_enabled = row
             .get("technical_analysis_enabled")
-            .and_then(|s| s.parse::<bool>().ok())
+            .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
         let rate_limit_config: GroupRateLimitConfig = row
             .get("rate_limit_config")
-            .and_then(|s| serde_json::from_str(s).ok())
-            .unwrap_or(GroupRateLimitConfig {
-                group_id: group_id.clone(),
-                max_messages_per_minute: 10,
-                max_commands_per_hour: 20,
-                max_opportunities_per_day: 50,
-                cooldown_seconds: 900, // 15 minutes
-                is_premium_group: false,
-                created_at: chrono::Utc::now().timestamp_millis() as u64,
-                updated_at: chrono::Utc::now().timestamp_millis() as u64,
-                max_opportunities_per_hour: 5,
-                max_technical_signals_per_hour: 3,
-                max_broadcasts_per_day: 10,
-                cooldown_between_messages_minutes: 15,
-                enabled: true,
-            });
+            .and_then(|v| v.as_object())
+            .map(|v| {
+                serde_json::from_value(serde_json::Value::Object(v.clone())).unwrap_or_else(|e| {
+                    console_log!("⚠️ Failed to parse rate_limit_config: {}", e);
+                    GroupRateLimitConfig {
+                        group_id: group_id.clone(),
+                        max_messages_per_minute: 10,
+                        max_commands_per_hour: 20,
+                        max_opportunities_per_day: 50,
+                        cooldown_seconds: 900, // 15 minutes
+                        is_premium_group: false,
+                        created_at: chrono::Utc::now().timestamp_millis() as u64,
+                        updated_at: chrono::Utc::now().timestamp_millis() as u64,
+                        max_opportunities_per_hour: 5,
+                        max_technical_signals_per_hour: 3,
+                        max_broadcasts_per_day: 10,
+                        cooldown_between_messages_minutes: 15,
+                        enabled: true,
+                    }
+                })
+            })
+            .unwrap_or_default();
 
         let registered_at = row
             .get("registered_at")
-            .and_then(|s| s.parse::<u64>().ok())
+            .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
         let last_activity = row
             .get("last_activity")
-            .and_then(|s| s.parse::<u64>().ok())
+            .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
         let total_messages_sent = row
             .get("total_messages_sent")
-            .and_then(|s| s.parse::<u32>().ok())
+            .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        let last_member_count_update = row
-            .get("last_member_count_update")
-            .and_then(|s| s.parse::<u64>().ok());
+        let last_member_count_update = row.get("last_member_count_update").and_then(|v| v.as_u64());
 
         Ok(GroupRegistration {
             group_id,
@@ -698,7 +711,7 @@ impl TelegramService {
             settings: crate::types::GroupSettings::default(),
             registered_at,
             last_activity: Some(last_activity),
-            total_messages_sent,
+            total_messages_sent: total_messages_sent as u32,
             last_member_count_update,
             created_at: registered_at,
             updated_at: registered_at,

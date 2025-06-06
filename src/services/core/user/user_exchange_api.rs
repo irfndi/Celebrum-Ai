@@ -130,7 +130,7 @@ impl UserExchangeApiService {
             // Check if this key is for the same provider and is active
             match (&key.provider, &request.exchange_id) {
                 (crate::types::ApiKeyProvider::Exchange(provider), exchange_id) => {
-                    *provider == *exchange_id && key.is_active
+                    provider.as_str() == *exchange_id && key.is_active
                 }
                 _ => false,
             }
@@ -321,7 +321,7 @@ impl UserExchangeApiService {
         // Remove the API key
         let initial_count = user_profile.api_keys.len();
         user_profile.api_keys.retain(|key| match &key.provider {
-            ApiKeyProvider::Exchange(exchange) => exchange.to_string() != exchange_id,
+            ApiKeyProvider::Exchange(exchange) => exchange.as_str() != exchange_id,
             _ => true,
         });
 

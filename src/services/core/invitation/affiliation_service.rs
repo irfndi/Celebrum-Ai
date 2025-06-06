@@ -448,8 +448,7 @@ impl AffiliationService {
 
         let results_vec = result.results::<HashMap<String, serde_json::Value>>()?;
         if let Some(row) = results_vec.first() {
-            let count_str = row.get("count").and_then(|v| v.as_str()).unwrap_or("0");
-            let count: i32 = count_str.parse().unwrap_or(0);
+            let count = row.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
             Ok(count > 0)
         } else {
             Ok(false)
@@ -887,8 +886,7 @@ impl AffiliationService {
             .results::<HashMap<String, serde_json::Value>>()?
             .first()
         {
-            let count_str = row.get("count").and_then(|v| v.as_str()).unwrap_or("0");
-            let count: i32 = count_str.parse().unwrap_or(0);
+            let count = row.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
             Ok(count as u32)
         } else {
             Ok(0)
@@ -927,8 +925,7 @@ impl AffiliationService {
             .results::<HashMap<String, serde_json::Value>>()?
             .first()
         {
-            let count_str = row.get("count").and_then(|v| v.as_str()).unwrap_or("0");
-            let count: i32 = count_str.parse().unwrap_or(0);
+            let count = row.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
             Ok(count as u32)
         } else {
             Ok(0)
@@ -965,11 +962,9 @@ impl AffiliationService {
             .results::<HashMap<String, serde_json::Value>>()?
             .first()
         {
-            let bonus_str = row
-                .get("total_bonuses")
-                .and_then(|v| v.as_str())
-                .unwrap_or("0.0");
-            bonus_str.parse().unwrap_or(0.0)
+            row.get("total_bonuses")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0)
         } else {
             0.0
         };
