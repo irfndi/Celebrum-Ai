@@ -13,6 +13,12 @@ pub struct MockKvStore {
     pub operation_count: Arc<Mutex<u32>>,
 }
 
+impl Default for MockKvStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockKvStore {
     pub fn new() -> Self {
         Self {

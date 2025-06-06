@@ -5,10 +5,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-#[cfg(all(
-    target_arch = "wasm32",
-    any(debug_assertions, feature = "enable-logging")
-))]
+#[cfg(target_arch = "wasm32")]
 use worker::console_log;
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -902,7 +902,8 @@ impl AIAccessService {
 mod tests {
     use super::*;
     use crate::types::{
-        NotificationPreferences, SubscriptionInfo, SubscriptionTier, UserConfiguration,
+        AIAccessLevel, AITemplate, AITemplateParameters, AITemplateType, AIUsageTracker,
+        TemplateAccess, UserAccessLevel, UserProfile,
     };
 
     #[test]

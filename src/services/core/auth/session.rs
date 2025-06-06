@@ -355,6 +355,7 @@ mod tests {
         active_sessions_mock: Mutex<HashMap<String, EnhancedUserSession>>,
     }
 
+    #[allow(dead_code)]
     impl MockSessionManagementService {
         fn new() -> Self {
             Self {
@@ -363,11 +364,13 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)]
         async fn set_expected_validate_session_result(&self, result: Option<EnhancedUserSession>) {
             *self.expected_session.lock() = Some(result);
         }
 
         // Mocked methods from SessionManagementService that AuthSessionService calls
+        #[allow(dead_code)]
         async fn validate_session(
             &self,
             _user_id: &str,
@@ -408,6 +411,7 @@ mod tests {
             Ok(session)
         }
 
+        #[allow(dead_code)]
         async fn update_activity(&self, user_id: &str) -> ArbitrageResult<()> {
             let mut sessions = self.active_sessions_mock.lock();
             if let Some(session) = sessions.get_mut(user_id) {
@@ -417,6 +421,7 @@ mod tests {
             Ok(())
         }
 
+        #[allow(dead_code)]
         async fn end_session(&self, user_id: &str) -> ArbitrageResult<()> {
             let mut sessions = self.active_sessions_mock.lock();
             if let Some(session) = sessions.get_mut(user_id) {
@@ -426,6 +431,7 @@ mod tests {
             Ok(())
         }
 
+        #[allow(dead_code)]
         async fn cleanup_expired_sessions(&self) -> ArbitrageResult<u32> {
             // Basic mock: just return 0
             Ok(0)
@@ -434,6 +440,7 @@ mod tests {
 
     // Helper to create AuthSessionService with a mocked SessionManagementService
     // This bypasses the ServiceContainer for focused unit testing.
+    #[allow(dead_code)]
     fn create_auth_session_service_with_mock(
         mock_sms: Arc<MockSessionManagementService>,
     ) -> AuthSessionService {
@@ -478,6 +485,7 @@ mod tests {
         // This is a simplified constructor for testing and SHOULD NOT be used in production.
         // It's designed to allow injection of a specific SessionManagementService (or a mock cast to it).
         #[allow(non_snake_case)]
+        #[allow(dead_code)]
         fn new_for_test_DONT_USE() -> Self {
             // This is highly problematic as it tries to create real dependencies.
             // A proper test ServiceContainer would initialize fields with mocks or test doubles.

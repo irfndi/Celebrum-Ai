@@ -9,7 +9,7 @@
 // ExchangeService Unit Tests
 // Comprehensive testing of market data fetching, authentication, API management, and error handling
 
-use arb_edge::types::{Limits, Market, MinMax, OrderBook, Precision, Ticker};
+use arb_edge::types::{Market, MarketLimits, MarketPrecision, MinMax, OrderBook, Ticker};
 use arb_edge::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -516,30 +516,47 @@ impl MockExchangeService {
 
             if status == "TRADING" {
                 markets.push(Market {
-                    id: symbol.to_string(),
                     symbol: symbol.to_string(),
                     base: base_asset.to_string(),
                     quote: quote_asset.to_string(),
                     active: true,
-                    precision: Precision {
+                    type_: "spot".to_string(),
+                    spot: true,
+                    margin: false,
+                    future: false,
+                    option: false,
+                    contract: false,
+                    settle: None,
+                    settle_id: None,
+                    contract_size: None,
+                    linear: None,
+                    inverse: None,
+                    taker: 0.001,
+                    maker: 0.001,
+                    percentage: true,
+                    tier_based: false,
+                    precision: MarketPrecision {
                         amount: Some(3),
                         price: Some(2),
+                        base: None,
+                        quote: None,
                     },
-                    limits: Limits {
-                        amount: MinMax {
+                    limits: MarketLimits {
+                        amount: Some(MinMax {
                             min: Some(0.001),
                             max: Some(1000000.0),
-                        },
-                        price: MinMax {
+                        }),
+                        price: Some(MinMax {
                             min: Some(0.01),
                             max: Some(100000.0),
-                        },
-                        cost: MinMax {
+                        }),
+                        cost: Some(MinMax {
                             min: Some(1.0),
                             max: Some(1000000.0),
-                        },
+                        }),
+                        leverage: None,
                     },
-                    fees: None,
+                    info: serde_json::Value::Null,
                 });
             }
         }
@@ -637,7 +654,7 @@ mod tests {
         assert_eq!(ticker.symbol, "BTCUSDT");
         assert_eq!(ticker.last, Some(45000.50));
         assert_eq!(ticker.volume, Some(1234.56));
-        assert!(ticker.timestamp.is_some());
+        assert!(ticker.timestamp > 0);
 
         // Test unsupported exchange
         let unsupported_result = service.mock_get_ticker("unsupported", "BTCUSDT").await;

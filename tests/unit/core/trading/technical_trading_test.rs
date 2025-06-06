@@ -20,51 +20,51 @@ use serde_json::json;
 // Simple mock structures for testing
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)] // Combined derives
 struct MockTechnicalSignal {
-    pub signal_id: String,
-    pub exchange_id: String,
-    pub trading_pair: String,
+    pub id: String,
+    pub exchange: String,
+    pub pair: String,
     pub signal_type: TradingSignalType,
-    pub signal_strength: SignalStrength,
-    pub confidence_score: f64,
-    pub entry_price: f64,
+    pub strength: SignalStrength,
+    pub confidence: f64,
+    pub current_price: f64,
 }
 
 impl MockTechnicalSignal {
     fn new(
-        signal_id: &str,
-        exchange_id: &str,
-        trading_pair: &str,
+        id: &str,
+        exchange: &str,
+        pair: &str,
         signal_type: TradingSignalType,
-        signal_strength: SignalStrength,
-        confidence_score: f64,
-        entry_price: f64,
+        strength: SignalStrength,
+        confidence: f64,
+        current_price: f64,
     ) -> Self {
         Self {
-            signal_id: signal_id.to_string(),
-            exchange_id: exchange_id.to_string(),
-            trading_pair: trading_pair.to_string(),
+            id: id.to_string(),
+            exchange: exchange.to_string(),
+            pair: pair.to_string(),
             signal_type,
-            signal_strength,
-            confidence_score,
-            entry_price,
+            strength,
+            confidence,
+            current_price,
         }
     }
 
     #[allow(dead_code)] // Added to suppress warning as it might not be used everywhere yet
     fn to_technical_signal(&self) -> TechnicalSignal {
         TechnicalSignal {
-            id: self.signal_id.clone(),
-            pair: self.trading_pair.clone(),
+            id: self.id.clone(),
+            pair: self.pair.clone(),
             exchange: ExchangeIdEnum::Binance, // Placeholder
             signal_type: self.signal_type.clone(),
             direction: SignalDirection::Neutral, // Placeholder
-            strength: self.signal_strength.clone(),
+            strength: self.strength.clone(),
             timeframe: Timeframe::M5, // Placeholder
-            current_price: self.entry_price,
-            target_price: Some(self.entry_price * 1.02),
-            stop_loss: Some(self.entry_price * 0.98),
-            confidence: self.confidence_score,
-            description: format!("Mock signal for {}", self.trading_pair),
+            current_price: self.current_price,
+            target_price: Some(self.current_price * 1.02),
+            stop_loss: Some(self.current_price * 0.98),
+            confidence: self.confidence,
+            description: format!("Mock signal for {}", self.pair),
             generated_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + 3600000,
             metadata: json!({}),
@@ -97,12 +97,7 @@ impl MockTechnicalTradingService {
         self.generated_signals.push(signal);
     }
 
-    fn generate_rsi_signal(
-        &self,
-        exchange_id: &str,
-        trading_pair: &str,
-        price: f64,
-    ) -> MockTechnicalSignal {
+    fn generate_rsi_signal(&self, exchange: &str, pair: &str, price: f64) -> MockTechnicalSignal {
         // Mock RSI calculation
         let mock_rsi = 50.0 + (price % 50.0);
 
@@ -120,9 +115,9 @@ impl MockTechnicalTradingService {
         };
 
         MockTechnicalSignal::new(
-            &format!("rsi_{}_{}", exchange_id, trading_pair),
-            exchange_id,
-            trading_pair,
+            &format!("rsi_{}_{}", exchange, pair),
+            exchange,
+            pair,
             signal_type,
             signal_strength,
             confidence,
@@ -130,12 +125,7 @@ impl MockTechnicalTradingService {
         )
     }
 
-    fn generate_ma_signal(
-        &self,
-        exchange_id: &str,
-        trading_pair: &str,
-        price: f64,
-    ) -> MockTechnicalSignal {
+    fn generate_ma_signal(&self, exchange: &str, pair: &str, price: f64) -> MockTechnicalSignal {
         // Mock moving average calculation
         let short_ma = price * 0.99; // Simulate short MA slightly below current price
         let long_ma = price * 0.98; // Simulate long MA below short MA
@@ -151,9 +141,9 @@ impl MockTechnicalTradingService {
         };
 
         MockTechnicalSignal::new(
-            &format!("ma_{}_{}", exchange_id, trading_pair),
-            exchange_id,
-            trading_pair,
+            &format!("ma_{}_{}", exchange, pair),
+            exchange,
+            pair,
             signal_type,
             signal_strength,
             confidence,
@@ -164,7 +154,7 @@ impl MockTechnicalTradingService {
     fn filter_by_confidence(&self, signals: &[MockTechnicalSignal]) -> Vec<MockTechnicalSignal> {
         signals
             .iter()
-            .filter(|signal| signal.confidence_score >= self.config.min_confidence_threshold)
+            .filter(|signal| signal.confidence >= self.config.min_confidence_threshold)
             .cloned()
             .collect()
     }
@@ -182,7 +172,7 @@ impl MockTechnicalTradingService {
 
         signals
             .iter()
-            .filter(|signal| signal.confidence_score >= min_confidence)
+            .filter(|signal| signal.confidence >= min_confidence)
             .cloned()
             .collect()
     }

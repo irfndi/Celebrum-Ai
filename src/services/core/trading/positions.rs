@@ -221,7 +221,7 @@ impl<T: KvOperations + Send + Sync + 'static> PositionsService<T> {
             take_profit_price: None,
             volatility_score: None,
             calculated_size_usd: calculated_size_usd_for_audit,
-            long_exchange: position_data.exchange, // This is ExchangeIdEnum, not Option<ExchangeIdEnum>
+            long_exchange: position_data.long_exchange,
             size: Some(final_size_base_currency),
             pnl: Some(0.0),
             unrealized_pnl_percentage: Some(0.0),
@@ -231,12 +231,12 @@ impl<T: KvOperations + Send + Sync + 'static> PositionsService<T> {
             trailing_stop_distance: None,
             stop_loss_price: None,
             closed_at: None,
-            current_price_long: Some(45100.0),  // Example value
-            current_price_short: Some(45050.0), // Example value
+            current_price_long: None, // Should be updated by market data later
+            current_price_short: None, // Should be updated by market data later
             updated_at: now_ms,
-            short_exchange: ExchangeIdEnum::Kraken, // Corrected type
-            current_price: None,                    // Should be updated by market data later
-            max_loss_usd: None, // TODO: Calculate if stop_loss_price and size are known
+            short_exchange: position_data.short_exchange,
+            current_price: None, // Should be updated by market data later
+            max_loss_usd: None,  // TODO: Calculate if stop_loss_price and size are known
             exchange: position_data.exchange,
             pair: position_data.pair,
             related_positions: Vec::new(),

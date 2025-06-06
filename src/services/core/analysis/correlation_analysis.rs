@@ -705,6 +705,7 @@ mod tests {
         price_series
     }
 
+    #[allow(dead_code)]
     fn create_correlated_price_series(
         base_series: &PriceSeries,
         correlation_factor: f64,
@@ -731,6 +732,7 @@ mod tests {
         correlated_series
     }
 
+    #[allow(dead_code)]
     fn create_test_trading_preferences() -> UserTradingPreferences {
         // Helper to get current timestamp as u64
         let now_timestamp = || {
