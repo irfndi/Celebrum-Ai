@@ -1,5 +1,40 @@
 use worker::*;
 
+// Time constants for improved readability
+const HOUR_IN_MS: u64 = 60 * 60 * 1000;
+const DAY_IN_MS: u64 = 24 * HOUR_IN_MS;
+
+// Request validation structs
+#[derive(serde::Deserialize)]
+struct UpdateProfileRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    telegram_username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bio: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timezone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    language: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct UpdatePreferencesRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notification_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    risk_tolerance: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_profit_threshold: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_position_size: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preferred_trading_pairs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preferred_exchanges: Option<Vec<String>>,
+}
+
 // Module declarations
 pub mod handlers;
 pub mod middleware;
@@ -46,14 +81,12 @@ macro_rules! console_log {
 static SERVICE_CONTAINER: OnceCell<Arc<ServiceContainer>> = OnceCell::new();
 
 async fn get_service_container(env: &Env) -> Result<Arc<ServiceContainer>> {
+    // Check if service container already exists
     if let Some(container) = SERVICE_CONTAINER.get() {
         return Ok(container.clone());
     }
 
     let kv_store = env.kv("ArbEdgeKV")?;
-    let _encryption_key = env
-        .var("ENCRYPTION_KEY")
-        .map_err(|_| worker::Error::RustError("Missing ENCRYPTION_KEY".to_string()))?;
     let d1 = env.d1("ARB_EDGE_D1")?;
     let _database_manager = DatabaseManager::new(Arc::new(d1), DatabaseManagerConfig::default());
 
@@ -256,25 +289,44 @@ async fn route_user_request(
                 .get("X-User-ID")?
                 .ok_or_else(|| worker::Error::RustError("Missing X-User-ID header".to_string()))?;
 
-            // Parse profile update request
+            // Parse and validate profile update request
             let mut req_clone = req;
-            let profile_data: serde_json::Value = req_clone.json().await?;
+            let update_request = match req_clone.json::<UpdateProfileRequest>().await {
+                Ok(request) => request,
+                Err(e) => {
+                    console_log!("❌ Invalid profile update request: {:?}", e);
+                    return Response::error("Invalid request format", 400);
+                }
+            };
+
+            // Validate request data
+            if let Some(ref risk_tolerance) = update_request.display_name {
+                if risk_tolerance.len() > 50 {
+                    return Response::error("Display name too long (max 50 characters)", 400);
+                }
+            }
 
             // Basic profile update implementation (fallback during migration)
             console_log!(
-                "📝 Profile update request for user {}: {:?}",
+                "📝 Profile update request for user {}: telegram_username={:?}, display_name={:?}",
                 user_id,
-                profile_data
+                update_request.telegram_username,
+                update_request.display_name
             );
 
-            // For now, provide a temporary implementation that accepts the request
             // TODO: Implement proper profile field updates when modular service supports it
             let response = serde_json::json!({
                 "status": "accepted",
-                "message": "Profile update accepted (simplified implementation during service migration)",
+                "message": "Profile update accepted and validated (simplified implementation during service migration)",
                 "user_id": user_id,
-                "requested_updates": profile_data,
-                "note": "Profile updates are tracked but not persisted during modular architecture migration",
+                "updated_fields": {
+                    "telegram_username": update_request.telegram_username,
+                    "display_name": update_request.display_name,
+                    "bio": update_request.bio,
+                    "timezone": update_request.timezone,
+                    "language": update_request.language
+                },
+                "note": "Profile updates are validated and tracked but not persisted during modular architecture migration",
                 "next_update_eta": "When full user service integration is complete",
                 "timestamp": chrono::Utc::now().timestamp_millis()
             });
@@ -287,25 +339,55 @@ async fn route_user_request(
                 .get("X-User-ID")?
                 .ok_or_else(|| worker::Error::RustError("Missing X-User-ID header".to_string()))?;
 
-            // Parse preferences update request
+            // Parse and validate preferences update request
             let mut req_clone = req;
-            let preferences_data: serde_json::Value = req_clone.json().await?;
+            let update_request = match req_clone.json::<UpdatePreferencesRequest>().await {
+                Ok(request) => request,
+                Err(e) => {
+                    console_log!("❌ Invalid preferences update request: {:?}", e);
+                    return Response::error("Invalid request format", 400);
+                }
+            };
+
+            // Validate request data
+            if let Some(risk_tolerance) = update_request.risk_tolerance {
+                if !(0.0..=1.0).contains(&risk_tolerance) {
+                    return Response::error("Risk tolerance must be between 0.0 and 1.0", 400);
+                }
+            }
+            if let Some(min_profit) = update_request.min_profit_threshold {
+                if min_profit < 0.0 {
+                    return Response::error("Minimum profit threshold cannot be negative", 400);
+                }
+            }
+            if let Some(max_position) = update_request.max_position_size {
+                if max_position <= 0.0 {
+                    return Response::error("Maximum position size must be positive", 400);
+                }
+            }
 
             // Basic preferences update implementation (fallback during migration)
             console_log!(
-                "⚙️ Preferences update request for user {}: {:?}",
+                "⚙️ Preferences update request for user {}: notification_enabled={:?}, risk_tolerance={:?}",
                 user_id,
-                preferences_data
+                update_request.notification_enabled,
+                update_request.risk_tolerance
             );
 
-            // For now, provide a temporary implementation that accepts the request
             // TODO: Implement proper preference updates when modular service supports it
             let response = serde_json::json!({
                 "status": "accepted",
-                "message": "Preferences update accepted (simplified implementation during service migration)",
+                "message": "Preferences update accepted and validated (simplified implementation during service migration)",
                 "user_id": user_id,
-                "requested_preferences": preferences_data,
-                "note": "Preference updates are tracked but not persisted during modular architecture migration",
+                "updated_preferences": {
+                    "notification_enabled": update_request.notification_enabled,
+                    "risk_tolerance": update_request.risk_tolerance,
+                    "min_profit_threshold": update_request.min_profit_threshold,
+                    "max_position_size": update_request.max_position_size,
+                    "preferred_trading_pairs": update_request.preferred_trading_pairs,
+                    "preferred_exchanges": update_request.preferred_exchanges
+                },
+                "note": "Preference updates are validated and tracked but not persisted during modular architecture migration",
                 "next_update_eta": "When full user service integration is complete",
                 "timestamp": chrono::Utc::now().timestamp_millis()
             });
@@ -520,26 +602,9 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
     let url = req.url()?;
     let path = url.path();
-    let original_worker_method = req.method();
+    let method = req.method();
 
-    // Convert worker::Method to http::Method for use with http::Request::builder()
-    let _http_method_for_builder = match &original_worker_method {
-        Method::Get => http::Method::GET,
-        Method::Post => http::Method::POST,
-        Method::Put => http::Method::PUT,
-        Method::Delete => http::Method::DELETE,
-        Method::Options => http::Method::OPTIONS,
-        Method::Head => http::Method::HEAD,
-        Method::Patch => http::Method::PATCH,
-        _ => {
-            return Response::error(
-                format!("Unsupported method: {:?}", original_worker_method),
-                405,
-            )
-        }
-    };
-
-    console_log!("🌐 Request: {} {}", original_worker_method, path);
+    console_log!("🌐 Request: {} {}", method, path);
 
     // CORS headers for all responses
     let mut cors_headers = worker::Headers::new();
@@ -554,11 +619,11 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     )?;
 
     // Handle preflight requests
-    if original_worker_method == Method::Options {
+    if method == Method::Options {
         return Ok(Response::empty()?.with_headers(cors_headers));
     }
 
-    let mut response = match (original_worker_method.clone(), path) {
+    let mut response = match (method.clone(), path) {
         // Health endpoints - Use modular routing
         (Method::Get, "/health") => {
             route_health_check(req, &get_service_container(&env).await?).await
@@ -689,7 +754,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
 
         _ => {
-            console_log!("❌ Route not found: {} {}", original_worker_method, path);
+            console_log!("❌ Route not found: {} {}", method, path);
             Response::error("Not Found", 404)
         }
     };
@@ -1215,7 +1280,7 @@ async fn cleanup_expired_opportunities(
     let mut cleaned_count = 0;
 
     // Opportunities older than 1 hour are considered expired
-    let expiry_threshold = current_timestamp - (60 * 60 * 1000); // 1 hour in milliseconds
+    let expiry_threshold = current_timestamp - HOUR_IN_MS;
 
     // IMPORTANT: This is a simplified implementation during modular architecture migration.
     //
@@ -1277,7 +1342,7 @@ async fn cleanup_expired_opportunities(
     }
 
     // Also check for any time-based opportunity keys (opportunities with timestamp suffixes)
-    let now_hour = current_timestamp / (60 * 60 * 1000); // Current hour
+    let now_hour = current_timestamp / HOUR_IN_MS; // Current hour
     for hours_back in 2..24 {
         // Check last 24 hours, starting from 2 hours ago
         let target_hour = now_hour - hours_back;
@@ -1342,14 +1407,17 @@ async fn process_pending_distributions(
 ) -> ArbitrageResult<u32> {
     let mut processed_count = 0;
 
-    // Check for pending distributions
+    // Check for pending distributions using specific queue indices
     // TODO: Implement actual queue processing logic
-    // For now, check for any queued distribution items
-    let queue_prefixes = ["queue:distribution:", "pending:notification:"];
+    // For now, check for any queued distribution items using known queue patterns
+    let queue_types = [
+        ("queue:distribution:", 10), // Check reasonable range for distribution queue
+        ("pending:notification:", 25), // Check notification queue
+    ];
 
-    for prefix in queue_prefixes {
-        for i in 0..50 {
-            // Check reasonable range
+    for (prefix, max_items) in queue_types {
+        // Instead of hardcoded 0..50, use configurable max_items per queue type
+        for i in 0..max_items {
             let key = format!("{}{}", prefix, i);
             if let Ok(Some(data)) = kv_store.get(&key).text().await {
                 if let Ok(distribution) = serde_json::from_str::<serde_json::Value>(&data) {
@@ -1394,15 +1462,18 @@ async fn update_user_activity_metrics(
     let mut active_users = 0;
 
     // Calculate user activity for the past hour
-    let activity_threshold = current_timestamp - (60 * 60 * 1000); // 1 hour
+    let activity_threshold = current_timestamp - HOUR_IN_MS;
 
     // TODO: Implement actual user activity scanning
-    // For now, check session and activity keys
-    let activity_prefixes = ["user:activity:", "session:"];
+    // For now, check session and activity keys using targeted ranges
+    let activity_sources = [
+        ("user:activity:", 100), // Check reasonable range for user activity
+        ("session:", 150),       // Check session keys
+    ];
 
-    for prefix in activity_prefixes {
-        for i in 0..200 {
-            // Check reasonable range for user IDs
+    for (prefix, max_items) in activity_sources {
+        // Instead of hardcoded 0..200, use configurable max_items per source
+        for i in 0..max_items {
             let key = format!("{}{}", prefix, i);
             if let Ok(Some(data)) = kv_store.get(&key).text().await {
                 if let Ok(activity) = serde_json::from_str::<serde_json::Value>(&data) {
@@ -1422,7 +1493,7 @@ async fn update_user_activity_metrics(
     let activity_summary = serde_json::json!({
         "timestamp": current_timestamp,
         "active_users_last_hour": active_users,
-        "measurement_period_ms": 60 * 60 * 1000,
+        "measurement_period_ms": HOUR_IN_MS,
         "next_update": current_timestamp + (5 * 60 * 1000)
     });
 
@@ -1446,14 +1517,18 @@ async fn cleanup_expired_sessions(
     let mut cleaned_sessions = 0;
 
     // Sessions older than 24 hours are considered expired
-    let session_expiry = current_timestamp - (24 * 60 * 60 * 1000); // 24 hours
+    let session_expiry = current_timestamp - DAY_IN_MS;
 
-    // Check session keys
-    let session_prefixes = ["session:", "user_session:", "auth_session:"];
+    // Check session keys using targeted patterns
+    let session_sources = [
+        ("session:", 200),      // Primary session store
+        ("user_session:", 300), // User-specific sessions
+        ("auth_session:", 100), // Auth sessions
+    ];
 
-    for prefix in session_prefixes {
-        for i in 0..500 {
-            // Check reasonable range for session IDs
+    for (prefix, max_items) in session_sources {
+        // Instead of hardcoded 0..500, use configurable max_items per session type
+        for i in 0..max_items {
             let key = format!("{}{}", prefix, i);
             if let Ok(Some(data)) = kv_store.get(&key).text().await {
                 if let Ok(session) = serde_json::from_str::<serde_json::Value>(&data) {

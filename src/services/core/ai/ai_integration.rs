@@ -351,18 +351,35 @@ impl AiIntegrationService {
         match api_key.provider {
             ApiKeyProvider::OpenAI => Ok(AiProvider::OpenAI {
                 api_key: api_key.encrypted_key.clone(),
-                base_url: api_key.metadata.get("base_url").map(|s| s.to_string()),
-                model: api_key.metadata.get("model").map(|s| s.to_string()),
+                base_url: api_key
+                    .metadata
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                model: api_key
+                    .metadata
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             }),
             ApiKeyProvider::Anthropic => Ok(AiProvider::Anthropic {
                 api_key: api_key.encrypted_key.clone(),
-                base_url: api_key.metadata.get("base_url").map(|s| s.to_string()),
-                model: api_key.metadata.get("model").map(|s| s.to_string()),
+                base_url: api_key
+                    .metadata
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                model: api_key
+                    .metadata
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             }),
             ApiKeyProvider::Custom => {
                 let base_url = api_key
                     .metadata
                     .get("base_url")
+                    .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
                     .ok_or_else(|| {
                         ArbitrageError::configuration_error(
@@ -373,12 +390,24 @@ impl AiIntegrationService {
                 let headers = api_key
                     .metadata
                     .get("headers")
-                    .map(|s| {
-                        // Try to parse as JSON, fallback to empty HashMap
-                        serde_json::from_str::<std::collections::HashMap<String, String>>(
-                            s.as_str().unwrap_or("{}"),
-                        )
-                        .unwrap_or_default()
+                    .and_then(|v| {
+                        // Try to parse as JSON object first, then as string
+                        v.as_object()
+                            .map(|obj| {
+                                obj.iter()
+                                    .filter_map(|(k, v)| {
+                                        v.as_str().map(|s| (k.clone(), s.to_string()))
+                                    })
+                                    .collect()
+                            })
+                            .or_else(|| {
+                                v.as_str().and_then(|s| {
+                                    serde_json::from_str::<
+                                            std::collections::HashMap<String, String>,
+                                        >(s)
+                                        .ok()
+                                })
+                            })
                     })
                     .unwrap_or_default();
 
@@ -386,7 +415,11 @@ impl AiIntegrationService {
                     api_key: api_key.encrypted_key.clone(),
                     base_url,
                     headers,
-                    model: api_key.metadata.get("model").map(|s| s.to_string()),
+                    model: api_key
+                        .metadata
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
                 })
             }
             _ => Err(ArbitrageError::configuration_error(format!(
@@ -859,18 +892,35 @@ impl AiIntegrationService {
         match api_key.provider {
             ApiKeyProvider::OpenAI => Ok(AiProvider::OpenAI {
                 api_key: decrypted_key.to_string(),
-                base_url: api_key.metadata.get("base_url").map(|s| s.to_string()),
-                model: api_key.metadata.get("model").map(|s| s.to_string()),
+                base_url: api_key
+                    .metadata
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                model: api_key
+                    .metadata
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             }),
             ApiKeyProvider::Anthropic => Ok(AiProvider::Anthropic {
                 api_key: decrypted_key.to_string(),
-                base_url: api_key.metadata.get("base_url").map(|s| s.to_string()),
-                model: api_key.metadata.get("model").map(|s| s.to_string()),
+                base_url: api_key
+                    .metadata
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                model: api_key
+                    .metadata
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             }),
             ApiKeyProvider::Custom => {
                 let base_url = api_key
                     .metadata
                     .get("base_url")
+                    .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
                     .ok_or_else(|| {
                         ArbitrageError::configuration_error(
@@ -881,12 +931,24 @@ impl AiIntegrationService {
                 let headers = api_key
                     .metadata
                     .get("headers")
-                    .map(|s| {
-                        // Try to parse as JSON, fallback to empty HashMap
-                        serde_json::from_str::<std::collections::HashMap<String, String>>(
-                            s.as_str().unwrap_or("{}"),
-                        )
-                        .unwrap_or_default()
+                    .and_then(|v| {
+                        // Try to parse as JSON object first, then as string
+                        v.as_object()
+                            .map(|obj| {
+                                obj.iter()
+                                    .filter_map(|(k, v)| {
+                                        v.as_str().map(|s| (k.clone(), s.to_string()))
+                                    })
+                                    .collect()
+                            })
+                            .or_else(|| {
+                                v.as_str().and_then(|s| {
+                                    serde_json::from_str::<
+                                            std::collections::HashMap<String, String>,
+                                        >(s)
+                                        .ok()
+                                })
+                            })
                     })
                     .unwrap_or_default();
 
@@ -894,7 +956,11 @@ impl AiIntegrationService {
                     api_key: decrypted_key.to_string(),
                     base_url,
                     headers,
-                    model: api_key.metadata.get("model").map(|s| s.to_string()),
+                    model: api_key
+                        .metadata
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
                 })
             }
             _ => Err(ArbitrageError::configuration_error(format!(
