@@ -107,3 +107,126 @@ pub fn create_mock_arbitrage_opportunity() -> crate::types::ArbitrageOpportunity
         min_exchanges_required: 2,
     }
 }
+
+// Mock D1Service for testing
+#[cfg(test)]
+pub struct MockD1Service {
+    pub data: std::collections::HashMap<String, String>,
+    pub error_simulation: Option<String>,
+}
+
+#[cfg(test)]
+impl Default for MockD1Service {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+impl MockD1Service {
+    pub fn new() -> Self {
+        Self {
+            data: std::collections::HashMap::new(),
+            error_simulation: None,
+        }
+    }
+
+    pub fn simulate_error(&mut self, error_type: &str) {
+        self.error_simulation = Some(error_type.to_string());
+    }
+
+    pub fn reset_error_simulation(&mut self) {
+        self.error_simulation = None;
+    }
+
+    pub async fn mock_execute(
+        &mut self,
+        _query: &str,
+        _params: Vec<String>,
+    ) -> crate::utils::ArbitrageResult<std::collections::HashMap<String, serde_json::Value>> {
+        if let Some(ref error_type) = self.error_simulation {
+            return Err(crate::utils::ArbitrageError::database_error(format!(
+                "Mock database error: {}",
+                error_type
+            )));
+        }
+
+        // Simple mock behavior - just return empty result
+        Ok(std::collections::HashMap::new())
+    }
+}
+
+// Mock KV Store for testing
+#[cfg(test)]
+pub struct MockKvStore {
+    pub data: std::collections::HashMap<String, String>,
+    pub error_simulation: Option<String>,
+}
+
+#[cfg(test)]
+impl Default for MockKvStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+impl MockKvStore {
+    pub fn new() -> Self {
+        Self {
+            data: std::collections::HashMap::new(),
+            error_simulation: None,
+        }
+    }
+
+    pub fn simulate_error(&mut self, error_type: &str) {
+        self.error_simulation = Some(error_type.to_string());
+    }
+
+    pub fn reset_error_simulation(&mut self) {
+        self.error_simulation = None;
+    }
+
+    pub async fn mock_put(&mut self, key: &str, value: &str) -> crate::utils::ArbitrageResult<()> {
+        if let Some(ref error_type) = self.error_simulation {
+            return Err(crate::utils::ArbitrageError::validation_error(format!(
+                "Mock KV error: {}",
+                error_type
+            )));
+        }
+
+        self.data.insert(key.to_string(), value.to_string());
+        Ok(())
+    }
+
+    pub async fn mock_get(&self, key: &str) -> crate::utils::ArbitrageResult<Option<String>> {
+        if let Some(ref error_type) = self.error_simulation {
+            return Err(crate::utils::ArbitrageError::validation_error(format!(
+                "Mock KV error: {}",
+                error_type
+            )));
+        }
+
+        Ok(self.data.get(key).cloned())
+    }
+
+    pub async fn mock_delete(&mut self, key: &str) -> crate::utils::ArbitrageResult<()> {
+        if let Some(ref error_type) = self.error_simulation {
+            return Err(crate::utils::ArbitrageError::validation_error(format!(
+                "Mock KV error: {}",
+                error_type
+            )));
+        }
+
+        self.data.remove(key);
+        Ok(())
+    }
+
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.data.contains_key(key)
+    }
+
+    pub fn get_data_count(&self) -> usize {
+        self.data.len()
+    }
+}

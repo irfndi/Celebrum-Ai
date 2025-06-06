@@ -125,9 +125,9 @@ pub fn create_test_arbitrage_opportunity(
     let short_exchange_enum = ExchangeIdEnum::Bybit; // Default for this helper
 
     let base_price = 50000.0; // Example base price for calculation
-    let long_rate_val = Some(base_price);
-    let short_rate_val = Some(base_price + (base_price * rate_diff));
-    let net_rate_diff_val = Some(rate_diff * 0.95); // Assuming 5% fee/slippage for net calculation
+    let long_rate_val = base_price;
+    let short_rate_val = base_price + (base_price * rate_diff);
+    let net_rate_diff_val = rate_diff * 0.95; // Assuming 5% fee/slippage for net calculation
     let example_volume = 0.1;
 
     ArbitrageOpportunity {
@@ -144,18 +144,16 @@ pub fn create_test_arbitrage_opportunity(
             short_exchange_enum.as_str().to_string(),
         ],
 
-        long_rate: long_rate_val,
-        short_rate: short_rate_val,
-        buy_price: long_rate_val.unwrap_or_default(),
-        sell_price: short_rate_val.unwrap_or_default(),
+        long_rate: Some(long_rate_val),
+        short_rate: Some(short_rate_val),
+        buy_price: long_rate_val,
+        sell_price: short_rate_val,
 
         rate_difference: rate_diff,
-        net_rate_difference: net_rate_diff_val,
-        profit_percentage: net_rate_diff_val.unwrap_or(0.0) * 100.0,
+        net_rate_difference: Some(net_rate_diff_val),
+        profit_percentage: net_rate_diff_val * 100.0,
 
-        potential_profit_value: Some(
-            net_rate_diff_val.unwrap_or(0.0) * base_price * example_volume,
-        ),
+        potential_profit_value: Some(net_rate_diff_val * base_price * example_volume),
         volume: example_volume,
 
         details: Some(format!(
@@ -253,9 +251,9 @@ pub fn assert_user_permissions(user: &UserProfile, expected_permissions: &[Comma
         // This would normally check against the user's actual permissions
         // For now, we'll check based on subscription tier and beta access
         let has_permission = match permission {
+            CommandPermission::ViewOpportunities => true,
             CommandPermission::BasicOpportunities => true,
-            CommandPermission::BasicOpportunities => true,
-            CommandPermission::ManualTrading => {
+            CommandPermission::BasicTrading => {
                 has_beta_access
                     || matches!(
                         user.subscription.tier,
@@ -264,21 +262,18 @@ pub fn assert_user_permissions(user: &UserProfile, expected_permissions: &[Comma
                             | SubscriptionTier::Enterprise
                     )
             }
-            CommandPermission::AutomatedTrading => {
+            CommandPermission::AdvancedTrading => {
                 has_beta_access
                     || matches!(
                         user.subscription.tier,
                         SubscriptionTier::Premium | SubscriptionTier::Enterprise
                     )
             }
-            CommandPermission::TechnicalAnalysis => {
-                has_beta_access
-                    || matches!(
-                        user.subscription.tier,
-                        SubscriptionTier::Basic
-                            | SubscriptionTier::Premium
-                            | SubscriptionTier::Enterprise
-                    )
+            CommandPermission::AdminAccess => {
+                user.subscription.tier == SubscriptionTier::SuperAdmin
+            }
+            CommandPermission::SuperAdminAccess => {
+                user.subscription.tier == SubscriptionTier::SuperAdmin
             }
             CommandPermission::AIEnhancedOpportunities => {
                 has_beta_access
@@ -319,6 +314,8 @@ pub fn assert_user_permissions(user: &UserProfile, expected_permissions: &[Comma
                         SubscriptionTier::Premium | SubscriptionTier::Enterprise
                     )
             }
+            // Handle any additional permissions with default behavior
+            _ => has_beta_access || user.subscription.tier == SubscriptionTier::SuperAdmin,
         };
 
         assert!(

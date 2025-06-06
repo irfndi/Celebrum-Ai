@@ -682,12 +682,9 @@ impl UserExchangeApiService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::core::infrastructure::d1::D1ServiceConfig;
-    use crate::services::core::infrastructure::database_repositories::DatabaseManager;
-    use crate::types::Env;
 
-    #[test]
-    fn test_encryption_decryption() {
+    #[tokio::test]
+    async fn test_encryption_decryption() {
         use aes_gcm::{
             aead::{Aead, AeadCore, KeyInit, OsRng},
             Aes256Gcm, Key, Nonce,

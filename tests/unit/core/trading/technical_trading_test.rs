@@ -26,6 +26,7 @@ struct MockTechnicalSignal {
     pub signal_type: TradingSignalType,
     pub strength: SignalStrength,
     pub confidence: f64,
+    pub confidence_score: f64, // Alias for confidence for backwards compatibility
     pub current_price: f64,
 }
 
@@ -46,6 +47,7 @@ impl MockTechnicalSignal {
             signal_type,
             strength,
             confidence,
+            confidence_score: confidence, // Set same as confidence
             current_price,
         }
     }
@@ -251,7 +253,7 @@ mod tests {
         // Let's use a price that will generate the right RSI value
         let overbought_signal = service.generate_rsi_signal("binance", "BTC/USDT", 85.0); // 50 + (85 % 50) = 50 + 35 = 85 > 80
         assert_eq!(overbought_signal.signal_type, TradingSignalType::Sell);
-        assert_eq!(overbought_signal.signal_strength, SignalStrength::Strong);
+        assert_eq!(overbought_signal.strength, SignalStrength::Strong);
         assert!(overbought_signal.confidence_score >= 0.80);
 
         // Test oversold condition (price that will generate RSI < 20)
@@ -259,7 +261,7 @@ mod tests {
                                                                                         // Let's test with a price that generates moderate signal instead
         let moderate_signal = service.generate_rsi_signal("binance", "ETH/USDT", 25.0); // 50 + (25 % 50) = 50 + 25 = 75 > 70
         assert_eq!(moderate_signal.signal_type, TradingSignalType::Sell);
-        assert_eq!(moderate_signal.signal_strength, SignalStrength::Medium);
+        assert_eq!(moderate_signal.strength, SignalStrength::Medium);
         assert!(moderate_signal.confidence_score >= 0.70);
     }
 
@@ -273,9 +275,9 @@ mod tests {
         assert!(bullish_signal.confidence_score >= 0.60);
 
         // Verify signal properties
-        assert_eq!(bullish_signal.exchange_id, "bybit");
-        assert_eq!(bullish_signal.trading_pair, "BTC/USDT");
-        assert_eq!(bullish_signal.entry_price, 45000.0);
+        assert_eq!(bullish_signal.exchange, "bybit");
+        assert_eq!(bullish_signal.pair, "BTC/USDT");
+        assert_eq!(bullish_signal.current_price, 45000.0);
     }
 
     #[test]
@@ -391,17 +393,17 @@ mod tests {
 
         let technical_signal = mock_signal.to_technical_signal();
 
-        assert_eq!(technical_signal.signal_id, "test_signal");
-        assert_eq!(technical_signal.exchange_id, "binance");
-        assert_eq!(technical_signal.trading_pair, "BTC/USDT");
-        assert_eq!(technical_signal.signal_type, TradingSignalType::Buy);
-        assert_eq!(technical_signal.signal_strength, SignalStrength::Strong);
-        assert_eq!(technical_signal.confidence_score, 0.85);
-        assert_eq!(technical_signal.entry_price, 45000.0);
+        assert_eq!(technical_signal.id, "test_signal");
+        assert_eq!(technical_signal.exchange, ExchangeIdEnum::Binance);
+        assert_eq!(technical_signal.pair, "BTC/USDT");
+        assert_eq!(technical_signal.signal_type, SignalType::Buy);
+        assert_eq!(technical_signal.strength, SignalStrength::Strong);
+        assert_eq!(technical_signal.confidence, 0.85);
+        assert_eq!(technical_signal.current_price, 45000.0);
         assert!(technical_signal.target_price.is_some());
         assert!(technical_signal.stop_loss.is_some());
-        assert!(technical_signal.created_at > 0);
-        assert!(technical_signal.expires_at > technical_signal.created_at);
+        assert!(technical_signal.generated_at > 0);
+        assert!(technical_signal.expires_at > technical_signal.generated_at);
     }
 
     #[test]
@@ -449,19 +451,19 @@ mod tests {
 
         // Verify signal strength is preserved in conversion
         assert_eq!(
-            weak_signal.to_technical_signal().signal_strength,
+            weak_signal.to_technical_signal().strength,
             SignalStrength::Weak
         );
         assert_eq!(
-            moderate_signal.to_technical_signal().signal_strength,
+            moderate_signal.to_technical_signal().strength,
             SignalStrength::Moderate
         );
         assert_eq!(
-            strong_signal.to_technical_signal().signal_strength,
+            strong_signal.to_technical_signal().strength,
             SignalStrength::Strong
         );
         assert_eq!(
-            extreme_signal.to_technical_signal().signal_strength,
+            extreme_signal.to_technical_signal().strength,
             SignalStrength::Extreme
         );
     }
@@ -528,14 +530,14 @@ mod tests {
         let bybit_signal = service.generate_rsi_signal("bybit", "BTC/USDT", 45000.0);
         let okx_signal = service.generate_rsi_signal("okx", "BTC/USDT", 45000.0);
 
-        assert_eq!(binance_signal.exchange_id, "binance");
-        assert_eq!(bybit_signal.exchange_id, "bybit");
-        assert_eq!(okx_signal.exchange_id, "okx");
+        assert_eq!(binance_signal.exchange, "binance");
+        assert_eq!(bybit_signal.exchange, "bybit");
+        assert_eq!(okx_signal.exchange, "okx");
 
         // All should have same trading pair and similar signals for same price
-        assert_eq!(binance_signal.trading_pair, "BTC/USDT");
-        assert_eq!(bybit_signal.trading_pair, "BTC/USDT");
-        assert_eq!(okx_signal.trading_pair, "BTC/USDT");
+        assert_eq!(binance_signal.pair, "BTC/USDT");
+        assert_eq!(bybit_signal.pair, "BTC/USDT");
+        assert_eq!(okx_signal.pair, "BTC/USDT");
     }
 
     #[test]
@@ -545,11 +547,11 @@ mod tests {
         let technical_signal = signal.to_technical_signal();
 
         // Verify signal has proper expiry time
-        assert!(technical_signal.expires_at > technical_signal.created_at);
+        assert!(technical_signal.expires_at > technical_signal.generated_at);
 
         // Should expire approximately 1 hour from creation (default config)
-        let expected_duration = service.config.signal_expiry_minutes * 60 * 1000;
-        let actual_duration = technical_signal.expires_at - technical_signal.created_at;
+        let expected_duration = service.config.signal_expiry_hours * 60 * 60 * 1000;
+        let actual_duration = technical_signal.expires_at - technical_signal.generated_at;
 
         // Allow some tolerance for timing differences
         assert!(
@@ -580,14 +582,14 @@ mod tests {
         let stop_loss = technical_signal.stop_loss.unwrap();
 
         // For buy signal, target should be higher than entry, stop loss should be lower
-        assert!(target_price > technical_signal.entry_price);
-        assert!(stop_loss < technical_signal.entry_price);
+        assert!(target_price > technical_signal.current_price);
+        assert!(stop_loss < technical_signal.current_price);
 
         // Verify reasonable price targets (within 5% range)
         let price_diff_target =
-            (target_price - technical_signal.entry_price) / technical_signal.entry_price;
+            (target_price - technical_signal.current_price) / technical_signal.current_price;
         let price_diff_stop =
-            (technical_signal.entry_price - stop_loss) / technical_signal.entry_price;
+            (technical_signal.current_price - stop_loss) / technical_signal.current_price;
 
         assert!(
             price_diff_target > 0.0 && price_diff_target < 0.05,

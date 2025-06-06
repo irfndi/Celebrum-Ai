@@ -70,8 +70,8 @@ lint: ## Run clippy lints
 	@echo "🔍 Running clippy..."
 	@cargo clippy --all-targets --all-features
 
-lint-strict: ## Run strict clippy lints
-	@echo "🔍 Running strict clippy..."
+lint-strict: ## Run strict clippy lints (matches GitHub CI)
+	@echo "🔍 Running strict clippy (GitHub CI standard)..."
 	@cargo clippy --all-targets --all-features -- -D warnings
 
 lint-lib: ## Run clippy on library only
@@ -92,7 +92,7 @@ ci-pipeline: ## Run comprehensive CI pipeline
 	@echo "✅ Step 1: Code Formatting Check"
 	@cargo fmt --verbose --all -- --check
 	@echo "🔍 Step 2: Clippy Linting Check"
-	@cargo clippy --lib --verbose -- -D warnings
+	@cargo clippy --all-targets --all-features -- -D warnings
 	@echo "✅ Step 2: Clippy Linting Passed"
 	@echo "🎯 Step 3: WASM Target Compilation Check"
 	@cargo check --target wasm32-unknown-unknown --lib --verbose

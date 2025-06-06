@@ -269,7 +269,7 @@ impl InvitationRepository {
 
         let success = result
             .meta()
-            .map_or(0, |m| m.map_or(0, |meta| meta.rows_written.unwrap_or(0)))
+            .map_or(0, |m| m.map_or(0, |meta| meta.changes.unwrap_or(0)))
             > 0;
 
         // Invalidate cache if enabled

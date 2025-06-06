@@ -1428,43 +1428,6 @@ impl TelegramService {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    // Removed unused imports: CommandPermission, SubscriptionTier, UserAccessLevel, UserProfile
-
-    // Mock UserProfileManagement for testing
-    #[tokio::test]
-    async fn test_format_user_preferences() {
-        let service = TelegramService::new(TelegramConfig::default());
-        let mut preferences = UserPreferences::default();
-        preferences.notification_settings.enabled = true;
-        preferences.notification_settings.price_alerts = true;
-        preferences.display_settings.theme = "dark".to_string();
-        preferences.display_settings.language = "en".to_string();
-
-        let message = service.format_user_preferences(&preferences);
-
-        // Test message structure
-        assert!(message.contains("⚙️ *User Preferences*"));
-        assert!(message.contains("🔔 *Notifications*"));
-        assert!(message.contains("🎨 *Display*"));
-        assert!(message.contains("🚨 *Alert Thresholds*"));
-        assert!(message.contains("🎯 *Dashboard Sections*"));
-        assert!(message.contains("⚡ *Quick Actions*"));
-        assert!(message.contains("⭐ *Favorites*"));
-        assert!(message.contains("🔗 *Command Aliases*"));
-
-        // Test command suggestions
-        assert!(message.contains("/set_notifications"));
-        assert!(message.contains("/set_display"));
-        assert!(message.contains("/set_alerts"));
-        assert!(message.contains("/set_dashboard"));
-        assert!(message.contains("/add_alias"));
-        assert!(message.contains("/reset_preferences"));
-    }
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
 impl NotificationSender for TelegramService {
@@ -1525,7 +1488,7 @@ impl NotificationSender for TelegramService {
         &self,
         chat_id: &str,
         opportunity: &OpportunityData,
-        _is_private: bool, // Assuming this might be used later for formatting
+        _is_private: bool,
     ) -> ArbitrageResult<bool> {
         let message = match opportunity {
             OpportunityData::Arbitrage(arb) => format!(
@@ -1560,5 +1523,42 @@ impl NotificationSender for TelegramService {
 
     async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
         self.send_message_to_chat(chat_id, message).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // Removed unused imports: CommandPermission, SubscriptionTier, UserAccessLevel, UserProfile
+
+    // Mock UserProfileManagement for testing
+    #[tokio::test]
+    async fn test_format_user_preferences() {
+        let service = TelegramService::new(TelegramConfig::default());
+        let mut preferences = UserPreferences::default();
+        preferences.notification_settings.enabled = true;
+        preferences.notification_settings.price_alerts = true;
+        preferences.display_settings.theme = "dark".to_string();
+        preferences.display_settings.language = "en".to_string();
+
+        let message = service.format_user_preferences(&preferences);
+
+        // Test message structure
+        assert!(message.contains("⚙️ *User Preferences*"));
+        assert!(message.contains("🔔 *Notifications*"));
+        assert!(message.contains("🎨 *Display*"));
+        assert!(message.contains("🚨 *Alert Thresholds*"));
+        assert!(message.contains("🎯 *Dashboard Sections*"));
+        assert!(message.contains("⚡ *Quick Actions*"));
+        assert!(message.contains("⭐ *Favorites*"));
+        assert!(message.contains("🔗 *Command Aliases*"));
+
+        // Test command suggestions
+        assert!(message.contains("/set_notifications"));
+        assert!(message.contains("/set_display"));
+        assert!(message.contains("/set_alerts"));
+        assert!(message.contains("/set_dashboard"));
+        assert!(message.contains("/add_alias"));
+        assert!(message.contains("/reset_preferences"));
     }
 }

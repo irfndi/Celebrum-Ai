@@ -705,12 +705,12 @@ mod tests {
     async fn test_user_session_creation() {
         // Test user session creation logic
         let user_id = "test_user_123".to_string();
-        let telegram_chat_id = Some(987654321i64);
+        let telegram_chat_id = 987654321i64;
 
-        let session = UserSession::new(user_id.clone(), telegram_chat_id.unwrap());
+        let session = UserSession::new(user_id.clone(), telegram_chat_id);
 
         assert_eq!(session.user_id, user_id);
-        assert_eq!(session.telegram_user_id, telegram_chat_id.unwrap());
+        assert_eq!(session.telegram_user_id, telegram_chat_id);
         assert_eq!(session.state, SessionState::Active);
         assert!(!session.is_expired());
     }

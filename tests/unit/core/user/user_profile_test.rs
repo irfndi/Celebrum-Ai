@@ -618,7 +618,12 @@ mod tests {
         let username = Some("testuser".to_string());
 
         // Add invitation code to mock service
-        let mut invitation = InvitationCode::new("beta_testing".to_string(), Some(10), Some(30));
+        let mut invitation = InvitationCode::new(
+            "beta_testing".to_string(),
+            Some(10),
+            Some(30),
+            "test_user_id".to_string(),
+        );
         invitation.code = "TEST-INVITE-123".to_string(); // Set the specific code we're testing
         service.d1_service.add_mock_invitation_code(invitation);
 
@@ -929,6 +934,8 @@ mod tests {
     async fn test_invitation_code_system() {
         let mut service = MockUserProfileService::new();
         let created_by = "creator_user_id".to_string();
+        let telegram_chat_id = 987654321i64;
+        let user_id = "test_user_123".to_string();
 
         // Create a new invitation code
         let mut invitation =
@@ -936,6 +943,10 @@ mod tests {
         service
             .d1_service
             .add_mock_invitation_code(invitation.clone());
+
+        // Create a test session first
+        let session = UserSession::new(user_id.clone(), telegram_chat_id);
+        service.mock_store_user_session(&session).await.unwrap();
 
         // Test session retrieval
         let retrieved_session = service
@@ -946,7 +957,7 @@ mod tests {
         let retrieved = retrieved_session.unwrap();
         assert_eq!(retrieved.user_id, user_id);
         assert_eq!(retrieved.telegram_user_id, telegram_chat_id);
-        assert_eq!(retrieved.state, SessionState::Idle);
+        assert_eq!(retrieved.state, SessionState::Active);
     }
 
     #[tokio::test]

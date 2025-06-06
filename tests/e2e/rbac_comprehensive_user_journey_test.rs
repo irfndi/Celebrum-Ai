@@ -104,11 +104,15 @@ fn create_rbac_test_user(
                     UserRole::SuperAdmin => "super_admin",
                     UserRole::User => "user",
                     UserRole::BetaUser => unreachable!(), // Handled above
+                    _ => "standard",                      // Default for any additional roles
                 };
 
-                user.profile_metadata = Some(json!({
-                    "role": role_string
-                }));
+                user.profile_metadata = Some(
+                    json!({
+                        "role": role_string
+                    })
+                    .to_string(),
+                );
             }
         }
     }

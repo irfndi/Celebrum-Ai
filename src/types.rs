@@ -161,6 +161,7 @@ pub enum UserAccessLevel {
     FreeWithAPI,
     SubscriptionWithAPI,
     Basic, // Added to resolve compilation error
+    User,  // Added to resolve compilation error
 }
 
 /// Alias for UserAccessLevel for contexts where UserRole is more semantically appropriate.
@@ -210,6 +211,7 @@ impl UserAccessLevel {
             | UserAccessLevel::SuperAdmin
             | UserAccessLevel::BetaUser => (u32::MAX, u32::MAX),
             UserAccessLevel::Basic => (10, 10), // Assuming Basic has similar limits to FreeWithAPI for now
+            UserAccessLevel::User => (10, 10),  // Similar to Registered users
         }
     }
 
@@ -252,6 +254,7 @@ impl UserAccessLevel {
             UserAccessLevel::SubscriptionWithAPI => 200,
             UserAccessLevel::BetaUser => 100, // Assuming Beta has similar limits to Premium
             UserAccessLevel::Basic => 20, // Assuming Basic has similar limits to Verified for now
+            UserAccessLevel::User => 10,  // Similar to Registered users
         }
     }
 
@@ -269,6 +272,7 @@ impl UserAccessLevel {
             UserAccessLevel::SubscriptionWithAPI => 0, // 5 seconds changed to 0 to match test
             UserAccessLevel::BetaUser => 10,     // Assuming Beta has similar delay to Premium
             UserAccessLevel::Basic => 60, // Assuming Basic has similar delay to Verified for now
+            UserAccessLevel::User => 120, // Similar to Registered users
         }
     }
 
@@ -1537,6 +1541,18 @@ impl UserOpportunityLimits {
                 hourly_rate_limit: 20,
                 can_receive_realtime: true,
                 delay_seconds: 30,
+                arbitrage_received_today: 0,
+                technical_received_today: 0,
+                current_arbitrage_count: 0,
+                current_technical_count: 0,
+            },
+            UserAccessLevel::User => UserOpportunityLimits {
+                daily_global_opportunities: 10,
+                daily_technical_opportunities: 5,
+                daily_ai_opportunities: 2,
+                hourly_rate_limit: 3,
+                can_receive_realtime: false,
+                delay_seconds: 300,
                 arbitrage_received_today: 0,
                 technical_received_today: 0,
                 current_arbitrage_count: 0,

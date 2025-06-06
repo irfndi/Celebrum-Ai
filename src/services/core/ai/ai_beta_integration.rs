@@ -1114,8 +1114,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_prediction_tracking_and_success_marking() {
-        let mut config = AiBetaConfig::default();
-        config.min_confidence_threshold = 0.5; // Lower threshold for testing
+        let config = AiBetaConfig {
+            min_confidence_threshold: 0.5, // Lower threshold for testing
+            ..Default::default()
+        };
         let service = AiBetaIntegrationService::new(config);
 
         // Create and enhance an opportunity to generate a prediction

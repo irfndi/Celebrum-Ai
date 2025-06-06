@@ -1153,7 +1153,7 @@ mod tests {
         );
 
         // Verify it's an exchange key, not AI key
-        assert!(api_key.is_ai_key() == false);
+        assert!(!api_key.is_ai_key());
         assert!(
             api_key.provider == ApiKeyProvider::Exchange(crate::types::ExchangeIdEnum::Binance)
         );

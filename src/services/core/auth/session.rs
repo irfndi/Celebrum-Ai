@@ -538,10 +538,7 @@ mod tests {
         // assert_eq!(session_info.created_at.timestamp_millis() as u64, now);
 
         // Placeholder assertion until DI/mocking is resolved
-        assert!(
-            true,
-            "Test structure for validate_session (valid) - DI/mocking needs improvement"
-        );
+        // Test structure for validate_session (valid) - DI/mocking needs improvement
     }
 
     #[tokio::test]
@@ -558,10 +555,7 @@ mod tests {
         //     panic!("Expected AuthenticationError");
         // }
 
-        assert!(
-            true,
-            "Test structure for validate_session (invalid) - DI/mocking needs improvement"
-        );
+        // Test structure for validate_session (invalid) - DI/mocking needs improvement
     }
 
     #[tokio::test]
@@ -591,9 +585,6 @@ mod tests {
         // assert!(session_in_mock.is_some());
         // assert!(!session_in_mock.unwrap().is_active()); // Should be terminated
 
-        assert!(
-            true,
-            "Test structure for end_session - DI/mocking needs improvement"
-        );
+        // Test structure for end_session - DI/mocking needs improvement
     }
 }

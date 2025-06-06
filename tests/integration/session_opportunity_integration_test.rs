@@ -171,7 +171,7 @@ fn create_test_session(telegram_id: i64, user_id: String) -> EnhancedUserSession
         session_id: format!("session_{}", telegram_id),
         user_id,
         telegram_chat_id: telegram_id,
-        telegram_id: telegram_id, // Ensure this field is explicitly set
+        telegram_id, // Ensure this field is explicitly set
         last_command: Some("/start".to_string()),
         current_state: EnhancedSessionState::Active,
         session_state: EnhancedSessionState::Active, // Ensure this field is explicitly set

@@ -219,7 +219,8 @@ impl MockUserAccessService {
             | UserAccessLevel::Registered
             | UserAccessLevel::Verified
             | UserAccessLevel::FreeWithoutAPI
-            | UserAccessLevel::Basic => {
+            | UserAccessLevel::Basic
+            | UserAccessLevel::User => {
                 // Basic access: Low risk, high confidence
                 opportunity.risk_level == RiskLevel::Low && opportunity.confidence_score >= 70.0
             }

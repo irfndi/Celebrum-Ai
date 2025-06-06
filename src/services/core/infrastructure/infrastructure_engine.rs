@@ -2,25 +2,42 @@
 // Provides service discovery, dependency management, configuration, and health monitoring
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
+#[cfg(target_arch = "wasm32")]
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::sync::Mutex;
+
+// Helper macro for cross-platform mutex locking
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock().await
+    };
+}
+
+#[cfg(target_arch = "wasm32")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
 use worker::kv::KvStore;
 
-use super::service_health::HealthStatus;
 use super::{
     cache_manager::{CacheConfig, CacheManager},
     data_access_layer::{DataAccessLayer, DataAccessLayerConfig},
     database_core::DatabaseCore,
     monitoring_module::metrics_collector::{MetricsCollector, MetricsCollectorConfig},
     notification_module::{NotificationCoordinator, NotificationCoordinatorConfig},
-    service_health::SystemHealthReport,
-    service_health::{HealthCheckConfig, ServiceHealthManager},
+    service_health::{
+        HealthCheckConfig, HealthStatus, ServiceHealthCheck, ServiceHealthManager,
+        SystemHealthReport,
+    },
 };
-
-use crate::services::core::ServiceHealthCheck;
 use worker::Env;
 
 /// Service types in the infrastructure
@@ -219,6 +236,7 @@ pub struct InfrastructureEngine {
     global_config: Arc<Mutex<HashMap<String, serde_json::Value>>>,
 }
 
+#[allow(dead_code)]
 impl InfrastructureEngine {
     /// Create new InfrastructureEngine with default configuration
     pub fn new(kv_store: KvStore) -> Self {
@@ -256,7 +274,6 @@ impl InfrastructureEngine {
         }
     }
 
-    #[allow(dead_code)] // Will be used for system monitoring
     async fn generate_health_report(&self) -> SystemHealthReport {
         let mut services_health: HashMap<String, ServiceHealthCheck> = HashMap::new();
         let mut healthy_services_count = 0;
@@ -525,10 +542,9 @@ impl InfrastructureEngine {
         };
 
         let service_name = service_info.registration.service_name.clone();
-        {
-            let mut services = self.services.lock();
-            services.insert(service_name.clone(), service_info);
-        } // Lock is dropped here before the await
+        let mut services = lock_mutex!(self.services);
+        services.insert(service_name.clone(), service_info);
+        drop(services);
 
         // Initialize circuit breaker if enabled
         if self.config.enable_circuit_breaker {
@@ -540,19 +556,19 @@ impl InfrastructureEngine {
 
     /// Get service information
     pub async fn get_service_info(&self, service_name: &str) -> Option<ServiceInfo> {
-        let services = self.services.lock();
+        let services = lock_mutex!(self.services);
         services.get(service_name).cloned()
     }
 
     /// Get all registered services
     pub async fn get_all_services(&self) -> HashMap<String, ServiceInfo> {
-        let services = self.services.lock();
+        let services = lock_mutex!(self.services);
         services.clone()
     }
 
     /// Get infrastructure health summary
     pub async fn get_infrastructure_health(&self) -> InfrastructureHealth {
-        let services = self.services.lock();
+        let services = lock_mutex!(self.services);
         let services_clone = services.clone();
         drop(services);
 
@@ -617,7 +633,7 @@ impl InfrastructureEngine {
         service_name: &str,
         status: ServiceStatus,
     ) -> ArbitrageResult<()> {
-        let mut services = self.services.lock();
+        let mut services = lock_mutex!(self.services);
         if let Some(service) = services.get_mut(service_name) {
             service.status = status;
             service.last_health_check = Some(chrono::Utc::now().timestamp_millis() as u64);
@@ -637,7 +653,7 @@ impl InfrastructureEngine {
             return Err(ArbitrageError::internal_error("Auto-recovery is disabled"));
         }
 
-        let mut services = self.services.lock();
+        let mut services = lock_mutex!(self.services);
         if let Some(service) = services.get_mut(service_name) {
             if service.restart_count >= self.config.max_restart_attempts as u64 {
                 return Err(ArbitrageError::internal_error(
@@ -658,13 +674,13 @@ impl InfrastructureEngine {
 
     /// Get configuration value
     pub async fn get_config(&self, key: &str) -> Option<serde_json::Value> {
-        let config = self.global_config.lock();
+        let config = lock_mutex!(self.global_config);
         config.get(key).cloned()
     }
 
     /// Set configuration value
     pub async fn set_config(&self, key: &str, value: serde_json::Value) -> ArbitrageResult<()> {
-        let mut config = self.global_config.lock();
+        let mut config = lock_mutex!(self.global_config);
         config.insert(key.to_string(), value);
         Ok(())
     }
@@ -676,7 +692,7 @@ impl InfrastructureEngine {
         }
 
         // Update all services to stopped status
-        let mut services = self.services.lock();
+        let mut services = lock_mutex!(self.services);
         for service in services.values_mut() {
             service.status = ServiceStatus::Stopped;
         }
@@ -705,14 +721,13 @@ impl InfrastructureEngine {
             timeout_seconds: self.config.circuit_breaker_timeout_seconds,
         };
 
-        let mut circuit_breakers = self.circuit_breakers.lock();
+        let mut circuit_breakers = lock_mutex!(self.circuit_breakers);
         circuit_breakers.insert(service_name.to_string(), circuit_breaker);
         Ok(())
     }
 
-    #[allow(dead_code)] // Will be used for circuit breaker pattern
     async fn check_circuit_breaker(&self, service_name: &str) -> bool {
-        let circuit_breakers = self.circuit_breakers.lock();
+        let circuit_breakers = lock_mutex!(self.circuit_breakers);
         if let Some(breaker) = circuit_breakers.get(service_name) {
             match breaker.state {
                 CircuitBreakerState::Closed => true,
@@ -732,9 +747,8 @@ impl InfrastructureEngine {
         }
     }
 
-    #[allow(dead_code)] // Will be used for circuit breaker pattern
     async fn record_circuit_breaker_success(&self, service_name: &str) -> ArbitrageResult<()> {
-        let mut circuit_breakers = self.circuit_breakers.lock();
+        let mut circuit_breakers = lock_mutex!(self.circuit_breakers);
         if let Some(breaker) = circuit_breakers.get_mut(service_name) {
             breaker.success_count += 1;
             breaker.failure_count = 0;
@@ -744,9 +758,8 @@ impl InfrastructureEngine {
         Ok(())
     }
 
-    #[allow(dead_code)] // Will be used for circuit breaker pattern
     async fn record_circuit_breaker_failure(&self, service_name: &str) -> ArbitrageResult<()> {
-        let mut circuit_breakers = self.circuit_breakers.lock();
+        let mut circuit_breakers = lock_mutex!(self.circuit_breakers);
         if let Some(breaker) = circuit_breakers.get_mut(service_name) {
             breaker.failure_count += 1;
             breaker.last_failure_time = Some(chrono::Utc::now().timestamp_millis() as u64);
@@ -770,14 +783,14 @@ impl InfrastructureEngine {
 
         // TODO: Implement comprehensive health check across all infrastructure components
         SystemHealthReport {
-            overall_status: HealthStatus::Healthy,
-            services: HashMap::new(),
-            critical_services_healthy: true,
-            degraded_services: vec![],
-            unhealthy_services: vec![],
-            total_services: 0,
-            healthy_services: 0,
-            health_score: 1.0,
+            overall_status: HealthStatus::Healthy, // Placeholder
+            services: HashMap::new(),              // Placeholder
+            critical_services_healthy: true,       // Placeholder
+            degraded_services: vec![],             // Placeholder
+            unhealthy_services: vec![],            // Placeholder
+            total_services: 0,                     // Placeholder
+            healthy_services: 0,                   // Placeholder
+            health_score: 1.0,                     // Placeholder
             generated_at: chrono::Utc::now().timestamp_millis() as u64,
             uptime_seconds,
         }
