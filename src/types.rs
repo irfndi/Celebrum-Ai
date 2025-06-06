@@ -557,7 +557,7 @@ impl UserProfile {
 
     pub fn has_permission(&self, permission: CommandPermission) -> bool {
         // Check if user is beta user (has active beta status)
-        let is_beta_user = self.beta_expires_at.map_or(false, |expires| {
+        let is_beta_user = self.beta_expires_at.is_some_and(|expires| {
             let now = chrono::Utc::now().timestamp_millis() as u64;
             expires > now
         });
@@ -570,7 +570,7 @@ impl UserProfile {
         // Beta users get enhanced permissions
         if is_beta_user {
             match permission {
-                CommandPermission::AIEnhancedOpportunities 
+                CommandPermission::AIEnhancedOpportunities
                 | CommandPermission::AdvancedAnalytics
                 | CommandPermission::TechnicalAnalysis
                 | CommandPermission::PremiumFeatures
@@ -578,7 +578,7 @@ impl UserProfile {
                 | CommandPermission::BasicOpportunities
                 | CommandPermission::BasicTrading
                 | CommandPermission::ManualTrading => return true,
-                CommandPermission::SystemAdministration 
+                CommandPermission::SystemAdministration
                 | CommandPermission::SuperAdminAccess
                 | CommandPermission::AdminAccess => return false,
                 _ => {} // Continue to regular permission checks

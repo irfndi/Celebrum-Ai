@@ -11,7 +11,9 @@ use arb_edge::services::{
         ExperienceLevel, RiskTolerance, TradingFocus, UserTradingPreferences,
     },
 };
-use arb_edge::types::{CommandPermission, SubscriptionTier, UserAccessLevel, UserProfile, UserRole};
+use arb_edge::types::{
+    CommandPermission, SubscriptionTier, UserAccessLevel, UserProfile, UserRole,
+};
 use serde_json::json;
 use std::collections::HashMap;
 

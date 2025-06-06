@@ -10,6 +10,9 @@ export PATH := $(HOME)/.cargo/bin:$(PATH)
 help: ## Show this help message
 	@echo "🦀 ArbEdge Rust Development Commands"
 	@echo "===================================="
+	@echo "\033[33m💡 Tip: Use 'make local-ci' to mirror GitHub CI exactly\033[0m"
+	@echo "\033[33m💡 Tip: Use 'make fix-and-validate' to auto-fix then validate\033[0m"
+	@echo "===================================="
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 setup: ## Run development environment setup
@@ -66,6 +69,12 @@ fmt-check: ## Check code formatting
 	@echo "🎨 Checking code formatting..."
 	@cargo fmt --all --verbose -- --check
 
+fmt-fix: ## Auto-fix code formatting then run CI
+	@echo "🎨 Auto-fixing code formatting..."
+	@cargo fmt --verbose
+	@echo "🔄 Running CI pipeline..."
+	@$(MAKE) ci-pipeline
+
 lint: ## Run clippy lints
 	@echo "🔍 Running clippy..."
 	@cargo clippy --all-targets --all-features
@@ -87,12 +96,10 @@ fix: ## Apply automatic fixes
 ci-pipeline: ## Run comprehensive CI pipeline
 	@echo "🚀 Starting Full CI Pipeline..."
 	@echo "================================"
-	@echo "🎨 Step 1: Code Formatting"
-	@cargo fmt --verbose
-	@echo "✅ Step 1: Code Formatting Check"
-	@cargo fmt --verbose --all -- --check
+	@echo "🎨 Step 1: Code Formatting Check"
+	@cargo fmt --all -- --check
 	@echo "🔍 Step 2: Clippy Linting Check"
-	@cargo clippy --all-targets --all-features -- -D warnings
+	@cargo clippy --all-targets --all-features -- -D warnings --verbose
 	@echo "✅ Step 2: Clippy Linting Passed"
 	@echo "🎯 Step 3: WASM Target Compilation Check"
 	@cargo check --target wasm32-unknown-unknown --lib --verbose
@@ -133,11 +140,11 @@ doc: ## Generate documentation
 	@echo "📚 Generating documentation..."
 	@cargo doc --no-deps --document-private-items
 
-# Script-based commands (new)
+# Script-based commands (recommended for development)
 pre-commit: ## Run quick pre-commit checks
 	@./scripts/dev/pre-commit.sh
 
-local-ci: ## Run quick local CI validation
+local-ci: ## Run local CI validation (mirrors GitHub CI exactly)
 	@./scripts/dev/local-ci.sh
 
 full-check: ## Run comprehensive code quality checks
@@ -176,6 +183,9 @@ quick: pre-commit ## Quick validation before commit
 
 validate: ci-pipeline ## Full validation (mirrors CI)
 	@echo "✅ Full validation completed!"
+
+fix-and-validate: fmt-fix ## Auto-fix formatting then validate
+	@echo "🔧 Fix and validation completed!"
 
 quality: full-check ## Comprehensive quality analysis
 	@echo "🏆 Quality analysis completed!" 
