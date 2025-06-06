@@ -16,7 +16,8 @@ macro_rules! console_log {
 }
 
 /// Log levels supported by the logger
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(crate = "::serde")]
 pub enum LogLevel {
     Error = 0,
     Warn = 1,
@@ -166,9 +167,23 @@ fn get_sanitizer() -> &'static DataSanitizer {
 }
 
 /// Simple logger for Cloudflare Workers
+#[derive(Clone, Debug)] // Removed Serialize, Deserialize
 pub struct Logger {
     level: LogLevel,
+    // Potentially other fields like output target (console, file, etc.)
+    // For simplicity, we'll keep it basic for now.
+    // Consider adding a writer field: writer: Arc<Mutex<dyn Write + Send>>,
+    // or using a logging facade like `log` or `tracing`.
     context: HashMap<String, Value>,
+}
+
+impl Default for Logger {
+    fn default() -> Self {
+        Self {
+            level: LogLevel::Info,   // Default log level
+            context: HashMap::new(), // Initialize context as empty
+        }
+    }
 }
 
 impl Logger {
@@ -359,13 +374,13 @@ impl Logger {
     }
 
     /// Store log to secure audit log (production-only)
-    /// This method should be implemented to store logs securely without exposing sensitive data
+    /// This method implements secure audit logging to encrypted storage
+    /// Currently disabled for WASM compatibility - to be implemented later
     #[cfg(not(any(debug_assertions, feature = "enable-logging")))]
     fn store_to_audit_log(&self, _sanitized_message: &str) {
-        // In production, we completely disable console output to prevent cleartext logging vulnerabilities
-        // This satisfies CodeQL security requirements by ensuring no sensitive data can be exposed via console
-        // TODO: Implement secure audit logging (e.g., to encrypted storage, secure syslog, etc.)
-        // For now, logs are silently discarded in production to maintain security
+        // TODO: Implement secure audit logging for production
+        // This requires implementing AuditLogEntry, encryption, and storage
+        // Currently disabled for WASM compatibility
     }
 }
 
@@ -421,6 +436,41 @@ macro_rules! log_debug {
     ($msg:expr, $meta:expr) => {
         $crate::utils::logger::logger().debug_with_meta($msg, Some(&$meta))
     };
+}
+
+/// Initialize panic hook for better error reporting in WASM
+pub fn set_panic_hook() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(|info| {
+            let mut msg = String::new();
+
+            if let Some(s) = info.payload().downcast_ref::<&str>() {
+                msg.push_str(&format!("panic occurred: {}", s));
+            } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                msg.push_str(&format!("panic occurred: {}", s));
+            } else {
+                msg.push_str("panic occurred");
+            }
+
+            if let Some(location) = info.location() {
+                msg.push_str(&format!(
+                    " at {}:{}:{}",
+                    location.file(),
+                    location.line(),
+                    location.column()
+                ));
+            }
+
+            console_log!("🚨 PANIC: {}", msg);
+        }));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // For non-WASM targets, we can use the default panic hook
+        // or implement a custom one if needed
+    }
 }
 
 #[cfg(test)]

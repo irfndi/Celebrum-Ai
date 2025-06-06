@@ -5,7 +5,8 @@
 // since direct bindings are not available in the current worker crate version.
 // In production, this would use Cloudflare Analytics Engine REST API with proper authentication.
 
-use crate::types::{ArbitrageOpportunity, ExchangeIdEnum};
+use crate::services::core::market_data_ingestion::MarketDataSnapshot;
+use crate::types::ArbitrageOpportunity;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -130,9 +131,11 @@ pub type AnalyticsEngine = AnalyticsEngineClient;
 pub struct AnalyticsEngineConfig {
     pub enabled: bool,
     pub dataset_name: String,
-    pub batch_size: u32,
+    pub batch_size: Option<u32>,
     pub flush_interval_seconds: u64,
     pub retention_days: u32,
+    pub enable_real_time_analytics: bool,
+    pub enable_batching: bool,
 }
 
 impl Default for AnalyticsEngineConfig {
@@ -140,9 +143,11 @@ impl Default for AnalyticsEngineConfig {
         Self {
             enabled: true,
             dataset_name: "arbitrage_analytics".to_string(),
-            batch_size: 100,
+            batch_size: Some(100),
             flush_interval_seconds: 60,
             retention_days: 90,
+            enable_real_time_analytics: false,
+            enable_batching: true,
         }
     }
 }
@@ -260,7 +265,37 @@ pub struct AnalyticsEngineService {
 }
 
 impl AnalyticsEngineService {
+    /// Calculate opportunity risk score (0.0 to 1.0)
+    fn calculate_opportunity_risk(&self, opportunity: &ArbitrageOpportunity) -> f32 {
+        // Basic risk calculation based on rate difference and exchange reliability
+        let rate_risk = (opportunity.rate_difference * 100.0).abs() as f32 / 10.0; // Higher rates = higher risk
+        let exchange_risk = 0.1; // Base exchange risk factor
+
+        // Normalize to 0-1 range
+        (rate_risk + exchange_risk).min(1.0)
+    }
+
+    /// Flush buffered events to Analytics Engine
+    async fn flush_event_buffer(&mut self) -> ArbitrageResult<()> {
+        if self.event_buffer.is_empty() || !self.config.enabled {
+            return Ok(());
+        }
+
+        if let Some(engine) = &self.analytics_engine {
+            engine
+                .write_data_point(&self.event_buffer)
+                .await
+                .map_err(|e| {
+                    ArbitrageError::api_error(format!("Analytics Engine flush failed: {}", e))
+                })?;
+        }
+
+        self.event_buffer.clear();
+        Ok(())
+    }
+
     /// Validate and escape user_id to prevent SQL injection
+    #[allow(dead_code)] // Will be used for user analytics
     fn validate_and_escape_user_id(&self, user_id: &str) -> ArbitrageResult<String> {
         // Validate that user_id contains only allowed characters
         if !user_id
@@ -355,633 +390,142 @@ impl AnalyticsEngineService {
         Ok(())
     }
 
-    /// Track AI model performance metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_ai_model_performance(
-        &mut self,
-        model_id: &str,
-        model_provider: &str,
-        user_id: &str,
-        request_type: &str,
-        latency_ms: u64,
-        tokens_used: Option<u32>,
-        accuracy_score: Option<f32>,
-        cost_usd: Option<f32>,
-        success: bool,
-        error_type: Option<String>,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = AIModelPerformanceEvent {
-            model_id: model_id.to_string(),
-            model_provider: model_provider.to_string(),
-            user_id: user_id.to_string(),
-            request_type: request_type.to_string(),
-            latency_ms,
-            tokens_used,
-            accuracy_score,
-            cost_usd,
-            success,
-            error_type,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("ai_model_performance", &event).await?;
-
-        self.logger.info(&format!(
-            "Tracked AI model performance: model={}, latency={}ms, success={}",
-            model_id, latency_ms, success
-        ));
-
-        Ok(())
-    }
-
-    /// Track user engagement metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_user_engagement(
-        &mut self,
-        user_id: &str,
-        session_id: &str,
-        session_duration_ms: u64,
-        commands_used: u32,
-        opportunities_viewed: u32,
-        opportunities_executed: u32,
-        ai_features_used: u32,
-        subscription_tier: &str,
-        chat_context: &str,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = UserEngagementEvent {
-            user_id: user_id.to_string(),
-            session_id: session_id.to_string(),
-            session_duration_ms,
-            commands_used,
-            opportunities_viewed,
-            opportunities_executed,
-            ai_features_used,
-            subscription_tier: subscription_tier.to_string(),
-            chat_context: chat_context.to_string(),
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("user_engagement", &event).await?;
-
-        self.logger.info(&format!(
-            "Tracked user engagement: user={}, session_duration={}ms, commands={}",
-            user_id, session_duration_ms, commands_used
-        ));
-
-        Ok(())
-    }
-
-    /// Track system performance metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_system_performance(
-        &mut self,
-        service_name: &str,
-        operation: &str,
-        latency_ms: u64,
-        success: bool,
-        error_type: Option<String>,
-        memory_usage_mb: Option<f32>,
-        cpu_usage_percent: Option<f32>,
-        concurrent_users: Option<u32>,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = SystemPerformanceEvent {
-            service_name: service_name.to_string(),
-            operation: operation.to_string(),
-            latency_ms,
-            success,
-            error_type,
-            memory_usage_mb,
-            cpu_usage_percent,
-            concurrent_users,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("system_performance", &event).await?;
-
-        Ok(())
-    }
-
-    /// Track market data ingestion metrics
-    #[allow(clippy::too_many_arguments)]
-    pub async fn track_market_data_ingestion(
-        &mut self,
-        exchange: &str,
-        data_type: &str,
-        symbols_processed: u32,
-        data_size_bytes: u64,
-        processing_time_ms: u64,
-        pipeline_latency_ms: Option<u64>,
-        cache_hit_rate: Option<f32>,
-        api_rate_limit_remaining: Option<u32>,
-    ) -> ArbitrageResult<()> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-
-        let event = MarketDataIngestionEvent {
-            exchange: exchange.to_string(),
-            data_type: data_type.to_string(),
-            symbols_processed,
-            data_size_bytes,
-            processing_time_ms,
-            pipeline_latency_ms,
-            cache_hit_rate,
-            api_rate_limit_remaining,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.send_event("market_data_ingestion", &event).await?;
-
-        Ok(())
-    }
-
-    /// Get real-time metrics for dashboard
-    pub async fn get_real_time_metrics(&self) -> ArbitrageResult<RealTimeMetrics> {
-        if !self.config.enabled {
-            return Ok(RealTimeMetrics::default());
-        }
-
-        let Some(ref analytics_engine) = self.analytics_engine else {
-            return Err(ArbitrageError::service_unavailable(
-                "Analytics Engine not available",
-            ));
-        };
-
-        // Query Analytics Engine for real-time metrics
-        let now = chrono::Utc::now().timestamp() as u64;
-        let one_hour_ago = now - 3600;
-        let one_day_ago = now - 86400;
-
-        // Query active users (unique users in last hour)
-        let active_users = self
-            .query_active_users(analytics_engine, one_hour_ago, now)
-            .await?;
-
-        // Query opportunity metrics
-        let opportunity_metrics = self
-            .query_opportunity_metrics(analytics_engine, one_hour_ago, now)
-            .await?;
-
-        // Query system performance
-        let system_metrics = self
-            .query_system_performance(analytics_engine, one_hour_ago, now)
-            .await?;
-
-        // Query AI model performance
-        let ai_metrics = self
-            .query_ai_performance(analytics_engine, one_day_ago, now)
-            .await?;
-
-        // Query top performing pairs
-        let top_pairs = self
-            .query_top_performing_pairs(analytics_engine, one_day_ago, now)
-            .await?;
-
-        // Query exchange performance
-        let exchange_performance = self
-            .query_exchange_performance(analytics_engine, one_day_ago, now)
-            .await?;
-
-        Ok(RealTimeMetrics {
-            active_users,
-            opportunities_per_minute: opportunity_metrics.opportunities_per_minute,
-            conversion_rate_percent: opportunity_metrics.conversion_rate,
-            average_latency_ms: system_metrics.average_latency,
-            ai_model_success_rate: ai_metrics.success_rate,
-            system_health_score: system_metrics.health_score,
-            top_performing_pairs: top_pairs,
-            exchange_performance,
-            last_updated: now,
-        })
-    }
-
-    /// Get user-specific analytics
-    pub async fn get_user_analytics(&self, user_id: &str) -> ArbitrageResult<UserAnalytics> {
-        if !self.config.enabled {
-            return Ok(UserAnalytics::default(user_id));
-        }
-
-        let Some(ref analytics_engine) = self.analytics_engine else {
-            return Err(ArbitrageError::service_unavailable(
-                "Analytics Engine not available",
-            ));
-        };
-
-        // Query Analytics Engine for user-specific metrics
-        let now = chrono::Utc::now().timestamp() as u64;
-        let thirty_days_ago = now - (30 * 86400);
-
-        // Query user engagement events
-        let engagement_data = self
-            .query_user_engagement(analytics_engine, user_id, thirty_days_ago, now)
-            .await?;
-
-        // Query user opportunity conversion data
-        let conversion_data = self
-            .query_user_conversions(analytics_engine, user_id, thirty_days_ago, now)
-            .await?;
-
-        // Query user AI usage
-        let ai_usage_data = self
-            .query_user_ai_usage(analytics_engine, user_id, thirty_days_ago, now)
-            .await?;
-
-        Ok(UserAnalytics {
-            user_id: user_id.to_string(),
-            total_opportunities_viewed: engagement_data.total_opportunities_viewed,
-            total_opportunities_executed: conversion_data.total_executed,
-            success_rate_percent: conversion_data.success_rate,
-            total_profit_loss: conversion_data.total_profit_loss,
-            favorite_pairs: conversion_data.favorite_pairs,
-            favorite_exchanges: conversion_data.favorite_exchanges,
-            ai_usage_frequency: ai_usage_data.usage_frequency,
-            session_frequency_per_week: engagement_data.session_frequency_per_week,
-            last_activity: engagement_data.last_activity,
-        })
-    }
-
     /// Send event to Analytics Engine
-    async fn send_event(
+    async fn send_event<T: Serialize>(
         &mut self,
-        event_type: &str,
-        event_data: &impl Serialize,
+        event_name: &str,
+        event_data: &T,
     ) -> ArbitrageResult<()> {
-        let Some(ref _analytics_engine) = self.analytics_engine else {
-            return Err(ArbitrageError::service_unavailable(
-                "Analytics Engine not available",
-            ));
-        };
-
-        let event_json = serde_json::json!({
-            "event_type": event_type,
-            "data": event_data,
-            "timestamp": chrono::Utc::now().timestamp()
-        });
-
-        // Add to buffer
-        self.event_buffer.push(event_json);
-
-        // Flush if buffer is full
-        if self.event_buffer.len() >= self.config.batch_size as usize {
-            self.flush_events().await?;
-        }
-
-        Ok(())
-    }
-
-    /// Flush buffered events to Analytics Engine
-    pub async fn flush_events(&mut self) -> ArbitrageResult<()> {
-        if self.event_buffer.is_empty() {
+        if !self.config.enabled {
             return Ok(());
         }
 
-        let Some(ref analytics_engine) = self.analytics_engine else {
-            return Err(ArbitrageError::service_unavailable(
-                "Analytics Engine not available",
-            ));
-        };
+        let mut data_to_send = HashMap::new();
+        data_to_send.insert("event_name".to_string(), serde_json::to_value(event_name)?);
+        data_to_send.insert("event_data".to_string(), serde_json::to_value(event_data)?);
+        data_to_send.insert(
+            "timestamp".to_string(),
+            serde_json::to_value(chrono::Utc::now().timestamp_millis())?,
+        );
 
-        // Send events in batch
-        analytics_engine
-            .write_data_point(&self.event_buffer)
-            .await
-            .map_err(|e| {
-                ArbitrageError::storage_error(format!("Failed to write analytics events: {}", e))
-            })?;
-
-        self.logger.info(&format!(
-            "Flushed {} analytics events",
-            self.event_buffer.len()
-        ));
-        self.event_buffer.clear();
-
+        // Add to buffer for batching if enabled
+        if self.config.enable_batching {
+            self.event_buffer.push(serde_json::to_value(data_to_send)?);
+            if self.event_buffer.len() >= self.config.batch_size.unwrap_or(10) as usize {
+                self.flush_event_buffer().await?;
+            }
+        } else {
+            // Send immediately if batching is not enabled
+            if let Some(engine) = &self.analytics_engine {
+                engine
+                    .write_data_point(&[serde_json::to_value(data_to_send)?])
+                    .await
+                    .map_err(|e| {
+                        ArbitrageError::api_error(format!("Analytics Engine send failed: {}", e))
+                    })?;
+            }
+        }
         Ok(())
     }
 
-    /// Calculate opportunity risk level
-    fn calculate_opportunity_risk(&self, opportunity: &ArbitrageOpportunity) -> f32 {
-        // Simple risk calculation based on rate difference and exchanges
-        let base_risk = if opportunity.rate_difference > 0.05 {
-            0.8
-        } else {
-            0.3
+    /// Track CoinMarketCap data
+    pub async fn track_cmc_data(
+        &mut self,
+        event_type: &str,         // e.g., "latest_quotes", "global_metrics"
+        data: &serde_json::Value, // The actual CMC data
+    ) -> ArbitrageResult<()> {
+        if !self.config.enabled {
+            return Ok(());
+        }
+
+        let event = CmcDataEvent {
+            event_type: event_type.to_string(),
+            data: data.clone(),
+            source: "coinmarketcap".to_string(),
+            timestamp: chrono::Utc::now().timestamp() as u64,
         };
 
-        // Adjust for exchange combination
-        let exchange_risk = match (opportunity.long_exchange, opportunity.short_exchange) {
-            (ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit) => 0.1,
-            (ExchangeIdEnum::Binance, ExchangeIdEnum::OKX) => 0.2,
-            (ExchangeIdEnum::Bybit, ExchangeIdEnum::OKX) => 0.3,
-            _ => 0.5,
+        self.send_event("cmc_data", &event).await?;
+
+        self.logger
+            .info(&format!("Tracked CMC data: event_type={}", event_type));
+        Ok(())
+    }
+
+    /// Track Market Snapshot data
+    pub async fn track_market_snapshot(
+        &mut self,
+        snapshot: &MarketDataSnapshot, // Assuming MarketDataSnapshot is defined elsewhere
+    ) -> ArbitrageResult<()> {
+        if !self.config.enabled {
+            return Ok(());
+        }
+
+        let event = MarketSnapshotEvent {
+            exchange: snapshot.exchange.to_string(),
+            symbol: snapshot.symbol.clone(),
+            price: snapshot.price_data.as_ref().map(|pd| pd.price),
+            funding_rate: snapshot
+                .funding_rate_data
+                .as_ref()
+                .map(|fr| fr.funding_rate),
+            volume_24h: snapshot.volume_data.as_ref().map(|vd| vd.volume_24h),
+            source: snapshot.source.to_string(), // Convert DataSource enum to string
+            timestamp: snapshot.timestamp,
         };
 
-        f32::min(base_risk + exchange_risk, 1.0)
+        self.send_event("market_snapshot", &event).await?;
+
+        self.logger.info(&format!(
+            "Tracked market snapshot: exchange={}, symbol={}",
+            snapshot.exchange, snapshot.symbol
+        ));
+        Ok(())
     }
 
-    /// Health check for Analytics Engine
-    pub async fn health_check(&self) -> ArbitrageResult<bool> {
-        Ok(self.analytics_engine.is_some() && self.config.enabled)
-    }
-
-    // Helper methods for real Analytics Engine queries
-
-    /// Query active users from Analytics Engine
-    async fn query_active_users(
-        &self,
-        analytics_engine: &AnalyticsEngine,
-        start_time: u64,
-        end_time: u64,
-    ) -> ArbitrageResult<u32> {
-        let query = format!(
-            "SELECT COUNT(DISTINCT user_id) as active_users 
-            FROM {} 
-            WHERE event_type = 'user_engagement' AND timestamp BETWEEN {} AND {}",
-            self.config.dataset_name, start_time, end_time
-        );
-
-        match analytics_engine.query(&query).await {
-            Ok(result) => {
-                // Parse real Analytics Engine response
-                if let Some(rows) = result.as_array() {
-                    if let Some(row) = rows.first() {
-                        if let Some(count) = row.get("active_users").and_then(|v| v.as_u64()) {
-                            return Ok(count as u32);
-                        }
-                    }
-                }
-
-                // If result structure is unexpected, log and fallback
-                self.logger.warn(&format!(
-                    "Analytics Engine returned unexpected result structure for active users query: {:?}", 
-                    result
-                ));
-                Ok(0) // Fallback to 0 if parsing fails
-            }
-            Err(err) => {
-                // Log error and fallback to reasonable default
-                self.logger.warn(&format!(
-                    "Analytics Engine query failed for active users: {}, using fallback",
-                    err
-                ));
-                Ok(0) // Fallback to 0 if query fails
-            }
-        }
-    }
-
-    /// Query opportunity metrics from Analytics Engine
-    async fn query_opportunity_metrics(
-        &self,
-        analytics_engine: &AnalyticsEngine,
-        start_time: u64,
-        end_time: u64,
-    ) -> ArbitrageResult<OpportunityMetrics> {
-        // Query opportunity conversion events
-        let query = format!(
-            "SELECT 
-                COUNT(*) as total_opportunities,
-                COUNT(CASE WHEN converted = true THEN 1 END) as converted_opportunities,
-                AVG(conversion_time_ms) as avg_conversion_time
-            FROM {} 
-            WHERE event_type = 'opportunity_conversion' AND timestamp BETWEEN {} AND {}",
-            self.config.dataset_name, start_time, end_time
-        );
-
-        if let Ok(result) = analytics_engine.query(&query).await {
-            // Parse real Analytics Engine response
-            if let Some(rows) = result.as_array() {
-                if let Some(row) = rows.first() {
-                    let total = row
-                        .get("total_opportunities")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
-                    let converted = row
-                        .get("converted_opportunities")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
-
-                    // Calculate real metrics from actual data
-                    let time_window_minutes = (end_time - start_time) / 60; // Convert seconds to minutes
-                    let opportunities_per_minute = if time_window_minutes > 0 {
-                        total as f32 / time_window_minutes as f32
-                    } else {
-                        0.0
-                    };
-
-                    let conversion_rate = if total > 0 {
-                        (converted as f32 / total as f32) * 100.0
-                    } else {
-                        0.0
-                    };
-
-                    return Ok(OpportunityMetrics {
-                        opportunities_per_minute,
-                        conversion_rate,
-                    });
-                }
-            }
+    /// Track user conversion metrics
+    #[allow(clippy::too_many_arguments)]
+    pub async fn track_user_conversion(
+        &mut self,
+        user_id: &str,
+        opportunity: &ArbitrageOpportunity,
+        converted: bool,
+        conversion_time_ms: Option<u64>,
+        profit_loss: Option<f32>,
+    ) -> ArbitrageResult<()> {
+        if !self.config.enabled {
+            return Ok(());
         }
 
-        // Fallback to default metrics if query fails
-        Ok(OpportunityMetrics {
-            opportunities_per_minute: 0.0,
-            conversion_rate: 0.0,
-        })
-    }
+        let event = OpportunityConversionEvent {
+            user_id: user_id.to_string(),
+            opportunity_id: opportunity.id.clone(),
+            pair: opportunity.pair.clone(),
+            exchange_combination: format!(
+                "{}-{}",
+                opportunity.long_exchange, opportunity.short_exchange
+            ),
+            opportunity_type: "arbitrage".to_string(),
+            rate_difference: opportunity.rate_difference as f32,
+            risk_level: self.calculate_opportunity_risk(opportunity),
+            converted,
+            conversion_time_ms,
+            profit_loss,
+            timestamp: chrono::Utc::now().timestamp() as u64,
+        };
 
-    /// Query system performance metrics from Analytics Engine
-    async fn query_system_performance(
-        &self,
-        analytics_engine: &AnalyticsEngine,
-        start_time: u64,
-        end_time: u64,
-    ) -> ArbitrageResult<SystemMetrics> {
-        let query = format!(
-            "SELECT 
-                AVG(latency_ms) as avg_latency,
-                COUNT(CASE WHEN success = true THEN 1 END) as successful_operations,
-                COUNT(*) as total_operations
-            FROM {} 
-            WHERE event_type = 'system_performance' AND timestamp BETWEEN {} AND {}",
-            self.config.dataset_name, start_time, end_time
-        );
+        self.send_event("opportunity_conversion", &event).await?;
 
-        if let Ok(result) = analytics_engine.query(&query).await {
-            // Parse real Analytics Engine response
-            if let Some(rows) = result.as_array() {
-                if let Some(row) = rows.first() {
-                    let avg_latency = row
-                        .get("avg_latency")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(50.0) as f32;
-                    let successful = row
-                        .get("successful_operations")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
-                    let total = row
-                        .get("total_operations")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(1);
+        self.logger.info(&format!(
+            "Tracked opportunity conversion: user={}, opportunity={}, converted={}",
+            user_id, opportunity.id, converted
+        ));
 
-                    // Calculate real health score from actual data
-                    let success_rate = (successful as f32 / total as f32) * 100.0;
-                    let latency_score: f32 = if avg_latency <= 50.0 {
-                        100.0
-                    } else {
-                        100.0 - (avg_latency - 50.0) / 10.0
-                    };
-                    let health_score = (success_rate + latency_score.max(0.0f32)) / 2.0;
-
-                    return Ok(SystemMetrics {
-                        average_latency: avg_latency,
-                        health_score: health_score.min(100.0),
-                    });
-                }
-            }
-        }
-
-        // Fallback to default metrics if query fails
-        Ok(SystemMetrics {
-            average_latency: 50.0, // Default reasonable latency
-            health_score: 99.0,    // Default good health
-        })
-    }
-
-    /// Query AI model performance from Analytics Engine
-    async fn query_ai_performance(
-        &self,
-        analytics_engine: &AnalyticsEngine,
-        start_time: u64,
-        end_time: u64,
-    ) -> ArbitrageResult<AIMetrics> {
-        let query = format!(
-            "SELECT 
-                COUNT(CASE WHEN success = true THEN 1 END) as successful_calls,
-                COUNT(*) as total_calls,
-                AVG(latency_ms) as avg_latency,
-                AVG(accuracy_score) as avg_accuracy
-            FROM {} 
-            WHERE event_type = 'ai_model_performance' AND timestamp BETWEEN {} AND {}",
-            self.config.dataset_name, start_time, end_time
-        );
-
-        if let Ok(result) = analytics_engine.query(&query).await {
-            // Parse real Analytics Engine response
-            if let Some(rows) = result.as_array() {
-                if let Some(row) = rows.first() {
-                    let successful = row
-                        .get("successful_calls")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
-                    let total = row.get("total_calls").and_then(|v| v.as_u64()).unwrap_or(1);
-
-                    // Calculate real success rate from actual data
-                    let success_rate = (successful as f32 / total as f32) * 100.0;
-
-                    return Ok(AIMetrics { success_rate });
-                }
-            }
-        }
-
-        // Fallback to default metrics if query fails
-        Ok(AIMetrics {
-            success_rate: 95.0, // Default good AI success rate
-        })
-    }
-
-    /// Query top performing trading pairs from Analytics Engine
-    async fn query_top_performing_pairs(
-        &self,
-        analytics_engine: &AnalyticsEngine,
-        start_time: u64,
-        end_time: u64,
-    ) -> ArbitrageResult<Vec<String>> {
-        let query = format!(
-            "SELECT pair, COUNT(*) as opportunity_count 
-            FROM {} 
-            WHERE event_type = 'opportunity_conversion' AND converted = true AND timestamp BETWEEN {} AND {}
-            GROUP BY pair 
-            ORDER BY opportunity_count DESC 
-            LIMIT 5",
-            self.config.dataset_name, start_time, end_time
-        );
-
-        if let Ok(result) = analytics_engine.query(&query).await {
-            let mut pairs = Vec::new();
-            if let Some(rows) = result.as_array() {
-                for row in rows {
-                    if let Some(pair) = row.get("pair").and_then(|v| v.as_str()) {
-                        pairs.push(pair.to_string());
-                    }
-                }
-            }
-            if !pairs.is_empty() {
-                return Ok(pairs);
-            }
-        }
-
-        // Default top pairs if query fails
-        Ok(vec![
-            "BTC/USDT".to_string(),
-            "ETH/USDT".to_string(),
-            "SOL/USDT".to_string(),
-            "ADA/USDT".to_string(),
-            "MATIC/USDT".to_string(),
-        ])
-    }
-
-    /// Query exchange performance from Analytics Engine
-    async fn query_exchange_performance(
-        &self,
-        analytics_engine: &AnalyticsEngine,
-        start_time: u64,
-        end_time: u64,
-    ) -> ArbitrageResult<HashMap<String, f32>> {
-        let query = format!(
-            "SELECT exchange_combination, AVG(profit_loss) as avg_profit 
-            FROM {} 
-            WHERE event_type = 'opportunity_conversion' AND converted = true AND timestamp BETWEEN {} AND {}
-            GROUP BY exchange_combination",
-            self.config.dataset_name, start_time, end_time
-        );
-
-        if let Ok(result) = analytics_engine.query(&query).await {
-            let mut performance = HashMap::new();
-            if let Some(rows) = result.as_array() {
-                for row in rows {
-                    if let (Some(exchange), Some(profit)) = (
-                        row.get("exchange_combination").and_then(|v| v.as_str()),
-                        row.get("avg_profit").and_then(|v| v.as_f64()),
-                    ) {
-                        performance.insert(exchange.to_string(), profit as f32);
-                    }
-                }
-            }
-            if !performance.is_empty() {
-                return Ok(performance);
-            }
-        }
-
-        // Default exchange performance if query fails
-        let mut default_performance = HashMap::new();
-        default_performance.insert("Binance-Bybit".to_string(), 0.15);
-        default_performance.insert("Binance-OKX".to_string(), 0.12);
-        default_performance.insert("Bybit-OKX".to_string(), 0.10);
-        Ok(default_performance)
+        Ok(())
     }
 
     /// Query user engagement data from Analytics Engine
+    #[allow(dead_code)] // Will be used for user analytics
     async fn query_user_engagement(
         &self,
         analytics_engine: &AnalyticsEngine,
@@ -1043,6 +587,7 @@ impl AnalyticsEngineService {
     }
 
     /// Query user conversion data from Analytics Engine
+    #[allow(dead_code)] // Will be used for user analytics
     async fn query_user_conversions(
         &self,
         analytics_engine: &AnalyticsEngine,
@@ -1143,6 +688,7 @@ impl AnalyticsEngineService {
     }
 
     /// Query user AI usage data from Analytics Engine
+    #[allow(dead_code)] // Will be used for user analytics
     async fn query_user_ai_usage(
         &self,
         analytics_engine: &AnalyticsEngine,
@@ -1191,23 +737,27 @@ impl AnalyticsEngineService {
 
 // Helper structs for Analytics Engine query results
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for opportunity analytics
 struct OpportunityMetrics {
     opportunities_per_minute: f32,
     conversion_rate: f32,
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for system analytics
 struct SystemMetrics {
     average_latency: f32,
     health_score: f32,
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for AI analytics
 struct AIMetrics {
     success_rate: f32,
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for user analytics
 struct UserEngagementData {
     total_opportunities_viewed: u64,
     session_frequency_per_week: f32,
@@ -1215,6 +765,7 @@ struct UserEngagementData {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for user analytics
 struct UserConversionData {
     total_executed: u64,
     success_rate: f32,
@@ -1224,6 +775,7 @@ struct UserConversionData {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for AI usage analytics
 struct UserAIUsageData {
     usage_frequency: f32,
 }
@@ -1245,6 +797,7 @@ impl Default for RealTimeMetrics {
 }
 
 impl UserAnalytics {
+    #[allow(dead_code)] // Will be used for default user analytics
     fn default(user_id: &str) -> Self {
         Self {
             user_id: user_id.to_string(),
@@ -1259,4 +812,26 @@ impl UserAnalytics {
             last_activity: chrono::Utc::now().timestamp() as u64,
         }
     }
+}
+
+/// Event for CoinMarketCap data
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CmcDataEvent {
+    pub event_type: String,      // e.g., "latest_quotes", "global_metrics"
+    pub data: serde_json::Value, // The actual CMC data
+    pub source: String,          // "coinmarketcap"
+    pub timestamp: u64,
+}
+
+/// Event for Market Snapshot data
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MarketSnapshotEvent {
+    pub exchange: String,
+    pub symbol: String,
+    pub price: Option<f64>,
+    pub funding_rate: Option<f64>,
+    pub volume_24h: Option<f64>,
+    // Add other relevant fields from MarketDataSnapshot
+    pub source: String, // e.g., "binance", "bybit"
+    pub timestamp: u64,
 }

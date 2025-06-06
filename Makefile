@@ -5,10 +5,13 @@
 SHELL := /bin/bash
 export PATH := $(HOME)/.cargo/bin:$(PATH)
 
-.PHONY: help setup test build build-wasm coverage clean lint fix fmt check-all deploy pre-commit local-ci full-check unit-tests integration-tests e2e-tests lib-tests ci-pipeline test-api test-api-local test-api-staging test-api-production test-api-prod-admin
+.PHONY: help setup test build build-wasm coverage clean lint fix fmt check-all deploy pre-commit local-ci full-check unit-tests integration-tests e2e-tests lib-tests ci-pipeline test-api test-api-local test-api-staging test-api-production test-api-prod-admin test-api-v1 test-api-v1-local test-api-v1-staging test-api-v1-production
 
 help: ## Show this help message
 	@echo "🦀 ArbEdge Rust Development Commands"
+	@echo "===================================="
+	@echo "\033[33m💡 Tip: Use 'make local-ci' to mirror GitHub CI exactly\033[0m"
+	@echo "\033[33m💡 Tip: Use 'make fix-and-validate' to auto-fix then validate\033[0m"
 	@echo "===================================="
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
@@ -26,7 +29,7 @@ test-verbose: ## Run tests with verbose output
 
 lib-tests: ## Run library tests only
 	@echo "🧪 Running library tests..."
-	@cargo test --lib
+	@cargo test --lib --verbose
 
 unit-tests: ## Run unit tests
 	@echo "🧪 Running unit tests..."
@@ -60,23 +63,29 @@ build-wasm-release: ## Build release for WASM target
 # Code quality commands
 fmt: ## Format code
 	@echo "🎨 Formatting code..."
-	@cargo fmt
+	@cargo fmt --verbose
 
 fmt-check: ## Check code formatting
 	@echo "🎨 Checking code formatting..."
-	@cargo fmt --all -- --check
+	@cargo fmt --all --verbose -- --check
+
+fmt-fix: ## Auto-fix code formatting then run CI
+	@echo "🎨 Auto-fixing code formatting..."
+	@cargo fmt --verbose
+	@echo "🔄 Running CI pipeline..."
+	@$(MAKE) ci-pipeline
 
 lint: ## Run clippy lints
 	@echo "🔍 Running clippy..."
 	@cargo clippy --all-targets --all-features
 
-lint-strict: ## Run strict clippy lints
-	@echo "🔍 Running strict clippy..."
+lint-strict: ## Run strict clippy lints (matches GitHub CI)
+	@echo "🔍 Running strict clippy (GitHub CI standard)..."
 	@cargo clippy --all-targets --all-features -- -D warnings
 
 lint-lib: ## Run clippy on library only
 	@echo "🔍 Running clippy on library..."
-	@cargo clippy --lib -- -D warnings
+	@cargo clippy --lib --verbose -- -D warnings
 
 fix: ## Apply automatic fixes
 	@echo "🔧 Applying automatic fixes..."
@@ -87,18 +96,16 @@ fix: ## Apply automatic fixes
 ci-pipeline: ## Run comprehensive CI pipeline
 	@echo "🚀 Starting Full CI Pipeline..."
 	@echo "================================"
-	@echo "🎨 Step 1: Code Formatting"
-	@cargo fmt
-	@echo "✅ Step 1: Code Formatting Check"
+	@echo "🎨 Step 1: Code Formatting Check"
 	@cargo fmt --all -- --check
 	@echo "🔍 Step 2: Clippy Linting Check"
-	@cargo clippy --lib -- -D warnings
+	@cargo clippy --all-targets --all-features -- -D warnings --verbose
 	@echo "✅ Step 2: Clippy Linting Passed"
 	@echo "🎯 Step 3: WASM Target Compilation Check"
-	@cargo check --target wasm32-unknown-unknown --lib
+	@cargo check --target wasm32-unknown-unknown --lib --verbose
 	@echo "✅ Step 3: WASM Target Compilation Passed"
 	@echo "🧪 Step 4: Library Tests"
-	@cargo test --lib
+	@cargo test --lib --verbose
 	@echo "✅ Step 4: Library Tests Passed (327 tests)"
 	@echo "🧪 Step 5: Unit Tests"
 	@$(MAKE) unit-tests
@@ -108,10 +115,10 @@ ci-pipeline: ## Run comprehensive CI pipeline
 	@$(MAKE) e2e-tests
 	@echo "✅ Step 6: Integration & E2E Tests Passed (74 tests)"
 	@echo "🔧 Step 7: Final Native Compilation Check"
-	@cargo check
+	@cargo check --verbose
 	@echo "✅ Step 7: Final Native Compilation Check Passed"
 	@echo "🎯 Step 8: Final WASM Build Verification"
-	@cargo build --target wasm32-unknown-unknown --lib --quiet
+	@cargo build --target wasm32-unknown-unknown --lib --verbose
 	@echo "✅ Step 8: Final WASM Build Verification Passed"
 	@echo "🎉 CI Pipeline Completed Successfully!"
 	@echo "📊 Test Summary:"
@@ -133,11 +140,11 @@ doc: ## Generate documentation
 	@echo "📚 Generating documentation..."
 	@cargo doc --no-deps --document-private-items
 
-# Script-based commands (new)
+# Script-based commands (recommended for development)
 pre-commit: ## Run quick pre-commit checks
 	@./scripts/dev/pre-commit.sh
 
-local-ci: ## Run quick local CI validation
+local-ci: ## Run local CI validation (mirrors GitHub CI exactly)
 	@./scripts/dev/local-ci.sh
 
 full-check: ## Run comprehensive code quality checks
@@ -150,11 +157,11 @@ clean: ## Clean build artifacts
 
 check: ## Quick build check
 	@echo "🔍 Quick build check..."
-	@cargo check
+	@cargo check --verbose
 
 check-wasm: ## Quick WASM compilation check
 	@echo "🎯 Quick WASM compilation check..."
-	@cargo check --target wasm32-unknown-unknown --lib
+	@cargo check --target wasm32-unknown-unknown --lib --verbose
 
 check-all: lint test build build-wasm check-wasm ## Run all basic checks (lint, test, build native & WASM)
 	@echo "✅ All basic checks completed successfully!"
@@ -177,6 +184,9 @@ quick: pre-commit ## Quick validation before commit
 validate: ci-pipeline ## Full validation (mirrors CI)
 	@echo "✅ Full validation completed!"
 
+fix-and-validate: fmt-fix ## Auto-fix formatting then validate
+	@echo "🔧 Fix and validation completed!"
+
 quality: full-check ## Comprehensive quality analysis
 	@echo "🏆 Quality analysis completed!" 
 
@@ -198,7 +208,91 @@ test-api-production: ## Run API Tests against production environment
 	@echo "🌍 Running API Tests against production environment..."
 	@BASE_URL=https://arb-edge.your-domain.workers.dev ./scripts/prod/test-bot/test_api_flow.sh
 
+# API v1 Direct Testing (No Telegram required)
+test-api-v1: ## Run comprehensive API v1 tests with RBAC validation
+	@echo "🔗 Running API v1 Comprehensive Tests..."
+	@chmod +x scripts/prod/test-bot/test_api_v1_comprehensive.sh
+	@./scripts/prod/test-bot/test_api_v1_comprehensive.sh
+
+test-api-v1-local: ## Run API v1 tests against local development server
+	@echo "🏠 Running API v1 Tests against local development server..."
+	@BASE_URL=http://localhost:8787 ./scripts/prod/test-bot/test_api_v1_comprehensive.sh
+
+test-api-v1-staging: ## Run API v1 tests against staging environment
+	@echo "🚀 Running API v1 Tests against staging environment..."
+	@BASE_URL=https://arb-edge-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_api_v1_comprehensive.sh
+
+test-api-v1-production: ## Run API v1 tests against production environment
+	@echo "🌍 Running API v1 Tests against production environment..."
+	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_api_v1_comprehensive.sh
+
 test-api-prod-admin: ## Run Production API Tests (Super Admin Only with D1 Database)
 	@echo "👑 Running Production API Tests (Super Admin + D1 Database)..."
 	@chmod +x scripts/prod/test-bot/test_api_flow_prod.sh
 	@./scripts/prod/test-bot/test_api_flow_prod.sh
+
+# Performance Testing
+test-performance: ## Run comprehensive performance tests
+	@echo "⚡ Running Comprehensive Performance Tests..."
+	@chmod +x scripts/prod/test-bot/test_performance_comprehensive.sh
+	@./scripts/prod/test-bot/test_performance_comprehensive.sh
+
+test-performance-local: ## Run performance tests against local development server
+	@echo "🏠 Running Performance Tests against local development server..."
+	@BASE_URL=http://localhost:8787 ./scripts/prod/test-bot/test_performance_comprehensive.sh
+
+test-performance-staging: ## Run performance tests against staging environment
+	@echo "🚀 Running Performance Tests against staging environment..."
+	@BASE_URL=https://arb-edge-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_performance_comprehensive.sh
+
+test-performance-production: ## Run performance tests against production environment
+	@echo "🌍 Running Performance Tests against production environment..."
+	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_performance_comprehensive.sh
+
+test-performance-stress: ## Run high-stress performance tests (100 concurrent users)
+	@echo "💥 Running High-Stress Performance Tests..."
+	@CONCURRENT_USERS=100 REQUESTS_PER_USER=20 STRESS_DURATION=60 ./scripts/prod/test-bot/test_performance_comprehensive.sh
+
+test-webhook-local: ## Run webhook tests against local development server
+	@echo "🔗 Running Webhook Tests against local development server..."
+	@./test_telegram_webhook.sh
+
+# High-Scale Performance Testing (10K Users)
+test-performance-10k: ## Run 10K concurrent users performance test (PRODUCTION ONLY)
+	@echo "🚀 Running 10K Users Performance Test..."
+	@chmod +x scripts/prod/test-bot/test_performance_10k_users.sh
+	@./scripts/prod/test-bot/test_performance_10k_users.sh
+
+test-performance-10k-production: ## Run 10K users test against production environment
+	@echo "🌍 Running 10K Users Test against production environment..."
+	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_performance_10k_users.sh
+
+test-performance-10k-staging: ## Run 10K users test against staging environment
+	@echo "🚀 Running 10K Users Test against staging environment..."
+	@BASE_URL=https://arb-edge-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_performance_10k_users.sh
+
+test-performance-ramp: ## Run gradual ramp-up test (100->10K users)
+	@echo "📈 Running Gradual Ramp-up Test..."
+	@MAX_USERS=10000 RAMP_UP_DURATION=600 ./scripts/prod/test-bot/test_performance_10k_users.sh
+
+test-performance-extreme: ## Run extreme load test (20K users, 30min duration)
+	@echo "💥 Running Extreme Load Test..."
+	@MAX_USERS=20000 TEST_DURATION=1800 RAMP_UP_DURATION=900 ./scripts/prod/test-bot/test_performance_10k_users.sh
+
+test-performance-quick-10k: ## Run quick 10K users test (5min duration)
+	@echo "⚡ Running Quick 10K Users Test..."
+	@MAX_USERS=10000 TEST_DURATION=300 RAMP_UP_DURATION=120 ./scripts/prod/test-bot/test_performance_10k_users.sh
+
+# Complete API Testing (All Functionality)
+test-complete-super-admin: ## Run comprehensive test of ALL functionality with super admin access
+	@echo "🚀 Running Complete Super Admin API Test (ALL Functionality)..."
+	@chmod +x scripts/prod/test-bot/test_complete_super_admin_api.sh
+	@./scripts/prod/test-bot/test_complete_super_admin_api.sh
+
+test-complete-super-admin-production: ## Run complete super admin test against production environment
+	@echo "🌍 Running Complete Super Admin Test against production environment..."
+	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_complete_super_admin_api.sh
+
+test-complete-super-admin-local: ## Run complete super admin test against local development server
+	@echo "🏠 Running Complete Super Admin Test against local development server..."
+	@BASE_URL=http://localhost:8787 ./scripts/prod/test-bot/test_complete_super_admin_api.sh

@@ -1,4 +1,6 @@
-use arb_edge::services::interfaces::telegram::telegram::{TelegramConfig, TelegramService};
+use arb_edge::services::interfaces::telegram::{
+    core::bot_client::TelegramConfig, telegram::TelegramService,
+};
 
 #[cfg(test)]
 mod service_communication_tests {

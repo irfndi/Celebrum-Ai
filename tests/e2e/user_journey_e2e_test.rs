@@ -194,9 +194,11 @@ mod user_journey_e2e_tests {
             updated_user.user_id.clone(),
             ExchangeIdEnum::Binance,
             "test_api_key_encrypted".to_string(),
-            "test_secret_encrypted".to_string(),
-            vec!["spot_trading".to_string(), "read_only".to_string()],
+            Some("test_secret_encrypted".to_string()),
+            false, // is_testnet - Assuming false for test, adjust if needed
         );
+        // Note: The 'permissions' argument (vec!["spot_trading"...]) was removed
+        // as it's not part of new_exchange_key and is handled internally or set separately.
         updated_user.api_keys.push(api_key);
         test_env
             .users
@@ -552,6 +554,10 @@ mod user_journey_e2e_tests {
                 let subscription_match = match user.subscription.tier {
                     SubscriptionTier::Free => opp.confidence_score >= 0.9, // Only high-confidence for free users
                     SubscriptionTier::Basic => opp.confidence_score >= 0.8,
+                    SubscriptionTier::Beta => opp.confidence_score >= 0.7, // Beta tier access
+                    SubscriptionTier::Paid => true,                        // All opportunities
+                    SubscriptionTier::Admin => true,                       // All opportunities
+                    SubscriptionTier::Pro => true,                         // All opportunities
                     SubscriptionTier::Premium
                     | SubscriptionTier::Enterprise
                     | SubscriptionTier::SuperAdmin => true, // All opportunities

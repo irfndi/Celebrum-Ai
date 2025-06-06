@@ -3,14 +3,21 @@
 
 use crate::services::core::analysis::correlation_analysis::CorrelationMetrics;
 use crate::services::core::analysis::market_analysis::{RiskLevel, TradingOpportunity};
+use crate::services::core::infrastructure::database_repositories::DatabaseManager;
 use crate::services::core::opportunities::opportunity_categorization::CategorizedOpportunity;
 use crate::services::core::user::dynamic_config::UserConfigInstance;
 use crate::services::core::user::user_trading_preferences::{TradingFocus, UserTradingPreferences};
 use crate::services::{
-    AiExchangeRouterService, CorrelationAnalysisService, D1Service, DynamicConfigService,
-    OpportunityCategorizationService, PositionsService, UserTradingPreferencesService,
+    AiExchangeRouterService, CorrelationAnalysisService, DynamicConfigService,
+    OpportunityCategorizationService, UserTradingPreferencesService,
 };
-use crate::types::{ArbitragePosition, ExchangeIdEnum, GlobalOpportunity};
+
+#[cfg(target_arch = "wasm32")]
+use crate::services::PositionsService;
+use crate::types::{
+    ArbitrageOpportunity, ArbitragePosition, ArbitrageType, ExchangeIdEnum, GlobalOpportunity,
+    OpportunitySource,
+};
 use crate::utils::{
     logger::{LogLevel, Logger},
     ArbitrageError, ArbitrageResult,
@@ -19,6 +26,15 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::kv::KvStore;
+
+// Configuration for mock base prices
+const MOCK_BASE_PRICES: &[(&str, f64)] = &[
+    ("BTC", 45000.0),
+    ("ETH", 2500.0),
+    ("SOL", 100.0),
+    ("ADA", 0.5),
+    // Add more common symbols and their typical base prices if needed
+];
 
 // ============= AI INTELLIGENCE DATA STRUCTURES =============
 
@@ -127,19 +143,20 @@ impl Default for AiIntelligenceConfig {
 /// - AiPerformanceService: generate_performance_insights()
 /// - AiParameterOptimizationService: optimize_trading_parameters()
 ///   And implement builder pattern for cleaner dependency management
+#[derive(Clone)]
 pub struct AiIntelligenceService {
     config: AiIntelligenceConfig,
     ai_router: AiExchangeRouterService,
     categorization_service: OpportunityCategorizationService,
+    #[cfg(target_arch = "wasm32")]
     positions_service: PositionsService<KvStore>,
     config_service: DynamicConfigService,
     preferences_service: UserTradingPreferencesService,
     correlation_service: CorrelationAnalysisService,
-    d1_service: D1Service,
+    d1_service: DatabaseManager,
     kv_store: KvStore,
-    pipelines_service: Option<
-        crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService,
-    >,
+    pipelines_service:
+        Option<crate::services::core::infrastructure::data_ingestion_module::PipelineManager>,
     logger: Logger,
 }
 
@@ -150,20 +167,21 @@ impl AiIntelligenceService {
         config: AiIntelligenceConfig,
         ai_router: AiExchangeRouterService,
         categorization_service: OpportunityCategorizationService,
-        positions_service: PositionsService<KvStore>,
+        #[cfg(target_arch = "wasm32")] positions_service: PositionsService<KvStore>,
         config_service: DynamicConfigService,
         preferences_service: UserTradingPreferencesService,
         correlation_service: CorrelationAnalysisService,
-        d1_service: D1Service,
+        d1_service: DatabaseManager,
         kv_store: KvStore,
         pipelines_service: Option<
-            crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService,
+            crate::services::core::infrastructure::data_ingestion_module::PipelineManager,
         >,
     ) -> Self {
         Self {
             config,
             ai_router,
             categorization_service,
+            #[cfg(target_arch = "wasm32")]
             positions_service,
             config_service,
             preferences_service,
@@ -196,11 +214,15 @@ impl AiIntelligenceService {
             .await?;
 
         // Get user's current positions for context
+        #[cfg(target_arch = "wasm32")]
         let positions = self
             .positions_service
             .get_all_positions()
             .await
             .unwrap_or_default();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let positions = Vec::new(); // Empty positions for non-WASM targets
 
         // Get user preferences and configuration
         let preferences = self
@@ -269,11 +291,15 @@ impl AiIntelligenceService {
         }
 
         // Get user's current positions
+        #[cfg(target_arch = "wasm32")]
         let positions = self
             .positions_service
             .get_all_positions()
             .await
             .unwrap_or_default();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let positions = Vec::new(); // Empty positions for non-WASM targets
 
         if positions.is_empty() {
             return Ok(self.create_empty_portfolio_analysis(user_id));
@@ -556,7 +582,7 @@ impl AiIntelligenceService {
         _correlation_metrics: &Option<CorrelationMetrics>,
         preferences: &UserTradingPreferences,
     ) -> String {
-        let total_value: f64 = positions.iter().filter_map(|p| p.calculated_size_usd).sum();
+        let total_value: f64 = positions.iter().map(|p| p.margin_used).sum();
         let position_count = positions.len();
 
         format!(
@@ -841,21 +867,18 @@ impl AiIntelligenceService {
 
     /// Calculate concentration risk for positions
     fn calculate_concentration_risk(&self, positions: &[ArbitragePosition]) -> f64 {
-        if positions.is_empty() {
-            0.0
-        } else {
-            let total_value: f64 = positions.iter().filter_map(|p| p.calculated_size_usd).sum();
-            let max_position = positions
+        let total_value: f64 = positions.iter().map(|p| p.margin_used).sum();
+
+        // Calculate concentration risk
+        if total_value > 0.0 {
+            let largest_position = positions
                 .iter()
-                .filter_map(|p| p.calculated_size_usd)
+                .map(|p| p.margin_used)
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(0.0);
-
-            if total_value > 0.0 {
-                max_position / total_value // Concentration as percentage of largest position
-            } else {
-                0.0
-            }
+            largest_position / total_value
+        } else {
+            0.0
         }
     }
 
@@ -927,18 +950,28 @@ impl AiIntelligenceService {
         let total_trades = analytics.len() as u32;
         let profitable_trades = analytics
             .iter()
-            .filter(|a| a.metric_type == "trade_executed" && a.metric_value > 0.0)
-            .count() as u32;
+            .filter(|a| {
+                a.get("metric_type").and_then(|v| v.as_str()) == Some("trade_executed")
+                    && a.get("metric_value")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0)
+                        > 0.0
+            })
+            .count() as f64;
         let win_rate = if total_trades > 0 {
-            profitable_trades as f64 / total_trades as f64
+            profitable_trades / total_trades as f64
         } else {
             0.0
         };
 
         let total_pnl = analytics
             .iter()
-            .filter(|a| a.metric_type == "profit_loss")
-            .map(|a| a.metric_value)
+            .filter(|a| a.get("metric_type").and_then(|v| v.as_str()) == Some("profit_loss"))
+            .map(|a| {
+                a.get("metric_value")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+            })
             .sum::<f64>();
 
         let average_pnl = if total_trades > 0 {
@@ -973,7 +1006,7 @@ impl AiIntelligenceService {
                 volatility_index: 0.3,
                 market_trend: "neutral".to_string(),
                 global_sentiment: 0.5,
-                active_pairs: positions.iter().map(|p| p.pair.clone()).collect(),
+                active_pairs: positions.iter().map(|p| p.symbol.clone()).collect(),
             },
         }
     }
@@ -1132,8 +1165,8 @@ impl AiIntelligenceService {
         let mut exchange_data = HashMap::new();
 
         for position in positions {
-            let exchange_key = position.exchange.to_string();
-            let symbol = &position.pair;
+            let exchange_key = position.long_exchange.to_string(); // Use long_exchange instead of exchange
+            let symbol = &position.symbol; // Use symbol instead of pair
 
             // 1. Try pipelines (primary data source)
             if let Some(pipelines) = &self.pipelines_service {
@@ -1160,7 +1193,7 @@ impl AiIntelligenceService {
 
             // 2. Try KV cache (fallback)
             match self
-                .get_cached_exchange_data(&position.exchange, symbol)
+                .get_cached_exchange_data(&position.long_exchange, symbol) // Use long_exchange
                 .await
             {
                 Ok(price_series) => {
@@ -1181,7 +1214,7 @@ impl AiIntelligenceService {
 
             // 3. Try real exchange API (last resort)
             match self
-                .fetch_real_exchange_data(&position.exchange, symbol)
+                .fetch_real_exchange_data(&position.long_exchange, symbol) // Use long_exchange
                 .await
             {
                 Ok(price_series) => {
@@ -1192,7 +1225,7 @@ impl AiIntelligenceService {
 
                     // Cache the data for future use
                     let _ = self
-                        .cache_price_series_data(&position.exchange, symbol, &price_series)
+                        .cache_price_series_data(&position.long_exchange, symbol, &price_series) // Use long_exchange
                         .await;
 
                     exchange_data.insert(exchange_key, price_series);
@@ -1232,17 +1265,30 @@ impl AiIntelligenceService {
     /// Get position data from pipeline service
     async fn get_position_data_from_pipeline(
         &self,
-        pipelines: &crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService,
+        pipelines: &crate::services::core::infrastructure::data_ingestion_module::PipelineManager,
         position: &ArbitragePosition,
     ) -> ArbitrageResult<crate::services::core::analysis::market_analysis::PriceSeries> {
         // Try to get market data from pipelines
-        let market_data_key = format!("market_data:{}:{}", position.exchange, position.pair);
+        let market_data_key = format!("market_data:{}:{}", position.long_exchange, position.symbol); // Use long_exchange and symbol
 
         match pipelines.get_latest_data(&market_data_key).await {
-            Ok(data) => {
-                // Parse pipeline data into PriceSeries
-                self.parse_pipeline_data_to_price_series(&data, &position.pair)
+            Ok(Some(data_str)) => {
+                // Parse the JSON string into a Value first
+                match serde_json::from_str::<serde_json::Value>(&data_str) {
+                    Ok(data) => {
+                        // Parse pipeline data into PriceSeries
+                        self.parse_pipeline_data_to_price_series(&data, &position.symbol)
+                        // Use symbol
+                    }
+                    Err(e) => Err(ArbitrageError::parse_error(format!(
+                        "Failed to parse pipeline data JSON: {}",
+                        e
+                    ))),
+                }
             }
+            Ok(None) => Err(ArbitrageError::not_found(
+                "No pipeline data available".to_string(),
+            )),
             Err(e) => Err(ArbitrageError::not_found(format!(
                 "Pipeline data not available: {}",
                 e
@@ -1323,13 +1369,11 @@ impl AiIntelligenceService {
         use chrono::Utc;
 
         // Generate realistic mock data based on symbol
-        let base_price = match symbol {
-            s if s.contains("BTC") => 45000.0,
-            s if s.contains("ETH") => 2500.0,
-            s if s.contains("SOL") => 100.0,
-            s if s.contains("ADA") => 0.5,
-            _ => 1.0,
-        };
+        let base_price = MOCK_BASE_PRICES
+            .iter()
+            .find(|(token, _)| symbol.to_uppercase().contains(token))
+            .map(|(_, price)| *price)
+            .unwrap_or(1.0); // Default to 1.0 if symbol is not in our mock list
 
         let now = Utc::now().timestamp() as u64;
 
@@ -1831,54 +1875,57 @@ impl AiIntelligenceService {
         Ok(())
     }
 
-    /// Convert TradingOpportunity to GlobalOpportunity for AI router
+    /// Convert TradingOpportunity to GlobalOpportunity for system-wide distribution
     fn convert_to_global_opportunity(&self, trading_opp: TradingOpportunity) -> GlobalOpportunity {
-        use crate::types::{
-            ArbitrageOpportunity, ArbitrageType, DistributionStrategy, GlobalOpportunity,
-            OpportunitySource,
-        };
+        // Calculate expiration time with configurable default
+        let expires_at = trading_opp
+            .expires_at
+            .or_else(|| {
+                // Convert to milliseconds and add risk-based default duration
+                Some(trading_opp.created_at * 1000 + self.get_default_expiry_duration(&trading_opp))
+            })
+            .expect("Expiry timestamp must be set");
 
-        // Create an ArbitrageOpportunity from TradingOpportunity
-        // Use dynamic exchange selection based on trading opportunity data
+        // Select appropriate exchanges for the opportunity
         let (long_exchange, short_exchange) = self.select_exchanges_for_opportunity(&trading_opp);
 
-        let arb_opp = match ArbitrageOpportunity::new(
+        // Create ArbitrageOpportunity from TradingOpportunity
+        let mut arb_opp = ArbitrageOpportunity::new(
             trading_opp.trading_pair.clone(),
             long_exchange,
             short_exchange,
-            Some(trading_opp.entry_price),
-            trading_opp.target_price,
-            trading_opp.expected_return,
-            ArbitrageType::CrossExchange,
-        ) {
-            Ok(opp) => opp,
-            Err(_) => {
-                // Fallback to a valid opportunity if creation fails
-                ArbitrageOpportunity {
-                    pair: trading_opp.trading_pair.clone(),
-                    long_exchange,
-                    short_exchange,
-                    long_rate: Some(trading_opp.entry_price),
-                    short_rate: trading_opp.target_price,
-                    rate_difference: trading_opp.expected_return,
-                    r#type: ArbitrageType::CrossExchange,
-                    ..Default::default()
-                }
-            }
-        };
+            trading_opp.expected_return,  // rate_difference
+            1000.0, // Default volume since TradingOpportunity doesn't have volume field
+            trading_opp.confidence_score, // confidence
+        );
 
-        GlobalOpportunity {
-            opportunity: arb_opp,
-            detection_timestamp: trading_opp.created_at,
-            expiry_timestamp: trading_opp
-                .expires_at
-                .unwrap_or(trading_opp.created_at + 3600000), // 1 hour default
-            priority_score: trading_opp.confidence_score,
-            distributed_to: Vec::new(),
-            max_participants: Some(1),
-            current_participants: 0,
-            distribution_strategy: DistributionStrategy::FirstComeFirstServe,
-            source: OpportunitySource::SystemGenerated,
+        // Set additional fields
+        arb_opp.r#type = ArbitrageType::CrossExchange;
+        arb_opp.details = Some(format!(
+            "AI Generated: Trading opportunity for {} with confidence {}",
+            trading_opp.trading_pair, trading_opp.confidence_score
+        ));
+
+        // Create GlobalOpportunity using the from_arbitrage method
+        GlobalOpportunity::from_arbitrage(arb_opp, OpportunitySource::SystemGenerated, expires_at)
+    }
+
+    /// Get default expiry duration based on opportunity characteristics
+    fn get_default_expiry_duration(&self, trading_opp: &TradingOpportunity) -> u64 {
+        // Make expiry duration configurable based on opportunity type and risk level
+        match trading_opp.risk_level {
+            crate::services::core::analysis::market_analysis::RiskLevel::Low => {
+                // Low risk opportunities can have longer expiry (4 hours)
+                4 * 60 * 60 * 1000
+            }
+            crate::services::core::analysis::market_analysis::RiskLevel::Medium => {
+                // Medium risk opportunities have moderate expiry (2 hours)
+                2 * 60 * 60 * 1000
+            }
+            crate::services::core::analysis::market_analysis::RiskLevel::High => {
+                // High risk opportunities have shorter expiry (30 minutes)
+                30 * 60 * 1000
+            }
         }
     }
 
@@ -1967,6 +2014,7 @@ mod tests {
         OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,
     };
     use crate::types::*;
+    use crate::types::{PositionSide, PositionStatus};
 
     fn create_test_config() -> AiIntelligenceConfig {
         AiIntelligenceConfig {
@@ -2223,35 +2271,103 @@ mod tests {
 
     // Helper functions for testing
     fn create_test_position(value: f64) -> ArbitragePosition {
+        let now = chrono::Utc::now().timestamp_millis() as u64;
         ArbitragePosition {
             id: format!("pos_{}", value as u32),
-            exchange: crate::types::ExchangeIdEnum::Binance,
-            pair: "BTCUSDT".to_string(),
-            side: crate::types::PositionSide::Long,
-            size: value / 50000.0,
-            entry_price: 50000.0,
-            current_price: Some(50000.0),
-            pnl: Some(0.0),
-            status: crate::types::PositionStatus::Open,
-            created_at: chrono::Utc::now().timestamp() as u64,
-            updated_at: chrono::Utc::now().timestamp() as u64,
-            calculated_size_usd: Some(value),
-            risk_percentage_applied: Some(0.02),
-            stop_loss_price: Some(49000.0),
+            user_id: "test_user".to_string(),
+            opportunity_id: "test_opp".to_string(),
+            long_position: Position {
+                info: serde_json::Value::Null,
+                id: Some("long_pos_1".to_string()),
+                symbol: "BTCUSDT".to_string(),
+                timestamp: now,
+                datetime: chrono::Utc::now().to_rfc3339(),
+                isolated: Some(true),
+                hedged: Some(false),
+                side: "long".to_string(),
+                amount: 0.1,
+                contracts: Some(0.1),
+                contract_size: Some(1.0),
+                entry_price: Some(50000.0),
+                mark_price: Some(50000.0),
+                notional: Some(5000.0),
+                leverage: Some(1.0),
+                collateral: Some(5000.0),
+                initial_margin: Some(5000.0),
+                initial_margin_percentage: Some(1.0),
+                maintenance_margin: Some(2500.0),
+                maintenance_margin_percentage: Some(0.5),
+                unrealized_pnl: Some(0.0),
+                realized_pnl: Some(0.0),
+                percentage: Some(0.0),
+            },
+            short_position: Position {
+                info: serde_json::Value::Null,
+                id: Some("short_pos_1".to_string()),
+                symbol: "BTCUSDT".to_string(),
+                timestamp: now,
+                datetime: chrono::Utc::now().to_rfc3339(),
+                isolated: Some(true),
+                hedged: Some(false),
+                side: "short".to_string(),
+                amount: 0.1,
+                contracts: Some(0.1),
+                contract_size: Some(1.0),
+                entry_price: Some(50100.0),
+                mark_price: Some(50100.0),
+                notional: Some(5010.0),
+                leverage: Some(1.0),
+                collateral: Some(5010.0),
+                initial_margin: Some(5010.0),
+                initial_margin_percentage: Some(1.0),
+                maintenance_margin: Some(2505.0),
+                maintenance_margin_percentage: Some(0.5),
+                unrealized_pnl: Some(0.0),
+                realized_pnl: Some(0.0),
+                percentage: Some(0.0),
+            },
+            status: PositionStatus::Open,
+            entry_time: now,
+            exit_time: None,
+            realized_pnl: 0.0,
+            unrealized_pnl: 5.0,
+            total_fees: 0.0,
+            risk_score: 0.5,
+            margin_used: 5000.0,
+            symbol: "BTCUSDT".to_string(),
+            side: PositionSide::Long,
+            entry_price_long: 50000.0,
+            entry_price_short: 50100.0,
             take_profit_price: Some(51000.0),
+            volatility_score: Some(0.5),
+            calculated_size_usd: Some(value), // Use the passed value parameter
+            long_exchange: ExchangeIdEnum::Binance,
+            short_exchange: ExchangeIdEnum::Bybit,
+            size: Some(0.1),
+            pnl: Some(5.0),
+            unrealized_pnl_percentage: Some(0.01), // 5 / 50000 * 0.1 (assuming size is in BTC)
+            max_drawdown: Some(0.0),
+            created_at: now,
+            holding_period_hours: Some(0.0),
             trailing_stop_distance: None,
+            stop_loss_price: Some(49000.0),
+            current_price: Some(50050.0),
+            current_price_long: Some(50050.0),
+            current_price_short: Some(50050.0),
             max_loss_usd: Some(100.0),
-            risk_reward_ratio: Some(2.0),
+            exchange: ExchangeIdEnum::Binance, // Assuming primary exchange for the overall position
+            pair: "BTC/USDT".to_string(),
             related_positions: Vec::new(),
+            closed_at: None,
+            updated_at: now,
+            risk_reward_ratio: Some(2.0),
+            last_optimization_check: None,
             hedge_position_id: None,
             position_group_id: None,
-            optimization_score: Some(0.7),
-            recommended_action: Some(crate::types::PositionAction::Hold),
-            last_optimization_check: None,
-            max_drawdown: None,
-            unrealized_pnl_percentage: None,
-            holding_period_hours: None,
-            volatility_score: None,
+            current_state: Some("monitoring".to_string()),
+            optimization_score: Some(0.0),
+            recommended_action: Some("hold".to_string()),
+            risk_percentage_applied: Some(0.01),
         }
     }
 

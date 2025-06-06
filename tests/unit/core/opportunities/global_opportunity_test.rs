@@ -4,9 +4,7 @@
 // Comprehensive testing of opportunity generation, distribution, user eligibility, and queue management
 
 use arb_edge::services::core::analysis::market_analysis::OpportunityType;
-use arb_edge::types::{
-    ExchangeIdEnum, RiskLevel, StructuredTradingPair, UserAccessLevel, UserOpportunityLimits,
-};
+use arb_edge::types::{ExchangeIdEnum, RiskLevel, UserAccessLevel, UserOpportunityLimits};
 use arb_edge::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -75,7 +73,7 @@ struct MockOpportunity {
     pub risk_level: RiskLevel,
     pub confidence_score: f64,
     pub expected_return: f64,
-    pub trading_pair: StructuredTradingPair,
+    pub trading_pair: String,
     pub exchanges: Vec<ExchangeIdEnum>,
     pub created_at: u64,
     pub expires_at: u64,
@@ -216,16 +214,27 @@ impl MockUserAccessService {
 
         // Basic eligibility logic
         Ok(match access_level {
-            UserAccessLevel::FreeWithoutAPI => {
-                // Free users get basic opportunities with lower risk
+            UserAccessLevel::Guest
+            | UserAccessLevel::Free
+            | UserAccessLevel::Registered
+            | UserAccessLevel::Verified
+            | UserAccessLevel::FreeWithoutAPI
+            | UserAccessLevel::Basic
+            | UserAccessLevel::User => {
+                // Basic access: Low risk, high confidence
                 opportunity.risk_level == RiskLevel::Low && opportunity.confidence_score >= 70.0
             }
             UserAccessLevel::FreeWithAPI => {
-                // Free users with API get medium risk opportunities
+                // Free with API: Medium risk, moderate confidence
                 opportunity.risk_level != RiskLevel::High && opportunity.confidence_score >= 60.0
             }
-            UserAccessLevel::SubscriptionWithAPI => {
-                // Subscription users get all opportunities
+            UserAccessLevel::Paid
+            | UserAccessLevel::Premium
+            | UserAccessLevel::Admin
+            | UserAccessLevel::SuperAdmin
+            | UserAccessLevel::BetaUser
+            | UserAccessLevel::SubscriptionWithAPI => {
+                // Higher tiers & special access: All opportunities
                 true
             }
         })
@@ -285,12 +294,7 @@ impl MockGlobalOpportunityService {
             risk_level: RiskLevel::Medium,
             confidence_score: 75.0,
             expected_return: 2.5,
-            trading_pair: StructuredTradingPair {
-                symbol: trading_pair.to_string(),
-                base: trading_pair.split('/').next().unwrap_or("BTC").to_string(),
-                quote: trading_pair.split('/').nth(1).unwrap_or("USDT").to_string(),
-                exchange_id: exchanges[0].to_string(),
-            },
+            trading_pair: trading_pair.to_string(),
             exchanges,
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + (30 * 60 * 1000), // 30 minutes
@@ -312,12 +316,7 @@ impl MockGlobalOpportunityService {
             risk_level: RiskLevel::Low,
             confidence_score: 80.0,
             expected_return: 1.8,
-            trading_pair: StructuredTradingPair {
-                symbol: trading_pair.to_string(),
-                base: trading_pair.split('/').next().unwrap_or("ETH").to_string(),
-                quote: trading_pair.split('/').nth(1).unwrap_or("USDT").to_string(),
-                exchange_id: exchange.to_string(),
-            },
+            trading_pair: trading_pair.to_string(),
             exchanges: vec![exchange],
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + (15 * 60 * 1000), // 15 minutes
@@ -373,9 +372,9 @@ impl MockGlobalOpportunityService {
         for user_id in eligible_users {
             // Check user limits
             if let Some(limits) = self.d1_service.mock_get_user_limits(&user_id).await? {
-                let total_used = limits.arbitrage_opportunities_received
-                    + limits.technical_opportunities_received;
-                let total_limit = limits.arbitrage_limit + limits.technical_limit;
+                let total_used = limits.arbitrage_received_today + limits.technical_received_today;
+                let total_limit =
+                    limits.daily_global_opportunities + limits.daily_technical_opportunities;
                 if total_used >= total_limit {
                     continue; // Skip user who has reached daily limit
                 }
@@ -533,12 +532,7 @@ mod tests {
             risk_level: RiskLevel::Low,
             confidence_score: 80.0,
             expected_return: 1.5,
-            trading_pair: StructuredTradingPair {
-                symbol: "BTC/USDT".to_string(),
-                base: "BTC".to_string(),
-                quote: "USDT".to_string(),
-                exchange_id: ExchangeIdEnum::Binance.to_string(),
-            },
+            trading_pair: "BTC/USDT".to_string(),
             exchanges: vec![ExchangeIdEnum::Binance],
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + 1800000,
@@ -552,12 +546,7 @@ mod tests {
             risk_level: RiskLevel::High,
             confidence_score: 60.0,
             expected_return: 5.0,
-            trading_pair: StructuredTradingPair {
-                symbol: "ETH/USDT".to_string(),
-                base: "ETH".to_string(),
-                quote: "USDT".to_string(),
-                exchange_id: ExchangeIdEnum::Binance.to_string(),
-            },
+            trading_pair: "ETH/USDT".to_string(),
             exchanges: vec![ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit],
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + 1800000,
@@ -606,32 +595,32 @@ mod tests {
         service.d1_service.add_mock_user_limits(
             "user1",
             UserOpportunityLimits {
-                user_id: "user1".to_string(),
-                access_level: UserAccessLevel::FreeWithAPI,
-                date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
-                arbitrage_opportunities_received: 3,
-                technical_opportunities_received: 2,
-                arbitrage_limit: 10,
-                technical_limit: 10,
-                last_reset: chrono::Utc::now().timestamp_millis() as u64,
-                is_group_context: false,
-                group_multiplier_applied: false,
+                daily_global_opportunities: 10,
+                daily_technical_opportunities: 10,
+                daily_ai_opportunities: 5,
+                hourly_rate_limit: 100,
+                can_receive_realtime: true,
+                delay_seconds: 0,
+                arbitrage_received_today: 3, // Mock previous usage
+                technical_received_today: 2, // Mock previous usage
+                current_arbitrage_count: 3,  // Mock current count
+                current_technical_count: 2,  // Mock current count
             },
         );
 
         service.d1_service.add_mock_user_limits(
             "user2",
             UserOpportunityLimits {
-                user_id: "user2".to_string(),
-                access_level: UserAccessLevel::FreeWithAPI,
-                date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
-                arbitrage_opportunities_received: 10,
-                technical_opportunities_received: 10,
-                arbitrage_limit: 10,
-                technical_limit: 10,
-                last_reset: chrono::Utc::now().timestamp_millis() as u64,
-                is_group_context: false,
-                group_multiplier_applied: false,
+                daily_global_opportunities: 10,
+                daily_technical_opportunities: 10,
+                daily_ai_opportunities: 5,
+                hourly_rate_limit: 100,
+                can_receive_realtime: true,
+                delay_seconds: 0,
+                arbitrage_received_today: 10, // Mock user at limit
+                technical_received_today: 10, // Mock user at limit
+                current_arbitrage_count: 10,  // Mock current count
+                current_technical_count: 10,  // Mock current count
             },
         );
 
@@ -698,12 +687,7 @@ mod tests {
             risk_level: RiskLevel::Medium,
             confidence_score: 90.0,
             expected_return: 3.0,
-            trading_pair: StructuredTradingPair {
-                symbol: "BTC/USDT".to_string(),
-                base: "BTC".to_string(),
-                quote: "USDT".to_string(),
-                exchange_id: ExchangeIdEnum::Binance.to_string(),
-            },
+            trading_pair: "BTC/USDT".to_string(),
             exchanges: vec![ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit],
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + 1800000,
@@ -717,12 +701,7 @@ mod tests {
             risk_level: RiskLevel::Low,
             confidence_score: 60.0,
             expected_return: 1.0,
-            trading_pair: StructuredTradingPair {
-                symbol: "ETH/USDT".to_string(),
-                base: "ETH".to_string(),
-                quote: "USDT".to_string(),
-                exchange_id: ExchangeIdEnum::Binance.to_string(),
-            },
+            trading_pair: "ETH/USDT".to_string(),
             exchanges: vec![ExchangeIdEnum::Binance],
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             expires_at: chrono::Utc::now().timestamp_millis() as u64 + 1800000,
@@ -989,24 +968,36 @@ mod tests {
             service.d1_service.add_mock_user_limits(
                 user_id,
                 UserOpportunityLimits {
-                    user_id: user_id.to_string(),
-                    access_level: access_level.clone(),
-                    date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
-                    arbitrage_opportunities_received: opportunities_used / 2,
-                    technical_opportunities_received: opportunities_used / 2,
-                    arbitrage_limit: match &access_level {
+                    daily_global_opportunities: match &access_level {
                         UserAccessLevel::FreeWithoutAPI => 3,
                         UserAccessLevel::FreeWithAPI => 10,
                         UserAccessLevel::SubscriptionWithAPI => 50,
+                        _ => 10,
                     },
-                    technical_limit: match &access_level {
+                    daily_technical_opportunities: match &access_level {
                         UserAccessLevel::FreeWithoutAPI => 3,
                         UserAccessLevel::FreeWithAPI => 10,
                         UserAccessLevel::SubscriptionWithAPI => 50,
+                        _ => 10,
                     },
-                    last_reset: chrono::Utc::now().timestamp_millis() as u64,
-                    is_group_context: false,
-                    group_multiplier_applied: false,
+                    daily_ai_opportunities: 5,
+                    hourly_rate_limit: match &access_level {
+                        UserAccessLevel::FreeWithoutAPI => 1,
+                        UserAccessLevel::FreeWithAPI => 5,
+                        UserAccessLevel::SubscriptionWithAPI => 20,
+                        _ => 5,
+                    },
+                    can_receive_realtime: !matches!(access_level, UserAccessLevel::FreeWithoutAPI),
+                    delay_seconds: match &access_level {
+                        UserAccessLevel::FreeWithoutAPI => 600,
+                        UserAccessLevel::FreeWithAPI => 120,
+                        UserAccessLevel::SubscriptionWithAPI => 30,
+                        _ => 300,
+                    },
+                    arbitrage_received_today: opportunities_used / 2,
+                    technical_received_today: opportunities_used / 2,
+                    current_arbitrage_count: opportunities_used / 2,
+                    current_technical_count: opportunities_used / 2,
                 },
             );
         }

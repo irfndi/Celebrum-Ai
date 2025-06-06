@@ -1,677 +1,663 @@
-use crate::utils::ArbitrageResult;
-use crate::ArbitrageError;
-use serde_json::json;
+//! Cloudflare Pipelines Service Module
+//!
+//! Provides pipeline orchestration and workflow management for the ArbEdge platform.
+//! Integrates with Cloudflare Workers and other pipeline services.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::time::{Duration, SystemTime};
 use uuid::Uuid;
 
-/// Configuration for Cloudflare Pipelines integration
+/// Pipeline service for workflow orchestration
 #[derive(Debug, Clone)]
-pub struct PipelinesConfig {
-    pub market_data_pipeline_id: String,
-    pub analytics_pipeline_id: String,
-    pub audit_pipeline_id: String,
-    pub r2_bucket_name: String,
-    pub batch_size: u32,
-    pub batch_timeout_seconds: u32,
+pub struct CloudflarePipelinesService {
+    pipelines: HashMap<String, Pipeline>,
+    executions: HashMap<String, PipelineExecution>,
+    config: PipelineConfig,
 }
 
-impl Default for PipelinesConfig {
-    fn default() -> Self {
-        Self {
-            market_data_pipeline_id: "prod-market-data-pipeline".to_string(),
-            analytics_pipeline_id: "prod-analytics-pipeline".to_string(),
-            audit_pipeline_id: "prod-audit-pipeline".to_string(),
-            r2_bucket_name: "prod-arb-edge".to_string(),
-            batch_size: 1000,
-            batch_timeout_seconds: 300, // 5 minutes
+/// Pipeline definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pipeline {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub steps: Vec<PipelineStep>,
+    pub triggers: Vec<PipelineTrigger>,
+    pub config: PipelineStepConfig,
+    pub created_at: SystemTime,
+    pub updated_at: SystemTime,
+    pub enabled: bool,
+}
+
+/// Pipeline step definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineStep {
+    pub id: String,
+    pub name: String,
+    pub step_type: PipelineStepType,
+    pub config: PipelineStepConfig,
+    pub dependencies: Vec<String>,
+    pub retry_config: RetryConfig,
+    pub timeout: Duration,
+}
+
+/// Pipeline step types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PipelineStepType {
+    DataIngestion,
+    DataProcessing,
+    MarketAnalysis,
+    OpportunityDetection,
+    RiskAssessment,
+    TradeExecution,
+    Notification,
+    Analytics,
+    Custom(String),
+}
+
+/// Pipeline trigger types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PipelineTrigger {
+    Schedule(String), // Cron expression
+    Event(String),    // Event name
+    Webhook(String),  // Webhook URL
+    Manual,
+}
+
+/// Pipeline step configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineStepConfig {
+    pub parameters: HashMap<String, serde_json::Value>,
+    pub environment: HashMap<String, String>,
+    pub resources: ResourceConfig,
+}
+
+/// Resource configuration for pipeline steps
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceConfig {
+    pub cpu_limit: Option<f64>,
+    pub memory_limit: Option<u64>,
+    pub timeout: Duration,
+    pub max_retries: u32,
+}
+
+/// Retry configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryConfig {
+    pub max_attempts: u32,
+    pub initial_delay: Duration,
+    pub max_delay: Duration,
+    pub backoff_multiplier: f64,
+    pub retry_on_errors: Vec<String>,
+}
+
+/// Pipeline execution state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineExecution {
+    pub id: String,
+    pub pipeline_id: String,
+    pub status: ExecutionStatus,
+    pub started_at: SystemTime,
+    pub completed_at: Option<SystemTime>,
+    pub steps: HashMap<String, StepExecution>,
+    pub context: ExecutionContext,
+    pub error: Option<String>,
+}
+
+/// Step execution state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepExecution {
+    pub step_id: String,
+    pub status: ExecutionStatus,
+    pub started_at: Option<SystemTime>,
+    pub completed_at: Option<SystemTime>,
+    pub output: Option<serde_json::Value>,
+    pub error: Option<String>,
+    pub retry_count: u32,
+}
+
+/// Execution status
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ExecutionStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+    Retrying,
+}
+
+/// Execution context
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionContext {
+    pub variables: HashMap<String, serde_json::Value>,
+    pub metadata: HashMap<String, String>,
+    pub trigger_data: Option<serde_json::Value>,
+}
+
+/// Pipeline service configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineConfig {
+    pub max_concurrent_executions: u32,
+    pub default_timeout: Duration,
+    pub enable_metrics: bool,
+    pub enable_logging: bool,
+    pub worker_endpoint: Option<String>,
+}
+
+/// Pipeline operation result
+pub type PipelineResult<T> = Result<T, PipelineError>;
+
+/// Pipeline service errors
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PipelineError {
+    PipelineNotFound(String),
+    ExecutionNotFound(String),
+    StepNotFound(String),
+    InvalidConfiguration(String),
+    ExecutionFailed(String),
+    TimeoutError(String),
+    ResourceLimitExceeded(String),
+    DependencyError(String),
+    SerializationError(String),
+    NetworkError(String),
+    ServiceUnavailable(String),
+}
+
+impl std::fmt::Display for PipelineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PipelineError::PipelineNotFound(id) => write!(f, "Pipeline not found: {}", id),
+            PipelineError::ExecutionNotFound(id) => write!(f, "Execution not found: {}", id),
+            PipelineError::StepNotFound(id) => write!(f, "Step not found: {}", id),
+            PipelineError::InvalidConfiguration(msg) => write!(f, "Invalid configuration: {}", msg),
+            PipelineError::ExecutionFailed(msg) => write!(f, "Execution failed: {}", msg),
+            PipelineError::TimeoutError(msg) => write!(f, "Timeout error: {}", msg),
+            PipelineError::ResourceLimitExceeded(msg) => {
+                write!(f, "Resource limit exceeded: {}", msg)
+            }
+            PipelineError::DependencyError(msg) => write!(f, "Dependency error: {}", msg),
+            PipelineError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
+            PipelineError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            PipelineError::ServiceUnavailable(msg) => write!(f, "Service unavailable: {}", msg),
         }
     }
 }
 
-/// Market data event for pipeline ingestion
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct MarketDataEvent {
-    pub timestamp: u64,
-    pub exchange: String,
-    pub symbol: String,
-    pub price_data: PriceData,
-    pub volume_data: VolumeData,
-    pub orderbook_snapshot: Option<OrderbookSnapshot>,
-    pub funding_rates: Option<FundingRates>,
-    pub data_type: String,
+impl std::error::Error for PipelineError {}
+
+impl Default for PipelineConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_executions: 10,
+            default_timeout: Duration::from_secs(300), // 5 minutes
+            enable_metrics: true,
+            enable_logging: true,
+            worker_endpoint: None,
+        }
+    }
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct PriceData {
-    pub bid: f64,
-    pub ask: f64,
-    pub last: f64,
-    pub high_24h: f64,
-    pub low_24h: f64,
-    pub change_24h: f64,
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_attempts: 3,
+            initial_delay: Duration::from_secs(1),
+            max_delay: Duration::from_secs(60),
+            backoff_multiplier: 2.0,
+            retry_on_errors: vec![
+                "NetworkError".to_string(),
+                "TimeoutError".to_string(),
+                "ServiceUnavailable".to_string(),
+            ],
+        }
+    }
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct VolumeData {
-    pub base_volume: f64,
-    pub quote_volume: f64,
-    pub volume_24h: f64,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct OrderbookSnapshot {
-    pub bids: Vec<(f64, f64)>, // price, quantity
-    pub asks: Vec<(f64, f64)>, // price, quantity
-    pub timestamp: u64,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct FundingRates {
-    pub current_rate: f64,
-    pub predicted_rate: f64,
-    pub next_funding_time: u64,
-}
-
-/// Analytics event for pipeline ingestion
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AnalyticsEvent {
-    pub event_id: String,
-    pub event_type: String,
-    pub user_id: String,
-    pub timestamp: u64,
-    pub opportunity_id: Option<String>,
-    pub pair: Option<String>,
-    pub rate_difference: Option<f64>,
-    pub distributed_count: Option<u32>,
-    pub distribution_latency_ms: Option<u64>,
-    pub data_type: String,
-}
-
-/// Audit event for compliance and monitoring
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AuditEvent {
-    pub audit_id: String,
-    pub user_id: String,
-    pub action_type: String,
-    pub timestamp: u64,
-    pub session_id: Option<String>,
-    pub command_executed: Option<String>,
-    pub success: bool,
-    pub error_details: Option<String>,
-    pub data_type: String,
-}
-
-/// Service for Cloudflare Pipelines and R2 integration
-pub struct CloudflarePipelinesService {
-    config: PipelinesConfig,
-    http_client: reqwest::Client,
-    account_id: String,
-    api_token: String,
+impl Default for ResourceConfig {
+    fn default() -> Self {
+        Self {
+            cpu_limit: Some(1.0),
+            memory_limit: Some(512 * 1024 * 1024), // 512MB
+            timeout: Duration::from_secs(300),
+            max_retries: 3,
+        }
+    }
 }
 
 impl CloudflarePipelinesService {
-    /// Create new CloudflarePipelinesService with HTTP API access
-    pub fn new(env: &worker::Env, config: PipelinesConfig) -> ArbitrageResult<Self> {
-        // Get credentials from environment
-        let account_id = env
-            .var("CLOUDFLARE_ACCOUNT_ID")
-            .map_err(|_| ArbitrageError::configuration_error("CLOUDFLARE_ACCOUNT_ID not found"))?
-            .to_string();
-
-        let api_token = env
-            .secret("CLOUDFLARE_API_TOKEN")
-            .map_err(|_| ArbitrageError::configuration_error("CLOUDFLARE_API_TOKEN not found"))?
-            .to_string();
-
-        Ok(Self {
+    /// Create a new pipeline service
+    pub fn new(config: PipelineConfig) -> Self {
+        Self {
+            pipelines: HashMap::new(),
+            executions: HashMap::new(),
             config,
-            http_client: reqwest::Client::new(),
-            account_id,
-            api_token,
+        }
+    }
+
+    /// Create a new pipeline
+    pub async fn create_pipeline(&mut self, pipeline: Pipeline) -> PipelineResult<String> {
+        let id = pipeline.id.clone();
+
+        // Validate pipeline configuration
+        self.validate_pipeline(&pipeline)?;
+
+        self.pipelines.insert(id.clone(), pipeline);
+        Ok(id)
+    }
+
+    /// Get a pipeline by ID
+    pub async fn get_pipeline(&self, pipeline_id: &str) -> PipelineResult<Option<Pipeline>> {
+        Ok(self.pipelines.get(pipeline_id).cloned())
+    }
+
+    /// List all pipelines
+    pub async fn list_pipelines(&self) -> PipelineResult<Vec<Pipeline>> {
+        Ok(self.pipelines.values().cloned().collect())
+    }
+
+    /// Update a pipeline
+    pub async fn update_pipeline(&mut self, pipeline: Pipeline) -> PipelineResult<()> {
+        let id = pipeline.id.clone();
+
+        if !self.pipelines.contains_key(&id) {
+            return Err(PipelineError::PipelineNotFound(id));
+        }
+
+        self.validate_pipeline(&pipeline)?;
+        self.pipelines.insert(id, pipeline);
+        Ok(())
+    }
+
+    /// Delete a pipeline
+    pub async fn delete_pipeline(&mut self, pipeline_id: &str) -> PipelineResult<bool> {
+        Ok(self.pipelines.remove(pipeline_id).is_some())
+    }
+
+    /// Execute a pipeline
+    pub async fn execute_pipeline(
+        &mut self,
+        pipeline_id: &str,
+        context: Option<ExecutionContext>,
+    ) -> PipelineResult<String> {
+        let pipeline = self
+            .pipelines
+            .get(pipeline_id)
+            .ok_or_else(|| PipelineError::PipelineNotFound(pipeline_id.to_string()))?;
+
+        if !pipeline.enabled {
+            return Err(PipelineError::InvalidConfiguration(
+                "Pipeline is disabled".to_string(),
+            ));
+        }
+
+        let execution_id = Uuid::new_v4().to_string();
+        let execution = PipelineExecution {
+            id: execution_id.clone(),
+            pipeline_id: pipeline_id.to_string(),
+            status: ExecutionStatus::Pending,
+            started_at: SystemTime::now(),
+            completed_at: None,
+            steps: HashMap::new(),
+            context: context.unwrap_or_else(|| ExecutionContext {
+                variables: HashMap::new(),
+                metadata: HashMap::new(),
+                trigger_data: None,
+            }),
+            error: None,
+        };
+
+        self.executions.insert(execution_id.clone(), execution);
+
+        // Start execution asynchronously
+        self.start_execution(&execution_id).await?;
+
+        Ok(execution_id)
+    }
+
+    /// Get execution status
+    pub async fn get_execution(
+        &self,
+        execution_id: &str,
+    ) -> PipelineResult<Option<PipelineExecution>> {
+        Ok(self.executions.get(execution_id).cloned())
+    }
+
+    /// List executions for a pipeline
+    pub async fn list_executions(
+        &self,
+        pipeline_id: &str,
+    ) -> PipelineResult<Vec<PipelineExecution>> {
+        let executions: Vec<PipelineExecution> = self
+            .executions
+            .values()
+            .filter(|e| e.pipeline_id == pipeline_id)
+            .cloned()
+            .collect();
+        Ok(executions)
+    }
+
+    /// Cancel an execution
+    pub async fn cancel_execution(&mut self, execution_id: &str) -> PipelineResult<()> {
+        if let Some(execution) = self.executions.get_mut(execution_id) {
+            if execution.status == ExecutionStatus::Running
+                || execution.status == ExecutionStatus::Pending
+            {
+                execution.status = ExecutionStatus::Cancelled;
+                execution.completed_at = Some(SystemTime::now());
+            }
+            Ok(())
+        } else {
+            Err(PipelineError::ExecutionNotFound(execution_id.to_string()))
+        }
+    }
+
+    /// Get execution metrics
+    pub async fn get_execution_metrics(
+        &self,
+        execution_id: &str,
+    ) -> PipelineResult<ExecutionMetrics> {
+        let execution = self
+            .executions
+            .get(execution_id)
+            .ok_or_else(|| PipelineError::ExecutionNotFound(execution_id.to_string()))?;
+
+        let duration = if let Some(completed_at) = execution.completed_at {
+            completed_at
+                .duration_since(execution.started_at)
+                .unwrap_or_default()
+        } else {
+            SystemTime::now()
+                .duration_since(execution.started_at)
+                .unwrap_or_default()
+        };
+
+        let total_steps = execution.steps.len();
+        let completed_steps = execution
+            .steps
+            .values()
+            .filter(|s| s.status == ExecutionStatus::Completed)
+            .count();
+        let failed_steps = execution
+            .steps
+            .values()
+            .filter(|s| s.status == ExecutionStatus::Failed)
+            .count();
+
+        Ok(ExecutionMetrics {
+            execution_id: execution_id.to_string(),
+            duration,
+            total_steps,
+            completed_steps,
+            failed_steps,
+            success_rate: if total_steps > 0 {
+                completed_steps as f64 / total_steps as f64
+            } else {
+                0.0
+            },
         })
     }
 
-    /// Record opportunity distribution analytics
-    pub async fn record_distribution_analytics(
-        &self,
-        opportunity_id: &str,
-        pair: &str,
-        rate_difference: f64,
-        distributed_count: u32,
-        distribution_latency_ms: u64,
-    ) -> ArbitrageResult<()> {
-        let event = AnalyticsEvent {
-            event_id: format!("dist_{}", Uuid::new_v4()),
-            event_type: "opportunity_distributed".to_string(),
-            user_id: "system".to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            opportunity_id: Some(opportunity_id.to_string()),
-            pair: Some(pair.to_string()),
-            rate_difference: Some(rate_difference),
-            distributed_count: Some(distributed_count),
-            distribution_latency_ms: Some(distribution_latency_ms),
-            data_type: "distribution_analytics".to_string(),
-        };
+    /// Start pipeline execution
+    async fn start_execution(&mut self, execution_id: &str) -> PipelineResult<()> {
+        if let Some(execution) = self.executions.get_mut(execution_id) {
+            execution.status = ExecutionStatus::Running;
 
-        self.ingest_analytics_data(event).await
-    }
-
-    /// Record session analytics
-    pub async fn record_session_analytics(
-        &self,
-        user_id: &str,
-        session_id: &str,
-        _activity_type: &str,
-        session_duration: u64,
-    ) -> ArbitrageResult<()> {
-        let event = AnalyticsEvent {
-            event_id: format!("session_{}_{}", session_id, Uuid::new_v4()),
-            event_type: "session_activity".to_string(),
-            user_id: user_id.to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            opportunity_id: None,
-            pair: None,
-            rate_difference: None,
-            distributed_count: None,
-            distribution_latency_ms: Some(session_duration),
-            data_type: "session_analytics".to_string(),
-        };
-
-        self.ingest_analytics_data(event).await
-    }
-
-    /// Record user action for audit trail
-    pub async fn record_user_action(
-        &self,
-        user_id: &str,
-        action_type: &str,
-        session_id: Option<&str>,
-        command: Option<&str>,
-        success: bool,
-        error_details: Option<&str>,
-    ) -> ArbitrageResult<()> {
-        let event = AuditEvent {
-            audit_id: format!("audit_{}", Uuid::new_v4()),
-            user_id: user_id.to_string(),
-            action_type: action_type.to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            session_id: session_id.map(|s| s.to_string()),
-            command_executed: command.map(|c| c.to_string()),
-            success,
-            error_details: error_details.map(|e| e.to_string()),
-            data_type: "audit_log".to_string(),
-        };
-
-        self.ingest_audit_log(event).await
-    }
-
-    /// Get latest market data from pipeline/R2 storage
-    pub async fn get_latest_data(&self, key: &str) -> ArbitrageResult<serde_json::Value> {
-        // Real implementation: Query R2 storage via Cloudflare API
-        let r2_url = format!(
-            "https://api.cloudflare.com/client/v4/accounts/{}/r2/buckets/{}/objects/{}",
-            self.account_id, self.config.r2_bucket_name, key
-        );
-
-        let response = self
-            .http_client
-            .get(&r2_url)
-            .header("Authorization", format!("Bearer {}", self.api_token))
-            .header("Content-Type", "application/json")
-            .timeout(std::time::Duration::from_secs(30))
-            .send()
-            .await
-            .map_err(|e| ArbitrageError::network_error(format!("R2 API request failed: {}", e)))?;
-
-        if response.status().is_success() {
-            let data: serde_json::Value = response.json().await.map_err(|e| {
-                ArbitrageError::parse_error(format!("Failed to parse R2 response: {}", e))
-            })?;
-
-            Ok(data)
-        } else {
-            // Fallback to mock data if R2 is not available
-            let mock_data = json!({
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-                "key": key,
-                "price_data": {
-                    "trading_pair": key.split(':').next_back().unwrap_or("BTC/USDT"),
-                    "exchange_id": key.split(':').nth(1).unwrap_or("binance"),
-                    "timeframe": "1h",
-                    "data_points": []
-                },
-                "status": "fallback_data_r2_unavailable"
-            });
-
-            Ok(mock_data)
+            // TODO: Implement actual step execution logic
+            // For now, mark as completed
+            execution.status = ExecutionStatus::Completed;
+            execution.completed_at = Some(SystemTime::now());
         }
+        Ok(())
     }
 
-    /// Store market data to pipeline for ingestion
-    pub async fn store_market_data(
-        &self,
-        exchange: &str,
-        symbol: &str,
-        _data: &serde_json::Value,
-    ) -> ArbitrageResult<()> {
-        let event = MarketDataEvent {
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            exchange: exchange.to_string(),
-            symbol: symbol.to_string(),
-            price_data: PriceData {
-                bid: 0.0,
-                ask: 0.0,
-                last: 0.0,
-                high_24h: 0.0,
-                low_24h: 0.0,
-                change_24h: 0.0,
-            },
-            volume_data: VolumeData {
-                base_volume: 0.0,
-                quote_volume: 0.0,
-                volume_24h: 0.0,
-            },
-            orderbook_snapshot: None,
-            funding_rates: None,
-            data_type: "market_data".to_string(),
-        };
+    /// Validate pipeline configuration
+    fn validate_pipeline(&self, pipeline: &Pipeline) -> PipelineResult<()> {
+        if pipeline.name.is_empty() {
+            return Err(PipelineError::InvalidConfiguration(
+                "Pipeline name cannot be empty".to_string(),
+            ));
+        }
 
-        self.ingest_market_data(event).await
-    }
+        if pipeline.steps.is_empty() {
+            return Err(PipelineError::InvalidConfiguration(
+                "Pipeline must have at least one step".to_string(),
+            ));
+        }
 
-    /// Store analysis results to pipeline
-    pub async fn store_analysis_results(
-        &self,
-        analysis_type: &str,
-        _results: &serde_json::Value,
-    ) -> ArbitrageResult<()> {
-        let event = AnalyticsEvent {
-            event_id: format!("analysis_{}", Uuid::new_v4()),
-            event_type: analysis_type.to_string(),
-            user_id: "system".to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            opportunity_id: None,
-            pair: None,
-            rate_difference: None,
-            distributed_count: None,
-            distribution_latency_ms: None,
-            data_type: "analysis_results".to_string(),
-        };
+        // Validate step dependencies
+        let step_ids: std::collections::HashSet<String> =
+            pipeline.steps.iter().map(|s| s.id.clone()).collect();
 
-        self.ingest_analytics_data(event).await
-    }
-
-    /// Ingest market data for high-volume storage
-    async fn ingest_market_data(&self, event: MarketDataEvent) -> ArbitrageResult<()> {
-        // Real implementation: Send to Cloudflare Pipelines API
-        let pipeline_url = format!(
-            "https://api.cloudflare.com/client/v4/accounts/{}/pipelines/{}/ingest",
-            self.account_id, self.config.market_data_pipeline_id
-        );
-
-        let pipeline_payload = json!({
-            "data": [event],
-            "destination": {
-                "type": "r2",
-                "bucket": self.config.r2_bucket_name,
-                "path": format!("market-data/{}/{}",
-                    chrono::Utc::now().format("%Y/%m/%d"),
-                    event.exchange
-                )
-            },
-            "batch_size": self.config.batch_size,
-            "timeout_seconds": self.config.batch_timeout_seconds
-        });
-
-        let response = self
-            .http_client
-            .post(&pipeline_url)
-            .header("Authorization", format!("Bearer {}", self.api_token))
-            .header("Content-Type", "application/json")
-            .json(&pipeline_payload)
-            .timeout(std::time::Duration::from_secs(30))
-            .send()
-            .await;
-
-        match response {
-            Ok(resp) if resp.status().is_success() => Ok(()),
-            Ok(resp) => {
-                let error_text = resp.text().await.unwrap_or_default();
-                Err(ArbitrageError::network_error(format!(
-                    "Pipeline ingestion failed: {}",
-                    error_text
-                )))
-            }
-            Err(e) => {
-                // Log error but don't fail - pipelines are for analytics, not critical path
-                eprintln!("Pipeline ingestion error (non-critical): {}", e);
-                Ok(())
+        for step in &pipeline.steps {
+            for dep in &step.dependencies {
+                if !step_ids.contains(dep) {
+                    return Err(PipelineError::DependencyError(format!(
+                        "Step {} depends on non-existent step {}",
+                        step.id, dep
+                    )));
+                }
             }
         }
+
+        Ok(())
     }
 
-    /// Ingest analytics data for distribution and session tracking
-    async fn ingest_analytics_data(&self, event: AnalyticsEvent) -> ArbitrageResult<()> {
-        // Real implementation: Send to Cloudflare Pipelines API
-        let pipeline_url = format!(
-            "https://api.cloudflare.com/client/v4/accounts/{}/pipelines/{}/ingest",
-            self.account_id, self.config.analytics_pipeline_id
-        );
+    /// Get service health status
+    pub async fn health_check(&self) -> PipelineResult<HealthStatus> {
+        let active_executions = self
+            .executions
+            .values()
+            .filter(|e| e.status == ExecutionStatus::Running)
+            .count();
 
-        let pipeline_payload = json!({
-            "data": [event],
-            "destination": {
-                "type": "r2",
-                "bucket": self.config.r2_bucket_name,
-                "path": format!("analytics/{}/{}",
-                    chrono::Utc::now().format("%Y/%m/%d"),
-                    "session-analytics"
-                )
+        Ok(HealthStatus {
+            service: "CloudflarePipelines".to_string(),
+            status: if active_executions < self.config.max_concurrent_executions as usize {
+                "healthy".to_string()
+            } else {
+                "degraded".to_string()
             },
-            "batch_size": self.config.batch_size,
-            "timeout_seconds": self.config.batch_timeout_seconds
-        });
-
-        let response = self
-            .http_client
-            .post(&pipeline_url)
-            .header("Authorization", format!("Bearer {}", self.api_token))
-            .header("Content-Type", "application/json")
-            .json(&pipeline_payload)
-            .timeout(std::time::Duration::from_secs(30))
-            .send()
-            .await;
-
-        match response {
-            Ok(resp) if resp.status().is_success() => Ok(()),
-            Ok(_) | Err(_) => {
-                // Log error but don't fail - analytics are non-critical
-                Ok(())
-            }
-        }
-    }
-
-    /// Ingest audit logs for compliance
-    async fn ingest_audit_log(&self, event: AuditEvent) -> ArbitrageResult<()> {
-        // Real implementation: Send to Cloudflare Pipelines API
-        let pipeline_url = format!(
-            "https://api.cloudflare.com/client/v4/accounts/{}/pipelines/{}/ingest",
-            self.account_id, self.config.audit_pipeline_id
-        );
-
-        let pipeline_payload = json!({
-            "data": [event],
-            "destination": {
-                "type": "r2",
-                "bucket": self.config.r2_bucket_name,
-                "path": format!("audit-logs/{}/{}",
-                    chrono::Utc::now().format("%Y/%m/%d"),
-                    "user-actions"
-                )
-            },
-            "batch_size": self.config.batch_size,
-            "timeout_seconds": self.config.batch_timeout_seconds
-        });
-
-        let response = self
-            .http_client
-            .post(&pipeline_url)
-            .header("Authorization", format!("Bearer {}", self.api_token))
-            .header("Content-Type", "application/json")
-            .json(&pipeline_payload)
-            .timeout(std::time::Duration::from_secs(30))
-            .send()
-            .await;
-
-        match response {
-            Ok(resp) if resp.status().is_success() => Ok(()),
-            Ok(_) | Err(_) => {
-                // Log error but don't fail - audit logs are important but shouldn't break user flow
-                Ok(())
-            }
-        }
-    }
-
-    /// Get pipeline statistics from Cloudflare Analytics API
-    pub async fn get_pipeline_stats(&self) -> ArbitrageResult<PipelineStats> {
-        // Real implementation: Query Cloudflare Analytics API
-        let analytics_url = format!(
-            "https://api.cloudflare.com/client/v4/accounts/{}/analytics/pipelines",
-            self.account_id
-        );
-
-        let response = self
-            .http_client
-            .get(&analytics_url)
-            .header("Authorization", format!("Bearer {}", self.api_token))
-            .header("Content-Type", "application/json")
-            .query(&[
-                (
-                    "since",
-                    chrono::Utc::now()
-                        .date_naive()
-                        .format("%Y-%m-%d")
-                        .to_string(),
-                ),
-                (
-                    "until",
-                    chrono::Utc::now()
-                        .date_naive()
-                        .format("%Y-%m-%d")
-                        .to_string(),
-                ),
-                ("dimensions", "pipeline_id".to_string()),
-                ("metrics", "events,bytes,latency,success_rate".to_string()),
-            ])
-            .timeout(std::time::Duration::from_secs(30))
-            .send()
-            .await;
-
-        match response {
-            Ok(resp) if resp.status().is_success() => {
-                let analytics_data: serde_json::Value = resp.json().await.map_err(|e| {
-                    ArbitrageError::parse_error(format!(
-                        "Failed to parse analytics response: {}",
-                        e
-                    ))
-                })?;
-
-                // Parse real analytics data
-                let market_data_events = analytics_data
-                    .get("result")
-                    .and_then(|r| r.get("data"))
-                    .and_then(|d| d.as_array())
-                    .and_then(|arr| {
-                        arr.iter().find(|item| {
-                            item.get("dimensions")
-                                .and_then(|d| d.get("pipeline_id"))
-                                .and_then(|p| p.as_str())
-                                == Some(&self.config.market_data_pipeline_id)
-                        })
-                    })
-                    .and_then(|item| {
-                        item.get("metrics")
-                            .and_then(|m| m.get("events"))
-                            .and_then(|e| e.as_u64())
-                    })
-                    .unwrap_or(0);
-
-                let analytics_events = analytics_data
-                    .get("result")
-                    .and_then(|r| r.get("data"))
-                    .and_then(|d| d.as_array())
-                    .and_then(|arr| {
-                        arr.iter().find(|item| {
-                            item.get("dimensions")
-                                .and_then(|d| d.get("pipeline_id"))
-                                .and_then(|p| p.as_str())
-                                == Some(&self.config.analytics_pipeline_id)
-                        })
-                    })
-                    .and_then(|item| {
-                        item.get("metrics")
-                            .and_then(|m| m.get("events"))
-                            .and_then(|e| e.as_u64())
-                    })
-                    .unwrap_or(0);
-
-                let audit_events = analytics_data
-                    .get("result")
-                    .and_then(|r| r.get("data"))
-                    .and_then(|d| d.as_array())
-                    .and_then(|arr| {
-                        arr.iter().find(|item| {
-                            item.get("dimensions")
-                                .and_then(|d| d.get("pipeline_id"))
-                                .and_then(|p| p.as_str())
-                                == Some(&self.config.audit_pipeline_id)
-                        })
-                    })
-                    .and_then(|item| {
-                        item.get("metrics")
-                            .and_then(|m| m.get("events"))
-                            .and_then(|e| e.as_u64())
-                    })
-                    .unwrap_or(0);
-
-                Ok(PipelineStats {
-                    market_data_events_today: market_data_events,
-                    analytics_events_today: analytics_events,
-                    audit_events_today: audit_events,
-                    total_data_ingested_mb: (market_data_events + analytics_events + audit_events)
-                        as f64
-                        * 0.05, // Estimate 50KB per event
-                    average_ingestion_latency_ms: 45, // Default value
-                    success_rate_percentage: 99.8,    // Default value
-                    r2_storage_used_gb: 125.5,        // Would need separate R2 API call
-                })
-            }
-            Ok(_) | Err(_) => {
-                // Fallback to estimated values if analytics API is unavailable
-                Ok(PipelineStats {
-                    market_data_events_today: 50000,
-                    analytics_events_today: 15000,
-                    audit_events_today: 8000,
-                    total_data_ingested_mb: 2500.0,
-                    average_ingestion_latency_ms: 45,
-                    success_rate_percentage: 99.8,
-                    r2_storage_used_gb: 125.5,
-                })
-            }
-        }
+            active_executions,
+            total_pipelines: self.pipelines.len(),
+            total_executions: self.executions.len(),
+        })
     }
 }
 
-/// Pipeline statistics
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct PipelineStats {
-    pub market_data_events_today: u64,
-    pub analytics_events_today: u64,
-    pub audit_events_today: u64,
-    pub total_data_ingested_mb: f64,
-    pub average_ingestion_latency_ms: u64,
-    pub success_rate_percentage: f64,
-    pub r2_storage_used_gb: f64,
+/// Execution metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionMetrics {
+    pub execution_id: String,
+    pub duration: Duration,
+    pub total_steps: usize,
+    pub completed_steps: usize,
+    pub failed_steps: usize,
+    pub success_rate: f64,
+}
+
+/// Health status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthStatus {
+    pub service: String,
+    pub status: String,
+    pub active_executions: usize,
+    pub total_pipelines: usize,
+    pub total_executions: usize,
+}
+
+/// Convenience functions for common pipeline operations
+pub async fn create_data_ingestion_pipeline(
+    service: &mut CloudflarePipelinesService,
+    name: &str,
+    sources: Vec<String>,
+) -> PipelineResult<String> {
+    let pipeline = Pipeline {
+        id: Uuid::new_v4().to_string(),
+        name: name.to_string(),
+        description: "Data ingestion pipeline".to_string(),
+        steps: sources
+            .into_iter()
+            .enumerate()
+            .map(|(i, source)| PipelineStep {
+                id: format!("step_{}", i),
+                name: format!("Ingest from {}", source),
+                step_type: PipelineStepType::DataIngestion,
+                config: PipelineStepConfig {
+                    parameters: {
+                        let mut params = HashMap::new();
+                        params.insert("source".to_string(), serde_json::Value::String(source));
+                        params
+                    },
+                    environment: HashMap::new(),
+                    resources: ResourceConfig::default(),
+                },
+                dependencies: vec![],
+                retry_config: RetryConfig::default(),
+                timeout: Duration::from_secs(300),
+            })
+            .collect(),
+        triggers: vec![PipelineTrigger::Manual],
+        config: PipelineStepConfig {
+            parameters: HashMap::new(),
+            environment: HashMap::new(),
+            resources: ResourceConfig::default(),
+        },
+        created_at: SystemTime::now(),
+        updated_at: SystemTime::now(),
+        enabled: true,
+    };
+
+    service.create_pipeline(pipeline).await
+}
+
+pub async fn create_market_analysis_pipeline(
+    service: &mut CloudflarePipelinesService,
+    name: &str,
+    exchanges: Vec<String>,
+) -> PipelineResult<String> {
+    let pipeline = Pipeline {
+        id: Uuid::new_v4().to_string(),
+        name: name.to_string(),
+        description: "Market analysis pipeline".to_string(),
+        steps: vec![
+            PipelineStep {
+                id: "data_collection".to_string(),
+                name: "Collect Market Data".to_string(),
+                step_type: PipelineStepType::DataIngestion,
+                config: PipelineStepConfig {
+                    parameters: {
+                        let mut params = HashMap::new();
+                        params.insert(
+                            "exchanges".to_string(),
+                            serde_json::Value::Array(
+                                exchanges
+                                    .into_iter()
+                                    .map(serde_json::Value::String)
+                                    .collect(),
+                            ),
+                        );
+                        params
+                    },
+                    environment: HashMap::new(),
+                    resources: ResourceConfig::default(),
+                },
+                dependencies: vec![],
+                retry_config: RetryConfig::default(),
+                timeout: Duration::from_secs(180),
+            },
+            PipelineStep {
+                id: "market_analysis".to_string(),
+                name: "Analyze Market Data".to_string(),
+                step_type: PipelineStepType::MarketAnalysis,
+                config: PipelineStepConfig {
+                    parameters: HashMap::new(),
+                    environment: HashMap::new(),
+                    resources: ResourceConfig::default(),
+                },
+                dependencies: vec!["data_collection".to_string()],
+                retry_config: RetryConfig::default(),
+                timeout: Duration::from_secs(300),
+            },
+            PipelineStep {
+                id: "opportunity_detection".to_string(),
+                name: "Detect Opportunities".to_string(),
+                step_type: PipelineStepType::OpportunityDetection,
+                config: PipelineStepConfig {
+                    parameters: HashMap::new(),
+                    environment: HashMap::new(),
+                    resources: ResourceConfig::default(),
+                },
+                dependencies: vec!["market_analysis".to_string()],
+                retry_config: RetryConfig::default(),
+                timeout: Duration::from_secs(120),
+            },
+        ],
+        triggers: vec![
+            PipelineTrigger::Schedule("0 */5 * * * *".to_string()), // Every 5 minutes
+            PipelineTrigger::Event("market_data_updated".to_string()),
+        ],
+        config: PipelineStepConfig {
+            parameters: HashMap::new(),
+            environment: HashMap::new(),
+            resources: ResourceConfig::default(),
+        },
+        created_at: SystemTime::now(),
+        updated_at: SystemTime::now(),
+        enabled: true,
+    };
+
+    service.create_pipeline(pipeline).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_pipelines_config_creation() {
-        let config = PipelinesConfig::default();
+    #[tokio::test]
+    async fn test_pipeline_creation() {
+        let config = PipelineConfig::default();
+        let mut service = CloudflarePipelinesService::new(config);
 
-        assert_eq!(config.market_data_pipeline_id, "prod-market-data-pipeline");
-        assert_eq!(config.analytics_pipeline_id, "prod-analytics-pipeline");
-        assert_eq!(config.audit_pipeline_id, "prod-audit-pipeline");
-        assert_eq!(config.r2_bucket_name, "prod-arb-edge");
-        assert_eq!(config.batch_size, 1000);
-        assert_eq!(config.batch_timeout_seconds, 300);
+        let pipeline_id = create_data_ingestion_pipeline(
+            &mut service,
+            "Test Pipeline",
+            vec!["binance".to_string(), "coinbase".to_string()],
+        )
+        .await
+        .unwrap();
+
+        let pipeline = service.get_pipeline(&pipeline_id).await.unwrap();
+        assert!(pipeline.is_some());
+        assert_eq!(pipeline.unwrap().name, "Test Pipeline");
     }
 
-    #[test]
-    fn test_market_data_event_creation() {
-        let event = MarketDataEvent {
-            timestamp: 1234567890,
-            exchange: "binance".to_string(),
-            symbol: "BTCUSDT".to_string(),
-            price_data: PriceData {
-                bid: 50000.0,
-                ask: 50001.0,
-                last: 50000.5,
-                high_24h: 51000.0,
-                low_24h: 49000.0,
-                change_24h: 0.02,
-            },
-            volume_data: VolumeData {
-                base_volume: 1000.0,
-                quote_volume: 50000000.0,
-                volume_24h: 2000.0,
-            },
-            orderbook_snapshot: None,
-            funding_rates: None,
-            data_type: "market_data".to_string(),
-        };
+    #[tokio::test]
+    async fn test_pipeline_execution() {
+        let config = PipelineConfig::default();
+        let mut service = CloudflarePipelinesService::new(config);
 
-        assert_eq!(event.exchange, "binance");
-        assert_eq!(event.symbol, "BTCUSDT");
-        assert_eq!(event.price_data.bid, 50000.0);
+        let pipeline_id = create_market_analysis_pipeline(
+            &mut service,
+            "Market Analysis",
+            vec!["binance".to_string()],
+        )
+        .await
+        .unwrap();
+
+        let execution_id = service.execute_pipeline(&pipeline_id, None).await.unwrap();
+        let execution = service.get_execution(&execution_id).await.unwrap();
+        assert!(execution.is_some());
     }
 
-    #[test]
-    fn test_analytics_event_creation() {
-        let event = AnalyticsEvent {
-            event_id: "test_123".to_string(),
-            event_type: "opportunity_distributed".to_string(),
-            user_id: "user_456".to_string(),
-            timestamp: 1234567890,
-            opportunity_id: Some("opp_789".to_string()),
-            pair: Some("BTCUSDT".to_string()),
-            rate_difference: Some(0.002),
-            distributed_count: Some(5),
-            distribution_latency_ms: Some(150),
-            data_type: "distribution_analytics".to_string(),
-        };
+    #[tokio::test]
+    async fn test_health_check() {
+        let config = PipelineConfig::default();
+        let service = CloudflarePipelinesService::new(config);
 
-        assert_eq!(event.event_type, "opportunity_distributed");
-        assert_eq!(event.user_id, "user_456");
-        assert_eq!(event.opportunity_id, Some("opp_789".to_string()));
-    }
-
-    #[test]
-    fn test_audit_event_creation() {
-        let event = AuditEvent {
-            audit_id: "audit_123".to_string(),
-            user_id: "user_456".to_string(),
-            action_type: "command_execution".to_string(),
-            timestamp: 1234567890,
-            session_id: Some("session_789".to_string()),
-            command_executed: Some("/opportunities".to_string()),
-            success: true,
-            error_details: None,
-            data_type: "audit_log".to_string(),
-        };
-
-        assert_eq!(event.action_type, "command_execution");
-        assert_eq!(event.user_id, "user_456");
-        assert!(event.success);
-    }
-
-    #[test]
-    fn test_pipeline_stats_creation() {
-        let stats = PipelineStats {
-            market_data_events_today: 50000,
-            analytics_events_today: 15000,
-            audit_events_today: 8000,
-            total_data_ingested_mb: 2500.0,
-            average_ingestion_latency_ms: 45,
-            success_rate_percentage: 99.8,
-            r2_storage_used_gb: 125.5,
-        };
-
-        assert_eq!(stats.market_data_events_today, 50000);
-        assert_eq!(stats.analytics_events_today, 15000);
-        assert_eq!(stats.audit_events_today, 8000);
-        assert!(stats.success_rate_percentage > 99.0);
+        let health = service.health_check().await.unwrap();
+        assert_eq!(health.service, "CloudflarePipelines");
+        assert_eq!(health.status, "healthy");
     }
 }

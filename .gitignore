@@ -6,6 +6,7 @@ yarn-error.log*
 
 # Logs
 logs/
+@logs/
 *.log
 *.log.*
 
@@ -27,6 +28,7 @@ out/
 *.njsproj
 *.sln
 *.sw?
+.cursor/
 
 # OS generated files
 .DS_Store
@@ -44,3 +46,21 @@ target/
 
 .wrangler/
 tarpaulin-report.html
+
+*.env
+.env.example
+.env.*
+
+test_results
+
+# Added by Task Master AI
+logs
+dev-debug.log
+# Dependency directories
+# Editor directories and files
+.idea
+.vscode
+# OS specific
+# Task files
+tasks.json
+tasks/ 
