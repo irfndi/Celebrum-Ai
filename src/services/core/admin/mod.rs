@@ -32,9 +32,13 @@ pub struct AdminService {
 
 impl AdminService {
     /// Create new AdminService with all sub-services
-    pub async fn new(env: Env, d1_service: Arc<D1Service>) -> ArbitrageResult<Self> {
+    pub async fn new(
+        env: Env,
+        d1_service: Arc<D1Service>,
+        audit_config: Option<AuditConfig>,
+    ) -> ArbitrageResult<Self> {
         let kv_store = env.kv("ArbEdgeKV")?;
-        let audit_config = AuditConfig::default();
+        let audit_config = audit_config.unwrap_or_default();
 
         let audit = Arc::new(AuditService::new(
             env.clone(),
@@ -92,56 +96,97 @@ impl AdminService {
     fn create_health_status(
         &self,
         overall: bool,
-        um_healthy: bool,
-        sc_healthy: bool,
-        m_healthy: bool,
-        a_healthy: bool,
+        um_status: ServiceHealthStatus,
+        sc_status: ServiceHealthStatus,
+        m_status: ServiceHealthStatus,
+        a_status: ServiceHealthStatus,
+        fail_fast_mode: bool,
     ) -> AdminHealthStatus {
         AdminHealthStatus {
             overall_healthy: overall,
-            user_management_healthy: um_healthy,
-            system_config_healthy: sc_healthy,
-            monitoring_healthy: m_healthy,
-            audit_healthy: a_healthy,
+            user_management_status: um_status,
+            system_config_status: sc_status,
+            monitoring_status: m_status,
+            audit_status: a_status,
             last_check: chrono::Utc::now().timestamp_millis() as u64,
+            fail_fast_mode,
         }
     }
 
     /// Perform comprehensive health check of all admin services
+    /// When fail_fast is true, stops checking services after the first failure
+    /// and marks subsequent services as 'Skipped' rather than 'Unhealthy'
     pub async fn health_check(&self, fail_fast: bool) -> ArbitrageResult<AdminHealthStatus> {
         let user_mgmt_healthy = self.user_management.health_check().await?;
+        let user_mgmt_status = if user_mgmt_healthy {
+            ServiceHealthStatus::Healthy
+        } else {
+            ServiceHealthStatus::Unhealthy
+        };
+
         if fail_fast && !user_mgmt_healthy {
-            // If fail_fast and this service failed, mark all as unhealthy (or subsequent as unchecked)
-            return Ok(self.create_health_status(false, false, false, false, false));
+            // If fail_fast and this service failed, mark subsequent services as skipped
+            return Ok(self.create_health_status(
+                false,
+                user_mgmt_status,
+                ServiceHealthStatus::Skipped,
+                ServiceHealthStatus::Skipped,
+                ServiceHealthStatus::Skipped,
+                fail_fast,
+            ));
         }
 
         let system_config_healthy = self.system_config.health_check().await?;
+        let system_config_status = if system_config_healthy {
+            ServiceHealthStatus::Healthy
+        } else {
+            ServiceHealthStatus::Unhealthy
+        };
+
         if fail_fast && !system_config_healthy {
-            return Ok(self.create_health_status(false, user_mgmt_healthy, false, false, false));
+            return Ok(self.create_health_status(
+                false,
+                user_mgmt_status,
+                system_config_status,
+                ServiceHealthStatus::Skipped,
+                ServiceHealthStatus::Skipped,
+                fail_fast,
+            ));
         }
 
         let monitoring_healthy = self.monitoring.health_check().await?;
+        let monitoring_status = if monitoring_healthy {
+            ServiceHealthStatus::Healthy
+        } else {
+            ServiceHealthStatus::Unhealthy
+        };
+
         if fail_fast && !monitoring_healthy {
             return Ok(self.create_health_status(
                 false,
-                user_mgmt_healthy,
-                system_config_healthy,
-                false,
-                false,
+                user_mgmt_status,
+                system_config_status,
+                monitoring_status,
+                ServiceHealthStatus::Skipped,
+                fail_fast,
             ));
         }
 
         let audit_healthy = self.audit.health_check().await?;
-        // For the last service, if fail_fast is true and it fails, the overall status will be false anyway.
-        // So, an explicit early return here has similar effect to letting it proceed to overall_healthy calculation.
-        // However, to be perfectly consistent with the pattern for early exit:
+        let audit_status = if audit_healthy {
+            ServiceHealthStatus::Healthy
+        } else {
+            ServiceHealthStatus::Unhealthy
+        };
+
         if fail_fast && !audit_healthy {
             return Ok(self.create_health_status(
                 false,
-                user_mgmt_healthy,
-                system_config_healthy,
-                monitoring_healthy,
-                false,
+                user_mgmt_status,
+                system_config_status,
+                monitoring_status,
+                audit_status,
+                fail_fast,
             ));
         }
 
@@ -150,10 +195,11 @@ impl AdminService {
 
         Ok(self.create_health_status(
             overall_healthy,
-            user_mgmt_healthy,
-            system_config_healthy,
-            monitoring_healthy,
-            audit_healthy,
+            user_mgmt_status,
+            system_config_status,
+            monitoring_status,
+            audit_status,
+            fail_fast,
         ))
     }
 
@@ -214,39 +260,138 @@ impl AdminService {
             )
             .await?;
 
-        // Execute the action based on type
-        let result = match action {
+        // Execute the action based on type with proper error handling and logging
+        let result = match &action {
             AdminAction::CreateUser { user_data } => {
-                let user_profile = self.user_management.create_user(user_data).await?;
-                AdminActionResult::UserCreated {
-                    user_id: user_profile.user_id,
+                match self.user_management.create_user(user_data.clone()).await {
+                    Ok(user_profile) => AdminActionResult::UserCreated {
+                        user_id: user_profile.user_id,
+                    },
+                    Err(e) => {
+                        // Log the failed action with detailed error information
+                        self.audit
+                            .log_user_action(
+                                admin_user_id,
+                                UserAuditAction::new(
+                                    admin_user_id.to_string(),
+                                    "admin_action_failed".to_string(),
+                                    format!(
+                                        "Failed to execute action: {:?}, Error: {}",
+                                        action_clone, e
+                                    ),
+                                ),
+                                Some(format!("Action: {:?}, Error: {}", action_clone, e)),
+                            )
+                            .await?;
+                        return Err(e);
+                    }
                 }
             }
             AdminAction::UpdateUserAccess {
                 user_id,
                 access_level,
             } => {
-                self.user_management
-                    .update_user_access_level(&user_id, access_level)
-                    .await?;
-                AdminActionResult::UserAccessUpdated { user_id }
+                match self
+                    .user_management
+                    .update_user_access_level(user_id, access_level.clone())
+                    .await
+                {
+                    Ok(_) => AdminActionResult::UserAccessUpdated {
+                        user_id: user_id.clone(),
+                    },
+                    Err(e) => {
+                        self.audit
+                            .log_user_action(
+                                admin_user_id,
+                                UserAuditAction::new(
+                                    admin_user_id.to_string(),
+                                    "admin_action_failed".to_string(),
+                                    format!(
+                                        "Failed to execute action: {:?}, Error: {}",
+                                        action_clone, e
+                                    ),
+                                ),
+                                Some(format!("Action: {:?}, Error: {}", action_clone, e)),
+                            )
+                            .await?;
+                        return Err(e);
+                    }
+                }
             }
             AdminAction::UpdateSystemConfig {
                 config_key,
                 config_value,
             } => {
-                self.system_config
-                    .update_config(&config_key, config_value)
-                    .await?;
-                AdminActionResult::SystemConfigUpdated { config_key }
+                match self
+                    .system_config
+                    .update_config(config_key, config_value.clone())
+                    .await
+                {
+                    Ok(_) => AdminActionResult::SystemConfigUpdated {
+                        config_key: config_key.clone(),
+                    },
+                    Err(e) => {
+                        self.audit
+                            .log_user_action(
+                                admin_user_id,
+                                UserAuditAction::new(
+                                    admin_user_id.to_string(),
+                                    "admin_action_failed".to_string(),
+                                    format!(
+                                        "Failed to execute action: {:?}, Error: {}",
+                                        action_clone, e
+                                    ),
+                                ),
+                                Some(format!("Action: {:?}, Error: {}", action_clone, e)),
+                            )
+                            .await?;
+                        return Err(e);
+                    }
+                }
             }
             AdminAction::EnableMaintenanceMode => {
-                self.system_config.enable_maintenance_mode().await?;
-                AdminActionResult::MaintenanceModeEnabled
+                match self.system_config.enable_maintenance_mode().await {
+                    Ok(_) => AdminActionResult::MaintenanceModeEnabled,
+                    Err(e) => {
+                        self.audit
+                            .log_user_action(
+                                admin_user_id,
+                                UserAuditAction::new(
+                                    admin_user_id.to_string(),
+                                    "admin_action_failed".to_string(),
+                                    format!(
+                                        "Failed to execute action: {:?}, Error: {}",
+                                        action_clone, e
+                                    ),
+                                ),
+                                Some(format!("Action: {:?}, Error: {}", action_clone, e)),
+                            )
+                            .await?;
+                        return Err(e);
+                    }
+                }
             }
             AdminAction::DisableMaintenanceMode => {
-                self.system_config.disable_maintenance_mode().await?;
-                AdminActionResult::MaintenanceModeDisabled
+                match self.system_config.disable_maintenance_mode().await {
+                    Ok(_) => AdminActionResult::MaintenanceModeDisabled,
+                    Err(e) => {
+                        self.audit
+                            .log_user_action(
+                                admin_user_id,
+                                UserAuditAction::new(
+                                    admin_user_id.to_string(),
+                                    "admin_action_failed".to_string(),
+                                    format!(
+                                        "Failed to execute action: {:?}, Error: {}",
+                                        action_clone, e
+                                    ),
+                                ),
+                                Some(format!("Action: {:?}, Error: {}", action_clone, e)),
+                            )
+                            .await?;
+                        return Err(e);
+                    }
+                }
             }
         };
 
@@ -267,15 +412,28 @@ impl AdminService {
     }
 }
 
+/// Service health check status
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum ServiceHealthStatus {
+    /// Service is healthy
+    Healthy,
+    /// Service is unhealthy
+    Unhealthy,
+    /// Service was not checked (when fail_fast is enabled and a previous service failed)
+    Skipped,
+}
+
 /// Admin health status
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AdminHealthStatus {
     pub overall_healthy: bool,
-    pub user_management_healthy: bool,
-    pub system_config_healthy: bool,
-    pub monitoring_healthy: bool,
-    pub audit_healthy: bool,
+    pub user_management_status: ServiceHealthStatus,
+    pub system_config_status: ServiceHealthStatus,
+    pub monitoring_status: ServiceHealthStatus,
+    pub audit_status: ServiceHealthStatus,
     pub last_check: u64,
+    /// Indicates if fail_fast mode was used during this health check
+    pub fail_fast_mode: bool,
 }
 
 /// Admin dashboard data

@@ -130,7 +130,13 @@ where
                 // Simple retry for any error, consider more specific error checking for retry eligibility
                 if attempt < max_retries {
                     attempt += 1;
-                    let delay_ms = 100 * 2_u64.pow(attempt -1); // Start with 100ms, then 200ms, 400ms...
+                    // Safe exponential backoff with overflow protection and maximum cap
+                    let base_delay = 100_u64;
+                    let max_delay = 30000_u64; // Cap at 30 seconds
+                    let delay_ms = base_delay
+                        .checked_mul(2_u64.saturating_pow(attempt.saturating_sub(1)))
+                        .unwrap_or(max_delay)
+                        .min(max_delay);
                     console_log!("Operation failed. Retrying attempt {}/{} in {}ms. Error: {}", attempt, max_retries, delay_ms, e.to_string());
                     // In a worker environment, tokio::time::sleep might not be available.
                     // Using a promise-based delay for CF Workers.
@@ -183,7 +189,7 @@ async fn process_opportunity_message(
                 telegram_service.send_private_message(&notification_text, user_id).await?;
             }
             crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy::RoundRobin => {
-                let kv = _env.kv("ARBITRAGE_KV").map_err(|e| {
+                let kv = _env.kv("ArbEdgeKV").map_err(|e| {
                     crate::utils::ArbitrageError::configuration_error(
                         format!("Failed to access KV store for round-robin distribution: {}", e)
                     )
@@ -564,7 +570,8 @@ async fn initialize_analytics_service(env: &Env) -> ArbitrageResult<crate::servi
 async fn initialize_email_service(env: &Env) -> ArbitrageResult<EmailService> {
     let api_key = env.secret("EMAIL_API_KEY")?.to_string();
     let from_email = env.var("FROM_EMAIL")?.to_string();
-    Ok(EmailService::new(api_key, from_email))
+    let api_url = env.var("EMAIL_API_URL")?.to_string();
+    Ok(EmailService::new(api_key, from_email, api_url))
 }
 
 /// Initialize SMS service from environment
@@ -585,12 +592,13 @@ async fn initialize_webpush_service(env: &Env) -> ArbitrageResult<WebPushService
 pub struct EmailService {
     api_key: String,
     from_email: String,
+    api_url: String,
     client: reqwest::Client,
 }
 
 impl EmailService {
-    pub fn new(api_key: String, from_email: String) -> Self {
-        Self { api_key, from_email, client: reqwest::Client::new() }
+    pub fn new(api_key: String, from_email: String, api_url: String) -> Self {
+        Self { api_key, from_email, api_url, client: reqwest::Client::new() }
     }
     
     pub async fn send_email(&self, to: &str, subject: &str, content: &str) -> ArbitrageResult<()> {
@@ -601,7 +609,7 @@ impl EmailService {
         send_with_retry(
             || async {
                 console_log!("Attempting to send email to: {}", to_owned);
-                let response = self.client.post("https://api.example.com/send_email")
+                let response = self.client.post(&self.api_url)
                     .header("X-Api-Key", &self.api_key)
                     .json(&serde_json::json!({
                         "to": to_owned,
@@ -690,6 +698,14 @@ pub struct WebPushService {
     client: reqwest::Client,
 }
 
+// TODO: CRITICAL SECURITY ISSUE - WebPush VAPID authentication not implemented
+// This implementation is missing:
+// - JWT token generation using VAPID private key
+// - Proper Authorization and Crypto-Key headers
+// - Payload encryption using p256dh and auth keys
+// - Full VAPID protocol implementation
+// Current implementation will fail with most push services
+
 impl WebPushService {
     pub fn new(vapid_private_key: String, vapid_public_key: String) -> Self {
         Self { 
@@ -744,15 +760,109 @@ impl WebPushService {
 }
 
 async fn store_failed_notification_in_kv<T: Serialize>(
-    _env: &Env,
-    _message: &T,
-    _error: &str,
+    env: &Env,
+    message: &T,
+    error: &str,
 ) -> ArbitrageResult<()> {
-    // Example: Store in KV with a specific prefix for failed notifications
-    // let kv = _env.kv("ARBITRAGE_KV").map_err(|e| {
-    let kv = _env.kv("ArbEdgeKV").map_err(|e| { // Changed from ARBITRAGE_KV
+    let kv = env.kv("ArbEdgeKV").map_err(|e| {
         crate::utils::ArbitrageError::storage_error(format!("Failed to access KV store: {}", e))
     })?;
-    // ... existing code ...
+
+    // Generate unique key for failed notification
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    let unique_id = format!("{}_{}", timestamp, uuid::Uuid::new_v4().to_string()[..8].to_string());
+    let failed_key = format!("failed_notification:{}", unique_id);
+
+    // Serialize the message
+    let serialized_message = serde_json::to_string(message).map_err(|e| {
+        crate::utils::ArbitrageError::serialization_error(format!("Failed to serialize message: {}", e))
+    })?;
+
+    // Create failed notification entry
+    let failed_entry = serde_json::json!({
+        "id": unique_id,
+        "timestamp": timestamp,
+        "error": error,
+        "message": serde_json::from_str::<serde_json::Value>(&serialized_message).unwrap_or(serde_json::json!({})),
+        "retry_count": 0,
+        "max_retries": 3,
+        "next_retry_at": timestamp + (5 * 60 * 1000), // Retry in 5 minutes
+        "status": "failed",
+        "created_at": chrono::Utc::now().to_rfc3339()
+    });
+
+    // Store in KV
+    kv.put(&failed_key, &failed_entry.to_string())?
+        .execute()
+        .await
+        .map_err(|e| {
+            crate::utils::ArbitrageError::storage_error(format!("Failed to store failed notification: {}", e))
+        })?;
+
+    // Update failed notification index for easier retrieval
+    let index_key = "failed_notifications:index";
+    let mut notification_ids = Vec::new();
+    
+    // Get existing index
+    if let Ok(Some(existing_index)) = kv.get(index_key).text().await {
+        if let Ok(existing_ids) = serde_json::from_str::<Vec<String>>(&existing_index) {
+            notification_ids = existing_ids;
+        }
+    }
+    
+    // Add new failed notification ID
+    notification_ids.push(unique_id.clone());
+    
+    // Keep only last 100 failed notifications in index
+    if notification_ids.len() > 100 {
+        // Remove oldest entries from KV and index
+        let to_remove = notification_ids.len() - 100;
+        for old_id in notification_ids.drain(0..to_remove) {
+            let old_key = format!("failed_notification:{}", old_id);
+            if let Err(e) = kv.delete(&old_key).await {
+                console_log!("⚠️ Failed to cleanup old failed notification {}: {:?}", old_key, e);
+            }
+        }
+    }
+    
+    // Update index
+    if let Err(e) = kv.put(index_key, &serde_json::to_string(&notification_ids)?)?
+        .execute()
+        .await {
+        console_log!("⚠️ Failed to update failed notifications index: {:?}", e);
+    }
+
+    // Update metrics
+    let metrics_key = "failed_notifications:metrics";
+    let mut metrics = if let Ok(Some(existing_metrics)) = kv.get(metrics_key).text().await {
+        serde_json::from_str::<serde_json::Value>(&existing_metrics).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    // Update failure counts
+    let current_count = metrics.get("total_failures").and_then(|v| v.as_u64()).unwrap_or(0);
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let daily_count = metrics.get("daily_failures").and_then(|d| d.get(&today)).and_then(|v| v.as_u64()).unwrap_or(0);
+    
+    metrics["total_failures"] = serde_json::json!(current_count + 1);
+    metrics["last_failure"] = serde_json::json!(timestamp);
+    
+    if let Some(daily_failures) = metrics.get_mut("daily_failures") {
+        daily_failures[&today] = serde_json::json!(daily_count + 1);
+    } else {
+        metrics["daily_failures"] = serde_json::json!({ today: daily_count + 1 });
+    }
+
+    if let Err(e) = kv.put(metrics_key, &metrics.to_string())?.execute().await {
+        console_log!("⚠️ Failed to update failed notification metrics: {:?}", e);
+    }
+
+    console_log!(
+        "📋 Stored failed notification {} in KV: {}",
+        unique_id,
+        error
+    );
+
     Ok(())
 }

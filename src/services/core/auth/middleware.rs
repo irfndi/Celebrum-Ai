@@ -156,13 +156,12 @@ impl AuthMiddleware {
         }
 
         // Get user profile from session
-        let user_profile_service = self
-            .service_container
-            .user_profile_service
-            .as_ref()
-            .ok_or_else(|| {
-                ArbitrageError::service_unavailable("User profile service not available")
-            })?;
+        let user_profile_service =
+            self.service_container
+                .user_profile_service()
+                .ok_or_else(|| {
+                    ArbitrageError::service_unavailable("User profile service not available")
+                })?;
 
         let user_profile = user_profile_service
             .get_user_profile(&session.user_id)

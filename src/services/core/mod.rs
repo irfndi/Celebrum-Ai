@@ -16,7 +16,11 @@ pub use admin::*;
 pub use ai::*;
 pub use analysis::*;
 pub use auth::*;
-pub use infrastructure::*;
+// Don't re-export infrastructure::* to avoid ServiceHealthStatus conflict with admin
+pub use infrastructure::{
+    AnalyticsEngineService, CacheManager, DatabaseManager, FinancialModule, InfrastructureEngine,
+    MonitoringModule, NotificationModule, ServiceContainer,
+}; // Only export specific items
 pub use invitation::*;
 pub use market_data::*;
 pub use trading::*;

@@ -230,10 +230,29 @@ Once a task has been broken down into subtasks using `expand_task` or similar me
 ## Code Analysis & Refactoring Techniques
 
 - **Top-Level Function Search**:
-    - Useful for understanding module structure or planning refactors.
-    - Use grep/ripgrep to find exported functions/constants:
-      `rg "export (async function|function|const) \w+"` or similar patterns.
-    - Can help compare functions between files during migrations or identify potential naming conflicts.
+    - **Use Case**: Understanding module structure, planning refactors, identifying API surface area
+    - **Command**: `rg "export (async function|function|const) \w+"` or similar patterns
+    - **Scenarios**: Module migrations, API audits, identifying potential naming conflicts
+
+- **Dependency Analysis**:
+    - **Use Case**: Understanding import/export relationships, detecting circular dependencies
+    - **Command**: `rg "import.*from" --type ts` combined with `rg "export.*{" --type ts`
+    - **Scenarios**: Module reorganization, dependency graph analysis, dead code elimination
+
+- **Pattern Detection**:
+    - **Use Case**: Finding code duplication, inconsistent patterns, anti-patterns
+    - **Command**: `rg "TODO|FIXME|XXX"` for technical debt, `rg "console\.(log|warn|error)"` for debugging artifacts
+    - **Scenarios**: Code quality audits, technical debt assessment, debugging cleanup
+
+- **Type Usage Analysis**:
+    - **Use Case**: Understanding type dependencies, finding unused types, analyzing API contracts
+    - **Command**: `rg "interface|type|enum" --type ts` combined with usage searches
+    - **Scenarios**: Type refactoring, API evolution, TypeScript migration planning
+
+- **Error Handling Patterns**:
+    - **Use Case**: Ensuring consistent error handling, identifying error propagation paths
+    - **Command**: `rg "(try|catch|throw|Error)" --type ts` and `rg "Result<|ArbitrageResult<"`
+    - **Scenarios**: Error handling audits, resilience reviews, exception flow analysis
 
 ---
 *This workflow provides a general guideline. Adapt it based on your specific project needs and team practices.*

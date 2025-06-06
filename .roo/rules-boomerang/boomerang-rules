@@ -140,10 +140,11 @@ mode_collaboration: |
         * Present the overall result using `attempt_completion`.
 
 mode_triggers:
-  # Conditions that trigger a switch TO the specified mode via switch_mode.
-  # Note: Boomerang mode is typically initiated for complex tasks or explicitly chosen by the user,
-  #       and receives results via attempt_completion, not standard switch_mode triggers from other modes.
-  # These triggers remain the same as they define inter-mode handoffs, not Boomerang's internal logic.
+  # Conditions that trigger mode switching - these define when other modes should switch between each other.
+  # These triggers are NOT evaluated by Boomerang to decide delegation targets (Boomerang uses its own orchestration logic).
+  # Instead, these triggers are used BY other modes to automatically switch among themselves when specific conditions are met.
+  # Boomerang receives results via attempt_completion and delegates via new_task, bypassing these trigger mechanisms.
+  # These triggers define the autonomous inter-mode handoff conditions for direct mode-to-mode transitions.
 
   architect:
     - condition: needs_architectural_changes

@@ -211,27 +211,20 @@ impl AuditService {
 
     /// Get recent audit events
     pub async fn get_recent_events(&self, limit: u32) -> ArbitrageResult<Vec<AuditEvent>> {
-        let mut events = Vec::new();
-        let limit = limit.min(1000);
+        // TODO: Implement proper event retrieval
+        // Current implementation has critical flaws:
+        // 1. Constructs keys with arbitrary event IDs while actual events use UUIDs
+        // 2. Only retrieves "user_action" events, ignoring system and security events
+        // 3. Timestamp calculation assumes exact 60-second intervals
+        //
+        // Proper solution options:
+        // 1. Use KV list operations with prefix scanning
+        // 2. Store events in D1 database with proper indexing
+        // 3. Maintain an index in KV for recent events
 
-        // Get recent events (simplified implementation)
-        for i in 0..limit {
-            let audit_key = format!(
-                "audit_user_action:{}:event_{}",
-                chrono::Utc::now().timestamp_millis() as u64 - (i as u64 * 60000),
-                i
-            );
-
-            if let Some(audit_data) = self.kv_store.get(&audit_key).text().await? {
-                if let Ok(event) = serde_json::from_str::<AuditEvent>(&audit_data) {
-                    events.push(event);
-                }
-            }
-        }
-
-        // Sort by timestamp (most recent first)
-        events.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        Ok(events)
+        // For now, return empty list to avoid incorrect behavior
+        let _limit = limit.min(1000); // Keep parameter validation
+        Ok(Vec::new())
     }
 
     /// Health check for audit service

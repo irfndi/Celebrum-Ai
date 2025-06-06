@@ -48,8 +48,16 @@ impl MonitoringService {
                     Ok(_) => {
                         // Try to read back
                         match self.kv_store.get(test_key).text().await {
-                            Ok(Some(value)) if value == test_value => ServiceStatus::Healthy,
-                            Ok(Some(_)) => ServiceStatus::Degraded,
+                            Ok(Some(value)) if value == test_value => {
+                                // Clean up test key after successful verification
+                                let _ = self.kv_store.delete(test_key).await;
+                                ServiceStatus::Healthy
+                            }
+                            Ok(Some(_)) => {
+                                // Clean up test key even if value doesn't match
+                                let _ = self.kv_store.delete(test_key).await;
+                                ServiceStatus::Degraded
+                            }
                             Ok(None) => ServiceStatus::Degraded,
                             Err(_) => ServiceStatus::Unhealthy,
                         }
@@ -65,12 +73,14 @@ impl MonitoringService {
     async fn check_services_health(&self) -> ArbitrageResult<HashMap<String, ServiceStatus>> {
         let mut services = HashMap::new();
 
-        // Check core services (simplified - in production, ping actual services)
-        services.insert("user_profile_service".to_string(), ServiceStatus::Healthy);
-        services.insert("session_service".to_string(), ServiceStatus::Healthy);
-        services.insert("opportunity_service".to_string(), ServiceStatus::Healthy);
-        services.insert("exchange_service".to_string(), ServiceStatus::Healthy);
-        services.insert("telegram_service".to_string(), ServiceStatus::Healthy);
+        // TODO: Implement actual health checks for each service
+        // For now, return unknown status to avoid false positives
+        // Hardcoded "healthy" status defeats the purpose of monitoring
+        services.insert("user_profile_service".to_string(), ServiceStatus::Unknown);
+        services.insert("session_service".to_string(), ServiceStatus::Unknown);
+        services.insert("opportunity_service".to_string(), ServiceStatus::Unknown);
+        services.insert("exchange_service".to_string(), ServiceStatus::Unknown);
+        services.insert("telegram_service".to_string(), ServiceStatus::Unknown);
 
         // In a real implementation, you would:
         // 1. Ping each service endpoint
@@ -84,19 +94,9 @@ impl MonitoringService {
 
     /// Get performance metrics
     async fn get_performance_metrics(&self) -> ArbitrageResult<PerformanceMetrics> {
-        // In a real implementation, these would come from actual monitoring systems
-        Ok(PerformanceMetrics {
-            cpu_usage_percent: 25.5,
-            memory_usage_percent: 45.2,
-            disk_usage_percent: 30.1,
-            network_latency_ms: 15.3,
-            active_connections: 150,
-            requests_per_minute: 1250,
-            error_rate_percent: 0.1,
-            average_response_time_ms: 85.2,
-            uptime_seconds: 86400, // 24 hours
-            last_updated: chrono::Utc::now().timestamp_millis() as u64,
-        })
+        // TODO: Implement actual metrics collection
+        // Hardcoded metrics provide no monitoring value and mislead operators
+        Ok(PerformanceMetrics::default())
     }
 
     /// Calculate overall health status
@@ -195,19 +195,23 @@ impl MonitoringService {
         let limit = limit.unwrap_or(100).min(1000);
         let mut logs = Vec::new();
 
-        // Get recent error logs (simplified implementation)
-        for i in 0..limit {
-            let log_key = format!("error_log:{}", i);
-            if let Some(log_data) = self.kv_store.get(&log_key).text().await? {
-                if let Ok(error_log) = serde_json::from_str::<ErrorLog>(&log_data) {
-                    logs.push(error_log);
+        // TODO: Implement proper indexing strategy for error logs
+        // Current fixed-range iteration is inefficient and won't scale
+        // Consider using prefix-based listing or maintaining an index
+
+        // For now, use timestamp-based keys with a maintained index
+        if let Some(log_index) = self.kv_store.get("error_log_index").text().await? {
+            if let Ok(timestamps) = serde_json::from_str::<Vec<u64>>(&log_index) {
+                for timestamp in timestamps.iter().rev().take(limit as usize) {
+                    let log_key = format!("error_log:{}", timestamp);
+                    if let Some(log_data) = self.kv_store.get(&log_key).text().await? {
+                        if let Ok(error_log) = serde_json::from_str::<ErrorLog>(&log_data) {
+                            logs.push(error_log);
+                        }
+                    }
                 }
             }
         }
-
-        // Sort by timestamp (most recent first)
-        logs.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        logs.truncate(limit as usize);
 
         Ok(logs)
     }
@@ -232,13 +236,21 @@ impl MonitoringService {
     pub async fn get_active_alerts(&self) -> ArbitrageResult<Vec<SystemAlert>> {
         let mut alerts = Vec::new();
 
-        // Check for active alerts (simplified implementation)
-        for i in 0..100 {
-            let alert_key = format!("system_alert:{}", i);
-            if let Some(alert_data) = self.kv_store.get(&alert_key).text().await? {
-                if let Ok(alert) = serde_json::from_str::<SystemAlert>(&alert_data) {
-                    if alert.is_active {
-                        alerts.push(alert);
+        // TODO: Apply same efficient retrieval pattern as error logs
+        // Current fixed-range iteration has the same inefficiency issues
+        // Need proper indexing strategy for alerts
+
+        // For now, use timestamp-based keys with maintained index
+        if let Some(alert_index) = self.kv_store.get("active_alert_index").text().await? {
+            if let Ok(alert_ids) = serde_json::from_str::<Vec<String>>(&alert_index) {
+                for alert_id in alert_ids.iter() {
+                    let alert_key = format!("system_alert:{}", alert_id);
+                    if let Some(alert_data) = self.kv_store.get(&alert_key).text().await? {
+                        if let Ok(alert) = serde_json::from_str::<SystemAlert>(&alert_data) {
+                            if alert.is_active {
+                                alerts.push(alert);
+                            }
+                        }
                     }
                 }
             }

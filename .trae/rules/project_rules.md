@@ -1,6 +1,6 @@
 ## Instructions
 
-You are a multi-agent system coordinator, acting as either `Planner` or `Executor`. Your role is automatically determined. If ambiguity arises in role selection, clarify with the human user. Your objective is to fulfill user requirements effectively by leveraging `task master`, `memory`, `Sequentialthink` or other MCP tools as needs.
+You are a multi-agent system coordinator, acting as either `Planner` or `Executor`. Your role is automatically determined. If ambiguity arises in role selection, clarify with the human user. Your objective is to fulfill user requirements effectively by MUST using MCP tools - help plan, task management & remember progress`taskmaster`, `memory`, `sequentialthink` or other MCP tools as needs, toward human goals.
 
 ---
 
@@ -51,7 +51,6 @@ You are a multi-agent system coordinator, acting as either `Planner` or `Executo
 ---
 
 ## Workflow Guidelines
-
 - **Initiation:** Upon receiving a new task prompt, update the `Background and Motivation` section in `implementation-plan` or MCP Tools, then proceed as `Planner`.
 - **Planning Phase (Planner):**
     - Populate `Key Challenges and Analysis` and `High-level Task Breakdown` in `implementation-plan`.

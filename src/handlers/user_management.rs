@@ -2,18 +2,13 @@ use crate::middleware::extract_user_id_from_headers;
 use crate::responses::ApiResponse;
 use crate::services;
 use crate::types;
+use std::time::{SystemTime, UNIX_EPOCH};
 use worker::{Env, Request, Response, Result};
 
-/// Get user profile endpoint
-pub async fn handle_api_get_user_profile(req: Request, env: Env) -> Result<Response> {
-    let user_id = match extract_user_id_from_headers(&req) {
-        Ok(id) => id,
-        Err(_) => {
-            let response = ApiResponse::<()>::error("Authentication required".to_string());
-            return Ok(Response::from_json(&response)?.with_status(401));
-        }
-    };
-
+/// Helper function to initialize user profile service
+async fn initialize_user_profile_service(
+    env: &Env,
+) -> Result<services::core::user::user_profile::UserProfileService> {
     // Get encryption key from environment
     let encryption_key = env
         .var("ENCRYPTION_KEY")
@@ -36,6 +31,22 @@ pub async fn handle_api_get_user_profile(req: Request, env: Env) -> Result<Respo
         d1_service,
         encryption_key,
     );
+
+    Ok(user_profile_service)
+}
+
+/// Get user profile endpoint
+pub async fn handle_api_get_user_profile(req: Request, env: Env) -> Result<Response> {
+    let user_id = match extract_user_id_from_headers(&req) {
+        Ok(id) => id,
+        Err(_) => {
+            let response = ApiResponse::<()>::error("Authentication required".to_string());
+            return Ok(Response::from_json(&response)?.with_status(401));
+        }
+    };
+
+    // Initialize user profile service using helper function
+    let user_profile_service = initialize_user_profile_service(&env).await?;
 
     // Fetch real user profile from database
     match user_profile_service.get_user_profile(&user_id).await {
@@ -99,26 +110,8 @@ pub async fn handle_api_update_user_profile(mut req: Request, env: Env) -> Resul
         return Ok(Response::from_json(&response)?.with_status(400));
     }
 
-    // Get encryption key from environment
-    let encryption_key = env
-        .var("ENCRYPTION_KEY")
-        .map(|secret| secret.to_string())
-        .map_err(|_| {
-            worker::Error::RustError("ENCRYPTION_KEY environment variable is required for security. Application cannot start without proper encryption key.".to_string())
-        })?;
-
-    // Initialize services
-    let kv_store = env.kv("ArbEdgeKV")?;
-    let d1_database = env.d1("ArbEdgeD1")?;
-    let d1_service = services::core::infrastructure::DatabaseManager::new(
-        std::sync::Arc::new(d1_database),
-        services::core::infrastructure::database_repositories::DatabaseManagerConfig::default(),
-    );
-    let user_profile_service = services::core::user::user_profile::UserProfileService::new(
-        kv_store,
-        d1_service,
-        encryption_key,
-    );
+    // Initialize user profile service using helper function
+    let user_profile_service = initialize_user_profile_service(&env).await?;
 
     // Update user profile in database
     match user_profile_service.get_user_profile(&user_id).await {
@@ -138,7 +131,7 @@ pub async fn handle_api_update_user_profile(mut req: Request, env: Env) -> Resul
                                     "configuration": profile.configuration,
                                     "updated_at": profile.updated_at
                                 },
-                                "timestamp": chrono::Utc::now().timestamp()
+                                "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
                             }));
                             Response::from_json(&response)
                         }
@@ -179,26 +172,8 @@ pub async fn handle_api_get_user_preferences(req: Request, env: Env) -> Result<R
         }
     };
 
-    // Get encryption key from environment
-    let encryption_key = env
-        .var("ENCRYPTION_KEY")
-        .map(|secret| secret.to_string())
-        .map_err(|_| {
-            worker::Error::RustError("ENCRYPTION_KEY environment variable is required for security. Application cannot start without proper encryption key.".to_string())
-        })?;
-
-    // Initialize services
-    let kv_store = env.kv("ArbEdgeKV")?;
-    let d1_database = env.d1("ArbEdgeD1")?;
-    let d1_service = services::core::infrastructure::DatabaseManager::new(
-        std::sync::Arc::new(d1_database),
-        services::core::infrastructure::database_repositories::DatabaseManagerConfig::default(),
-    );
-    let user_profile_service = services::core::user::user_profile::UserProfileService::new(
-        kv_store,
-        d1_service,
-        encryption_key,
-    );
+    // Initialize user profile service using helper function
+    let user_profile_service = initialize_user_profile_service(&env).await?;
 
     // Fetch user profile from database
     match user_profile_service.get_user_profile(&user_id).await {
@@ -211,7 +186,7 @@ pub async fn handle_api_get_user_preferences(req: Request, env: Env) -> Result<R
                 "max_entry_size_usdt": profile.configuration.max_entry_size_usdt,
                 "preferred_exchanges": profile.configuration.preferred_exchanges,
                 "notification_preferences": profile.configuration.notification_settings,
-                "timestamp": chrono::Utc::now().timestamp()
+                "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
             });
 
             let response = ApiResponse::success(preferences);
@@ -254,26 +229,8 @@ pub async fn handle_api_update_user_preferences(mut req: Request, env: Env) -> R
         return Ok(Response::from_json(&response)?.with_status(400));
     }
 
-    // Get encryption key from environment
-    let encryption_key = env
-        .var("ENCRYPTION_KEY")
-        .map(|secret| secret.to_string())
-        .map_err(|_| {
-            worker::Error::RustError("ENCRYPTION_KEY environment variable is required for security. Application cannot start without proper encryption key.".to_string())
-        })?;
-
-    // Initialize services
-    let kv_store = env.kv("ArbEdgeKV")?;
-    let d1_database = env.d1("ArbEdgeD1")?;
-    let d1_service = services::core::infrastructure::DatabaseManager::new(
-        std::sync::Arc::new(d1_database),
-        services::core::infrastructure::database_repositories::DatabaseManagerConfig::default(),
-    );
-    let user_profile_service = services::core::user::user_profile::UserProfileService::new(
-        kv_store,
-        d1_service,
-        encryption_key,
-    );
+    // Initialize user profile service using helper function
+    let user_profile_service = initialize_user_profile_service(&env).await?;
 
     // Update user preferences in database
     match user_profile_service.get_user_profile(&user_id).await {
@@ -295,7 +252,7 @@ pub async fn handle_api_update_user_preferences(mut req: Request, env: Env) -> R
                                     "preferred_exchanges": profile.configuration.preferred_exchanges,
                                     "notification_preferences": profile.configuration.notification_settings
                                 },
-                                "timestamp": chrono::Utc::now().timestamp()
+                                "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
                             }));
                             Response::from_json(&response)
                         }
