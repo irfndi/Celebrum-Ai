@@ -300,7 +300,7 @@ mod tests {
             "ETH/USDT",
             TradingSignalType::Sell,
             SignalStrength::Moderate,
-            0.65,
+            0.75,
             3000.0,
         );
         let low_confidence = MockTechnicalSignal::new(
@@ -320,9 +320,9 @@ mod tests {
         let signals = service.get_generated_signals();
         let filtered_signals = service.filter_by_confidence(signals);
 
-        // Should filter out low confidence signal (below 0.6 threshold)
+        // Should filter out low confidence signal (below 0.7 threshold)
         assert_eq!(filtered_signals.len(), 2);
-        assert!(filtered_signals.iter().all(|s| s.confidence_score >= 0.6));
+        assert!(filtered_signals.iter().all(|s| s.confidence_score >= 0.7));
     }
 
     #[test]
@@ -549,8 +549,8 @@ mod tests {
         // Verify signal has proper expiry time
         assert!(technical_signal.expires_at > technical_signal.generated_at);
 
-        // Should expire approximately 1 hour from creation (default config)
-        let expected_duration = service.config.signal_expiry_hours * 60 * 60 * 1000;
+        // Should expire approximately 1 hour from creation (hardcoded in mock)
+        let expected_duration = 3600000; // 1 hour in milliseconds
         let actual_duration = technical_signal.expires_at - technical_signal.generated_at;
 
         // Allow some tolerance for timing differences

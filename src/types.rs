@@ -556,35 +556,88 @@ impl UserProfile {
     }
 
     pub fn has_permission(&self, permission: CommandPermission) -> bool {
+        // Check if user is beta user (has active beta status)
+        let is_beta_user = self.beta_expires_at.map_or(false, |expires| {
+            let now = chrono::Utc::now().timestamp_millis() as u64;
+            expires > now
+        });
+
+        // SuperAdmin has access to everything
+        if matches!(self.access_level, UserAccessLevel::SuperAdmin) {
+            return true;
+        }
+
+        // Beta users get enhanced permissions
+        if is_beta_user {
+            match permission {
+                CommandPermission::AIEnhancedOpportunities 
+                | CommandPermission::AdvancedAnalytics
+                | CommandPermission::TechnicalAnalysis
+                | CommandPermission::PremiumFeatures
+                | CommandPermission::ViewOpportunities
+                | CommandPermission::BasicOpportunities
+                | CommandPermission::BasicTrading
+                | CommandPermission::ManualTrading => return true,
+                CommandPermission::SystemAdministration 
+                | CommandPermission::SuperAdminAccess
+                | CommandPermission::AdminAccess => return false,
+                _ => {} // Continue to regular permission checks
+            }
+        }
+
+        // Regular permission checks based on access level
         matches!(
             (&self.access_level, permission),
+            // SuperAdmin has access to everything
             (UserAccessLevel::SuperAdmin, _)
-                | (UserAccessLevel::Admin, CommandPermission::AdminAccess)
-                | (UserAccessLevel::Admin, CommandPermission::ViewOpportunities)
-                | (UserAccessLevel::Admin, CommandPermission::BasicTrading)
-                | (
-                    UserAccessLevel::Premium,
-                    CommandPermission::ViewOpportunities
-                )
-                | (UserAccessLevel::Premium, CommandPermission::BasicTrading)
-                | (
-                    UserAccessLevel::Verified,
-                    CommandPermission::ViewOpportunities
-                )
-                | (UserAccessLevel::Verified, CommandPermission::BasicTrading)
-                | (
-                    UserAccessLevel::Registered,
-                    CommandPermission::ViewOpportunities
-                )
-                | (
-                    UserAccessLevel::FreeWithAPI,
-                    CommandPermission::ViewOpportunities
-                )
-                | (
-                    UserAccessLevel::FreeWithAPI,
-                    CommandPermission::BasicTrading
-                )
-                | (UserAccessLevel::SubscriptionWithAPI, _)
+            // Admin permissions
+            | (UserAccessLevel::Admin, CommandPermission::AdminAccess)
+            | (UserAccessLevel::Admin, CommandPermission::ViewOpportunities)
+            | (UserAccessLevel::Admin, CommandPermission::BasicTrading)
+            | (UserAccessLevel::Admin, CommandPermission::BasicOpportunities)
+            | (UserAccessLevel::Admin, CommandPermission::AdvancedAnalytics)
+            | (UserAccessLevel::Admin, CommandPermission::ManualTrading)
+            | (UserAccessLevel::Admin, CommandPermission::AutomatedTrading)
+            | (UserAccessLevel::Admin, CommandPermission::SystemAdministration)
+            // Premium permissions
+            | (UserAccessLevel::Premium, CommandPermission::ViewOpportunities)
+            | (UserAccessLevel::Premium, CommandPermission::BasicTrading)
+            | (UserAccessLevel::Premium, CommandPermission::BasicOpportunities)
+            | (UserAccessLevel::Premium, CommandPermission::AdvancedAnalytics)
+            | (UserAccessLevel::Premium, CommandPermission::ManualTrading)
+            | (UserAccessLevel::Premium, CommandPermission::AutomatedTrading)
+            | (UserAccessLevel::Premium, CommandPermission::AIEnhancedOpportunities)
+            | (UserAccessLevel::Premium, CommandPermission::TechnicalAnalysis)
+            | (UserAccessLevel::Premium, CommandPermission::PremiumFeatures)
+            // Verified permissions
+            | (UserAccessLevel::Verified, CommandPermission::ViewOpportunities)
+            | (UserAccessLevel::Verified, CommandPermission::BasicTrading)
+            | (UserAccessLevel::Verified, CommandPermission::BasicOpportunities)
+            | (UserAccessLevel::Verified, CommandPermission::ManualTrading)
+            // Registered permissions
+            | (UserAccessLevel::Registered, CommandPermission::ViewOpportunities)
+            | (UserAccessLevel::Registered, CommandPermission::BasicOpportunities)
+            | (UserAccessLevel::Registered, CommandPermission::BasicTrading)
+            // API key users
+            | (UserAccessLevel::FreeWithAPI, CommandPermission::ViewOpportunities)
+            | (UserAccessLevel::FreeWithAPI, CommandPermission::BasicTrading)
+            | (UserAccessLevel::FreeWithAPI, CommandPermission::BasicOpportunities)
+            | (UserAccessLevel::FreeWithAPI, CommandPermission::ManualTrading)
+            | (UserAccessLevel::SubscriptionWithAPI, _)
+            // FREE USERS get basic access including basic trading
+            | (UserAccessLevel::Free, CommandPermission::ViewOpportunities)
+            | (UserAccessLevel::Free, CommandPermission::BasicOpportunities)
+            | (UserAccessLevel::Free, CommandPermission::BasicTrading)
+            // PAID users get trading access
+            | (UserAccessLevel::Paid, CommandPermission::ViewOpportunities)
+            | (UserAccessLevel::Paid, CommandPermission::BasicOpportunities)
+            | (UserAccessLevel::Paid, CommandPermission::BasicTrading)
+            | (UserAccessLevel::Paid, CommandPermission::ManualTrading)
+            | (UserAccessLevel::Paid, CommandPermission::AdvancedAnalytics)
+            // BASIC users get basic trading but NOT manual trading
+            | (UserAccessLevel::Basic, CommandPermission::ViewOpportunities)
+            | (UserAccessLevel::Basic, CommandPermission::BasicOpportunities)
+            | (UserAccessLevel::Basic, CommandPermission::BasicTrading)
         )
     }
 

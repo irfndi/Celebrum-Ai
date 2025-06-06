@@ -374,23 +374,13 @@ impl Logger {
     }
 
     /// Store log to secure audit log (production-only)
-    /// This method implements secure audit logging to encrypted R2 storage
+    /// This method implements secure audit logging to encrypted storage
+    /// Currently disabled for WASM compatibility - to be implemented later
     #[cfg(not(any(debug_assertions, feature = "enable-logging")))]
-    fn store_to_audit_log(&self, sanitized_message: &str) {
-        let audit_entry = AuditLogEntry {
-            timestamp: chrono::Utc::now(),
-            level: self.level.clone(),
-            message: sanitized_message.to_string(),
-            checksum: calculate_message_checksum(sanitized_message),
-        };
-
-        if let Ok(encrypted_entry) = encrypt_audit_entry(&audit_entry) {
-            tokio::spawn(async move {
-                if let Err(e) = store_encrypted_audit_log(encrypted_entry).await {
-                    eprintln!("Failed to store audit log: {}", e);
-                }
-            });
-        }
+    fn store_to_audit_log(&self, _sanitized_message: &str) {
+        // TODO: Implement secure audit logging for production
+        // This requires implementing AuditLogEntry, encryption, and storage
+        // Currently disabled for WASM compatibility
     }
 }
 

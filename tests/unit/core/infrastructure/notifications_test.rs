@@ -227,9 +227,18 @@ impl MockNotificationService {
 
         let system_variables = vec![
             TemplateVariable {
-                name: "system_message".to_string(),
+                name: "alert_type".to_string(),
                 variable_type: VariableType::Text,
-                description: "The main content of the system alert".to_string(),
+                description: "Type of the alert".to_string(),
+                required: true,
+                default_value: None,
+                validation_pattern: None,
+                format_options: HashMap::new(),
+            },
+            TemplateVariable {
+                name: "description".to_string(),
+                variable_type: VariableType::Text,
+                description: "Description of the alert".to_string(),
                 required: true,
                 default_value: None,
                 validation_pattern: None,
@@ -244,6 +253,15 @@ impl MockNotificationService {
                 validation_pattern: None,
                 format_options: HashMap::new(),
             },
+            TemplateVariable {
+                name: "timestamp".to_string(),
+                variable_type: VariableType::DateTime,
+                description: "Timestamp of the alert".to_string(),
+                required: false,
+                default_value: None,
+                validation_pattern: None,
+                format_options: HashMap::new(),
+            },
         ];
 
         let mut system_channel_templates = HashMap::new();
@@ -251,9 +269,9 @@ impl MockNotificationService {
             NotificationChannel::Email.as_str().to_string(), // Use NotificationChannel variant and convert to string for key
             ChannelTemplate {
                 channel: NotificationChannel::Email.as_str().to_string(), // channel field is a String
-                subject: Some("System Alert: {{severity}}".to_string()),
-                title: Some("System Alert".to_string()),
-                body: "{{system_message}}".to_string(),
+                subject: Some("System Alert: {{alert_type}}".to_string()),
+                title: Some("{{alert_type}}".to_string()),
+                body: "{{description}} - Severity: {{severity}} - Time: {{timestamp}}".to_string(),
                 footer: Some("Please review system logs for more details.".to_string()),
                 format: TemplateFormat::Html,
                 attachments: Vec::new(), // attachments is Vec<TemplateAttachment>
@@ -746,6 +764,21 @@ mod tests {
         assert!(!template.variables.is_empty());
 
         // Test custom template creation
+        let mut channel_templates = std::collections::HashMap::new();
+        channel_templates.insert(
+            NotificationChannel::Push.as_str().to_string(),
+            ChannelTemplate {
+                channel: NotificationChannel::Push.as_str().to_string(),
+                subject: Some("{{title}}".to_string()),
+                title: Some("{{title}}".to_string()),
+                body: "{{message}}".to_string(),
+                footer: Some("Custom alert notification".to_string()),
+                format: TemplateFormat::Html,
+                attachments: Vec::new(),
+                styling: HashMap::new(),
+            },
+        );
+
         let custom_template = NotificationTemplate {
             template_id: "custom_alert".to_string(),
             name: "Custom Alert".to_string(),
@@ -767,7 +800,7 @@ mod tests {
             created_at: chrono::Utc::now().timestamp_millis() as u64,
             updated_at: chrono::Utc::now().timestamp_millis() as u64,
             language: "en".to_string(),
-            channel_templates: std::collections::HashMap::new(),
+            channel_templates,
             metadata: std::collections::HashMap::new(),
             version: "1.0".to_string(),
             last_used_at: None,

@@ -11,7 +11,7 @@ use arb_edge::services::{
         ExperienceLevel, RiskTolerance, TradingFocus, UserTradingPreferences,
     },
 };
-use arb_edge::types::{CommandPermission, SubscriptionTier, UserProfile, UserRole};
+use arb_edge::types::{CommandPermission, SubscriptionTier, UserAccessLevel, UserProfile, UserRole};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -87,7 +87,20 @@ fn create_rbac_test_user(
     role_override: Option<UserRole>,
 ) -> UserProfile {
     let mut user = UserProfile::new(Some(telegram_id), Some("test-invite".to_string()));
-    user.subscription.tier = subscription_tier;
+    user.subscription.tier = subscription_tier.clone();
+
+    // Set access_level to match subscription_tier for proper permission checks
+    user.access_level = match subscription_tier {
+        SubscriptionTier::Free => UserAccessLevel::Free,
+        SubscriptionTier::Paid => UserAccessLevel::Paid,
+        SubscriptionTier::Basic => UserAccessLevel::Basic,
+        SubscriptionTier::Premium => UserAccessLevel::Premium,
+        SubscriptionTier::Pro => UserAccessLevel::Premium, // Map Pro to Premium
+        SubscriptionTier::Enterprise => UserAccessLevel::Premium, // Map Enterprise to Premium
+        SubscriptionTier::Admin => UserAccessLevel::Admin,
+        SubscriptionTier::SuperAdmin => UserAccessLevel::SuperAdmin,
+        SubscriptionTier::Beta => UserAccessLevel::BetaUser, // Beta subscription maps to BetaUser access
+    };
 
     // Override role if specified (for testing super admin scenarios)
     if let Some(role) = role_override {
@@ -99,11 +112,20 @@ fn create_rbac_test_user(
                 user.beta_expires_at = Some(future_timestamp);
                 // Don't set role for beta users - they use beta_expires_at field
             }
+            UserRole::SuperAdmin => {
+                user.access_level = UserAccessLevel::SuperAdmin;
+                user.profile_metadata = Some(
+                    json!({
+                        "role": "super_admin"
+                    })
+                    .to_string(),
+                );
+            }
             _ => {
                 let role_string = match role {
-                    UserRole::SuperAdmin => "super_admin",
                     UserRole::User => "user",
                     UserRole::BetaUser => unreachable!(), // Handled above
+                    UserRole::SuperAdmin => unreachable!(), // Handled above
                     _ => "standard",                      // Default for any additional roles
                 };
 

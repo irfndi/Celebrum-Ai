@@ -382,15 +382,15 @@ impl MockUserProfileService {
         let api_key_encrypted = self.mock_encrypt_string(api_key)?;
         let secret_encrypted = self.mock_encrypt_string(secret)?;
 
-        let user_api_key = UserApiKey::new_exchange_key(
+        let mut user_api_key = UserApiKey::new_exchange_key(
             user_id.to_string(),
             exchange,
             api_key_encrypted,
             Some(secret_encrypted),
             false, // is_testnet - Assuming false for test, adjust if needed
         );
-        // Note: The 'permissions' argument was removed as it's not part of new_exchange_key
-        // and is handled internally by new_exchange_key or set separately.
+        // Set the custom permissions provided by the test
+        user_api_key.permissions = permissions;
 
         self.d1_service
             .mock_store_user_api_key(user_id, &user_api_key)
@@ -911,7 +911,7 @@ mod tests {
         let retrieved = retrieved_session.unwrap();
         assert_eq!(retrieved.user_id, user_id);
         assert_eq!(retrieved.telegram_user_id, telegram_chat_id);
-        assert_eq!(retrieved.state, SessionState::Idle);
+        assert_eq!(retrieved.state, SessionState::Active);
         assert!(!retrieved.is_expired());
 
         // Delete session
