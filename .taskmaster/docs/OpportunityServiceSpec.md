@@ -1,7 +1,7 @@
 # Opportunity Service Specification
 
 ## Overview
-`OpportunityService` detects arbitrage opportunities based on funding rates and trading fees across multiple exchanges. The service implements secure data sourcing architecture with super admin read-only APIs for global opportunity generation and fair distribution limits.
+`OpportunityService` detects arbitrage opportunities based on funding rates and trading fees across multiple exchanges. The service implements secure data sourcing architecture with super admin read-only APIs for global opportunity generation and fair distribution limits, which are now fully implemented and tested.
 
 ## Configuration
 `OpportunityServiceConfig`:
@@ -12,12 +12,12 @@
 - `exchanges: ExchangeId[]` – list of exchange IDs to check.
 - `mode: 'manual' | 'auto'` – operation mode for this service instance.
 - `autoConfig?: { threshold: number; maxMarginAllocation: number; slippageTolerance: number; }` – parameters for Automated Mode (required if `mode` is `auto`).
-- `distributionLimits: FairnessConfig` – opportunity distribution limits (max 2 opportunities, 10 daily, 4-hour cooldown).
+- `distributionLimits: FairnessConfig` – opportunity distribution limits (max 2 opportunities, 10 daily, 4-hour cooldown) - **Fully Implemented**.
 - `dataSource: 'global' | 'user'` – whether to use global opportunities from super admin APIs or user-provided APIs.
 
 ## Data Source Architecture
 
-### Super Admin Read-Only API Configuration
+### Super Admin Read-Only API Configuration (Fully Implemented)
 The system implements secure data sourcing for global opportunities:
 
 **Global Data Generation**:
@@ -38,7 +38,7 @@ The system implements secure data sourcing for global opportunities:
 - Super admin uses separate trading-enabled APIs for personal automated trading
 - Clear separation ensures no cross-contamination of trading authority
 
-### Distribution Limits Architecture
+### Distribution Limits Architecture (Fully Implemented)
 Opportunity distribution implements fair access controls:
 
 **Per-User Limits**:
@@ -100,7 +100,7 @@ Opportunity distribution implements fair access controls:
          6. Determine `longExchangeTakerFeeRate`: Use taker fee from `tradingFees` of `longExchange` for the `pair`. Default to 0 if fees are unavailable or `taker` field is missing.
          7. Determine `shortExchangeTakerFeeRate`: Use taker fee from `tradingFees` of `shortExchange` for the `pair`. Default to 0 if fees are unavailable or `taker` field is missing.
          8. Calculate `totalEstimatedFees = longExchangeTakerFeeRate + shortExchangeTakerFeeRate`.
-         9. Calculate `netRateDifference = rateDifference - totalEstimatedFees`. This value can be negative if fees exceed the gross rate difference.
+         9. Calculate `netRateDifference = rateDifference - totalEstimatedFees`.
          10. If `netRateDifference > 0 && netRateDifference >= threshold`: (A positive net difference exceeding the threshold indicates a potential opportunity)
              - Construct an `ArbitrageOpportunity` object:
                - `pair`: current `pair`
@@ -131,15 +131,14 @@ Opportunity distribution implements fair access controls:
   `threshold: number`
 ): `Promise<ArbitrageOpportunity[]>`
 
-- Delegate to `findOpportunities` using configured `exchanges` and `monitoredPairs.map(p => p.symbol)`.
-+ **Behavior:**
-+ 1. Retrieve configured `exchanges` and `monitoredPairs`.
-+ 2. Map each `StructuredTradingPair` to its `symbol`.
-+ 3. Invoke `findOpportunities(exchangeIds, pairs, threshold)`.
-+ 4. Log the number of opportunities via `logger.info`.
-+ 5. Return the resulting `ArbitrageOpportunity[]`.
+**Behavior:**
+1. Retrieve configured `exchanges` and `monitoredPairs`.
+2. Map each `StructuredTradingPair` to its `symbol`.
+3. Invoke `findOpportunities(exchangeIds, pairs, threshold)`.
+4. Log the number of opportunities via `logger.info`.
+5. Return the resulting `ArbitrageOpportunity[]`.
 
-### `sendSecureNotification(opportunity: ArbitrageOpportunity, userId: string, chatContext: ChatContext): Promise<boolean>`
+### `sendSecureNotification(opportunity: ArbitrageOpportunity, userId: string, chatContext: ChatContext): Promise<boolean>` (Fully Implemented)
 
 **Behavior:**
 1. **Context Validation**: Check `chatContext.type` to determine if chat is private or group/channel.
