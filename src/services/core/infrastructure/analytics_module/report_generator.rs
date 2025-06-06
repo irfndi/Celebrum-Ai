@@ -174,6 +174,9 @@ pub struct ReportGeneratorMetrics {
     pub error_rate: f64,
     pub queue_processing_rate: f64,
     pub last_updated: u64,
+
+    // Rate calculation tracking (for accurate reports_per_hour)
+    pub report_timestamps: Vec<u64>, // Track recent report generation times
 }
 
 /// Report template definition
@@ -788,12 +791,40 @@ impl ReportGenerator {
         // Update file size tracking
         self.metrics.total_export_size_mb += file_size_bytes as f64 / (1024.0 * 1024.0);
 
-        // Calculate reports per hour
+        // Calculate reports per hour using moving window (fixed: was using instantaneous rate)
         let current_time = worker::Date::now().as_millis();
-        let time_diff_hours = (current_time - self.last_generation_time) as f64 / (1000.0 * 3600.0);
-        if time_diff_hours > 0.0 {
-            self.metrics.reports_per_hour = 1.0 / time_diff_hours;
+
+        // Add current timestamp to tracking list
+        self.metrics.report_timestamps.push(current_time);
+
+        // Remove timestamps older than 1 hour (3600 seconds)
+        let one_hour_ms = 3600 * 1000;
+        let cutoff_time = current_time.saturating_sub(one_hour_ms);
+        self.metrics
+            .report_timestamps
+            .retain(|&timestamp| timestamp >= cutoff_time);
+
+        // Calculate accurate reports per hour based on actual count in the time window
+        if !self.metrics.report_timestamps.is_empty() {
+            let reports_in_window = self.metrics.report_timestamps.len() as f64;
+            let window_duration_hours = if self.metrics.report_timestamps.len() > 1 {
+                let oldest = *self.metrics.report_timestamps.first().unwrap();
+                let window_duration_ms = current_time - oldest;
+                (window_duration_ms as f64) / (1000.0 * 3600.0)
+            } else {
+                1.0 / 3600.0 // For first report, assume minimal time window
+            };
+
+            // Calculate rate: reports in window / window duration in hours
+            self.metrics.reports_per_hour = if window_duration_hours > 0.0 {
+                reports_in_window / window_duration_hours
+            } else {
+                reports_in_window * 3600.0 // If very short window, extrapolate
+            };
+        } else {
+            self.metrics.reports_per_hour = 0.0;
         }
+
         self.last_generation_time = current_time;
 
         // Update success rate
@@ -895,6 +926,7 @@ impl Default for ReportGeneratorMetrics {
             error_rate: 0.0,
             queue_processing_rate: 0.0,
             last_updated: worker::Date::now().as_millis(),
+            report_timestamps: Vec::new(),
         }
     }
 }

@@ -175,6 +175,9 @@ pub struct DataProcessorMetrics {
     pub error_rate: f64,
     pub throughput_mbps: f64,
     pub last_updated: u64,
+
+    // Rate calculation tracking (for accurate processing_rate_per_second)
+    pub processing_timestamps: Vec<u64>, // Track recent processing times
 }
 
 /// Time-series data point for aggregation
@@ -717,12 +720,40 @@ impl DataProcessor {
         self.metrics.average_processing_time_ms = alpha * processing_time_ms as f64
             + (1.0 - alpha) * self.metrics.average_processing_time_ms;
 
-        // Calculate processing rate
+        // Calculate processing rate using moving window (fixed: was using instantaneous rate)
         let current_time = worker::Date::now().as_millis();
-        let time_diff_seconds = (current_time - self.last_processing_time) as f64 / 1000.0;
-        if time_diff_seconds > 0.0 {
-            self.metrics.processing_rate_per_second = 1.0 / time_diff_seconds;
+
+        // Add current timestamp to tracking list
+        self.metrics.processing_timestamps.push(current_time);
+
+        // Remove timestamps older than 1 second (1000 ms)
+        let one_second_ms = 1000;
+        let cutoff_time = current_time.saturating_sub(one_second_ms);
+        self.metrics
+            .processing_timestamps
+            .retain(|&timestamp| timestamp >= cutoff_time);
+
+        // Calculate accurate processing rate per second based on actual count in the time window
+        if !self.metrics.processing_timestamps.is_empty() {
+            let processes_in_window = self.metrics.processing_timestamps.len() as f64;
+            let window_duration_seconds = if self.metrics.processing_timestamps.len() > 1 {
+                let oldest = *self.metrics.processing_timestamps.first().unwrap();
+                let window_duration_ms = current_time - oldest;
+                (window_duration_ms as f64) / 1000.0
+            } else {
+                0.001 // For first process, assume minimal time window (1ms)
+            };
+
+            // Calculate rate: processes in window / window duration in seconds
+            self.metrics.processing_rate_per_second = if window_duration_seconds > 0.0 {
+                processes_in_window / window_duration_seconds
+            } else {
+                processes_in_window * 1000.0 // If very short window, extrapolate
+            };
+        } else {
+            self.metrics.processing_rate_per_second = 0.0;
         }
+
         self.last_processing_time = current_time;
 
         // Update cache hit rate
@@ -856,6 +887,7 @@ impl Default for DataProcessorMetrics {
             error_rate: 0.0,
             throughput_mbps: 0.0,
             last_updated: worker::Date::now().as_millis(),
+            processing_timestamps: Vec::new(),
         }
     }
 }
