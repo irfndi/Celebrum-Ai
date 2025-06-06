@@ -1,24 +1,108 @@
 // src/services/core/admin/audit.rs
 
-use crate::types::{
-    UserProfile, SubscriptionTier, UserAccessLevel, UserAuditAction, SystemAuditEvent, 
-    SecurityAuditEvent, AuditSeverity, AuditEvent, SystemHealthMetrics, SystemConfiguration,
-};
-use crate::utils::{ArbitrageResult, ArbitrageError};
-use worker::{Env, kv::KvStore};
+use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use worker::{kv::KvStore, Env};
+
+/// Configuration for Audit Service retention periods.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditConfig {
+    pub user_action_ttl_seconds: u64,
+    pub system_event_ttl_seconds: u64,
+    pub security_event_ttl_seconds: u64,
+}
+
+impl Default for AuditConfig {
+    fn default() -> Self {
+        Self {
+            user_action_ttl_seconds: 365 * 24 * 60 * 60,  // 1 year
+            system_event_ttl_seconds: 365 * 24 * 60 * 60, // 1 year
+            security_event_ttl_seconds: 2 * 365 * 24 * 60 * 60, // 2 years
+        }
+    }
+}
+
+/// Audit event severity levels
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AuditSeverity {
+    Info,
+    Warning,
+    Error,
+    Critical,
+}
+
+/// Security severity levels for security events
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SecuritySeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+/// Audit event types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuditEventType {
+    UserAction(UserAuditAction),
+    SystemEvent(SystemAuditEvent),
+    SecurityEvent(SecurityAuditEvent),
+}
+
+/// Main audit event structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub event_id: String,
+    pub event_type: AuditEventType,
+    pub user_id: Option<String>,
+    pub timestamp: u64,
+    pub details: Option<String>,
+    pub metadata: serde_json::Value,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub session_id: Option<String>,
+    pub severity: AuditSeverity,
+}
+
+/// System configuration structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemConfiguration {
+    pub max_concurrent_users: u32,
+    pub rate_limit_per_minute: u32,
+    pub maintenance_mode: bool,
+    pub feature_flags: HashMap<String, bool>,
+    pub api_version: String,
+    pub last_updated: u64,
+}
+
+/// System health metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemHealthMetrics {
+    pub cpu_usage_percent: f64,
+    pub memory_usage_percent: f64,
+    pub active_connections: u32,
+    pub requests_per_minute: u32,
+    pub error_rate_percent: f64,
+    pub uptime_seconds: u64,
+    pub last_updated: u64,
+}
 
 /// Audit service for tracking all system activities and security events
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AuditService {
     kv_store: KvStore,
+    #[allow(dead_code)] // Will be used for environment configuration
     env: Env,
+    config: AuditConfig,
 }
 
 impl AuditService {
-    pub fn new(env: Env, kv_store: KvStore) -> Self {
-        Self { kv_store, env }
+    pub fn new(env: Env, kv_store: KvStore, config: AuditConfig) -> Self {
+        Self {
+            kv_store,
+            env,
+            config,
+        }
     }
 
     /// Log user action for audit trail
@@ -30,7 +114,7 @@ impl AuditService {
     ) -> ArbitrageResult<()> {
         let audit_event = AuditEvent {
             event_id: uuid::Uuid::new_v4().to_string(),
-            event_type: crate::types::AuditEventType::UserAction(action),
+            event_type: AuditEventType::UserAction(action),
             user_id: Some(user_id.to_string()),
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             details,
@@ -41,12 +125,17 @@ impl AuditService {
             severity: AuditSeverity::Info,
         };
 
-        let audit_key = format!("audit_user_action:{}:{}", audit_event.timestamp, audit_event.event_id);
-        let audit_data = serde_json::to_string(&audit_event)
-            .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize audit action: {}", e)))?;
+        let audit_key = format!(
+            "audit_user_action:{}:{}",
+            audit_event.timestamp, audit_event.event_id
+        );
+        let audit_data = serde_json::to_string(&audit_event).map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to serialize audit action: {}", e))
+        })?;
 
-        self.kv_store.put(&audit_key, &audit_data)?
-            .expiration_ttl(365 * 24 * 60 * 60) // Keep for 1 year
+        self.kv_store
+            .put(&audit_key, &audit_data)?
+            .expiration_ttl(self.config.user_action_ttl_seconds)
             .execute()
             .await?;
 
@@ -57,7 +146,7 @@ impl AuditService {
     pub async fn log_system_event(&self, event: SystemAuditEvent) -> ArbitrageResult<()> {
         let audit_event = AuditEvent {
             event_id: uuid::Uuid::new_v4().to_string(),
-            event_type: crate::types::AuditEventType::SystemEvent(event),
+            event_type: AuditEventType::SystemEvent(event),
             user_id: None,
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             details: None,
@@ -68,12 +157,17 @@ impl AuditService {
             severity: AuditSeverity::Info,
         };
 
-        let audit_key = format!("audit_system_event:{}:{}", audit_event.timestamp, audit_event.event_id);
-        let audit_data = serde_json::to_string(&audit_event)
-            .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize audit event: {}", e)))?;
+        let audit_key = format!(
+            "audit_system_event:{}:{}",
+            audit_event.timestamp, audit_event.event_id
+        );
+        let audit_data = serde_json::to_string(&audit_event).map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to serialize audit event: {}", e))
+        })?;
 
-        self.kv_store.put(&audit_key, &audit_data)?
-            .expiration_ttl(365 * 24 * 60 * 60) // Keep for 1 year
+        self.kv_store
+            .put(&audit_key, &audit_data)?
+            .expiration_ttl(self.config.system_event_ttl_seconds)
             .execute()
             .await?;
 
@@ -84,7 +178,7 @@ impl AuditService {
     pub async fn log_security_event(&self, event: SecurityAuditEvent) -> ArbitrageResult<()> {
         let audit_event = AuditEvent {
             event_id: uuid::Uuid::new_v4().to_string(),
-            event_type: crate::types::AuditEventType::SecurityEvent(event),
+            event_type: AuditEventType::SecurityEvent(event),
             user_id: None,
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             details: None,
@@ -95,12 +189,20 @@ impl AuditService {
             severity: AuditSeverity::Critical,
         };
 
-        let audit_key = format!("audit_security_event:{}:{}", audit_event.timestamp, audit_event.event_id);
-        let audit_data = serde_json::to_string(&audit_event)
-            .map_err(|e| ArbitrageError::SerializationError(format!("Failed to serialize security event: {}", e)))?;
+        let audit_key = format!(
+            "audit_security_event:{}:{}",
+            audit_event.timestamp, audit_event.event_id
+        );
+        let security_data = serde_json::to_string(&audit_event).map_err(|e| {
+            ArbitrageError::serialization_error(format!(
+                "Failed to serialize security event: {}",
+                e
+            ))
+        })?;
 
-        self.kv_store.put(&audit_key, &audit_data)?
-            .expiration_ttl(2 * 365 * 24 * 60 * 60) // Keep security events for 2 years
+        self.kv_store
+            .put(&audit_key, &security_data)?
+            .expiration_ttl(self.config.security_event_ttl_seconds)
             .execute()
             .await?;
 
@@ -114,11 +216,12 @@ impl AuditService {
 
         // Get recent events (simplified implementation)
         for i in 0..limit {
-            let audit_key = format!("audit_user_action:{}:event_{}", 
+            let audit_key = format!(
+                "audit_user_action:{}:event_{}",
                 chrono::Utc::now().timestamp_millis() as u64 - (i as u64 * 60000),
                 i
             );
-            
+
             if let Some(audit_data) = self.kv_store.get(&audit_key).text().await? {
                 if let Ok(event) = serde_json::from_str::<AuditEvent>(&audit_data) {
                     events.push(event);
@@ -138,12 +241,10 @@ impl AuditService {
         let test_value = "test";
 
         match self.kv_store.put(test_key, test_value) {
-            Ok(put_builder) => {
-                match put_builder.execute().await {
-                    Ok(_) => Ok(true),
-                    Err(_) => Ok(false),
-                }
-            }
+            Ok(put_builder) => match put_builder.execute().await {
+                Ok(_) => Ok(true),
+                Err(_) => Ok(false),
+            },
             Err(_) => Ok(false),
         }
     }
@@ -181,7 +282,11 @@ impl UserAuditAction {
         }
     }
 
-    pub fn with_request_info(mut self, ip_address: Option<String>, user_agent: Option<String>) -> Self {
+    pub fn with_request_info(
+        mut self,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Self {
         self.ip_address = ip_address;
         self.user_agent = user_agent;
         self
@@ -269,7 +374,12 @@ impl SecurityAuditEvent {
         }
     }
 
-    pub fn with_user_info(mut self, user_id: Option<String>, ip_address: Option<String>, user_agent: Option<String>) -> Self {
+    pub fn with_user_info(
+        mut self,
+        user_id: Option<String>,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Self {
         self.user_id = user_id;
         self.ip_address = ip_address;
         self.user_agent = user_agent;
@@ -280,16 +390,6 @@ impl SecurityAuditEvent {
         self.metadata.insert(key, value);
         self
     }
-}
-
-/// Security severity levels
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SecuritySeverity {
-    Low,
-    Medium,
-    High,
-    Critical,
 }
 
 /// Daily audit summary for reporting
@@ -374,4 +474,4 @@ pub struct SecurityAlert {
     pub acknowledged: bool,
     pub acknowledged_by: Option<String>,
     pub acknowledged_at: Option<u64>,
-} 
+}

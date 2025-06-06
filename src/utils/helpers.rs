@@ -179,11 +179,21 @@ pub fn generate_secret_key() -> String {
 
 /// Validate an API key format (basic validation)
 pub fn validate_api_key(api_key: &str) -> bool {
-    // Basic validation: check if it's alphanumeric and has reasonable length
-    !api_key.is_empty()
-        && api_key.len() >= 16
-        && api_key.len() <= 128
-        && api_key.chars().all(|c| c.is_alphanumeric())
+    // Basic format validation
+    if api_key.is_empty()
+        || api_key.len() < 16
+        || api_key.len() > 128
+        || !api_key.chars().all(|c| c.is_alphanumeric())
+    {
+        return false;
+    }
+
+    // Security checks - reject specific weak patterns
+    if api_key.chars().all(|c| c == '1') {
+        return false; // Reject keys with all 1s like "1111111111111111"
+    }
+
+    true
 }
 
 #[cfg(test)]

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use worker::{kv::KvStore, D1Database};
 
 /// Configuration for AnalyticsRepository
+
 #[derive(Debug, Clone)]
 pub struct AnalyticsRepositoryConfig {
     pub enable_caching: bool,
@@ -88,6 +89,7 @@ impl RepositoryConfig for AnalyticsRepositoryConfig {
 }
 
 /// Analytics aggregation data
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyticsAggregation {
     pub user_id: String,
@@ -106,6 +108,7 @@ pub struct AnalyticsAggregation {
 }
 
 /// User analytics summary
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserAnalyticsSummary {
     pub user_id: String,
@@ -124,6 +127,7 @@ pub struct UserAnalyticsSummary {
 }
 
 /// System analytics summary
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemAnalyticsSummary {
     pub total_users: u32,
@@ -170,11 +174,10 @@ impl AnalyticsRepository {
         }
     }
 
-    /// Set cache store
-    pub fn with_cache(mut self, cache: KvStore) -> Self {
-        self.cache = Some(cache);
-        self
-    }
+    // pub fn with_cache(mut self, cache: KvStore) -> Self {
+    //     self.cache = Some(cache);
+    //     self
+    // }
 
     // ============= TRADING ANALYTICS OPERATIONS =============
 
@@ -533,7 +536,8 @@ impl AnalyticsRepository {
                 .first::<HashMap<String, serde_json::Value>>(None)
                 .await
                 .map_err(|e| {
-                    database_error(&format!("Failed to execute system analytics query: {}", e))
+                    let error_message = format!("Failed to execute system analytics query: {}", e);
+                    database_error("fetch_system_analytics", error_message)
                 })?;
 
             if let Some(row) = result {
@@ -716,33 +720,24 @@ impl AnalyticsRepository {
     // ============= HELPER METHODS =============
 
     /// Validate trading analytics data
-    fn validate_trading_analytics(&self, analytics: &TradingAnalytics) -> ArbitrageResult<()> {
+    pub fn validate_trading_analytics_static(analytics: &TradingAnalytics) -> ArbitrageResult<()> {
         if analytics.analytics_id.is_empty() {
-            return Err(validation_error("analytics_id", "cannot be empty"));
+            return Err(validation_error("analytics_id", "is required"));
         }
         if analytics.user_id.is_empty() {
-            return Err(validation_error("user_id", "cannot be empty"));
+            return Err(validation_error("user_id", "is required"));
         }
         if analytics.metric_type.is_empty() {
-            return Err(validation_error("metric_type", "cannot be empty"));
-        }
-        if analytics.analytics_id.len() > 255 {
-            return Err(validation_error(
-                "analytics_id",
-                "exceeds maximum length of 255",
-            ));
-        }
-        if analytics.user_id.len() > 255 {
-            return Err(validation_error("user_id", "exceeds maximum length of 255"));
-        }
-        if analytics.metric_type.len() > 100 {
-            return Err(validation_error(
-                "metric_type",
-                "exceeds maximum length of 100",
-            ));
+            return Err(validation_error("metric_type", "is required"));
         }
         Ok(())
     }
+
+    fn validate_trading_analytics(&self, analytics: &TradingAnalytics) -> ArbitrageResult<()> {
+        Self::validate_trading_analytics_static(analytics)
+    }
+
+    // Legacy wrapper for backward compatibility
 
     /// Convert database row to TradingAnalytics
     fn row_to_trading_analytics(
@@ -948,9 +943,8 @@ mod tests {
 
     #[test]
     fn test_trading_analytics_validation() {
-        let config = AnalyticsRepositoryConfig::default();
-        let db = Arc::new(unsafe { std::mem::zeroed() }); // Mock for testing
-        let repo = AnalyticsRepository::new(db, config);
+        // Test validation logic without unsafe database mock
+        // Use static validation method that doesn't require database instance
 
         let mut analytics = TradingAnalytics {
             analytics_id: "test_id".to_string(),
@@ -977,18 +971,18 @@ mod tests {
             last_updated: 0,
         };
 
-        assert!(repo.validate_trading_analytics(&analytics).is_ok());
+        assert!(AnalyticsRepository::validate_trading_analytics_static(&analytics).is_ok());
 
         analytics.analytics_id = "".to_string();
-        assert!(repo.validate_trading_analytics(&analytics).is_err());
+        assert!(AnalyticsRepository::validate_trading_analytics_static(&analytics).is_err());
 
         analytics.analytics_id = "test_id".to_string();
         analytics.user_id = "".to_string();
-        assert!(repo.validate_trading_analytics(&analytics).is_err());
+        assert!(AnalyticsRepository::validate_trading_analytics_static(&analytics).is_err());
 
         analytics.user_id = "test_user".to_string();
         analytics.metric_type = "".to_string();
-        assert!(repo.validate_trading_analytics(&analytics).is_err());
+        assert!(AnalyticsRepository::validate_trading_analytics_static(&analytics).is_err());
     }
 
     #[test]

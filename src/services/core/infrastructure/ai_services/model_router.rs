@@ -5,12 +5,13 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use worker::Env;
 
 /// AI Provider trait for different AI service providers
 #[async_trait]
 pub trait AIProvider: Send + Sync {
+    fn clone_box(&self) -> Box<dyn AIProvider + Send + Sync>;
     async fn generate_text(&self, prompt: &str) -> ArbitrageResult<String>;
     async fn analyze_market_data(
         &self,
@@ -19,6 +20,12 @@ pub trait AIProvider: Send + Sync {
     async fn get_embeddings(&self, text: &str) -> ArbitrageResult<Vec<f64>>;
     fn get_provider_name(&self) -> &str;
     fn is_available(&self) -> bool;
+}
+
+impl Clone for Box<dyn AIProvider + Send + Sync> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
 }
 
 /// Configuration for ModelRouter
@@ -215,18 +222,19 @@ impl Default for ModelAnalytics {
 }
 
 /// Model Router for intelligent AI model selection and routing
+#[derive(Clone)] // Added Clone derive
 #[allow(dead_code)]
 pub struct ModelRouter {
     config: ModelRouterConfig,
     logger: crate::utils::logger::Logger,
-    providers: HashMap<String, Box<dyn AIProvider + Send + Sync>>,
+    providers: Arc<HashMap<String, Box<dyn AIProvider + Send + Sync>>>, // Wrapped in Arc
     #[allow(dead_code)] // TODO: Will be used for health monitoring
     last_health_check: Arc<std::sync::Mutex<Option<u64>>>,
     available_models: HashMap<String, AIModelConfig>,
-    model_analytics: Arc<std::sync::Mutex<HashMap<String, ModelAnalytics>>>,
-    ai_gateway_available: Arc<std::sync::Mutex<bool>>,
-    cache: Option<worker::kv::KvStore>,
-    metrics: Arc<std::sync::Mutex<RouterMetrics>>,
+    model_analytics: Arc<Mutex<HashMap<String, ModelAnalytics>>>,
+    ai_gateway_available: Arc<Mutex<bool>>,
+    cache: Arc<Mutex<Option<worker::kv::KvStore>>>,
+    metrics: Arc<Mutex<RouterMetrics>>,
 }
 
 /// Performance metrics for model router
@@ -289,13 +297,13 @@ impl ModelRouter {
         let mut router = Self {
             config,
             logger,
-            providers: HashMap::new(),
-            last_health_check: Arc::new(std::sync::Mutex::new(None)),
+            providers: Arc::new(HashMap::new()), // Wrapped in Arc
+            last_health_check: Arc::new(Mutex::new(None)),
             available_models: HashMap::new(),
-            model_analytics: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            ai_gateway_available: Arc::new(std::sync::Mutex::new(ai_gateway_available)),
-            cache: None,
-            metrics: Arc::new(std::sync::Mutex::new(RouterMetrics::default())),
+            model_analytics: Arc::new(Mutex::new(HashMap::new())),
+            ai_gateway_available: Arc::new(Mutex::new(ai_gateway_available)),
+            cache: Arc::new(Mutex::new(None)),
+            metrics: Arc::new(Mutex::new(RouterMetrics::default())),
         };
 
         // Initialize default models
@@ -310,8 +318,11 @@ impl ModelRouter {
     }
 
     /// Set cache store for caching operations
-    pub fn with_cache(mut self, cache: worker::kv::KvStore) -> Self {
-        self.cache = Some(cache);
+    pub fn with_cache(self, cache_store: worker::kv::KvStore) -> Self {
+        {
+            let mut cache_guard = self.cache.lock().unwrap();
+            *cache_guard = Some(cache_store);
+        } // cache_guard is dropped here
         self
     }
 
@@ -323,7 +334,21 @@ impl ModelRouter {
         let start_time = chrono::Utc::now().timestamp_millis() as u64;
 
         // Try to get cached routing decision first
-        if let Some(cached_decision) = self.get_cached_routing_decision(requirements).await? {
+        let cached_decision_opt = {
+            let cache_store_opt = self.cache.lock().unwrap().clone(); // Clone the Option<KvStore>
+            if cache_store_opt.is_some() {
+                // Pass the Option<&KvStore> to the helper
+                // Clone the KvStore if necessary or ensure the helper doesn't hold the lock
+                // For simplicity, let's assume get_cached_routing_decision_internal can take an Option<KvStore>
+                // or we clone the KvStore if it's cheap.
+                self.get_cached_routing_decision_internal(requirements, &cache_store_opt)
+                    .await?
+            } else {
+                None
+            }
+        };
+
+        if let Some(cached_decision) = cached_decision_opt {
             self.update_cache_metrics(true).await;
             return Ok(cached_decision);
         }
@@ -336,8 +361,13 @@ impl ModelRouter {
         };
 
         // Cache the routing decision
-        if self.cache.is_some() {
-            let _ = self.cache_routing_decision(requirements, &decision).await;
+        {
+            let cache_store_opt = self.cache.lock().unwrap().clone(); // Clone the Option<KvStore>
+            if cache_store_opt.is_some() {
+                let _ = self
+                    .cache_routing_decision_internal(requirements, &decision, &cache_store_opt)
+                    .await;
+            }
         }
 
         // Update metrics
@@ -375,6 +405,10 @@ impl ModelRouter {
         // Sort by score (highest first) with explicit NaN handling
         scored_models.sort_by(|a, b| {
             // Handle NaN values explicitly by pushing them to the end
+            // This addresses potential explicit_auto_deref if a.1 or b.1 were behind a reference
+            // that Rust could auto-deref. Assuming f64 directly here.
+            // If a.1 and b.1 are f64, no change needed for explicit_auto_deref here.
+            // The original code for sorting seems fine regarding auto-deref unless score itself is a more complex type.
             match (a.1.is_nan(), b.1.is_nan()) {
                 (true, true) => std::cmp::Ordering::Equal,
                 (true, false) => std::cmp::Ordering::Greater, // NaN goes to end (lower priority)
@@ -785,13 +819,14 @@ impl ModelRouter {
         Ok(())
     }
 
-    /// Cache routing decision
-    async fn cache_routing_decision(
+    /// Cache routing decision (internal helper, expects cache to be locked)
+    async fn cache_routing_decision_internal(
         &self,
         requirements: &ModelRequirements,
         decision: &RoutingDecision,
+        cache_opt: &Option<worker::kv::KvStore>,
     ) -> ArbitrageResult<()> {
-        if let Some(ref cache) = self.cache {
+        if let Some(ref cache) = cache_opt {
             use sha2::{Digest, Sha256};
             let req_bytes = serde_json::to_vec(requirements)?;
             let hash = hex::encode(Sha256::digest(&req_bytes));
@@ -808,12 +843,13 @@ impl ModelRouter {
         Ok(())
     }
 
-    /// Get cached routing decision
-    async fn get_cached_routing_decision(
+    /// Get cached routing decision (internal helper, expects cache to be locked)
+    async fn get_cached_routing_decision_internal(
         &self,
         requirements: &ModelRequirements,
+        cache_opt: &Option<worker::kv::KvStore>,
     ) -> ArbitrageResult<Option<RoutingDecision>> {
-        if let Some(ref cache) = self.cache {
+        if let Some(ref cache) = cache_opt {
             let cache_key = format!(
                 "routing:{}:{}",
                 requirements.task_type,

@@ -33,6 +33,10 @@ rand = "0.8"
 aes-gcm = "0.10"
 secrecy = "0.8"
 once_cell = "1.19"
+approx = "0.5"
+md5 = "0.7"
+http = "1.0"
+parking_lot = "0.12"
 
 # WASM-specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -41,6 +45,7 @@ wasm-bindgen-futures = "0.4.43"
 js-sys = "0.3.70"
 web-sys = { version = "0.3.70", features = ["Window", "Performance"] }
 gloo-timers = { version = "0.3", features = ["futures"] }
+wee_alloc = "0.4.5"
 # Fix for getrandom WASM compatibility
 getrandom = { version = "0.2", features = ["js"] }
 # HTTP client for WASM - reqwest with WASM features
@@ -54,15 +59,21 @@ tokio = { version = "1.42", features = ["macros", "rt"] }
 sysinfo = "0.32"
 
 [dev-dependencies]
+criterion = "0.5"
 # WASM-compatible dev dependencies
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { version = "1.42", features = ["macros", "rt"] }
 tokio-test = "0.4"
+mockall = "0.12"
 
 # Native dev dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1.42", features = ["macros", "rt-multi-thread"] }
 tokio-test = "0.4"
+mockall = "0.12"
+
+[target.wasm32-unknown-unknown.dependencies]
+wee_alloc = "0.4.5"
 
 # E2E Tests
 [[test]]

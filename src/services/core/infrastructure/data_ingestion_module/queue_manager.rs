@@ -374,6 +374,7 @@ impl QueueMessage {
 
 /// Queue Manager for Cloudflare Queues integration
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct QueueManager {
     config: QueueManagerConfig,
     logger: crate::utils::logger::Logger,

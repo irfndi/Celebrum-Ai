@@ -1,5 +1,6 @@
 use arb_edge::types::{
     ArbitrageOpportunity, ArbitrageType, EnhancedSessionState, EnhancedUserSession, ExchangeIdEnum,
+    SessionAnalytics, SessionConfig,
 };
 use arb_edge::utils::ArbitrageResult;
 use std::collections::HashMap;
@@ -131,19 +132,34 @@ impl MockD1Service {
 
 /// Create test opportunity for distribution
 fn create_test_opportunity() -> ArbitrageOpportunity {
+    let now = chrono::Utc::now().timestamp_millis() as u64;
     ArbitrageOpportunity {
-        id: "test_integration_opp_001".to_string(),
-        pair: "BTCUSDT".to_string(),
-        r#type: ArbitrageType::FundingRate,
+        id: "test_opportunity".to_string(),
+        trading_pair: "BTC/USDT".to_string(),
+        exchanges: vec!["binance".to_string(), "bybit".to_string()],
+        profit_percentage: 0.1,
+        confidence_score: 0.9,
+        risk_level: "low".to_string(),
+        buy_exchange: "binance".to_string(),
+        sell_exchange: "bybit".to_string(),
+        buy_price: 50000.0,
+        sell_price: 50005.0,
+        volume: 1.0,
+        created_at: now,
+        expires_at: Some(now + 60000),
+        pair: "BTC/USDT".to_string(),
         long_exchange: ExchangeIdEnum::Binance,
         short_exchange: ExchangeIdEnum::Bybit,
-        long_rate: Some(0.001),
-        short_rate: Some(0.003),
-        rate_difference: 0.002,
-        net_rate_difference: Some(0.0018),
-        potential_profit_value: Some(25.0),
-        timestamp: chrono::Utc::now().timestamp_millis() as u64,
-        details: Some("Test integration opportunity".to_string()),
+        long_rate: Some(50000.0),
+        short_rate: Some(50005.0),
+        rate_difference: 0.0001,
+        net_rate_difference: Some(0.00008),
+        potential_profit_value: Some(4.0),
+        confidence: 0.9,
+        timestamp: now,
+        detected_at: now,
+        r#type: ArbitrageType::CrossExchange,
+        details: Some("Test opportunity details".to_string()),
         min_exchanges_required: 2,
     }
 }
@@ -154,16 +170,29 @@ fn create_test_session(telegram_id: i64, user_id: String) -> EnhancedUserSession
     EnhancedUserSession {
         session_id: format!("session_{}", telegram_id),
         user_id,
-        telegram_id,
-        session_state: EnhancedSessionState::Active,
+        telegram_chat_id: telegram_id,
+        telegram_id, // Ensure this field is explicitly set
+        last_command: Some("/start".to_string()),
+        current_state: EnhancedSessionState::Active,
+        session_state: EnhancedSessionState::Active, // Ensure this field is explicitly set
+        temporary_data: HashMap::new(),
         started_at: now,
         last_activity_at: now,
-        expires_at: now + (7 * 24 * 60 * 60 * 1000), // 7 days
+        expires_at: now + 3600000, // 1 hour
         onboarding_completed: true,
         preferences_set: true,
-        metadata: None,
+        metadata: serde_json::Value::Null, // Corrected based on E0308
         created_at: now,
         updated_at: now,
+        session_analytics: SessionAnalytics {
+            commands_executed: 0,
+            opportunities_viewed: 0,
+            trades_executed: 0,
+            session_duration_seconds: 0,
+            session_duration_ms: 0,
+            last_activity: now,
+        },
+        config: SessionConfig::default(), // Ensure this field is explicitly set
     }
 }
 
@@ -189,8 +218,8 @@ mod integration_tests {
 
         // Test opportunity creation
         let opportunity = create_test_opportunity();
-        assert_eq!(opportunity.pair, "BTCUSDT");
-        assert_eq!(opportunity.rate_difference, 0.002);
+        assert_eq!(opportunity.pair, "BTC/USDT"); // Updated to match current format
+        assert_eq!(opportunity.rate_difference, 0.0001); // Updated to match actual value
         assert!(opportunity.potential_profit_value.unwrap() > 0.0);
 
         // Test analytics storage
@@ -548,19 +577,34 @@ mod performance_tests {
         let start = std::time::Instant::now();
 
         for i in 0..100 {
+            let now_bench = chrono::Utc::now().timestamp_millis() as u64;
             let opportunity = ArbitrageOpportunity {
-                id: format!("bench_opp_{:03}", i),
-                pair: "BTCUSDT".to_string(),
-                r#type: ArbitrageType::FundingRate,
-                long_exchange: ExchangeIdEnum::Binance,
-                short_exchange: ExchangeIdEnum::Bybit,
-                long_rate: Some(0.001),
-                short_rate: Some(0.003),
-                rate_difference: 0.002,
-                net_rate_difference: Some(0.0018),
-                potential_profit_value: Some(25.0),
-                timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                details: Some("Benchmark opportunity".to_string()),
+                id: format!("opportunity_{}", i),
+                trading_pair: "ETH/USDT".to_string(),
+                exchanges: vec!["kraken".to_string(), "coinbase".to_string()],
+                profit_percentage: 0.05,
+                confidence_score: 0.85,
+                risk_level: "medium".to_string(),
+                buy_exchange: "kraken".to_string(),
+                sell_exchange: "coinbase".to_string(),
+                buy_price: 3000.0,
+                sell_price: 3001.5,
+                volume: 0.5,
+                created_at: now_bench,
+                expires_at: Some(now_bench + 60000),
+                pair: "ETH/USDT".to_string(),
+                long_exchange: ExchangeIdEnum::Kraken,
+                short_exchange: ExchangeIdEnum::Coinbase,
+                long_rate: Some(3000.0),
+                short_rate: Some(3001.5),
+                rate_difference: 0.0005,
+                net_rate_difference: Some(0.0004),
+                potential_profit_value: Some(0.6),
+                confidence: 0.85,
+                timestamp: now_bench,
+                detected_at: now_bench,
+                r#type: ArbitrageType::CrossExchange,
+                details: Some("High load test opportunity".to_string()),
                 min_exchanges_required: 2,
             };
 
@@ -807,19 +851,34 @@ mod e2e_workflow_tests {
 
         // Generate multiple opportunities
         for i in 0..opportunity_count {
+            let now_load = chrono::Utc::now().timestamp_millis() as u64;
             let opportunity = ArbitrageOpportunity {
-                id: format!("load_opp_{:03}", i),
-                pair: format!("PAIR{:03}USDT", i % 10),
-                r#type: ArbitrageType::FundingRate,
+                id: format!("high_load_opportunity_{}", i),
+                trading_pair: "ADA/USDT".to_string(),
+                exchanges: vec!["binance".to_string(), "kucoin".to_string()],
+                profit_percentage: 0.02,
+                confidence_score: 0.75,
+                risk_level: "high".to_string(),
+                buy_exchange: "binance".to_string(),
+                sell_exchange: "kucoin".to_string(),
+                buy_price: 1.0,
+                sell_price: 1.002,
+                volume: 1000.0,
+                created_at: now_load,
+                expires_at: Some(now_load + 30000),
+                pair: "ADA/USDT".to_string(),
                 long_exchange: ExchangeIdEnum::Binance,
-                short_exchange: ExchangeIdEnum::Bybit,
-                long_rate: Some(0.001),
-                short_rate: Some(0.003),
-                rate_difference: 0.002 + (i as f64 * 0.0001),
-                net_rate_difference: Some(0.0018),
-                potential_profit_value: Some(25.0 + (i as f64 * 0.5)),
-                timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                details: Some(format!("Load test opportunity {}", i)),
+                short_exchange: ExchangeIdEnum::Kucoin,
+                long_rate: Some(1.0),
+                short_rate: Some(1.002),
+                rate_difference: 0.002,
+                net_rate_difference: Some(0.0015),
+                potential_profit_value: Some(1.5),
+                confidence: 0.75,
+                timestamp: now_load,
+                detected_at: now_load,
+                r#type: ArbitrageType::CrossExchange,
+                details: Some("High load behavior test opportunity".to_string()),
                 min_exchanges_required: 2,
             };
 

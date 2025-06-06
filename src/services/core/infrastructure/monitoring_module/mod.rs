@@ -172,14 +172,14 @@ impl ObservabilityDataPoint {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum ObservabilitySeverity {
-    Critical,
-    High,
-    Medium,
-    Low,
-    Info,
-    Warning,
-    Error,
-    Debug,
+    Debug,    // Lowest severity (0)
+    Info,     // 1
+    Low,      // 2
+    Warning,  // 3
+    Medium,   // 4
+    Error,    // 5
+    High,     // 6
+    Critical, // Highest severity (7)
 }
 
 impl ObservabilitySeverity {
@@ -187,11 +187,11 @@ impl ObservabilitySeverity {
         match self {
             ObservabilitySeverity::Critical => 7,
             ObservabilitySeverity::High => 6,
-            ObservabilitySeverity::Medium => 5,
-            ObservabilitySeverity::Low => 4,
-            ObservabilitySeverity::Info => 3,
-            ObservabilitySeverity::Warning => 2,
-            ObservabilitySeverity::Error => 1,
+            ObservabilitySeverity::Error => 5, // Error is more severe than Warning
+            ObservabilitySeverity::Medium => 4,
+            ObservabilitySeverity::Warning => 3, // Warning is less severe than Error
+            ObservabilitySeverity::Low => 2,
+            ObservabilitySeverity::Info => 1,
             ObservabilitySeverity::Debug => 0,
         }
     }

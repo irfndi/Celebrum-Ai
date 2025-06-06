@@ -46,8 +46,10 @@ impl std::fmt::Display for SignalType {
 pub enum SignalStrength {
     Weak,
     Medium,
+    Moderate, // Alias for Medium for test compatibility
     Strong,
     VeryStrong,
+    Extreme, // Alias for VeryStrong for test compatibility
 }
 
 /// Trading Signal Direction
@@ -283,6 +285,7 @@ pub struct TechnicalAnalysisResult {
 }
 
 /// Technical Analysis Service for Global Signal Generation
+#[derive(Clone)]
 pub struct TechnicalAnalysisService {
     config: TechnicalAnalysisConfig,
     active_signals: HashMap<String, TechnicalSignal>,

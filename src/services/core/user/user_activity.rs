@@ -1,6 +1,6 @@
 use crate::services::core::infrastructure::DatabaseManager;
-use crate::types::{MessageAnalytics, UserProfile};
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::types::MessageAnalytics;
+use crate::utils::ArbitrageResult;
 use std::sync::Arc;
 use worker::console_log;
 
@@ -27,7 +27,7 @@ impl UserActivityService {
         metadata: serde_json::Value,
     ) -> ArbitrageResult<()> {
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         // Store in KV for recent activity tracking
         let activity_key = format!("user_activity:{}:{}", user_id, now);
         let activity_data = serde_json::json!({
@@ -38,12 +38,16 @@ impl UserActivityService {
         });
 
         self.kv_service
-            .put(&activity_key, &activity_data.to_string())?
+            .put(&activity_key, activity_data.to_string())?
             .expiration_ttl(24 * 3600) // 24 hours
             .execute()
             .await?;
 
-        console_log!("📊 Recorded activity for user {}: {}", user_id, activity_type);
+        console_log!(
+            "📊 Recorded activity for user {}: {}",
+            user_id,
+            activity_type
+        );
         Ok(())
     }
 
@@ -60,18 +64,31 @@ impl UserActivityService {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
-        self.d1_service.execute(query, &[
-            serde_json::Value::String(analytics.message_id.clone()),
-            serde_json::Value::Number(serde_json::Number::from(analytics.chat_id)),
-            serde_json::Value::String(analytics.user_id.clone().unwrap_or_default()),
-            serde_json::Value::String(analytics.message_type.clone()),
-            serde_json::Value::String(analytics.command.clone().unwrap_or_default()),
-            serde_json::Value::Number(serde_json::Number::from(analytics.timestamp)),
-            serde_json::Value::Number(serde_json::Number::from(analytics.response_time_ms)),
-            serde_json::Value::Bool(analytics.success),
-            serde_json::Value::String(analytics.error_message.clone().unwrap_or_default()),
-            analytics.metadata.clone(),
-        ]).await?;
+        self.d1_service
+            .execute(
+                query,
+                &[
+                    worker::wasm_bindgen::JsValue::from_str(&analytics.message_id),
+                    worker::wasm_bindgen::JsValue::from_f64(analytics.chat_id as f64),
+                    worker::wasm_bindgen::JsValue::from_str(
+                        &analytics.user_id.clone().unwrap_or_default(),
+                    ),
+                    worker::wasm_bindgen::JsValue::from_str(&analytics.message_type),
+                    worker::wasm_bindgen::JsValue::from_str(
+                        &analytics.command.clone().unwrap_or_default(),
+                    ),
+                    worker::wasm_bindgen::JsValue::from_f64(analytics.timestamp as f64),
+                    worker::wasm_bindgen::JsValue::from_f64(analytics.response_time_ms as f64),
+                    worker::wasm_bindgen::JsValue::from_bool(analytics.success),
+                    worker::wasm_bindgen::JsValue::from_str(
+                        &analytics.error_message.clone().unwrap_or_default(),
+                    ),
+                    worker::wasm_bindgen::JsValue::from_str(
+                        &serde_json::to_string(&analytics.metadata).unwrap_or_default(),
+                    ),
+                ],
+            )
+            .await?;
 
         Ok(())
     }
@@ -86,13 +103,14 @@ impl UserActivityService {
         let start_timestamp = start_date.timestamp_millis() as u64;
 
         // Get activity from KV store (recent) and D1 (historical)
-        let mut activities = Vec::new();
+        let _activities: Vec<serde_json::Value> = Vec::new();
 
         // Get recent activities from KV
         for hour in 0..24 {
-            let hour_timestamp = chrono::Utc::now().timestamp_millis() as u64 - (hour * 3600 * 1000);
-            let activity_pattern = format!("user_activity:{}:{}", user_id, hour_timestamp / 1000);
-            
+            let hour_timestamp =
+                chrono::Utc::now().timestamp_millis() as u64 - (hour * 3600 * 1000);
+            let _activity_pattern = format!("user_activity:{}:{}", user_id, hour_timestamp / 1000);
+
             // In a real implementation, we'd use KV list operations
             // For now, we'll just return a summary structure
         }
@@ -106,13 +124,19 @@ impl UserActivityService {
             ORDER BY count DESC
         "#;
 
-        let result = self.d1_service.query(query, &[
-            serde_json::Value::String(user_id.to_string()),
-            serde_json::Value::Number(serde_json::Number::from(start_timestamp)),
-        ]).await?;
+        let result = self
+            .d1_service
+            .query(
+                query,
+                &[
+                    worker::wasm_bindgen::JsValue::from_str(user_id),
+                    worker::wasm_bindgen::JsValue::from_f64(start_timestamp as f64),
+                ],
+            )
+            .await?;
 
         let rows = result.results::<std::collections::HashMap<String, serde_json::Value>>()?;
-        
+
         let summary = serde_json::json!({
             "user_id": user_id,
             "period_days": days,
@@ -127,11 +151,11 @@ impl UserActivityService {
     /// Update user last active timestamp
     pub async fn update_last_active(&self, user_id: &str) -> ArbitrageResult<()> {
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         // Update in KV for fast access
         let last_active_key = format!("user_last_active:{}", user_id);
         self.kv_service
-            .put(&last_active_key, &now.to_string())?
+            .put(&last_active_key, now.to_string())?
             .expiration_ttl(30 * 24 * 3600) // 30 days
             .execute()
             .await?;
@@ -142,12 +166,12 @@ impl UserActivityService {
     /// Check if user is recently active
     pub async fn is_recently_active(&self, user_id: &str, minutes: u32) -> ArbitrageResult<bool> {
         let last_active_key = format!("user_last_active:{}", user_id);
-        
+
         if let Some(last_active_str) = self.kv_service.get(&last_active_key).text().await? {
             if let Ok(last_active) = last_active_str.parse::<u64>() {
                 let now = chrono::Utc::now().timestamp_millis() as u64;
                 let threshold = minutes as u64 * 60 * 1000; // Convert to milliseconds
-                
+
                 return Ok(now - last_active < threshold);
             }
         }
@@ -194,4 +218,4 @@ mod tests {
         assert!(analytics.success);
         assert!(analytics.response_time_ms > 0);
     }
-} 
+}

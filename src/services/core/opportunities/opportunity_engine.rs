@@ -5,13 +5,13 @@ use crate::services::core::ai::ai_beta_integration::AiBetaIntegrationService;
 use crate::services::core::opportunities::{
     access_manager::AccessManager,
     ai_enhancer::AIEnhancer,
-    cache_manager::CacheManager,
     market_analyzer::MarketAnalyzer,
     opportunity_builders::OpportunityBuilder,
     opportunity_core::{OpportunityConfig, OpportunityContext},
 };
 use crate::services::core::user::user_access::UserAccessService;
 use crate::services::core::user::UserProfileService;
+use crate::services::CacheManager;
 use crate::types::{
     ArbitrageOpportunity, ChatContext, DistributionStrategy, GlobalOpportunity, OpportunitySource,
     TechnicalOpportunity,
@@ -24,6 +24,7 @@ use worker::kv::KvStore;
 
 /// Unified opportunity engine that orchestrates all opportunity services
 /// Eliminates redundancy by consolidating logic from personal, group, global, and legacy services
+#[derive(Clone)]
 pub struct OpportunityEngine {
     // Core components
     market_analyzer: Arc<MarketAnalyzer>,
@@ -52,7 +53,7 @@ impl OpportunityEngine {
         let access_manager = Arc::new(AccessManager::new(
             user_profile_service.clone(),
             user_access_service,
-            kv_store.clone(),
+            Arc::new(kv_store.clone()),
         ));
 
         // Create market analyzer without exchange service for now
@@ -96,9 +97,10 @@ impl OpportunityEngine {
         }
 
         // Check cache first
+        let cache_key = format!("user_arbitrage_opportunities_{}", user_id);
         if let Ok(Some(cached_opportunities)) = self
             .cache_manager
-            .get_cached_user_arbitrage_opportunities(user_id)
+            .get::<Vec<ArbitrageOpportunity>>(&cache_key)
             .await
         {
             log_info!(
@@ -163,9 +165,10 @@ impl OpportunityEngine {
             .await?;
 
         // Cache the results
+        let cache_key = format!("user_arbitrage_opportunities_{}", user_id);
         let _ = self
             .cache_manager
-            .cache_user_arbitrage_opportunities(user_id, &opportunities, None)
+            .set(&cache_key, &opportunities, Some(300))
             .await;
 
         // Record opportunity generation for rate limiting
@@ -207,9 +210,10 @@ impl OpportunityEngine {
         }
 
         // Check cache first
+        let cache_key = format!("user_technical_opportunities_{}", user_id);
         if let Ok(Some(cached_opportunities)) = self
             .cache_manager
-            .get_cached_user_technical_opportunities(user_id)
+            .get::<Vec<TechnicalOpportunity>>(&cache_key)
             .await
         {
             return Ok(cached_opportunities);
@@ -271,9 +275,10 @@ impl OpportunityEngine {
             .await?;
 
         // Cache the results
+        let cache_key = format!("user_technical_opportunities_{}", user_id);
         let _ = self
             .cache_manager
-            .cache_user_technical_opportunities(user_id, &opportunities, None)
+            .set(&cache_key, &opportunities, Some(300))
             .await;
 
         // Record opportunity generation
@@ -321,9 +326,10 @@ impl OpportunityEngine {
         let group_id = chat_context
             .get_group_id()
             .unwrap_or("unknown_group".to_string());
+        let cache_key = format!("group_arbitrage_opportunities_{}", group_id);
         if let Ok(Some(cached_opportunities)) = self
             .cache_manager
-            .get_cached_group_arbitrage_opportunities(&group_id)
+            .get::<Vec<ArbitrageOpportunity>>(&cache_key)
             .await
         {
             return Ok(cached_opportunities);
@@ -387,9 +393,10 @@ impl OpportunityEngine {
             .await?;
 
         // Cache the results
+        let cache_key = format!("group_arbitrage_opportunities_{}", group_id);
         let _ = self
             .cache_manager
-            .cache_group_arbitrage_opportunities(&group_id, &opportunities, None)
+            .set(&cache_key, &opportunities, Some(300))
             .await;
 
         log_info!(
@@ -413,8 +420,10 @@ impl OpportunityEngine {
         pairs: Option<Vec<String>>,
     ) -> ArbitrageResult<Vec<GlobalOpportunity>> {
         // Check cache first
-        if let Ok(Some(cached_opportunities)) =
-            self.cache_manager.get_cached_global_opportunities().await
+        if let Ok(Some(cached_opportunities)) = self
+            .cache_manager
+            .get::<Vec<GlobalOpportunity>>("global_opportunities")
+            .await
         {
             return Ok(cached_opportunities);
         }
@@ -491,7 +500,7 @@ impl OpportunityEngine {
         // Cache the results
         let _ = self
             .cache_manager
-            .cache_global_opportunities(&global_opportunities, None)
+            .set("global_opportunities", &global_opportunities, Some(300))
             .await;
 
         log_info!(
@@ -585,12 +594,14 @@ impl OpportunityEngine {
 
     /// Invalidate user caches
     pub async fn invalidate_user_caches(&self, user_id: &str) -> ArbitrageResult<()> {
-        self.cache_manager.invalidate_user_cache(user_id).await
+        let cache_key = format!("user_arbitrage_opportunities_{}", user_id);
+        self.cache_manager.delete(&cache_key).await.map(|_| ())
     }
 
     /// Invalidate group caches
     pub async fn invalidate_group_caches(&self, group_id: &str) -> ArbitrageResult<()> {
-        self.cache_manager.invalidate_group_cache(group_id).await
+        let cache_key = format!("group_arbitrage_opportunities_{}", group_id);
+        self.cache_manager.delete(&cache_key).await.map(|_| ())
     }
 
     /// Get engine configuration
@@ -607,12 +618,12 @@ impl OpportunityEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{SubscriptionTier, UserAccessLevel, UserConfiguration, UserProfile};
+    use crate::types::{SubscriptionTier, UserAccessLevel, UserProfile};
     use chrono::Utc;
 
     fn create_test_user_profile(user_id: &str) -> UserProfile {
         UserProfile {
-            user_id: "test_user".to_string(),
+            user_id: user_id.to_string(),
             telegram_user_id: Some(123456789),
             username: Some("testuser".to_string()),
             email: Some("test@example.com".to_string()),
@@ -628,14 +639,19 @@ mod tests {
             invitation_code: None,
             beta_expires_at: None,
             updated_at: Utc::now().timestamp_millis() as u64,
-            last_active: Some(Utc::now().timestamp_millis() as u64),
+            last_active: Utc::now().timestamp_millis() as u64, // Corrected: last_active is u64, not Option<u64>
+            invitation_code_used: None,
+            invited_by: None,
+            total_invitations_sent: 0,
+            successful_invitations: 0,
             total_trades: 0,
             total_pnl_usdt: 0.0,
             account_balance_usdt: 0.0,
             profile_metadata: None,
-            telegram_username: Some("testuser".to_string()),
-            subscription: crate::types::UserSubscription::default(),
+            telegram_username: Some("testuser".to_string()), // This was duplicated, user_id is already test_user
+            subscription: crate::types::Subscription::default(), // Corrected to use Subscription::default()
             group_admin_roles: Vec::new(),
+            is_beta_active: false,
         }
     }
 

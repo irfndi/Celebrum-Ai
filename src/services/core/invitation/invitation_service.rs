@@ -1,11 +1,28 @@
 use crate::services::core::infrastructure::database_repositories::DatabaseManager;
-// Removed unused imports: UserProfile, SubscriptionTier, UserRole
 
-use anyhow::{anyhow, Result};
+use crate::utils::error::{ArbitrageError, ArbitrageResult};
+use crate::utils::helpers::generate_uuid;
+use std::collections::HashMap;
+
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum InvitationStatus {
+    Active,
+    Used,
+    Expired,
+}
+
+impl InvitationStatus {
+    pub fn as_str(&self) -> &str {
+        match self {
+            InvitationStatus::Active => "active",
+            InvitationStatus::Used => "used",
+            InvitationStatus::Expired => "expired",
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct InvitationConfig {
@@ -80,16 +97,19 @@ impl InvitationService {
     }
 
     /// Generate a new invitation code (Super Admin only)
-    pub async fn generate_invitation_code(&self, admin_user_id: &str) -> Result<InvitationCode> {
+    pub async fn generate_invitation_code(
+        &self,
+        admin_user_id: &str,
+    ) -> ArbitrageResult<InvitationCode> {
         // Verify admin has permission to generate codes
         if !self.verify_admin_permission(admin_user_id).await? {
-            return Err(anyhow!(
-                "Unauthorized: Only super admins can generate invitation codes"
+            return Err(ArbitrageError::authentication_error(
+                "Unauthorized: Only super admins can generate invitation codes",
             ));
         }
 
         let invitation_code = InvitationCode {
-            id: Uuid::new_v4().to_string(),
+            id: generate_uuid(),
             code: self.generate_unique_code().await?,
             created_by_admin_id: admin_user_id.to_string(),
             used_by_user_id: None,
@@ -108,19 +128,19 @@ impl InvitationService {
         &self,
         admin_user_id: &str,
         count: u32,
-    ) -> Result<Vec<InvitationCode>> {
+    ) -> ArbitrageResult<Vec<InvitationCode>> {
         // Upfront admin permission verification before any code generation
         if !self.verify_admin_permission(admin_user_id).await? {
-            return Err(anyhow!(
-                "Unauthorized: Only super admins can generate invitation codes"
+            return Err(ArbitrageError::authentication_error(
+                "Unauthorized: Only super admins can generate invitation codes",
             ));
         }
 
         if count == 0 || count > self.config.max_batch_size {
-            return Err(anyhow!(
+            return Err(ArbitrageError::validation_error(format!(
                 "Invalid count: must be between 1 and {}",
                 self.config.max_batch_size
-            ));
+            )));
         }
 
         // Pre-generate all codes and validate uniqueness before storage
@@ -128,7 +148,7 @@ impl InvitationService {
         for _ in 0..count {
             let code = self.generate_unique_code().await?;
             let invitation = InvitationCode {
-                id: Uuid::new_v4().to_string(),
+                id: generate_uuid(),
                 code,
                 created_by_admin_id: admin_user_id.to_string(),
                 used_by_user_id: None,
@@ -140,20 +160,24 @@ impl InvitationService {
             codes.push(invitation);
         }
 
-        // Use proper database transaction for atomic batch insertion
-        // Note: D1 doesn't support real transactions yet, this is a compatibility wrapper
-        self.d1_service
-            .execute_transaction(|_db| {
-                // Since D1 doesn't support real transactions, we'll use individual inserts
-                // This is a limitation of the current D1 implementation
-                // TODO: When D1 supports real transactions, implement proper atomic batch insertion
-                Ok(())
-            })
-            .await?;
+        let mut queries = Vec::new();
+        let mut params_list = Vec::new();
 
-        // Store codes individually since D1 doesn't support batch transactions yet
         for code in &codes {
-            self.store_invitation_code(code).await?;
+            let (sql, params_values) = self.generate_insert_invitation_query(code)?;
+            queries.push(sql);
+            params_list.push(params_values);
+        }
+
+        if !queries.is_empty() {
+            // For batch operations, we don't need parsed results, so we use a simple unit parser
+            self.d1_service
+                .execute_transactional_query(
+                    queries,
+                    params_list,
+                    |_row| Ok(()), // Simple unit parser for insert operations
+                )
+                .await?;
         }
 
         // Use our sanitized logger instead of standard log macro
@@ -170,7 +194,7 @@ impl InvitationService {
         code: &str,
         user_id: &str,
         telegram_id: i64,
-    ) -> Result<InvitationUsage> {
+    ) -> ArbitrageResult<InvitationUsage> {
         // Find the invitation code
         let invitation = self.find_invitation_by_code(code).await?;
 
@@ -199,17 +223,23 @@ impl InvitationService {
     }
 
     /// Check if an invitation code is valid
-    pub fn validate_invitation_code(&self, invitation: &InvitationCode) -> Result<()> {
+    pub fn validate_invitation_code(&self, invitation: &InvitationCode) -> ArbitrageResult<()> {
         if !invitation.is_active {
-            return Err(anyhow!("Invitation code is inactive"));
+            return Err(ArbitrageError::validation_error(
+                "Invitation code is inactive",
+            ));
         }
 
         if invitation.used_by_user_id.is_some() {
-            return Err(anyhow!("Invitation code has already been used"));
+            return Err(ArbitrageError::validation_error(
+                "Invitation code has already been used",
+            ));
         }
 
         if Utc::now() > invitation.expires_at {
-            return Err(anyhow!("Invitation code has expired"));
+            return Err(ArbitrageError::validation_error(
+                "Invitation code has expired",
+            ));
         }
 
         Ok(())
@@ -219,10 +249,10 @@ impl InvitationService {
     pub async fn get_invitation_statistics(
         &self,
         admin_user_id: &str,
-    ) -> Result<InvitationStatistics> {
+    ) -> ArbitrageResult<InvitationStatistics> {
         if !self.verify_admin_permission(admin_user_id).await? {
-            return Err(anyhow!(
-                "Unauthorized: Only super admins can view invitation statistics"
+            return Err(ArbitrageError::authentication_error(
+                "Unauthorized: Only super admins can view invitation statistics",
             ));
         }
 
@@ -249,10 +279,10 @@ impl InvitationService {
         &self,
         admin_user_id: &str,
         limit: Option<u32>,
-    ) -> Result<Vec<InvitationCode>> {
+    ) -> ArbitrageResult<Vec<InvitationCode>> {
         if !self.verify_admin_permission(admin_user_id).await? {
-            return Err(anyhow!(
-                "Unauthorized: Only super admins can list invitation codes"
+            return Err(ArbitrageError::authentication_error(
+                "Unauthorized: Only super admins can list invitation codes",
             ));
         }
 
@@ -261,12 +291,14 @@ impl InvitationService {
     }
 
     /// Check if a user's beta access has expired and needs downgrade
-    pub async fn check_beta_expiration(&self, user_id: &str) -> Result<bool> {
+    pub async fn check_beta_expiration(&self, user_id: &str) -> ArbitrageResult<bool> {
         if let Some(d1_usage) = self
             .d1_service
             .get_invitation_usage_by_user(user_id)
             .await
-            .map_err(|e| anyhow!("Failed to get invitation usage: {}", e))?
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to get invitation usage: {}", e))
+            })?
         {
             Ok(Utc::now() > d1_usage.beta_expires_at)
         } else {
@@ -275,12 +307,17 @@ impl InvitationService {
     }
 
     /// Get beta expiration date for a user
-    pub async fn get_beta_expiration(&self, user_id: &str) -> Result<Option<DateTime<Utc>>> {
+    pub async fn get_beta_expiration(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<Option<DateTime<Utc>>> {
         if let Some(d1_usage) = self
             .d1_service
             .get_invitation_usage_by_user(user_id)
             .await
-            .map_err(|e| anyhow!("Failed to get invitation usage: {}", e))?
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to get invitation usage: {}", e))
+            })?
         {
             Ok(Some(d1_usage.beta_expires_at))
         } else {
@@ -290,7 +327,7 @@ impl InvitationService {
 
     // Private helper methods
 
-    async fn generate_unique_code(&self) -> Result<String> {
+    async fn generate_unique_code(&self) -> ArbitrageResult<String> {
         loop {
             let code = self.generate_random_code();
             if !self.code_exists(&code).await? {
@@ -312,44 +349,45 @@ impl InvitationService {
             .collect()
     }
 
-    async fn verify_admin_permission(&self, user_id: &str) -> Result<bool> {
+    async fn verify_admin_permission(&self, user_id: &str) -> ArbitrageResult<bool> {
         // Use subscription_tier as the authoritative source for admin status
         let query = "SELECT subscription_tier FROM user_profiles WHERE user_id = ?";
         let result = self.d1_service.query(query, &[user_id.into()]).await?;
 
-        if let Some(row) = result
-            .results::<HashMap<String, serde_json::Value>>()?
-            .first()
-        {
-            if let Some(tier) = row.get("subscription_tier").and_then(|v| v.as_str()) {
-                return Ok(tier == "SuperAdmin");
+        if let Ok(results) = result.results::<serde_json::Value>() {
+            if let Some(row) = results.first() {
+                if let Some(tier) = row.get("subscription_tier").and_then(|v| v.as_str()) {
+                    return Ok(tier == "SuperAdmin");
+                }
             }
         }
 
         Ok(false)
     }
 
-    async fn code_exists(&self, code: &str) -> Result<bool> {
+    async fn code_exists(&self, code: &str) -> ArbitrageResult<bool> {
         let query = "SELECT COUNT(*) as count FROM invitation_codes WHERE code = ?";
         let result = self.d1_service.query(query, &[code.into()]).await?;
 
-        if let Some(row) = result
-            .results::<HashMap<String, serde_json::Value>>()?
-            .first()
-        {
-            if let Some(count) = row.get("count").and_then(|v| {
-                v.as_i64()
-                    .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
-            }) {
-                return Ok(count > 0);
+        if let Ok(results) = result.results::<serde_json::Value>() {
+            if let Some(row) = results.first() {
+                if let Some(count) = row.get("count").and_then(|v| {
+                    if let Some(count_str) = v.as_str() {
+                        count_str.parse::<i64>().ok()
+                    } else if v.is_number() {
+                        v.as_f64().map(|f| f as i64)
+                    } else {
+                        None
+                    }
+                }) {
+                    return Ok(count > 0);
+                }
             }
-            Ok(false)
-        } else {
-            Ok(false)
         }
+        Ok(false)
     }
 
-    async fn store_invitation_code(&self, invitation: &InvitationCode) -> Result<()> {
+    async fn store_invitation_code(&self, invitation: &InvitationCode) -> ArbitrageResult<()> {
         let query = r#"
             INSERT INTO invitation_codes 
             (id, code, created_by_admin_id, expires_at, created_at, is_active)
@@ -374,7 +412,7 @@ impl InvitationService {
     }
 
     #[allow(dead_code)]
-    async fn delete_invitation_code(&self, invitation_id: &str) -> Result<()> {
+    async fn delete_invitation_code(&self, invitation_id: &str) -> ArbitrageResult<()> {
         let query = "DELETE FROM invitation_codes WHERE id = ?";
 
         self.d1_service
@@ -387,40 +425,49 @@ impl InvitationService {
     fn parse_invitation_from_row(
         &self,
         row: &HashMap<String, serde_json::Value>,
-    ) -> Result<InvitationCode> {
+    ) -> ArbitrageResult<InvitationCode> {
         // Explicitly check required fields and return errors if missing
         let id = row
             .get("id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing required field: id"))?;
+            .ok_or_else(|| ArbitrageError::parse_error("Missing required field: id"))?;
 
         let code = row
             .get("code")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing required field: code"))?;
+            .ok_or_else(|| ArbitrageError::parse_error("Missing required field: code"))?;
 
         let created_by_admin_id = row
             .get("created_by_admin_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing required field: created_by_admin_id"))?;
+            .ok_or_else(|| {
+                ArbitrageError::parse_error("Missing required field: created_by_admin_id")
+            })?;
 
         let expires_at_str = row
             .get("expires_at")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing required field: expires_at"))?;
+            .ok_or_else(|| ArbitrageError::parse_error("Missing required field: expires_at"))?;
 
         let created_at_str = row
             .get("created_at")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing required field: created_at"))?;
+            .ok_or_else(|| ArbitrageError::parse_error("Missing required field: created_at"))?;
 
         let is_active = row
             .get("is_active")
             .and_then(|v| v.as_bool())
-            .ok_or_else(|| anyhow!("Missing required field or not a bool: is_active"))?;
+            .ok_or_else(|| {
+                ArbitrageError::parse_error("Missing required field or not a bool: is_active")
+            })?;
 
         let created_at = DateTime::parse_from_rfc3339(created_at_str)
-            .map_err(|e| anyhow!("Invalid created_at format '{}': {}", created_at_str, e))?
+            .map_err(|e| {
+                ArbitrageError::parse_error(format!(
+                    "Invalid created_at format '{}': {}",
+                    created_at_str, e
+                ))
+            })?
             .with_timezone(&Utc);
 
         // Optional fields can use safe defaults
@@ -440,7 +487,12 @@ impl InvitationService {
             created_by_admin_id: created_by_admin_id.to_string(),
             used_by_user_id,
             expires_at: DateTime::parse_from_rfc3339(expires_at_str)
-                .map_err(|e| anyhow!("Invalid expires_at format '{}': {}", expires_at_str, e))?
+                .map_err(|e| {
+                    ArbitrageError::parse_error(format!(
+                        "Invalid expires_at format '{}': {}",
+                        expires_at_str, e
+                    ))
+                })?
                 .with_timezone(&Utc),
             created_at,
             used_at,
@@ -448,7 +500,7 @@ impl InvitationService {
         })
     }
 
-    async fn find_invitation_by_code(&self, code: &str) -> Result<InvitationCode> {
+    async fn find_invitation_by_code(&self, code: &str) -> ArbitrageResult<InvitationCode> {
         let query = r#"
             SELECT id, code, created_by_admin_id, used_by_user_id, expires_at, created_at, used_at, is_active
             FROM invitation_codes 
@@ -457,18 +509,30 @@ impl InvitationService {
 
         let result = self.d1_service.query(query, &[code.into()]).await?;
 
-        if let Some(row) = result
-            .results::<HashMap<String, serde_json::Value>>()?
-            .first()
-        {
-            self.parse_invitation_from_row(row)
+        if let Ok(results) = result.results::<serde_json::Value>() {
+            if let Some(row) = results.first() {
+                // Convert serde_json::Value to HashMap for compatibility with existing parse method
+                let mut row_map = HashMap::new();
+                if let Some(object) = row.as_object() {
+                    for (key, value) in object {
+                        row_map.insert(key.clone(), value.clone());
+                    }
+                }
+                self.parse_invitation_from_row(&row_map)
+            } else {
+                Err(ArbitrageError::not_found("Invitation code not found"))
+            }
         } else {
-            Err(anyhow!("Invitation code not found"))
+            Err(ArbitrageError::not_found("Invitation code not found"))
         }
     }
 
     /// Helper method to execute count queries with consistent error handling
-    async fn execute_count_query(&self, query: &str, params: &[serde_json::Value]) -> Result<u32> {
+    async fn execute_count_query(
+        &self,
+        query: &str,
+        params: &[serde_json::Value],
+    ) -> ArbitrageResult<u32> {
         let params: Vec<worker::wasm_bindgen::JsValue> = params
             .iter()
             .map(|v| match v {
@@ -489,19 +553,24 @@ impl InvitationService {
             .collect();
         let result = self.d1_service.query(query, &params).await?;
 
-        if let Some(row) = result
-            .results::<HashMap<String, serde_json::Value>>()?
-            .first()
-        {
-            let count_str = row.get("count").and_then(|v| v.as_str()).unwrap_or("0");
-            match count_str.parse::<u32>() {
-                Ok(count) => Ok(count),
-                Err(e) => {
-                    // Use our sanitized logger instead of standard log macro
-                    crate::utils::logger::logger()
-                        .warn(&format!("Failed to parse count '{}': {}", count_str, e));
-                    Ok(0)
+        if let Ok(results) = result.results::<serde_json::Value>() {
+            if let Some(row) = results.first() {
+                let count_str = row
+                    .get("count")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "0".to_string());
+                match count_str.parse::<u32>() {
+                    Ok(count) => Ok(count),
+                    Err(e) => {
+                        // Use our sanitized logger instead of standard log macro
+                        crate::utils::logger::logger()
+                            .warn(&format!("Failed to parse count '{}': {}", count_str, e));
+                        Ok(0)
+                    }
                 }
+            } else {
+                Ok(0)
             }
         } else {
             Ok(0)
@@ -514,7 +583,7 @@ impl InvitationService {
         invitation_id: &str,
         user_id: &str,
         usage: &InvitationUsage,
-    ) -> Result<()> {
+    ) -> ArbitrageResult<()> {
         // Since D1 doesn't support real transactions, we'll execute operations sequentially
         // TODO: When D1 supports real transactions, implement proper atomic operations
 
@@ -559,12 +628,12 @@ impl InvitationService {
         Ok(())
     }
 
-    async fn count_total_invitations(&self) -> Result<u32> {
+    async fn count_total_invitations(&self) -> ArbitrageResult<u32> {
         self.execute_count_query("SELECT COUNT(*) as count FROM invitation_codes", &[])
             .await
     }
 
-    async fn count_used_invitations(&self) -> Result<u32> {
+    async fn count_used_invitations(&self) -> ArbitrageResult<u32> {
         self.execute_count_query(
             "SELECT COUNT(*) as count FROM invitation_codes WHERE used_by_user_id IS NOT NULL",
             &[],
@@ -572,11 +641,11 @@ impl InvitationService {
         .await
     }
 
-    async fn count_expired_invitations(&self) -> Result<u32> {
+    async fn count_expired_invitations(&self) -> ArbitrageResult<u32> {
         self.execute_count_query("SELECT COUNT(*) as count FROM invitation_codes WHERE expires_at < datetime('now') AND used_by_user_id IS NULL", &[]).await
     }
 
-    async fn count_active_beta_users(&self) -> Result<u32> {
+    async fn count_active_beta_users(&self) -> ArbitrageResult<u32> {
         self.execute_count_query("SELECT COUNT(*) as count FROM invitation_usage WHERE beta_expires_at > datetime('now')", &[]).await
     }
 
@@ -584,7 +653,7 @@ impl InvitationService {
         &self,
         admin_user_id: &str,
         limit: u32,
-    ) -> Result<Vec<InvitationCode>> {
+    ) -> ArbitrageResult<Vec<InvitationCode>> {
         let query = r#"
             SELECT id, code, created_by_admin_id, used_by_user_id, expires_at, created_at, used_at, is_active
             FROM invitation_codes 
@@ -616,4 +685,255 @@ pub struct InvitationStatistics {
     pub total_expired: u32,
     pub active_beta_users: u32,
     pub conversion_rate: f64,
+}
+
+impl InvitationService {
+    fn generate_insert_invitation_query(
+        &self,
+        code: &InvitationCode,
+    ) -> ArbitrageResult<(String, Vec<String>)> {
+        let sql = "INSERT INTO invitation_codes (id, code, created_by_admin_id, used_by_user_id, expires_at, created_at, used_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)".to_string();
+        let params = vec![
+            code.id.clone(),
+            code.code.clone(),
+            code.created_by_admin_id.clone(),
+            code.used_by_user_id.clone().unwrap_or_default(), // Handle Option<String>
+            code.expires_at.to_rfc3339(),
+            code.created_at.to_rfc3339(),
+            code.used_at.map(|dt| dt.to_rfc3339()).unwrap_or_default(), // Handle Option<DateTime<Utc>>
+            code.is_active.to_string(),
+        ];
+        Ok((sql, params))
+    }
+
+    pub async fn create_invitation(
+        &self,
+        inviter_id: &str,
+        _invitee_email: &str,
+        _expires_at: Option<i64>,
+    ) -> ArbitrageResult<InvitationCode> {
+        let invitation = InvitationCode {
+            id: generate_uuid(),
+            code: self.generate_unique_code().await?,
+            created_by_admin_id: inviter_id.to_string(),
+            used_by_user_id: None,
+            expires_at: Utc::now() + Duration::days(self.config.invitation_expiry_days),
+            created_at: Utc::now(),
+            used_at: None,
+            is_active: true,
+        };
+
+        self.store_invitation_code(&invitation).await?;
+        Ok(invitation)
+    }
+
+    pub async fn get_invitation_by_code(
+        &self,
+        code: &str,
+    ) -> ArbitrageResult<Option<InvitationCode>> {
+        let query = "SELECT * FROM invitation_codes WHERE code = ?";
+        let result = self.d1_service.query(query, &[code.into()]).await?;
+
+        if let Ok(results) = result.results::<serde_json::Value>() {
+            if let Some(first_result) = results.first() {
+                // D1 results are returned as JavaScript objects, so we need to extract the values properly
+                let invitation = InvitationCode {
+                    id: first_result
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .ok_or_else(|| ArbitrageError::parse_error("Missing id field"))?,
+                    code: first_result
+                        .get("code")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .ok_or_else(|| ArbitrageError::parse_error("Missing code field"))?,
+                    created_by_admin_id: first_result
+                        .get("created_by_admin_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .ok_or_else(|| {
+                            ArbitrageError::parse_error("Missing created_by_admin_id field")
+                        })?,
+                    expires_at: {
+                        let expires_str = first_result
+                            .get("expires_at")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                            ArbitrageError::parse_error("Missing expires_at field")
+                        })?;
+                        DateTime::parse_from_rfc3339(expires_str)
+                            .map_err(|e| {
+                                ArbitrageError::parse_error(format!(
+                                    "Invalid expires_at format: {}",
+                                    e
+                                ))
+                            })?
+                            .with_timezone(&Utc)
+                    },
+                    created_at: {
+                        let created_str = first_result
+                            .get("created_at")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                            ArbitrageError::parse_error("Missing created_at field")
+                        })?;
+                        DateTime::parse_from_rfc3339(created_str)
+                            .map_err(|e| {
+                                ArbitrageError::parse_error(format!(
+                                    "Invalid created_at format: {}",
+                                    e
+                                ))
+                            })?
+                            .with_timezone(&Utc)
+                    },
+                    is_active: first_result
+                        .get("is_active")
+                        .and_then(|v| v.as_bool())
+                        .ok_or_else(|| ArbitrageError::parse_error("Missing is_active field"))?,
+                    used_by_user_id: first_result
+                        .get("used_by_user_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    used_at: {
+                        if let Some(used_str) = first_result.get("used_at").and_then(|v| v.as_str())
+                        {
+                            Some(
+                                DateTime::parse_from_rfc3339(used_str)
+                                    .map_err(|e| {
+                                        ArbitrageError::parse_error(format!(
+                                            "Invalid used_at format: {}",
+                                            e
+                                        ))
+                                    })?
+                                    .with_timezone(&Utc),
+                            )
+                        } else {
+                            None
+                        }
+                    },
+                };
+                Ok(Some(invitation))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn update_invitation_status(
+        &self,
+        code: &str,
+        status: InvitationStatus,
+    ) -> ArbitrageResult<()> {
+        let query = "UPDATE invitations SET status = ?, updated_at = ? WHERE code = ?";
+        let updated_at = Utc::now().timestamp();
+        let params = [
+            status.as_str().into(),
+            updated_at.to_string().into(),
+            code.into(),
+        ];
+        self.d1_service.execute(query, &params).await?;
+        Ok(())
+    }
+
+    pub async fn delete_invitation(&self, code: &str) -> ArbitrageResult<()> {
+        let query = "DELETE FROM invitations WHERE code = ?";
+        self.d1_service.execute(query, &[code.into()]).await?;
+        Ok(())
+    }
+
+    pub async fn get_invitations_by_inviter(
+        &self,
+        inviter_id: &str,
+    ) -> ArbitrageResult<Vec<InvitationCode>> {
+        let query = "SELECT * FROM invitation_codes WHERE created_by_admin_id = ?";
+        let result = self.d1_service.query(query, &[inviter_id.into()]).await?;
+
+        let mut invitations = Vec::new();
+        if let Ok(results) = result.results::<serde_json::Value>() {
+            for result_row in results {
+                // Convert D1 result to InvitationCode struct
+                let invitation = InvitationCode {
+                    id: result_row
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .ok_or_else(|| ArbitrageError::parse_error("Missing id field"))?,
+                    code: result_row
+                        .get("code")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .ok_or_else(|| ArbitrageError::parse_error("Missing code field"))?,
+                    created_by_admin_id: result_row
+                        .get("created_by_admin_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .ok_or_else(|| {
+                            ArbitrageError::parse_error("Missing created_by_admin_id field")
+                        })?,
+                    expires_at: {
+                        let expires_str = result_row
+                            .get("expires_at")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                ArbitrageError::parse_error("Missing expires_at field")
+                            })?;
+                        DateTime::parse_from_rfc3339(expires_str)
+                            .map_err(|e| {
+                                ArbitrageError::parse_error(format!(
+                                    "Invalid expires_at format: {}",
+                                    e
+                                ))
+                            })?
+                            .with_timezone(&Utc)
+                    },
+                    created_at: {
+                        let created_str = result_row
+                            .get("created_at")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                ArbitrageError::parse_error("Missing created_at field")
+                            })?;
+                        DateTime::parse_from_rfc3339(created_str)
+                            .map_err(|e| {
+                                ArbitrageError::parse_error(format!(
+                                    "Invalid created_at format: {}",
+                                    e
+                                ))
+                            })?
+                            .with_timezone(&Utc)
+                    },
+                    is_active: result_row
+                        .get("is_active")
+                        .and_then(|v| v.as_bool())
+                        .ok_or_else(|| ArbitrageError::parse_error("Missing is_active field"))?,
+                    used_by_user_id: result_row
+                        .get("used_by_user_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    used_at: {
+                        if let Some(used_str) = result_row.get("used_at").and_then(|v| v.as_str()) {
+                            Some(
+                                DateTime::parse_from_rfc3339(used_str)
+                                    .map_err(|e| {
+                                        ArbitrageError::parse_error(format!(
+                                            "Invalid used_at format: {}",
+                                            e
+                                        ))
+                                    })?
+                                    .with_timezone(&Utc),
+                            )
+                        } else {
+                            None
+                        }
+                    },
+                };
+                invitations.push(invitation);
+            }
+        }
+
+        Ok(invitations)
+    }
 }

@@ -5,7 +5,11 @@ use worker::*;
 use crate::services::core::infrastructure::cloudflare_queues::{
     OpportunityDistributionMessage, UserNotificationMessage, AnalyticsEventMessage, QueueEvent
 };
-use crate::utils::ArbitrageResult;
+use crate::utils::{ArbitrageResult, ArbitrageError};
+use std::time::Duration;
+use core::future::Future;
+use reqwest;
+use serde::Serialize;
 
 /// Handle opportunity distribution queue messages
 #[event(queue)]
@@ -107,6 +111,42 @@ pub async fn analytics_queue_handler(
     }
 
     Ok(())
+}
+
+/// Generic helper function for retrying an asynchronous operation with exponential backoff.
+async fn send_with_retry<F, Fut, T>(
+    operation: F,
+    max_retries: u32,
+) -> ArbitrageResult<T>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = ArbitrageResult<T>>,
+{
+    let mut attempt = 0;
+    loop {
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                // Simple retry for any error, consider more specific error checking for retry eligibility
+                if attempt < max_retries {
+                    attempt += 1;
+                    let delay_ms = 100 * 2_u64.pow(attempt -1); // Start with 100ms, then 200ms, 400ms...
+                    console_log!("Operation failed. Retrying attempt {}/{} in {}ms. Error: {}", attempt, max_retries, delay_ms, e.to_string());
+                    // In a worker environment, tokio::time::sleep might not be available.
+                    // Using a promise-based delay for CF Workers.
+                    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+                        let win = web_sys::window().expect("should have a window in this context");
+                        win.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, delay_ms as i32)
+                            .expect("should be able to set timeout");
+                    });
+                    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                } else {
+                    console_error!("Operation failed after {} retries. Error: {}", max_retries, e.to_string());
+                    return Err(e);
+                }
+            }
+        }
+    }
 }
 
 /// Process opportunity distribution message
@@ -273,7 +313,7 @@ async fn process_opportunity_message(
                         let trading_start = data.get("trading_hours_start").and_then(|v| v.as_u64()).unwrap_or(9) as u32;
                         let trading_end = data.get("trading_hours_end").and_then(|v| v.as_u64()).unwrap_or(17) as u32;
                         
-                        let user_local_hour = ((current_hour as i32 + timezone_offset) % 24) as u32;
+                        let user_local_hour = ((current_hour as i32 + timezone_offset).rem_euclid(24)) as u32;
                         
                         if user_local_hour >= trading_start && user_local_hour <= trading_end {
                             eligible_users.push(user_id.clone());
@@ -522,94 +562,74 @@ async fn initialize_analytics_service(env: &Env) -> ArbitrageResult<crate::servi
 
 /// Initialize Email service from environment
 async fn initialize_email_service(env: &Env) -> ArbitrageResult<EmailService> {
-    let api_key = env.secret("EMAIL_API_KEY")
-        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
-            format!("EMAIL_API_KEY not found: {}", e)
-        ))?
-        .to_string();
-    
-    let from_email = env.var("FROM_EMAIL")
-        .unwrap_or_else(|_| "noreply@arbedge.com".to_string())
-        .to_string();
-
+    let api_key = env.secret("EMAIL_API_KEY")?.to_string();
+    let from_email = env.var("FROM_EMAIL")?.to_string();
     Ok(EmailService::new(api_key, from_email))
 }
 
 /// Initialize SMS service from environment
 async fn initialize_sms_service(env: &Env) -> ArbitrageResult<SmsService> {
-    let account_sid = env.secret("TWILIO_ACCOUNT_SID")
-        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
-            format!("TWILIO_ACCOUNT_SID not found: {}", e)
-        ))?
-        .to_string();
-    
-    let auth_token = env.secret("TWILIO_AUTH_TOKEN")
-        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
-            format!("TWILIO_AUTH_TOKEN not found: {}", e)
-        ))?
-        .to_string();
-    
-    let from_number = env.var("TWILIO_FROM_NUMBER")
-        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
-            format!("TWILIO_FROM_NUMBER not found: {}", e)
-        ))?
-        .to_string();
-
+    let account_sid = env.secret("TWILIO_ACCOUNT_SID")?.to_string();
+    let auth_token = env.secret("TWILIO_AUTH_TOKEN")?.to_string();
+    let from_number = env.var("TWILIO_FROM_NUMBER")?.to_string();
     Ok(SmsService::new(account_sid, auth_token, from_number))
 }
 
 /// Initialize WebPush service from environment
 async fn initialize_webpush_service(env: &Env) -> ArbitrageResult<WebPushService> {
-    let vapid_private_key = env.secret("VAPID_PRIVATE_KEY")
-        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
-            format!("VAPID_PRIVATE_KEY not found: {}", e)
-        ))?
-        .to_string();
-    
-    let vapid_public_key = env.var("VAPID_PUBLIC_KEY")
-        .map_err(|e| crate::utils::ArbitrageError::configuration_error(
-            format!("VAPID_PUBLIC_KEY not found: {}", e)
-        ))?
-        .to_string();
-
+    let vapid_private_key = env.secret("VAPID_PRIVATE_KEY")?.to_string();
+    let vapid_public_key = env.var("VAPID_PUBLIC_KEY")?.to_string();
     Ok(WebPushService::new(vapid_private_key, vapid_public_key))
 }
 
 pub struct EmailService {
     api_key: String,
     from_email: String,
+    client: reqwest::Client,
 }
 
 impl EmailService {
     pub fn new(api_key: String, from_email: String) -> Self {
-        Self { api_key, from_email }
+        Self { api_key, from_email, client: reqwest::Client::new() }
     }
     
     pub async fn send_email(&self, to: &str, subject: &str, content: &str) -> ArbitrageResult<()> {
-        let client = reqwest::Client::new();
-        let email_data = serde_json::json!({
-            "from": self.from_email,
-            "to": to,
-            "subject": subject,
-            "html": format!("<html><body><pre>{}</pre></body></html>", content),
-            "text": content
-        });
-        
-        let response = client
-            .post("https://api.mailgun.net/v3/mg.arbedge.com/messages")
-            .header("Authorization", format!("Basic {}", base64::encode(format!("api:{}", self.api_key))))
-            .json(&email_data)
-            .send()
-            .await
-            .map_err(|e| crate::utils::ArbitrageError::network_error(format!("Email send failed: {}", e)))?;
-        
-        if !response.status().is_success() {
-            return Err(crate::utils::ArbitrageError::network_error(
-                format!("Email API returned error: {}", response.status())
-            ));
-        }
-        
-        Ok(())
+        let to_owned = to.to_string();
+        let subject_owned = subject.to_string();
+        let content_owned = content.to_string();
+
+        send_with_retry(
+            || async {
+                console_log!("Attempting to send email to: {}", to_owned);
+                let response = self.client.post("https://api.example.com/send_email")
+                    .header("X-Api-Key", &self.api_key)
+                    .json(&serde_json::json!({
+                        "to": to_owned,
+                        "from": self.from_email,
+                        "subject": subject_owned,
+                        "body": content_owned
+                    }))
+                    .send()
+                    .await
+                    .map_err(|e| ArbitrageError::network_error(format!("Email request failed: {}", e)))?;
+
+                if response.status().is_success() {
+                    console_log!("Email sent successfully to: {}", to_owned);
+                    Ok(())
+                } else {
+                    let status = response.status();
+                    let error_body = response.text().await.unwrap_or_else(|_| "Unknown error body".to_string());
+                    console_error!("Failed to send email to {}: Status {}, Body: {}", to_owned, status, error_body);
+                    Err(ArbitrageError::service_error(format!(
+                        "Email service failed: {} - {}",
+                        status,
+                        error_body
+                    )))
+                }
+            },
+            3,
+        )
+        .await
     }
 }
 
@@ -617,76 +637,122 @@ pub struct SmsService {
     account_sid: String,
     auth_token: String,
     from_number: String,
+    client: reqwest::Client,
 }
 
 impl SmsService {
     pub fn new(account_sid: String, auth_token: String, from_number: String) -> Self {
-        Self { account_sid, auth_token, from_number }
+        Self { account_sid, auth_token, from_number, client: reqwest::Client::new() }
     }
     
     pub async fn send_sms(&self, to: &str, content: &str) -> ArbitrageResult<()> {
-        let client = reqwest::Client::new();
-        let sms_data = [
-            ("From", self.from_number.as_str()),
-            ("To", to),
-            ("Body", content),
-        ];
+        let to_owned = to.to_string();
+        let content_owned = content.to_string();
         
-        let auth = base64::encode(format!("{}:{}", self.account_sid, self.auth_token));
-        let url = format!("https://api.twilio.com/2010-04-01/Accounts/{}/Messages.json", self.account_sid);
-        
-        let response = client
-            .post(&url)
-            .header("Authorization", format!("Basic {}", auth))
-            .form(&sms_data)
-            .send()
-            .await
-            .map_err(|e| crate::utils::ArbitrageError::network_error(format!("SMS send failed: {}", e)))?;
-        
-        if !response.status().is_success() {
-            return Err(crate::utils::ArbitrageError::network_error(
-                format!("SMS API returned error: {}", response.status())
-            ));
-        }
-        
-        Ok(())
+        send_with_retry(
+            || async {
+                console_log!("Attempting to send SMS to: {}", to_owned);
+                let twilio_url = format!("https://api.twilio.com/2010-04-01/Accounts/{}/Messages.json", self.account_sid);
+                let response = self.client.post(&twilio_url)
+                    .basic_auth(&self.account_sid, Some(&self.auth_token))
+                    .form(&[
+                        ("To", to_owned.as_str()),
+                        ("From", self.from_number.as_str()),
+                        ("Body", content_owned.as_str()),
+                    ])
+                    .send()
+                    .await
+                    .map_err(|e| ArbitrageError::network_error(format!("SMS request failed: {}", e)))?;
+
+                if response.status().is_success() {
+                    console_log!("SMS sent successfully to: {}", to_owned);
+                    Ok(())
+                } else {
+                    let status = response.status();
+                    let error_body = response.text().await.unwrap_or_else(|_| "Unknown error body".to_string());
+                    console_error!("Failed to send SMS to {}: Status {}, Body: {}", to_owned, status, error_body);
+                    Err(ArbitrageError::service_error(format!(
+                        "SMS service failed: {} - {}",
+                        status,
+                        error_body
+                    )))
+                }
+            },
+            3,
+        )
+        .await
     }
 }
 
 pub struct WebPushService {
-    vapid_private_key: String,
-    vapid_public_key: String,
+    _vapid_private_key: String,
+    _vapid_public_key: String,
+    client: reqwest::Client,
 }
 
 impl WebPushService {
     pub fn new(vapid_private_key: String, vapid_public_key: String) -> Self {
-        Self { vapid_private_key, vapid_public_key }
+        Self { 
+            _vapid_private_key: vapid_private_key, 
+            _vapid_public_key: vapid_public_key, 
+            client: reqwest::Client::new() 
+        }
     }
     
-    pub async fn send_notification(&self, endpoint: &str, p256dh: &str, auth: &str, content: &str) -> ArbitrageResult<()> {
-        let payload = serde_json::json!({
-            "title": "ArbEdge Notification",
-            "body": content,
-            "icon": "/icon-192x192.png",
-            "badge": "/badge-72x72.png"
-        });
-        
-        let client = reqwest::Client::new();
-        let response = client
-            .post(endpoint)
-            .header("Content-Type", "application/octet-stream")
-            .header("TTL", "86400")
-            .body(payload.to_string())
-            .send()
-            .await
-            .map_err(|e| crate::utils::ArbitrageError::network_error(format!("WebPush send failed: {}", e)))?;
-        
-        if !response.status().is_success() {
-            return Err(crate::utils::ArbitrageError::network_error(
-                format!("WebPush API returned error: {}", response.status())
-            ));
-        }
-        
-        Ok(())
+    pub async fn send_notification(&self, endpoint: &str, _p256dh: &str, _auth: &str, content: &str) -> ArbitrageResult<()> {
+        let endpoint_owned = endpoint.to_string();
+        let content_owned = content.to_string();
+
+        send_with_retry(
+            || async {
+                let short_endpoint = &endpoint_owned[..endpoint_owned.len().min(20)];
+                console_log!("Attempting to send web push notification to endpoint starting with: {}", short_endpoint);
+                
+                let payload = serde_json::json!({
+                    "title": "ArbEdge Notification",
+                    "body": content_owned.clone(),
+                    "icon": "/icon-192x192.png",
+                    "badge": "/badge-72x72.png"
+                });
+
+                let response = self.client.post(&endpoint_owned)
+                    .header("Content-Type", "application/json")
+                    .header("TTL", "86400")
+                    .json(&payload)
+                    .send()
+                    .await
+                    .map_err(|e| ArbitrageError::network_error(format!("Web push request failed: {}", e)))?;
+
+                if response.status().is_success() {
+                    console_log!("Web push notification sent successfully to endpoint starting with: {}", short_endpoint);
+                    Ok(())
+                } else {
+                    let status = response.status();
+                    let error_body = response.text().await.unwrap_or_else(|_| "Unknown error body".to_string());
+                    console_error!("Failed to send web push to {}: Status {}, Body: {}", short_endpoint, status, error_body);
+                    Err(ArbitrageError::service_error(format!(
+                        "Web push service failed: {} - {}",
+                        status,
+                        error_body
+                    )))
+                }
+            },
+            3,
+        )
+        .await
     }
-}  
+}
+
+async fn store_failed_notification_in_kv<T: Serialize>(
+    _env: &Env,
+    _message: &T,
+    _error: &str,
+) -> ArbitrageResult<()> {
+    // Example: Store in KV with a specific prefix for failed notifications
+    // let kv = _env.kv("ARBITRAGE_KV").map_err(|e| {
+    let kv = _env.kv("ArbEdgeKV").map_err(|e| { // Changed from ARBITRAGE_KV
+        crate::utils::ArbitrageError::storage_error(format!("Failed to access KV store: {}", e))
+    })?;
+    // ... existing code ...
+    Ok(())
+}

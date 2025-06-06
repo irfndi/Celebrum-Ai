@@ -1,6 +1,8 @@
 #![allow(unused_imports, unused_variables, unused_mut, dead_code)]
 
-use arb_edge::services::core::infrastructure::d1_database::D1Service;
+use arb_edge::services::core::infrastructure::database_core::DatabaseCore;
+// TODO: Find correct location for D1Service
+// use arb_edge::services::core::infrastructure::database_core::D1Service; // Original problematic import
 use arb_edge::services::core::user::user_profile::UserProfileService;
 use arb_edge::services::interfaces::telegram::telegram::{TelegramConfig, TelegramService};
 use arb_edge::types::{CommandPermission, SubscriptionTier, UserProfile};

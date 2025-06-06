@@ -31,14 +31,6 @@ pub enum OpportunitySource {
     Hybrid,
 }
 
-/// Type of opportunity to generate
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum OpportunityType {
-    Arbitrage,
-    Technical,
-    Both,
-}
-
 /// Configuration for opportunity detection and processing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpportunityConfig {

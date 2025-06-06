@@ -19,17 +19,11 @@ New PR comments have been detected from commit f449cf6 identifying 10 critical c
 
 ## High-level Task Breakdown
 
-### Task 1: Fix GlobalOpportunity Struct Conflicts 🔄 IN PROGRESS (80% Complete)
-**Success Criteria**: 
-- ✅ Remove redundant opportunity fields (keep typed enum approach)
-- ✅ Remove duplicate expiration timestamp fields (keep one consistent field)
-- ✅ Add validation logic to ensure exactly one opportunity type is set
-- ❌ Fix compilation error (brace mismatch)
-- ❌ Update remaining files using old structure
-- ❌ All existing tests pass
-All Task one is Pass because We refactored the code by modularization.
-
-**Current Status**: Core OpportunityData enum and GlobalOpportunity refactoring complete. Need to fix compilation error and update remaining files.
+### Task 1: Fix GlobalOpportunity Struct Conflicts ✅ RE-EVALUATED
+**Original Issue**: Brace mismatch in `global_opportunity.rs`.
+**Current Finding**: The file `/Users/irfandi/Coding/2025/ArbEdge/src/services/core/trading/global_opportunity.rs` is not found. This suggests it was removed or refactored during the "Infrastructure Services Modularization", particularly the "Opportunity Services Module".
+**Revised Status**: The specific error in `global_opportunity.rs` is no longer applicable as the file does not exist. The broader goal of refactoring `GlobalOpportunity` seems to have been absorbed into Task 12 ("Eliminate Opportunity Service Redundancy"). Any remaining compilation issues related to opportunity structures are likely part of the 105 errors mentioned in Task 12.
+**Next Action**: Focus on resolving compilation errors identified by `cargo check`, which are likely related to Task 12.
 
 ### Task 2: Refactor User Request Structs Duplication ✅ COMPLETED
 **Success Criteria**:
@@ -163,7 +157,7 @@ Since the new PR comments don't relate to the deleted files, we could:
 - [ ] Task 13: Post-Modularization CI Fixes 🆕 **CRITICAL PRIORITY** ⚠️ (100% Complete) ✅
 
 ### ❌ **BLOCKED**
-- Task 1: Compilation error due to brace mismatch in global_opportunity.rs (requires manual intervention)
+- Task 12: Eliminate Opportunity Service Redundancy 🆕 **HIGH PRIORITY** (95% complete - architecture created, blocked by 105 compilation errors after modularization). This is the primary blocker for CI.
 
 ## Current Status / Progress Tracking
 

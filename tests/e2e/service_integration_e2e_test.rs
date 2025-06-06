@@ -85,23 +85,39 @@ fn create_test_market_data(exchange: &str, pair: &str, price: f64) -> serde_json
 /// Helper function to create test position
 fn create_test_position(user_id: String, pair: String, size: f64, entry_price: f64) -> Position {
     Position {
+        info: json!({
+            "position_id": format!("pos_{}_{}_{}",
+                pair,
+                user_id,
+                chrono::Utc::now().timestamp_millis()
+            )
+        }),
         id: Some(format!(
             "pos_{}_{}",
             user_id,
             chrono::Utc::now().timestamp_millis()
         )),
         symbol: pair,
-        side: PositionSide::Long,
-        size,
-        notional: size * entry_price,
-        entry_price,
+        side: "long".to_string(), // String, not PositionSide enum
+        amount: size,             // Use amount instead of size
+        contracts: None,
+        contract_size: None,
+        entry_price: Some(entry_price), // Option<f64>
         mark_price: Some(entry_price),
-        unrealized_pnl: 0.0,
-        realized_pnl: 0.0,
-        leverage: 1.0,
-        margin: size * entry_price,
-        timestamp: Some(chrono::Utc::now()),
-        datetime: Some(chrono::Utc::now().to_rfc3339()),
+        notional: Some(size * entry_price), // Option<f64>
+        leverage: Some(1.0),                // Option<f64>
+        collateral: None,
+        initial_margin: None,
+        initial_margin_percentage: None,
+        maintenance_margin: None,
+        maintenance_margin_percentage: None,
+        unrealized_pnl: Some(0.0), // Option<f64>
+        realized_pnl: Some(0.0),   // Option<f64>
+        percentage: None,
+        isolated: None,
+        hedged: None,
+        timestamp: chrono::Utc::now().timestamp_millis() as u64,
+        datetime: chrono::Utc::now().to_rfc3339(),
     }
 }
 
@@ -523,7 +539,7 @@ mod service_integration_e2e_tests {
             "   Total Portfolio Value: ${:.2}",
             positions
                 .iter()
-                .map(|p| p.size * p.entry_price)
+                .map(|p| p.amount * p.entry_price.unwrap_or(0.0))
                 .sum::<f64>()
         );
 
@@ -539,8 +555,9 @@ mod service_integration_e2e_tests {
             for (pair, new_price) in &market_updates {
                 if pos.symbol == *pair {
                     pos.mark_price = Some(*new_price);
-                    pos.unrealized_pnl = (new_price - pos.entry_price) * pos.size;
-                    pos.timestamp = Some(chrono::Utc::now());
+                    pos.unrealized_pnl =
+                        Some((new_price - pos.entry_price.unwrap_or(0.0)) * pos.amount);
+                    pos.timestamp = chrono::Utc::now().timestamp_millis() as u64;
 
                     // Add market data for this update
                     let market_data = create_test_market_data("binance", pair, *new_price);
@@ -556,10 +573,14 @@ mod service_integration_e2e_tests {
 
         println!("✅ Step 2: Market price updates and PnL calculation");
         for pos in &updated_positions {
-            let pnl_percentage = (pos.unrealized_pnl / (pos.entry_price * pos.size)) * 100.0;
+            let pnl_percentage = (pos.unrealized_pnl.unwrap_or(0.0)
+                / (pos.entry_price.unwrap_or(1.0) * pos.amount))
+                * 100.0;
             println!(
                 "   {}: ${:.2} PnL ({:.1}%)",
-                pos.symbol, pos.unrealized_pnl, pnl_percentage
+                pos.symbol,
+                pos.unrealized_pnl.unwrap_or(0.0),
+                pnl_percentage
             );
         }
 
@@ -567,9 +588,12 @@ mod service_integration_e2e_tests {
         let mut risk_alerts = Vec::new();
         let total_portfolio_value: f64 = updated_positions
             .iter()
-            .map(|p| p.size * p.mark_price.unwrap_or(p.entry_price))
+            .map(|p| p.amount * p.mark_price.unwrap_or(p.entry_price.unwrap_or(0.0)))
             .sum();
-        let total_unrealized_pnl: f64 = updated_positions.iter().map(|p| p.unrealized_pnl).sum();
+        let total_unrealized_pnl: f64 = updated_positions
+            .iter()
+            .map(|p| p.unrealized_pnl.unwrap_or(0.0))
+            .sum();
         let portfolio_pnl_percentage = (total_unrealized_pnl / total_portfolio_value) * 100.0;
 
         // Risk thresholds
@@ -578,22 +602,27 @@ mod service_integration_e2e_tests {
 
         // Check individual position risks
         for pos in &updated_positions {
-            let position_pnl_percentage =
-                (pos.unrealized_pnl / (pos.entry_price * pos.size)) * 100.0;
+            let entry_price_val = pos.entry_price.unwrap_or(0.0); // Assuming long side for PnL calc
+            let size_val = pos.amount;
+            let position_pnl_percentage = if entry_price_val != 0.0 && size_val != 0.0 {
+                (pos.unrealized_pnl.unwrap_or(0.0) / (entry_price_val * size_val)) * 100.0
+            } else {
+                0.0 // Avoid division by zero
+            };
 
             if position_pnl_percentage < -position_risk_threshold {
                 let alert = format!(
                     "🚨 HIGH RISK: {} position down {:.1}% (${:.2} loss)",
                     pos.symbol,
                     position_pnl_percentage.abs(),
-                    pos.unrealized_pnl.abs()
+                    pos.unrealized_pnl.unwrap_or(0.0).abs()
                 );
                 risk_alerts.push(alert.clone());
                 test_env.send_notification(alert);
             } else if position_pnl_percentage > 15.0 {
                 let alert = format!(
                     "🎉 PROFIT ALERT: {} position up {:.1}% (${:.2} gain) - Consider taking profits",
-                    pos.symbol, position_pnl_percentage, pos.unrealized_pnl
+                    pos.symbol, position_pnl_percentage, pos.unrealized_pnl.unwrap_or(0.0)
                 );
                 risk_alerts.push(alert.clone());
                 test_env.send_notification(alert);
@@ -636,15 +665,16 @@ mod service_integration_e2e_tests {
 
         // Position-specific metrics
         for (i, pos) in updated_positions.iter().enumerate() {
-            let position_pnl_percentage =
-                (pos.unrealized_pnl / (pos.entry_price * pos.size)) * 100.0;
+            let position_pnl_percentage = (pos.unrealized_pnl.unwrap_or(0.0)
+                / (pos.entry_price.unwrap_or(1.0) * pos.amount))
+                * 100.0;
             test_env.record_metric(
                 format!("position_{}_pnl_percentage", i),
                 position_pnl_percentage,
             );
             test_env.record_metric(
                 format!("position_{}_value_usd", i),
-                pos.size * pos.mark_price.unwrap_or(pos.entry_price),
+                pos.amount * pos.mark_price.unwrap_or(pos.entry_price.unwrap_or(0.0)),
             );
         }
 
@@ -658,13 +688,16 @@ mod service_integration_e2e_tests {
         updated_user.updated_at = chrono::Utc::now().timestamp_millis() as u64;
 
         // Add position summary to user metadata
-        updated_user.profile_metadata = Some(json!({
-            "active_positions": updated_positions.len(),
-            "portfolio_value_usd": total_portfolio_value,
-            "unrealized_pnl_usd": total_unrealized_pnl,
-            "portfolio_pnl_percentage": portfolio_pnl_percentage,
-            "last_risk_check": chrono::Utc::now().timestamp_millis()
-        }));
+        updated_user.profile_metadata = Some(
+            json!({
+                "active_positions": updated_positions.len(),
+                "portfolio_value_usd": total_portfolio_value,
+                "unrealized_pnl_usd": total_unrealized_pnl,
+                "portfolio_pnl_percentage": portfolio_pnl_percentage,
+                "last_risk_check": chrono::Utc::now().timestamp_millis()
+            })
+            .to_string(),
+        );
 
         test_env
             .users
@@ -677,8 +710,13 @@ mod service_integration_e2e_tests {
         let mut automated_actions = Vec::new();
 
         for pos in &updated_positions {
-            let position_pnl_percentage =
-                (pos.unrealized_pnl / (pos.entry_price * pos.size)) * 100.0;
+            let entry_price_val = pos.entry_price.unwrap_or(0.0); // Assuming long side for PnL calc
+            let size_val = pos.amount;
+            let position_pnl_percentage = if entry_price_val != 0.0 && size_val != 0.0 {
+                (pos.unrealized_pnl.unwrap_or(0.0) / (entry_price_val * size_val)) * 100.0
+            } else {
+                0.0 // Avoid division by zero
+            };
 
             // Simulate automated stop-loss triggers
             if position_pnl_percentage < -15.0 {
@@ -987,6 +1025,10 @@ mod service_integration_e2e_tests {
                 let confidence_threshold = match user.subscription.tier {
                     SubscriptionTier::Free => 0.9,
                     SubscriptionTier::Basic => 0.8,
+                    SubscriptionTier::Beta => 0.75,
+                    SubscriptionTier::Paid => 0.7,
+                    SubscriptionTier::Pro => 0.7,
+                    SubscriptionTier::Admin => 0.6,
                     SubscriptionTier::Premium | SubscriptionTier::Enterprise => 0.6,
                     SubscriptionTier::SuperAdmin => 0.5,
                 };

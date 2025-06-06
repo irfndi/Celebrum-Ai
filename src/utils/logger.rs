@@ -4,12 +4,8 @@ use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
-use worker::console_log;
 
-#[cfg(all(
-    target_arch = "wasm32",
-    any(debug_assertions, feature = "enable-logging")
-))]
+#[cfg(target_arch = "wasm32")]
 use worker::console_log;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -20,7 +16,8 @@ macro_rules! console_log {
 }
 
 /// Log levels supported by the logger
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(crate = "::serde")]
 pub enum LogLevel {
     Error = 0,
     Warn = 1,
@@ -170,10 +167,23 @@ fn get_sanitizer() -> &'static DataSanitizer {
 }
 
 /// Simple logger for Cloudflare Workers
-#[derive(Clone)]
+#[derive(Clone, Debug)] // Removed Serialize, Deserialize
 pub struct Logger {
     level: LogLevel,
+    // Potentially other fields like output target (console, file, etc.)
+    // For simplicity, we'll keep it basic for now.
+    // Consider adding a writer field: writer: Arc<Mutex<dyn Write + Send>>,
+    // or using a logging facade like `log` or `tracing`.
     context: HashMap<String, Value>,
+}
+
+impl Default for Logger {
+    fn default() -> Self {
+        Self {
+            level: LogLevel::Info,   // Default log level
+            context: HashMap::new(), // Initialize context as empty
+        }
+    }
 }
 
 impl Logger {
@@ -364,23 +374,13 @@ impl Logger {
     }
 
     /// Store log to secure audit log (production-only)
-    /// This method implements secure audit logging to encrypted R2 storage
+    /// This method implements secure audit logging to encrypted storage
+    /// Currently disabled for WASM compatibility - to be implemented later
     #[cfg(not(any(debug_assertions, feature = "enable-logging")))]
-    fn store_to_audit_log(&self, sanitized_message: &str) {
-        let audit_entry = AuditLogEntry {
-            timestamp: chrono::Utc::now(),
-            level: self.level.clone(),
-            message: sanitized_message.to_string(),
-            checksum: calculate_message_checksum(sanitized_message),
-        };
-
-        if let Ok(encrypted_entry) = encrypt_audit_entry(&audit_entry) {
-            tokio::spawn(async move {
-                if let Err(e) = store_encrypted_audit_log(encrypted_entry).await {
-                    eprintln!("Failed to store audit log: {}", e);
-                }
-            });
-        }
+    fn store_to_audit_log(&self, _sanitized_message: &str) {
+        // TODO: Implement secure audit logging for production
+        // This requires implementing AuditLogEntry, encryption, and storage
+        // Currently disabled for WASM compatibility
     }
 }
 

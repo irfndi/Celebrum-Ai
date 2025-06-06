@@ -1,4 +1,5 @@
-use arb_edge::services::interfaces::telegram::telegram::{TelegramConfig, TelegramService};
+use arb_edge::services::interfaces::telegram::core::bot_client::TelegramConfig;
+use arb_edge::services::interfaces::telegram::telegram::TelegramService;
 use serde_json::json;
 
 /// E2E Webhook Tests for Session Management Integration
@@ -51,10 +52,7 @@ async fn test_e2e_session_creation_via_start_command() {
 
     // Validate response
     assert!(result.is_ok());
-    let response = result.unwrap();
-    assert!(response.is_some());
-
-    let response_text = response.unwrap();
+    let response_text = result.unwrap();
     assert!(response_text.contains("Welcome to ArbEdge"));
 
     // In real implementation with SessionManagementService, this would also:
@@ -171,10 +169,9 @@ async fn test_e2e_session_exempt_commands() {
         assert!(result.is_ok());
 
         let response = result.unwrap();
-        assert!(response.is_some());
 
         // These commands should always work regardless of session state
-        let response_text = response.unwrap();
+        let response_text = response;
         assert!(!response_text.contains("session required"));
     }
 }
@@ -243,8 +240,7 @@ async fn test_e2e_callback_query_session_validation() {
         assert!(result.is_ok());
 
         let response = result.unwrap();
-        assert!(response.is_some());
-        assert_eq!(response.unwrap(), "OK");
+        assert_eq!(response, "OK");
     }
 }
 
@@ -361,9 +357,8 @@ async fn test_e2e_group_chat_session_restrictions() {
         assert!(result.is_ok());
 
         let response = result.unwrap();
-        assert!(response.is_some());
 
-        let response_text = response.unwrap();
+        let response_text = response;
         // Should contain security notice for trading commands in groups
         assert!(response_text.contains("Security Notice") || response_text.contains("private"));
     }

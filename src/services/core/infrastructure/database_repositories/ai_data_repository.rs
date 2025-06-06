@@ -281,8 +281,8 @@ impl AIDataRepository {
 
         let success = result
             .meta()
-            .map(|meta| meta.unwrap().changes.unwrap_or(0) > 0)
-            .unwrap_or(false);
+            .map_or(0, |m| m.map_or(0, |meta| meta.rows_written.unwrap_or(0)))
+            > 0;
 
         if success && self.config.enable_caching {
             let _ = self.invalidate_insight_cache(user_id).await;

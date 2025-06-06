@@ -10,10 +10,11 @@ use crate::services::interfaces::telegram::{UserInfo, UserPermissions};
 use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::services::core::opportunities::opportunity_engine::OpportunityEngine;
 use crate::services::core::opportunities::opportunity_distribution::OpportunityDistributionService;
+use crate::types::{GlobalOpportunity as CanonicalGlobalOpportunity, OpportunityData}; // Adjusted imports
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use worker::console_log;
 use std::sync::Arc;
-use serde_json::Value;
+// serde_json::Value is not directly used in the provided snippet after refactor, consider removing if not used elsewhere in file
 
 /// Handle /opportunities command - View global trading opportunities
 pub async fn handle_opportunities_command(
@@ -107,20 +108,17 @@ async fn check_daily_opportunity_limit(
 async fn get_global_opportunities(
     service_container: &Arc<ServiceContainer>,
     user_info: &UserInfo,
-    permissions: &UserPermissions,
-) -> ArbitrageResult<Vec<GlobalOpportunity>> {
+    permissions: &UserPermissions, // Renamed _permissions back to permissions as it's used
+) -> ArbitrageResult<Vec<CanonicalGlobalOpportunity>> { // Changed return type
     console_log!("🌍 Fetching global opportunities for user {}", user_info.user_id);
 
-    // Get opportunity engine
     let opportunity_engine = service_container
         .get_opportunity_engine()
         .ok_or_else(|| ArbitrageError::service_unavailable("Opportunity engine not available"))?;
 
-    // Get opportunities based on user's subscription tier
     let limit = if permissions.subscription_tier == "free" { 3 } else { 10 };
     
-    // Fetch opportunities using our global API keys
-    let opportunities = opportunity_engine
+    let opportunities: Vec<CanonicalGlobalOpportunity> = opportunity_engine
         .get_global_opportunities(limit)
         .await
         .unwrap_or_else(|e| {
@@ -134,13 +132,12 @@ async fn get_global_opportunities(
 
 /// Format opportunities message
 async fn format_opportunities_message(
-    opportunities: &[GlobalOpportunity],
+    opportunities: &[CanonicalGlobalOpportunity], // Changed type
     permissions: &UserPermissions,
     remaining_limit: i32,
 ) -> ArbitrageResult<String> {
     let mut message = String::from("💰 *Global Trading Opportunities*\n\n");
     
-    // Add user status
     message.push_str(&format!(
         "👤 *Your Status*: {} | Remaining: {}\n\n",
         permissions.subscription_tier.to_uppercase(),
@@ -154,14 +151,24 @@ async fn format_opportunities_message(
         return Ok(message);
     }
 
-    // Add opportunities
     for (index, opportunity) in opportunities.iter().enumerate() {
         message.push_str(&format!("🚀 *Opportunity {}*\n", index + 1));
-        message.push_str(&format!("💰 Symbol: `{}`\n", opportunity.symbol));
-        message.push_str(&format!("📊 Profit: `{:.2}%`\n", opportunity.profit_percentage));
-        message.push_str(&format!("🏪 Exchanges: {} ↔️ {}\n", opportunity.buy_exchange, opportunity.sell_exchange));
-        message.push_str(&format!("💵 Min Amount: `${:.2}`\n", opportunity.min_amount));
-        message.push_str(&format!("⏰ Updated: {} ago\n\n", format_time_ago(opportunity.updated_at)));
+        message.push_str(&format!("💰 Symbol: `{}`\n", opportunity.get_pair()));
+
+        let profit_str = match &opportunity.opportunity_data {
+            OpportunityData::Arbitrage(arb) => format!("{:.2}%", arb.profit_percentage),
+            OpportunityData::Technical(tech) => format!("{:.2}% (tech return)", tech.expected_return_percentage),
+            OpportunityData::AI(ai) => format!("{:.2}% (AI return)", ai.expected_return_percentage),
+        };
+        message.push_str(&format!("📊 Profit: `{}`\n", profit_str));
+
+        let (buy_ex, sell_ex) = match &opportunity.opportunity_data {
+            OpportunityData::Arbitrage(arb) => (arb.buy_exchange.clone(), arb.sell_exchange.clone()),
+            _ => ("N/A".to_string(), "N/A".to_string()),
+        };
+        message.push_str(&format!("🏪 Exchanges: {} ↔️ {}\n", buy_ex, sell_ex));
+        // Min Amount removed
+        message.push_str(&format!("⏰ Updated: {} ago\n\n", format_time_ago_u64(opportunity.created_at)));
     }
 
     // Add action buttons info
@@ -233,7 +240,6 @@ async fn get_beta_opportunities(
 ) -> ArbitrageResult<String> {
     console_log!("🧪 Beta opportunities for user {}", user_info.user_id);
 
-    // Get enhanced opportunities for beta users
     let opportunities = get_global_opportunities(service_container, user_info, permissions).await?;
     
     let mut message = String::from("🧪 *Beta Enhanced Opportunities*\n\n");
@@ -244,16 +250,38 @@ async fn get_beta_opportunities(
         return Ok(message);
     }
 
-    // Enhanced formatting for beta users
     for (index, opportunity) in opportunities.iter().enumerate() {
         message.push_str(&format!("🚀 *Enhanced Opportunity {}*\n", index + 1));
-        message.push_str(&format!("💰 Symbol: `{}`\n", opportunity.symbol));
-        message.push_str(&format!("📊 Profit: `{:.2}%`\n", opportunity.profit_percentage));
-        message.push_str(&format!("🏪 Exchanges: {} ↔️ {}\n", opportunity.buy_exchange, opportunity.sell_exchange));
-        message.push_str(&format!("💵 Min Amount: `${:.2}`\n", opportunity.min_amount));
-        message.push_str(&format!("🎯 Risk Score: `{}/10`\n", opportunity.risk_score.unwrap_or(5)));
-        message.push_str(&format!("📈 Confidence: `{:.1}%`\n", opportunity.confidence.unwrap_or(75.0)));
-        message.push_str(&format!("⏰ Updated: {} ago\n\n", format_time_ago(opportunity.updated_at)));
+        message.push_str(&format!("💰 Symbol: `{}`\n", opportunity.get_pair()));
+
+        let profit_str = match &opportunity.opportunity_data {
+            OpportunityData::Arbitrage(arb) => format!("{:.2}%", arb.profit_percentage),
+            OpportunityData::Technical(tech) => format!("{:.2}% (tech return)", tech.expected_return_percentage),
+            OpportunityData::AI(ai) => format!("{:.2}% (AI return)", ai.expected_return_percentage),
+        };
+        message.push_str(&format!("📊 Profit: `{}`\n", profit_str));
+
+        let (buy_ex, sell_ex) = match &opportunity.opportunity_data {
+            OpportunityData::Arbitrage(arb) => (arb.buy_exchange.clone(), arb.sell_exchange.clone()),
+            _ => ("N/A".to_string(), "N/A".to_string()),
+        };
+        message.push_str(&format!("🏪 Exchanges: {} ↔️ {}\n", buy_ex, sell_ex));
+        // Min Amount removed
+
+        let risk_display_str = match &opportunity.opportunity_data {
+            OpportunityData::Arbitrage(arb) => arb.risk_level.clone(),
+            OpportunityData::Technical(tech) => tech.risk_level.clone(),
+            OpportunityData::AI(ai) => ai.risk_level.clone(),
+        };
+        message.push_str(&format!("🎯 Risk Level: `{}`\n", risk_display_str));
+
+        let confidence_display_val = match &opportunity.opportunity_data {
+            OpportunityData::Arbitrage(arb) => arb.confidence_score, 
+            OpportunityData::Technical(tech) => tech.confidence, 
+            OpportunityData::AI(ai) => ai.confidence_score, 
+        };
+        message.push_str(&format!("📈 Confidence: `{:.1}%`\n", confidence_display_val * 100.0));
+        message.push_str(&format!("⏰ Updated: {} ago\n\n", format_time_ago_u64(opportunity.created_at)));
     }
 
     message.push_str("🧪 *Beta Enhancement*\n");
@@ -321,9 +349,21 @@ async fn get_beta_analytics(
 }
 
 /// Format time ago helper
-fn format_time_ago(timestamp: chrono::DateTime<chrono::Utc>) -> String {
+fn format_time_ago_u64(timestamp_ms: u64) -> String { // Renamed and changed signature
+    use chrono::{NaiveDateTime, DateTime, Utc}; 
+    if timestamp_ms == 0 {
+        return "long ago".to_string(); 
+    }
+    let secs = (timestamp_ms / 1000) as i64;
+    let nanos = ((timestamp_ms % 1000) * 1_000_000) as u32;
+    
+    let dt = match NaiveDateTime::from_timestamp_opt(secs, nanos) {
+        Some(naive_dt) => DateTime::<Utc>::from_naive_utc_and_offset(naive_dt, Utc),
+        None => return "invalid date".to_string(),
+    };
+
     let now = chrono::Utc::now();
-    let duration = now.signed_duration_since(timestamp);
+    let duration = now.signed_duration_since(dt);
     
     if duration.num_minutes() < 1 {
         "just now".to_string()
@@ -336,15 +376,5 @@ fn format_time_ago(timestamp: chrono::DateTime<chrono::Utc>) -> String {
     }
 }
 
-// Temporary structure for global opportunities (will be replaced with actual types)
-#[derive(Debug, Clone)]
-pub struct GlobalOpportunity {
-    pub symbol: String,
-    pub profit_percentage: f64,
-    pub buy_exchange: String,
-    pub sell_exchange: String,
-    pub min_amount: f64,
-    pub risk_score: Option<u8>,
-    pub confidence: Option<f64>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
-} 
+// The temporary GlobalOpportunity struct previously here has been removed
+// and all references now use crate::types::GlobalOpportunity (aliased as CanonicalGlobalOpportunity).

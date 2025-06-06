@@ -512,11 +512,17 @@ pub mod utils {
     /// Create development financial configuration
     pub fn create_development_config() -> FinancialModuleConfig {
         FinancialModuleConfig {
+            enable_real_time_monitoring: true,
+            enable_portfolio_analytics: false,
+            enable_fund_optimization: false,
+            enable_risk_assessment: true,
             update_interval_seconds: 60,
+            cache_ttl_seconds: 600,
             batch_processing_size: 25,
             max_concurrent_operations: 10,
-            enable_fund_optimization: false,
-            ..Default::default()
+            balance_tracker_config: BalanceTrackerConfig::default(),
+            fund_analyzer_config: FundAnalyzerConfig::default(),
+            financial_coordinator_config: FinancialCoordinatorConfig::default(),
         }
     }
 

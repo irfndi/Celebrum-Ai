@@ -100,13 +100,13 @@ impl NotificationType {
 }
 
 /// Priority levels for notifications
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationPriority {
-    Critical,
-    High,
-    Medium,
     Low,
+    Medium,
+    High,
+    Critical,
 }
 
 impl NotificationPriority {

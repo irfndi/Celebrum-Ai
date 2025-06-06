@@ -104,6 +104,7 @@ pub struct AiCallRateLimit {
 /// AI-Exchange Router Service
 /// Implements secure API call routing through user's AI services
 /// Stores audit trails in D1 and uses KV for caching and rate limiting
+#[derive(Clone)]
 pub struct AiExchangeRouterService {
     config: AiExchangeRouterConfig,
     ai_service: AiIntegrationService,
@@ -804,19 +805,19 @@ mod tests {
         );
 
         // Create GlobalOpportunity from arbitrage opportunity
+        let now = chrono::Utc::now().timestamp_millis() as u64;
         let global_opp = GlobalOpportunity {
             id: uuid::Uuid::new_v4().to_string(),
+            source: OpportunitySource::SystemGenerated, // Added missing field
             opportunity_type: OpportunitySource::SystemGenerated,
-            arbitrage_opportunity: arbitrage_opp.clone(),
+            opportunity_data: OpportunityData::Arbitrage(arbitrage_opp.clone()),
             priority: 8,
+            priority_score: 8.5,
             target_users: vec!["user1".to_string()],
             distribution_strategy: DistributionStrategy::FirstComeFirstServe,
-            created_at: chrono::Utc::now().timestamp() as u64,
-            expires_at: chrono::Utc::now().timestamp() as u64 + 3600,
-            opportunity_data: OpportunityData::Arbitrage(arbitrage_opp),
-            source: OpportunitySource::SystemGenerated,
-            detection_timestamp: chrono::Utc::now().timestamp() as u64,
-            priority_score: 8.5,
+            created_at: now,
+            detection_timestamp: now,
+            expires_at: now + 3_600_000, // 1 hour in milliseconds
             ai_enhanced: false,
             ai_confidence_score: None,
             ai_insights: None,
@@ -1209,25 +1210,28 @@ mod tests {
                 0.0007, // confidence as f64
             );
 
+            let now = chrono::Utc::now().timestamp_millis() as u64;
             GlobalOpportunity {
                 id: uuid::Uuid::new_v4().to_string(),
+                source: OpportunitySource::SystemGenerated, // Added missing field
                 opportunity_type: OpportunitySource::SystemGenerated,
-                arbitrage_opportunity: arbitrage_opp.clone(),
+                opportunity_data: OpportunityData::Arbitrage(arbitrage_opp.clone()),
                 priority: 8,
+                priority_score: 8.5,
                 target_users: vec!["user1".to_string()],
                 distribution_strategy: DistributionStrategy::FirstComeFirstServe,
-                created_at: chrono::Utc::now().timestamp() as u64,
-                expires_at: chrono::Utc::now().timestamp() as u64 + 3600,
-                opportunity_data: OpportunityData::Arbitrage(arbitrage_opp),
-                source: OpportunitySource::SystemGenerated,
-                detection_timestamp: chrono::Utc::now().timestamp() as u64,
-                priority_score: 8.5,
+                created_at: now,
+                detection_timestamp: now,
+                expires_at: now + 3_600_000, // 1 hour in milliseconds
                 ai_enhanced: false,
                 ai_confidence_score: None,
                 ai_insights: None,
-                distributed_to: vec!["user1".to_string()],
-                max_participants: Some(10),
-                current_participants: 3,
+                // Fields like distributed_to, max_participants, current_participants can be added if needed for tests
+                // For now, relying on Default::default() for them if not explicitly set in GlobalOpportunity::default()
+                // and if the test logic doesn't specifically require them.
+                distributed_to: Vec::new(),
+                max_participants: Some(100),
+                current_participants: 0,
             }
         }
 
@@ -1309,6 +1313,7 @@ mod tests {
                 opportunity_id: match &opportunity.opportunity_data {
                     crate::types::OpportunityData::Arbitrage(arb) => arb.id.clone(),
                     crate::types::OpportunityData::Technical(tech) => tech.id.clone(),
+                    crate::types::OpportunityData::AI(ai) => ai.id.clone(),
                 },
                 user_id: user_id.to_string(),
                 ai_score: 7.5,
@@ -1330,6 +1335,7 @@ mod tests {
                 match &opportunity.opportunity_data {
                     crate::types::OpportunityData::Arbitrage(arb) => arb.id.clone(),
                     crate::types::OpportunityData::Technical(tech) => tech.id.clone(),
+                    crate::types::OpportunityData::AI(ai) => ai.id.clone(),
                 }
             );
             assert_eq!(analysis.user_id, user_id);

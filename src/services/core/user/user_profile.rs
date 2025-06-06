@@ -1,10 +1,13 @@
 // src/services/user_profile.rs
 
+use crate::services::core::auth::UserProfileProvider;
 use crate::services::core::infrastructure::DatabaseManager;
 use crate::types::{
     /* ApiKeyProvider, */ ExchangeIdEnum, InvitationCode, UserApiKey, UserProfile, UserSession,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use async_trait::async_trait;
+use std::sync::Arc;
 use worker::{console_log, kv::KvStore};
 // use crate::services::core::infrastructure::data_access_layer::DataAccessLayer;
 // use crate::services::core::infrastructure::database_repositories::user_repository::UserRepository;
@@ -13,16 +16,11 @@ use worker::{console_log, kv::KvStore};
 // use crate::services::core::user::user_activity::UserActivityService;
 // use std::sync::Arc;
 
-/// Trait for user profile data access
-#[allow(async_fn_in_trait)]
-pub trait UserProfileProvider: Send + Sync {
-    async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile>;
-    async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()>;
-    async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()>;
-}
+// UserProfileProvider trait is defined in auth/mod.rs
 
+#[derive(Clone)]
 pub struct UserProfileService {
-    kv_store: KvStore,
+    kv_store: Arc<KvStore>,
     d1_service: DatabaseManager,
     encryption_key: String, // For encrypting API keys
 }
@@ -30,7 +28,7 @@ pub struct UserProfileService {
 impl UserProfileService {
     pub fn new(kv_store: KvStore, d1_service: DatabaseManager, encryption_key: String) -> Self {
         Self {
-            kv_store,
+            kv_store: Arc::new(kv_store),
             d1_service,
             encryption_key,
         }
@@ -351,6 +349,7 @@ impl UserProfileService {
         let key = format!("user_session:{}", user_id);
 
         if let Some(session_data) = self.kv_store.get(&key).text().await? {
+            // Already correct
             let session: UserSession = serde_json::from_str(&session_data)?;
             Ok(Some(session))
         } else {
@@ -365,7 +364,7 @@ impl UserProfileService {
             } else {
                 // Clean up expired session
                 let key = format!("user_session:{}", user_id);
-                self.kv_store.delete(&key).await?;
+                self.kv_store.delete(&key).await?; // Already correct
             }
         }
         Ok(false)
@@ -460,9 +459,9 @@ impl UserProfileService {
         // For now, we'll implement a simple cache invalidation
         let profile_cache_key = format!("user_cache:profile:{}", user_id);
 
-        let _ = self.kv_store.delete(&profile_cache_key).await;
-        // Note: We can't easily invalidate telegram_user_id cache without knowing the telegram_user_id
-        // This could be improved by maintaining a reverse mapping
+        let _ = self.kv_store.delete(&profile_cache_key).await; // Already correct
+                                                                // Note: We can't easily invalidate telegram_user_id cache without knowing the telegram_user_id
+                                                                // This could be improved by maintaining a reverse mapping
 
         Ok(())
     }
@@ -495,6 +494,7 @@ impl UserProfileService {
         let key = format!("invitation_code:{}", code);
 
         match self.kv_store.get(&key).text().await {
+            // Already correct
             Ok(Some(value)) => {
                 let invitation: InvitationCode = serde_json::from_str(&value).map_err(|e| {
                     ArbitrageError::parse_error(format!(
@@ -555,11 +555,19 @@ impl UserProfileService {
     }
 }
 
+#[async_trait(?Send)] // Use ?Send for WASM compatibility (matches trait definition)
 impl UserProfileProvider for UserProfileService {
     async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile> {
-        self.get_user_profile(user_id).await?.ok_or_else(|| {
-            ArbitrageError::not_found(format!("User profile not found for user_id: {}", user_id))
-        })
+        // Call the actual implementation method that returns Option<UserProfile>
+        self.d1_service
+            .get_user_profile(user_id)
+            .await?
+            .ok_or_else(|| {
+                ArbitrageError::not_found(format!(
+                    "User profile not found for user_id: {}",
+                    user_id
+                ))
+            })
     }
 
     async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
@@ -589,7 +597,7 @@ impl UserProfileProvider for UserProfileService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::ExchangeIdEnum;
+    use crate::types::{ExchangeIdEnum, SessionState};
 
     // Note: Service integration tests would require proper mocking framework
     // These tests focus on the core logic that can be tested independently
@@ -619,9 +627,8 @@ mod tests {
             profile.user_id.clone(),
             ExchangeIdEnum::Binance,
             "encrypted_key".to_string(),
-            "encrypted_secret".to_string(),
-            None,  // passphrase
-            false, // is_testnet
+            Some("encrypted_secret".to_string()), // Ensure Option<String> for secret
+            false,                                // is_testnet
         );
 
         // Test adding first API key
@@ -634,9 +641,8 @@ mod tests {
             profile.user_id.clone(),
             ExchangeIdEnum::Bybit,
             "encrypted_key2".to_string(),
-            "encrypted_secret2".to_string(),
-            None,  // passphrase
-            false, // is_testnet
+            Some("encrypted_secret2".to_string()), // Ensure Option<String> for secret
+            false,                                 // is_testnet
         );
 
         profile.add_api_key(api_key2);
@@ -656,8 +662,14 @@ mod tests {
         let purpose = "beta_testing".to_string();
         let max_uses = Some(10);
         let expires_in_days = Some(30);
+        let created_by_user_id = "test_user".to_string(); // Placeholder, adjust as needed
 
-        let invitation = InvitationCode::new(purpose.clone(), max_uses, expires_in_days);
+        let invitation = InvitationCode::new(
+            purpose.clone(),
+            max_uses,
+            expires_in_days,
+            created_by_user_id.clone(),
+        );
 
         assert_eq!(invitation.purpose, purpose);
         assert_eq!(invitation.max_uses, max_uses);
@@ -669,10 +681,12 @@ mod tests {
     #[tokio::test]
     async fn test_invitation_code_usage() {
         // Test invitation code usage logic
+        let created_by_user_id = "test_user".to_string(); // Placeholder, adjust as needed
         let mut invitation = InvitationCode::new(
             "beta_testing".to_string(),
             Some(1), // Only 1 use allowed
             Some(30),
+            created_by_user_id.clone(),
         );
 
         // Should be usable initially
@@ -691,13 +705,13 @@ mod tests {
     async fn test_user_session_creation() {
         // Test user session creation logic
         let user_id = "test_user_123".to_string();
-        let telegram_chat_id = Some(987654321i64);
+        let telegram_chat_id = 987654321i64;
 
-        let session = UserSession::new(user_id.clone(), telegram_chat_id.unwrap());
+        let session = UserSession::new(user_id.clone(), telegram_chat_id);
 
         assert_eq!(session.user_id, user_id);
-        assert_eq!(session.telegram_chat_id, telegram_chat_id);
-        assert!(session.is_active);
+        assert_eq!(session.telegram_user_id, telegram_chat_id);
+        assert_eq!(session.state, SessionState::Active);
         assert!(!session.is_expired());
     }
 

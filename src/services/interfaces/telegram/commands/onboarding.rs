@@ -53,9 +53,7 @@ async fn create_or_update_session(
 ) -> ArbitrageResult<SessionResult> {
     console_log!("🔐 Managing session for user {}", user_info.user_id);
 
-    let session_service = service_container
-        .get_session_management_service()
-        .ok_or_else(|| ArbitrageError::service_unavailable("Session management service not available"))?;
+    let session_service = service_container.session_service().clone();
 
     let user_id_str = user_info.user_id.to_string();
     let telegram_id = user_info.user_id;
@@ -97,7 +95,7 @@ async fn ensure_user_profile(
     console_log!("👤 Managing profile for user {}", user_info.user_id);
 
     let user_profile_service = service_container
-        .get_user_profile_service()
+        .user_profile_service()
         .ok_or_else(|| ArbitrageError::service_unavailable("User profile service not available"))?;
 
     let user_id_str = user_info.user_id.to_string();
@@ -141,7 +139,7 @@ async fn validate_beta_access(
     console_log!("🧪 Validating beta access for user {}", user_info.user_id);
 
     let user_profile_service = service_container
-        .get_user_profile_service()
+        .user_profile_service()
         .ok_or_else(|| ArbitrageError::service_unavailable("User profile service not available"))?;
 
     let user_id_str = user_info.user_id.to_string();
@@ -252,7 +250,7 @@ async fn generate_welcome_message(
     // Profile status
     message.push_str("👤 *Profile Status*\n");
     message.push_str(&format!("✅ {}\n", profile_result.message));
-    message.push_str(&format!("Role: {:?}\n", profile_result.profile.role));
+    message.push_str(&format!("Role: {:?}\n", profile_result.profile.get_user_role()));
     message.push_str(&format!("Subscription: {}\n\n", profile_result.profile.subscription_tier));
     
     // Beta access status
@@ -415,7 +413,7 @@ mod tests {
         #[allow(dead_code)]
         async fn get_user_profile(&self, _user_id: &str) -> ArbitrageResult<UserProfile> {
             self.get_user_profile_response.lock().await.take()
-                .unwrap_or_else(|| Err(ArbitrageError::NotFound("Mocked profile not found".to_string())))
+                .unwrap_or_else(|| Err(ArbitrageError::not_found("Mocked profile not found".to_string())))
         }
 
         #[allow(dead_code)]
@@ -459,14 +457,7 @@ mod tests {
             }
         }
 
-        #[allow(dead_code)]
-        fn get_user_profile_service(&self) -> Option<Arc<ActualUserProfileService>> {
-            let mock_arc = self.user_profile_service.clone();
-            unsafe {
-                let ptr = Arc::into_raw(mock_arc) as *const ActualUserProfileService;
-                Some(Arc::from_raw(ptr))
-            }
-        }
+
     }
 
 
@@ -492,7 +483,7 @@ mod tests {
             last_command: None, temporary_data: HashMap::new(), session_analytics: SessionAnalytics::default(), config: SessionConfig::default(),
         })).await;
 
-        mock_ups.set_get_user_profile_response(Err(ArbitrageError::NotFound("User not found".to_string()))).await; // No existing profile
+        mock_ups.set_get_user_profile_response(Err(ArbitrageError::not_found("User not found".to_string()))).await; // No existing profile
 
         // Construct a mock ServiceContainer. This part is tricky.
         // For now, we'll assume we can create a ServiceContainer that provides our mocks.
@@ -562,4 +553,4 @@ struct BetaAccessResult {
     has_beta_access: bool,
     expires_at: Option<chrono::DateTime<chrono::Utc>>,
     message: String,
-} 
+}

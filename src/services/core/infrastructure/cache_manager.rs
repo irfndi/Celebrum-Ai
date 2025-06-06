@@ -3,6 +3,12 @@
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
+
+// Helper for sleeping (abstracts worker::Delay)
+async fn sleep_ms_free(ms: u64) {
+    use std::time::Duration;
+    worker::Delay::from(Duration::from_millis(ms)).await;
+}
 use std::collections::HashMap;
 use std::sync::Arc;
 use worker::kv::KvStore;
@@ -22,13 +28,13 @@ pub struct CacheConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            default_ttl_seconds: 3600,    // 1 hour default TTL
-            max_key_size_bytes: 512,      // 512 bytes max key size
+            default_ttl_seconds: 3600,        // 1 hour default TTL
+            max_key_size_bytes: 512,          // 512 bytes max key size
             max_value_size_bytes: 25_000_000, // 25MB max value size (KV limit)
-            compression_enabled: true,     // Enable compression for large values
-            batch_size: 50,              // Batch operations for efficiency
-            retry_attempts: 3,           // Retry failed operations
-            retry_delay_ms: 100,         // Base delay for exponential backoff
+            compression_enabled: true,        // Enable compression for large values
+            batch_size: 50,                   // Batch operations for efficiency
+            retry_attempts: 3,                // Retry failed operations
+            retry_delay_ms: 100,              // Base delay for exponential backoff
         }
     }
 }
@@ -100,6 +106,19 @@ pub struct CacheHealth {
     pub uptime_seconds: u64,
 }
 
+impl Default for CacheHealth {
+    fn default() -> Self {
+        Self {
+            is_healthy: false,
+            response_time_ms: 0.0,
+            error_rate: 0.0,
+            memory_usage_percent: 0.0,
+            last_error: None,
+            uptime_seconds: 0,
+        }
+    }
+}
+
 /// Centralized cache manager for all KV operations
 pub struct CacheManager {
     kv_store: KvStore,
@@ -155,24 +174,37 @@ impl CacheManager {
                             }
                         }
 
-                        self.update_stats(CacheOperation::Get, execution_time, true, value_str.len());
+                        self.update_stats(
+                            CacheOperation::Get,
+                            execution_time,
+                            true,
+                            value_str.len(),
+                        );
                         Ok(Some(entry.data))
                     }
                     Err(_) => {
                         // Try to deserialize directly (backward compatibility)
                         match serde_json::from_str::<T>(&value_str) {
                             Ok(data) => {
-                                self.update_stats(CacheOperation::Get, execution_time, true, value_str.len());
+                                self.update_stats(
+                                    CacheOperation::Get,
+                                    execution_time,
+                                    true,
+                                    value_str.len(),
+                                );
                                 Ok(Some(data))
                             }
                             Err(e) => {
                                 self.update_stats(CacheOperation::Get, execution_time, false, 0);
-                                Err(ArbitrageError::parse_error(format!("Failed to deserialize cache value: {}", e)))
+                                Err(ArbitrageError::parse_error(format!(
+                                    "Failed to deserialize cache value: {}",
+                                    e
+                                )))
                             }
                         }
                     }
                 }
-            }
+            } // Added missing closing brace for Ok(Some(value_str)) arm
             Ok(None) => {
                 self.update_stats(CacheOperation::Get, execution_time, false, 0);
                 Ok(None)
@@ -182,22 +214,26 @@ impl CacheManager {
                 Err(e)
             }
         }
-pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> ArbitrageResult<CacheResult>
- where
-    T: Serialize + Clone,
- {
- …
-    let entry = CacheEntry {
-        data: value.clone(),
+    }
+
+    pub async fn set<T>(
+        &self,
+        key: &str,
+        value: &T,
+        ttl_seconds: Option<u64>,
+    ) -> ArbitrageResult<CacheResult>
+    where
+        T: Serialize + Clone, // Keep Clone bound, it's necessary for value.clone() below
+    {
         let start_time = chrono::Utc::now().timestamp_millis() as u64;
         let namespaced_key = self.build_key(key);
 
         // Create cache entry with metadata
         let now = chrono::Utc::now().timestamp_millis() as u64;
         let expires_at = ttl_seconds.map(|ttl| now + (ttl * 1000));
-        
+
         let entry = CacheEntry {
-            data: value,
+            data: value.clone(), // Ensure value is cloned here
             created_at: now,
             expires_at,
             access_count: 0,
@@ -205,18 +241,22 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
             metadata: HashMap::new(),
         };
 
-        let value_str = serde_json::to_string(&entry)
-            .map_err(|e| ArbitrageError::parse_error(format!("Failed to serialize cache value: {}", e)))?;
+        let value_str = serde_json::to_string(&entry).map_err(|e| {
+            ArbitrageError::parse_error(format!("Failed to serialize cache value: {}", e))
+        })?;
 
         // Check value size
         if value_str.len() > self.config.max_value_size_bytes {
-            return Err(ArbitrageError::validation_error(
-                format!("Cache value too large: {} bytes (max: {})", 
-                    value_str.len(), self.config.max_value_size_bytes)
-            ));
+            return Err(ArbitrageError::validation_error(format!(
+                "Cache value too large: {} bytes (max: {})",
+                value_str.len(),
+                self.config.max_value_size_bytes
+            )));
         }
 
-        let result = self.set_with_retry(&namespaced_key, &value_str, ttl_seconds).await;
+        let result = self
+            .set_with_retry(&namespaced_key, &value_str, ttl_seconds)
+            .await;
         let execution_time = chrono::Utc::now().timestamp_millis() as u64 - start_time;
 
         match result {
@@ -229,7 +269,7 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
                     execution_time_ms: execution_time,
                     cache_hit: false, // Set operations are not cache hits
                     data_size_bytes: value_str.len(),
-                })
+                }) // Added missing parenthesis
             }
             Err(e) => {
                 self.update_stats(CacheOperation::Set, execution_time, false, 0);
@@ -256,7 +296,7 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
                     execution_time_ms: execution_time,
                     cache_hit: false,
                     data_size_bytes: 0,
-                })
+                }) // Added missing parenthesis
             }
             Err(e) => {
                 self.update_stats(CacheOperation::Delete, execution_time, false, 0);
@@ -268,7 +308,7 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
     /// Check if key exists in cache
     pub async fn exists(&self, key: &str) -> ArbitrageResult<bool> {
         let namespaced_key = self.build_key(key);
-        
+
         match self.get_with_retry(&namespaced_key).await {
             Ok(Some(_)) => Ok(true),
             Ok(None) => Ok(false),
@@ -296,9 +336,12 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
     }
 
     /// Batch set operations for high-throughput scenarios
-    pub async fn batch_set<T>(&self, operations: &[(&str, &T, Option<u64>)]) -> ArbitrageResult<Vec<CacheResult>>
+    pub async fn batch_set<T>(
+        &self,
+        operations: &[(&str, &T, Option<u64>)],
+    ) -> ArbitrageResult<Vec<CacheResult>>
     where
-        T: Serialize,
+        T: Serialize + Clone,
     {
         let mut results = Vec::new();
         let chunks = operations.chunks(self.config.batch_size);
@@ -315,7 +358,7 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
                             execution_time_ms: 0,
                             cache_hit: false,
                             data_size_bytes: 0,
-                        });
+                        }) // Added missing parenthesis
                     }
                 }
             }
@@ -331,17 +374,16 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
         let test_value = "health_check_value";
 
         // Test write operation
-        let write_result = self.kv_store
+        let write_result = self
+            .kv_store
             .put(&test_key, test_value)
             .map_err(|e| ArbitrageError::cache_error(format!("Health check write failed: {}", e)));
 
         // Test read operation
         let read_result = if write_result.is_ok() {
-            self.kv_store
-                .get(&test_key)
-                .text()
-                .await
-                .map_err(|e| ArbitrageError::cache_error(format!("Health check read failed: {}", e)))
+            self.kv_store.get(&test_key).text().await.map_err(|e| {
+                ArbitrageError::cache_error(format!("Health check read failed: {}", e))
+            })
         } else {
             Err(ArbitrageError::cache_error("Write operation failed"))
         };
@@ -380,9 +422,13 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
     // ============= SPECIALIZED CACHE OPERATIONS =============
 
     /// Cache user session data with optimized TTL
-    pub async fn cache_user_session<T>(&self, user_id: &str, session_data: &T) -> ArbitrageResult<CacheResult>
+    pub async fn cache_user_session<T>(
+        &self,
+        user_id: &str,
+        session_data: &T,
+    ) -> ArbitrageResult<CacheResult>
     where
-        T: Serialize,
+        T: Serialize + Clone,
     {
         let key = format!("user_session:{}", user_id);
         let ttl = 3600; // 1 hour for user sessions
@@ -390,9 +436,14 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
     }
 
     /// Cache market data with short TTL for real-time updates
-    pub async fn cache_market_data<T>(&self, exchange: &str, symbol: &str, data: &T) -> ArbitrageResult<CacheResult>
+    pub async fn cache_market_data<T>(
+        &self,
+        exchange: &str,
+        symbol: &str,
+        data: &T,
+    ) -> ArbitrageResult<CacheResult>
     where
-        T: Serialize,
+        T: Serialize + Clone,
     {
         let key = format!("market_data:{}:{}", exchange, symbol);
         let ttl = 60; // 1 minute for market data
@@ -400,9 +451,13 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
     }
 
     /// Cache opportunity data with medium TTL
-    pub async fn cache_opportunity<T>(&self, opportunity_id: &str, data: &T) -> ArbitrageResult<CacheResult>
+    pub async fn cache_opportunity<T>(
+        &self,
+        opportunity_id: &str,
+        data: &T,
+    ) -> ArbitrageResult<CacheResult>
     where
-        T: Serialize,
+        T: Serialize + Clone,
     {
         let key = format!("opportunity:{}", opportunity_id);
         let ttl = 300; // 5 minutes for opportunities
@@ -410,9 +465,13 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
     }
 
     /// Cache AI analysis results with longer TTL
-    pub async fn cache_ai_analysis<T>(&self, analysis_id: &str, data: &T) -> ArbitrageResult<CacheResult>
+    pub async fn cache_ai_analysis<T>(
+        &self,
+        analysis_id: &str,
+        data: &T,
+    ) -> ArbitrageResult<CacheResult>
     where
-        T: Serialize,
+        T: Serialize + Clone,
     {
         let key = format!("ai_analysis:{}", analysis_id);
         let ttl = 1800; // 30 minutes for AI analysis
@@ -422,7 +481,7 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
     /// Cache configuration data with long TTL
     pub async fn cache_config<T>(&self, config_key: &str, data: &T) -> ArbitrageResult<CacheResult>
     where
-        T: Serialize,
+        T: Serialize + Clone,
     {
         let key = format!("config:{}", config_key);
         let ttl = 7200; // 2 hours for configuration
@@ -431,12 +490,18 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
 
     // ============= INTERNAL HELPER METHODS =============
 
+    // Utility to convert Duration to milliseconds
+
     fn build_key(&self, key: &str) -> String {
         // Validate key size
         let full_key = format!("{}:{}", self.namespace_prefix, key);
         if full_key.len() > self.config.max_key_size_bytes {
             // Truncate or hash long keys
-            format!("{}:hash:{:x}", self.namespace_prefix, md5::compute(key.as_bytes()))
+            format!(
+                "{}:hash:{:x}",
+                self.namespace_prefix,
+                md5::compute(key.as_bytes())
+            )
         } else {
             full_key
         }
@@ -448,32 +513,37 @@ pub async fn set<T>(&self, key: &str, value: &T, ttl_seconds: Option<u64>) -> Ar
                 Ok(value) => return Ok(value),
                 Err(e) => {
                     if attempt == self.config.retry_attempts {
-                        return Err(ArbitrageError::cache_error(format!("Failed to get from cache: {}", e)));
+                        return Err(ArbitrageError::cache_error(format!(
+                            "Failed to get from cache: {}\n",
+                            e
+                        )));
                     }
                     // Exponential backoff
                     let delay_ms = self.config.retry_delay_ms * (2_u64.pow(attempt));
-                    self.sleep_ms(delay_ms).await;
+                    sleep_ms_free(delay_ms).await;
                 }
             }
         }
-        
+
         Err(ArbitrageError::cache_error("Max retries exceeded"))
     }
 
-    async fn set_with_retry(&self, key: &str, value: &str, ttl_seconds: Option<u64>) -> ArbitrageResult<()> {
+    async fn set_with_retry(
+        &self,
+        key: &str,
+        value: &str,
+        ttl_seconds: Option<u64>,
+    ) -> ArbitrageResult<()> {
         for attempt in 0..=self.config.retry_attempts {
-let builder = self
-    .kv_store
-    .put(key, value)
-    .map_err(|e| ArbitrageError::cache_error(format!("Failed to set in cache: {}", e)))?;
-let builder = if let Some(ttl) = ttl_seconds {
-    builder.expiration_ttl(ttl)
-} else {
-    builder
-};
-let result = builder.execute().await.map_err(|e| {
-    ArbitrageError::cache_error(format!("Failed to set in cache: {}", e))
-});
+            let builder = self.kv_store.put(key, value)?;
+            let builder = if let Some(ttl) = ttl_seconds {
+                builder.expiration_ttl(ttl)
+            } else {
+                builder
+            };
+            let result = builder.execute().await.map_err(|e| {
+                ArbitrageError::cache_error(format!("Failed to set in cache after execute: {}", e))
+            });
 
             match result {
                 Ok(_) => return Ok(()),
@@ -483,11 +553,11 @@ let result = builder.execute().await.map_err(|e| {
                     }
                     // Exponential backoff
                     let delay_ms = self.config.retry_delay_ms * (2_u64.pow(attempt));
-                    self.sleep_ms(delay_ms).await;
+                    sleep_ms_free(delay_ms).await;
                 }
             }
         }
-        
+
         Err(ArbitrageError::cache_error("Max retries exceeded"))
     }
 
@@ -497,22 +567,31 @@ let result = builder.execute().await.map_err(|e| {
                 Ok(_) => return Ok(()),
                 Err(e) => {
                     if attempt == self.config.retry_attempts {
-                        return Err(ArbitrageError::cache_error(format!("Failed to delete from cache: {}", e)));
+                        return Err(ArbitrageError::cache_error(format!(
+                            "Failed to delete from cache: {}\n",
+                            e
+                        )));
                     }
                     // Exponential backoff
                     let delay_ms = self.config.retry_delay_ms * (2_u64.pow(attempt));
-                    self.sleep_ms(delay_ms).await;
+                    sleep_ms_free(delay_ms).await;
                 }
             }
         }
-        
+
         Err(ArbitrageError::cache_error("Max retries exceeded"))
     }
 
-    fn update_stats(&self, operation: CacheOperation, execution_time_ms: u64, success: bool, data_size: usize) {
+    fn update_stats(
+        &self,
+        operation: CacheOperation,
+        execution_time_ms: u64,
+        success: bool,
+        data_size: usize,
+    ) {
         if let Ok(mut stats) = self.stats.lock() {
             stats.total_operations += 1;
-            
+
             if success && operation == CacheOperation::Get {
                 stats.cache_hits += 1;
             } else if !success && operation == CacheOperation::Get {
@@ -520,13 +599,14 @@ let result = builder.execute().await.map_err(|e| {
             }
 
             // Update hit rate
-let denom = stats.cache_hits + stats.cache_misses;
-if denom > 0 {
-    stats.hit_rate = stats.cache_hits as f64 / denom as f64;
- }
+            let denom = stats.cache_hits + stats.cache_misses;
+            if denom > 0 {
+                stats.hit_rate = stats.cache_hits as f64 / denom as f64;
+            }
 
             // Update average operation time
-            let total_time = stats.avg_operation_time_ms * (stats.total_operations - 1) as f64 + execution_time_ms as f64;
+            let total_time = stats.avg_operation_time_ms * (stats.total_operations - 1) as f64
+                + execution_time_ms as f64;
             stats.avg_operation_time_ms = total_time / stats.total_operations as f64;
 
             if success {
@@ -539,11 +619,7 @@ if denom > 0 {
             stats.last_updated = chrono::Utc::now().timestamp_millis() as u64;
         }
     }
-
-async fn sleep_ms(&self, ms: u64) {
-    worker::Delay::from_millis(ms).await;
- }
-}
+} // End of impl CacheManager
 
 impl Default for CacheStats {
     fn default() -> Self {
@@ -579,7 +655,7 @@ mod tests {
     fn test_cache_entry_creation() {
         let data = "test_data";
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         let entry = CacheEntry {
             data,
             created_at: now,
@@ -640,4 +716,4 @@ mod tests {
         assert_eq!(operation.ttl_seconds, Some(3600));
         assert_eq!(operation.operation, CacheOperation::Set);
     }
-} 
+}

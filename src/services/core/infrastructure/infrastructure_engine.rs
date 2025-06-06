@@ -2,20 +2,43 @@
 // Provides service discovery, dependency management, configuration, and health monitoring
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
+#[cfg(target_arch = "wasm32")]
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::SystemTime;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::Mutex;
+
+// Helper macro for cross-platform mutex locking
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock().await
+    };
+}
+
+#[cfg(target_arch = "wasm32")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock()
+    };
+}
 use worker::kv::KvStore;
 
 use super::{
-    database_core::{DatabaseCore, DatabaseConfig},
-    cache_manager::{CacheManager, CacheConfig},
-    service_health::{ServiceHealth, HealthConfig},
-    notification_engine::{NotificationEngine, NotificationEngineConfig},
-    data_access_layer::{DataAccessLayer, DataAccessConfig},
-    metrics_collector::{MetricsCollector, MetricsConfig},
+    cache_manager::{CacheConfig, CacheManager},
+    data_access_layer::{DataAccessLayer, DataAccessLayerConfig},
+    database_core::DatabaseCore,
+    monitoring_module::metrics_collector::{MetricsCollector, MetricsCollectorConfig},
+    notification_module::{NotificationCoordinator, NotificationCoordinatorConfig},
+    service_health::{
+        HealthCheckConfig, HealthStatus, ServiceHealthCheck, ServiceHealthManager,
+        SystemHealthReport,
+    },
 };
+use worker::Env;
 
 /// Service types in the infrastructure
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -159,8 +182,8 @@ impl Default for InfrastructureConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CircuitBreakerState {
-    Closed,  // Normal operation
-    Open,    // Failing, requests blocked
+    Closed,   // Normal operation
+    Open,     // Failing, requests blocked
     HalfOpen, // Testing if service recovered
 }
 
@@ -195,24 +218,25 @@ pub struct InfrastructureHealth {
 pub struct InfrastructureEngine {
     config: InfrastructureConfig,
     kv_store: KvStore,
-    
+
     // Core infrastructure services
     database_core: Option<DatabaseCore>,
     cache_manager: Option<CacheManager>,
-    service_health: Option<ServiceHealth>,
-    notification_engine: Option<NotificationEngine>,
+    service_health: Option<ServiceHealthManager>,
+    notification_engine: Option<NotificationCoordinator>,
     data_access_layer: Option<DataAccessLayer>,
     metrics_collector: Option<MetricsCollector>,
-    
+
     // Service management with async-aware mutexes
     services: Arc<Mutex<HashMap<String, ServiceInfo>>>,
     circuit_breakers: Arc<Mutex<HashMap<String, CircuitBreaker>>>,
-    startup_time: u64,
-    
+    startup_time: SystemTime,
+
     // Configuration management with async-aware mutex
     global_config: Arc<Mutex<HashMap<String, serde_json::Value>>>,
 }
 
+#[allow(dead_code)]
 impl InfrastructureEngine {
     /// Create new InfrastructureEngine with default configuration
     pub fn new(kv_store: KvStore) -> Self {
@@ -227,7 +251,7 @@ impl InfrastructureEngine {
             metrics_collector: None,
             services: Arc::new(Mutex::new(HashMap::new())),
             circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
-            startup_time: chrono::Utc::now().timestamp_millis() as u64,
+            startup_time: SystemTime::now(),
             global_config: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -245,19 +269,96 @@ impl InfrastructureEngine {
             metrics_collector: None,
             services: Arc::new(Mutex::new(HashMap::new())),
             circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
-            startup_time: chrono::Utc::now().timestamp_millis() as u64,
+            startup_time: SystemTime::now(),
             global_config: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
+    async fn generate_health_report(&self) -> SystemHealthReport {
+        let mut services_health: HashMap<String, ServiceHealthCheck> = HashMap::new();
+        let mut healthy_services_count = 0;
+        let mut degraded_services_list = Vec::new();
+        let mut unhealthy_services_list = Vec::new();
+
+        // Example: Check database health
+        // In a real scenario, you would call the health_check method of each service
+        let db_health = ServiceHealthCheck {
+            service_name: "database".to_string(),
+            status: HealthStatus::Healthy, // Assuming healthy for now
+            response_time_ms: 50.5,
+            last_check_timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            error_message: None,
+            metadata: HashMap::new(),
+            dependencies: vec![],
+        };
+        services_health.insert("database".to_string(), db_health.clone());
+        if db_health.status == HealthStatus::Healthy {
+            healthy_services_count += 1;
+        } else if db_health.status == HealthStatus::Degraded {
+            degraded_services_list.push("database".to_string());
+        } else if db_health.status == HealthStatus::Unhealthy {
+            unhealthy_services_list.push("database".to_string());
+        }
+
+        // Example: Check cache health
+        let cache_health = ServiceHealthCheck {
+            service_name: "cache".to_string(),
+            status: HealthStatus::Healthy, // Assuming healthy for now
+            response_time_ms: 20.0,
+            last_check_timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            error_message: None,
+            metadata: HashMap::new(),
+            dependencies: vec![],
+        };
+        services_health.insert("cache".to_string(), cache_health.clone());
+        if cache_health.status == HealthStatus::Healthy {
+            healthy_services_count += 1;
+        } else if cache_health.status == HealthStatus::Degraded {
+            degraded_services_list.push("cache".to_string());
+        } else if cache_health.status == HealthStatus::Unhealthy {
+            unhealthy_services_list.push("cache".to_string());
+        }
+
+        let total_services_count = services_health.len();
+        let overall_status = if !unhealthy_services_list.is_empty() {
+            HealthStatus::Unhealthy
+        } else if !degraded_services_list.is_empty() {
+            HealthStatus::Degraded
+        } else {
+            HealthStatus::Healthy
+        };
+
+        // TODO: Determine critical_services_healthy based on actual critical service status
+        let critical_services_healthy = true;
+        let health_score = if total_services_count > 0 {
+            healthy_services_count as f64 / total_services_count as f64
+        } else {
+            1.0 // Or 0.0 if no services means unhealthy by definition
+        };
+
+        SystemHealthReport {
+            overall_status,
+            services: services_health,
+            critical_services_healthy,
+            degraded_services: degraded_services_list,
+            unhealthy_services: unhealthy_services_list,
+            total_services: total_services_count,
+            healthy_services: healthy_services_count,
+            health_score,
+            generated_at: chrono::Utc::now().timestamp_millis() as u64,
+            uptime_seconds: self.startup_time.elapsed().unwrap_or_default().as_secs(),
+        }
+    }
+
     /// Initialize all infrastructure services
-    pub async fn initialize(&mut self) -> ArbitrageResult<()> {
+    pub async fn initialize(&mut self, env: &Env) -> ArbitrageResult<()> {
         // Initialize core services in dependency order
-        
+
         // 1. Initialize metrics collector first (needed by other services)
         if self.config.enable_metrics_collection {
-            let metrics_config = MetricsConfig::default();
-            self.metrics_collector = Some(MetricsCollector::new_with_config(self.kv_store.clone(), metrics_config));
+            let metrics_config = MetricsCollectorConfig::default();
+            self.metrics_collector =
+                Some(MetricsCollector::new(metrics_config, self.kv_store.clone(), env).await?);
             self.register_service(ServiceRegistration {
                 service_name: "metrics_collector".to_string(),
                 service_type: ServiceType::Metrics,
@@ -270,12 +371,12 @@ impl InfrastructureEngine {
                 priority: 1,
                 tags: HashMap::new(),
                 configuration: HashMap::new(),
-            }).await?;
+            })
+            .await?;
         }
 
         // 2. Initialize database core
-        let database_config = DatabaseConfig::default();
-        self.database_core = Some(DatabaseCore::new_with_config(self.kv_store.clone(), database_config));
+        self.database_core = Some(DatabaseCore::new(env)?);
         self.register_service(ServiceRegistration {
             service_name: "database_core".to_string(),
             service_type: ServiceType::Database,
@@ -288,11 +389,16 @@ impl InfrastructureEngine {
             priority: 1,
             tags: HashMap::new(),
             configuration: HashMap::new(),
-        }).await?;
+        })
+        .await?;
 
         // 3. Initialize cache manager
         let cache_config = CacheConfig::default();
-        self.cache_manager = Some(CacheManager::new_with_config(self.kv_store.clone(), cache_config));
+        self.cache_manager = Some(CacheManager::new_with_config(
+            self.kv_store.clone(),
+            cache_config,
+            "arb_edge",
+        ));
         self.register_service(ServiceRegistration {
             service_name: "cache_manager".to_string(),
             service_type: ServiceType::Cache,
@@ -305,17 +411,19 @@ impl InfrastructureEngine {
             priority: 1,
             tags: HashMap::new(),
             configuration: HashMap::new(),
-        }).await?;
+        })
+        .await?;
 
         // 4. Initialize service health monitor
         if self.config.enable_health_monitoring {
-            let health_config = HealthConfig::default();
-            self.service_health = Some(ServiceHealth::new_with_config(self.kv_store.clone(), health_config));
+            let health_config = HealthCheckConfig::default();
+            self.service_health = Some(ServiceHealthManager::new_with_config(health_config));
             self.register_service(ServiceRegistration {
                 service_name: "service_health".to_string(),
                 service_type: ServiceType::Health,
                 version: "1.0.0".to_string(),
-                description: "Comprehensive system health reporting with dependency tracking".to_string(),
+                description: "Comprehensive system health reporting with dependency tracking"
+                    .to_string(),
                 dependencies: vec![
                     ServiceDependency {
                         service_name: "database_core".to_string(),
@@ -340,47 +448,47 @@ impl InfrastructureEngine {
                 priority: 2,
                 tags: HashMap::new(),
                 configuration: HashMap::new(),
-            }).await?;
+            })
+            .await?;
         }
 
         // 5. Initialize notification engine
-        let notification_config = NotificationEngineConfig::default();
-        self.notification_engine = Some(NotificationEngine::new_with_config(
-            self.kv_store.clone(),
-            notification_config,
-            Default::default(),
-        ));
+        let notification_config = NotificationCoordinatorConfig::default();
+        self.notification_engine = Some(
+            NotificationCoordinator::new(notification_config, self.kv_store.clone(), env).await?,
+        );
         self.register_service(ServiceRegistration {
             service_name: "notification_engine".to_string(),
             service_type: ServiceType::Notification,
             version: "1.0.0".to_string(),
             description: "Centralized notification delivery and template management".to_string(),
-            dependencies: vec![
-                ServiceDependency {
-                    service_name: "cache_manager".to_string(),
-                    service_type: ServiceType::Cache,
-                    is_critical: false,
-                    timeout_ms: 2000,
-                    retry_attempts: 2,
-                    health_check_interval_seconds: 60,
-                },
-            ],
+            dependencies: vec![ServiceDependency {
+                service_name: "cache_manager".to_string(),
+                service_type: ServiceType::Cache,
+                is_critical: false,
+                timeout_ms: 2000,
+                retry_attempts: 2,
+                health_check_interval_seconds: 60,
+            }],
             health_check_endpoint: None,
             metrics_enabled: true,
             auto_recovery: true,
             priority: 3,
             tags: HashMap::new(),
             configuration: HashMap::new(),
-        }).await?;
+        })
+        .await?;
 
         // 6. Initialize data access layer
-        let data_access_config = DataAccessConfig::default();
-        self.data_access_layer = Some(DataAccessLayer::new_with_config(self.kv_store.clone(), data_access_config));
+        let data_access_config = DataAccessLayerConfig::default();
+        self.data_access_layer =
+            Some(DataAccessLayer::new(data_access_config, self.kv_store.clone()).await?);
         self.register_service(ServiceRegistration {
             service_name: "data_access_layer".to_string(),
             service_type: ServiceType::DataAccess,
             version: "1.0.0".to_string(),
-            description: "Unified data access patterns with Pipeline → KV → API fallback".to_string(),
+            description: "Unified data access patterns with Pipeline → KV → API fallback"
+                .to_string(),
             dependencies: vec![
                 ServiceDependency {
                     service_name: "cache_manager".to_string(),
@@ -405,7 +513,8 @@ impl InfrastructureEngine {
             priority: 3,
             tags: HashMap::new(),
             configuration: HashMap::new(),
-        }).await?;
+        })
+        .await?;
 
         // Start health monitoring if enabled
         if self.config.enable_health_monitoring {
@@ -432,13 +541,14 @@ impl InfrastructureEngine {
             performance_metrics: HashMap::new(),
         };
 
-        let mut services = self.services.lock().await;
-        services.insert(service_info.registration.service_name.clone(), service_info);
+        let service_name = service_info.registration.service_name.clone();
+        let mut services = lock_mutex!(self.services);
+        services.insert(service_name.clone(), service_info);
         drop(services);
 
         // Initialize circuit breaker if enabled
         if self.config.enable_circuit_breaker {
-            self.initialize_circuit_breaker(&service_info.registration.service_name).await?;
+            self.initialize_circuit_breaker(&service_name).await?;
         }
 
         Ok(())
@@ -446,22 +556,22 @@ impl InfrastructureEngine {
 
     /// Get service information
     pub async fn get_service_info(&self, service_name: &str) -> Option<ServiceInfo> {
-        let services = self.services.lock().await;
+        let services = lock_mutex!(self.services);
         services.get(service_name).cloned()
     }
 
     /// Get all registered services
     pub async fn get_all_services(&self) -> HashMap<String, ServiceInfo> {
-        let services = self.services.lock().await;
+        let services = lock_mutex!(self.services);
         services.clone()
     }
 
     /// Get infrastructure health summary
     pub async fn get_infrastructure_health(&self) -> InfrastructureHealth {
-        let services = self.services.lock().await;
+        let services = lock_mutex!(self.services);
         let services_clone = services.clone();
         drop(services);
-        
+
         let mut healthy_count = 0;
         let mut degraded_count = 0;
         let mut unhealthy_count = 0;
@@ -470,7 +580,7 @@ impl InfrastructureEngine {
 
         for (name, service) in &services_clone {
             service_statuses.insert(name.clone(), service.status.clone());
-            
+
             match service.status {
                 ServiceStatus::Healthy => healthy_count += 1,
                 ServiceStatus::Degraded => degraded_count += 1,
@@ -494,7 +604,10 @@ impl InfrastructureEngine {
             ServiceStatus::Healthy
         };
 
-        let uptime_seconds = (chrono::Utc::now().timestamp_millis() as u64 - self.startup_time) / 1000;
+        let _uptime_seconds = SystemTime::now()
+            .duration_since(self.startup_time)
+            .unwrap_or_default()
+            .as_secs();
         let uptime_percentage = if total_services > 0 {
             (healthy_count + degraded_count) as f64 / total_services as f64 * 100.0
         } else {
@@ -515,15 +628,21 @@ impl InfrastructureEngine {
     }
 
     /// Update service status
-    pub async fn update_service_status(&self, service_name: &str, status: ServiceStatus) -> ArbitrageResult<()> {
-        let mut services = self.services.lock().await;
+    pub async fn update_service_status(
+        &self,
+        service_name: &str,
+        status: ServiceStatus,
+    ) -> ArbitrageResult<()> {
+        let mut services = lock_mutex!(self.services);
         if let Some(service) = services.get_mut(service_name) {
             service.status = status;
             service.last_health_check = Some(chrono::Utc::now().timestamp_millis() as u64);
-            
+
             // Update uptime
-            let current_time = chrono::Utc::now().timestamp_millis() as u64;
-            service.uptime_seconds = (current_time - self.startup_time) / 1000;
+            service.uptime_seconds = SystemTime::now()
+                .duration_since(self.startup_time)
+                .unwrap_or_default()
+                .as_secs();
         }
         Ok(())
     }
@@ -531,18 +650,20 @@ impl InfrastructureEngine {
     /// Restart a service (if auto-recovery is enabled)
     pub async fn restart_service(&self, service_name: &str) -> ArbitrageResult<()> {
         if !self.config.enable_auto_recovery {
-            return Err(ArbitrageError::operation_error("Auto-recovery is disabled"));
+            return Err(ArbitrageError::internal_error("Auto-recovery is disabled"));
         }
 
-        let mut services = self.services.lock().await;
+        let mut services = lock_mutex!(self.services);
         if let Some(service) = services.get_mut(service_name) {
-            if service.restart_count >= self.config.max_restart_attempts {
-                return Err(ArbitrageError::operation_error("Max restart attempts exceeded"));
+            if service.restart_count >= self.config.max_restart_attempts as u64 {
+                return Err(ArbitrageError::internal_error(
+                    "Max restart attempts exceeded",
+                ));
             }
 
             service.restart_count += 1;
             service.status = ServiceStatus::Initializing;
-            
+
             // Implement service-specific restart logic here
             // For now, just update status
             service.status = ServiceStatus::Healthy;
@@ -553,13 +674,13 @@ impl InfrastructureEngine {
 
     /// Get configuration value
     pub async fn get_config(&self, key: &str) -> Option<serde_json::Value> {
-        let config = self.global_config.lock().await;
+        let config = lock_mutex!(self.global_config);
         config.get(key).cloned()
     }
 
     /// Set configuration value
     pub async fn set_config(&self, key: &str, value: serde_json::Value) -> ArbitrageResult<()> {
-        let mut config = self.global_config.lock().await;
+        let mut config = lock_mutex!(self.global_config);
         config.insert(key.to_string(), value);
         Ok(())
     }
@@ -571,7 +692,7 @@ impl InfrastructureEngine {
         }
 
         // Update all services to stopped status
-        let mut services = self.services.lock().await;
+        let mut services = lock_mutex!(self.services);
         for service in services.values_mut() {
             service.status = ServiceStatus::Stopped;
         }
@@ -600,13 +721,13 @@ impl InfrastructureEngine {
             timeout_seconds: self.config.circuit_breaker_timeout_seconds,
         };
 
-        let mut circuit_breakers = self.circuit_breakers.lock().await;
+        let mut circuit_breakers = lock_mutex!(self.circuit_breakers);
         circuit_breakers.insert(service_name.to_string(), circuit_breaker);
         Ok(())
     }
 
     async fn check_circuit_breaker(&self, service_name: &str) -> bool {
-        let circuit_breakers = self.circuit_breakers.lock().await;
+        let circuit_breakers = lock_mutex!(self.circuit_breakers);
         if let Some(breaker) = circuit_breakers.get(service_name) {
             match breaker.state {
                 CircuitBreakerState::Closed => true,
@@ -627,7 +748,7 @@ impl InfrastructureEngine {
     }
 
     async fn record_circuit_breaker_success(&self, service_name: &str) -> ArbitrageResult<()> {
-        let mut circuit_breakers = self.circuit_breakers.lock().await;
+        let mut circuit_breakers = lock_mutex!(self.circuit_breakers);
         if let Some(breaker) = circuit_breakers.get_mut(service_name) {
             breaker.success_count += 1;
             breaker.failure_count = 0;
@@ -638,7 +759,7 @@ impl InfrastructureEngine {
     }
 
     async fn record_circuit_breaker_failure(&self, service_name: &str) -> ArbitrageResult<()> {
-        let mut circuit_breakers = self.circuit_breakers.lock().await;
+        let mut circuit_breakers = lock_mutex!(self.circuit_breakers);
         if let Some(breaker) = circuit_breakers.get_mut(service_name) {
             breaker.failure_count += 1;
             breaker.last_failure_time = Some(chrono::Utc::now().timestamp_millis() as u64);
@@ -646,11 +767,33 @@ impl InfrastructureEngine {
             if breaker.failure_count >= breaker.threshold {
                 breaker.state = CircuitBreakerState::Open;
                 breaker.next_attempt_time = Some(
-                    chrono::Utc::now().timestamp_millis() as u64 + (breaker.timeout_seconds * 1000)
+                    chrono::Utc::now().timestamp_millis() as u64 + (breaker.timeout_seconds * 1000),
                 );
             }
         }
         Ok(())
+    }
+
+    pub async fn get_detailed_health_status(&self) -> SystemHealthReport {
+        // Placeholder - replace with actual health check logic
+        let uptime_seconds = SystemTime::now()
+            .duration_since(self.startup_time)
+            .unwrap_or_default()
+            .as_secs();
+
+        // TODO: Implement comprehensive health check across all infrastructure components
+        SystemHealthReport {
+            overall_status: HealthStatus::Healthy, // Placeholder
+            services: HashMap::new(),              // Placeholder
+            critical_services_healthy: true,       // Placeholder
+            degraded_services: vec![],             // Placeholder
+            unhealthy_services: vec![],            // Placeholder
+            total_services: 0,                     // Placeholder
+            healthy_services: 0,                   // Placeholder
+            health_score: 1.0,                     // Placeholder
+            generated_at: chrono::Utc::now().timestamp_millis() as u64,
+            uptime_seconds,
+        }
     }
 }
 
@@ -718,4 +861,4 @@ mod tests {
         assert!(registration.auto_recovery);
         assert_eq!(registration.priority, 1);
     }
-} 
+}

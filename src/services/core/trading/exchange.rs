@@ -1,9 +1,11 @@
 // src/services/exchange.rs
 
-use reqwest::{Client, Method};
+use reqwest::Client;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use worker::Method;
 
+use crate::services::core::user::user_exchange_api::RateLimitInfo;
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::{
     CommandPermission, ExchangeCredentials, ExchangeIdEnum, Market, Order, OrderBook, Position,
@@ -100,7 +102,7 @@ pub trait ExchangeInterface {
         exchange_id: &str,
         api_key: &str,
         secret: &str,
-    ) -> ArbitrageResult<bool>;
+    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)>;
 
     #[allow(async_fn_in_trait)]
     async fn test_api_connection_with_options(
@@ -110,7 +112,7 @@ pub trait ExchangeInterface {
         secret: &str,
         leverage: Option<i32>,
         exchange_type: Option<&str>,
-    ) -> ArbitrageResult<bool>;
+    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)>;
 }
 
 // RBAC-protected exchange operations are now handled by UserExchangeApiService
@@ -187,6 +189,7 @@ impl ApiKeySource {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct ExchangeService {
     client: Client,
     kv: worker::kv::KvStore,
@@ -345,7 +348,7 @@ impl ExchangeService {
         });
 
         let response = self
-            .binance_futures_request(endpoint, Method::GET, Some(params), None)
+            .binance_futures_request(endpoint, Method::Get, Some(params), None)
             .await?;
 
         // Response is an array, get the first (latest) entry
@@ -399,7 +402,7 @@ impl ExchangeService {
         });
 
         let response = self
-            .bybit_request(endpoint, Method::GET, Some(params), None)
+            .bybit_request(endpoint, Method::Get, Some(params), None)
             .await?;
 
         if let Some(list) = response["result"]["list"].as_array() {
@@ -471,7 +474,7 @@ impl ExchangeInterface for ExchangeService {
         // Implementation for getting ticker data
         let endpoint = format!("/api/v3/ticker/24hr?symbol={}", symbol);
         let response = self
-            .binance_request(&endpoint, Method::GET, None, None)
+            .binance_request(&endpoint, Method::Get, None, None)
             .await?;
 
         // Parse response into Ticker
@@ -611,7 +614,7 @@ impl ExchangeInterface for ExchangeService {
         // Implementation for getting balance
         let endpoint = "/api/v3/account";
         let response = self
-            .binance_request(endpoint, Method::GET, None, Some(credentials))
+            .binance_request(endpoint, Method::Get, None, Some(credentials))
             .await?;
         Ok(response)
     }
@@ -739,9 +742,9 @@ impl ExchangeInterface for ExchangeService {
         _exchange_id: &str,
         _api_key: &str,
         _secret: &str,
-    ) -> ArbitrageResult<bool> {
-        // Placeholder implementation
-        Ok(true)
+    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
+        // Placeholder implementation: (can_read, can_trade, rate_limit_info)
+        Ok((true, true, None))
     }
 
     async fn test_api_connection_with_options(
@@ -751,9 +754,9 @@ impl ExchangeInterface for ExchangeService {
         _secret: &str,
         _leverage: Option<i32>,
         _exchange_type: Option<&str>,
-    ) -> ArbitrageResult<bool> {
-        // Placeholder implementation
-        Ok(true)
+    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
+        // Placeholder implementation: (can_read, can_trade, rate_limit_info)
+        Ok((true, true, None))
     }
 }
 
@@ -767,7 +770,7 @@ impl ExchangeService {
         _auth: Option<&ExchangeCredentials>,
     ) -> ArbitrageResult<Value> {
         // Use the same implementation as binance_request but with futures base URL
-        self.binance_request(endpoint, Method::GET, None, None)
+        self.binance_request(endpoint, Method::Get, None, None)
             .await
     }
 

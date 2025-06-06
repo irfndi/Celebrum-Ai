@@ -333,6 +333,7 @@ impl Default for PersonalizationSettings {
 }
 
 /// Main opportunity categorization service
+#[derive(Clone)]
 pub struct OpportunityCategorizationService {
     db_manager: DatabaseManager,
     preferences_service: UserTradingPreferencesService,

@@ -432,6 +432,7 @@ impl MathUtils {
 // ============= MARKET ANALYSIS SERVICE =============
 
 /// Main service for market analysis and technical indicators
+#[derive(Clone)]
 pub struct MarketAnalysisService {
     #[allow(dead_code)] // TODO: Will be used for database operations in future implementation
     database_repositories: DatabaseManager,
@@ -491,9 +492,9 @@ impl MarketAnalysisService {
             };
 
             // Store to pipelines for historical data and analytics
-            let market_data_json = serde_json::to_value(&market_data)?;
+            let market_data_json = serde_json::to_string(&market_data)?;
             pipelines_service
-                .store_market_data(exchange, symbol, &serde_json::to_string(&market_data_json)?)
+                .store_market_data(exchange, symbol, &market_data_json)
                 .await?;
 
             self.logger.info(&format!(
@@ -526,12 +527,9 @@ impl MarketAnalysisService {
             };
 
             // Store to pipelines for historical analysis tracking
-            let analysis_result_json = serde_json::to_value(&analysis_result)?;
+            let analysis_result_json = serde_json::to_string(&analysis_result)?;
             pipelines_service
-                .store_analysis_results(
-                    analysis_type,
-                    &serde_json::to_string(&analysis_result_json)?,
-                )
+                .store_analysis_results(analysis_type, &analysis_result_json)
                 .await?;
 
             self.logger.info(&format!(

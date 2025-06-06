@@ -1103,16 +1103,31 @@ mod tests {
     use chrono::Utc;
 
     fn create_test_ticker(symbol: &str, price: f64, volume: f64, change_percent: f64) -> Ticker {
+        let now = Utc::now();
+        let open_price = price * (1.0 - change_percent / 200.0);
+        let close_price = price;
         Ticker {
             symbol: symbol.to_string(),
-            bid: Some(price - 10.0),
-            ask: Some(price + 10.0),
-            last: Some(price),
+            timestamp: now.timestamp_millis() as u64,
+            datetime: now.to_rfc3339(),
             high: Some(price * (1.0 + change_percent / 100.0)),
             low: Some(price * (1.0 - change_percent / 100.0)),
+            bid: Some(price - 0.01 * price), // e.g. 1% less than price
+            bid_volume: Some(volume / 2.0),
+            ask: Some(price + 0.01 * price), // e.g. 1% more than price
+            ask_volume: Some(volume / 2.0),
+            vwap: Some(price), // Simplified VWAP for test
+            open: Some(open_price),
+            close: Some(close_price),
+            last: Some(price),
+            previous_close: Some(open_price * 0.99), // Simplified previous close
+            change: Some(close_price - open_price),
+            percentage: Some(change_percent),
+            average: Some((open_price + close_price) / 2.0),
+            base_volume: Some(volume),
+            quote_volume: Some(volume * price), // Estimated quote volume
             volume: Some(volume),
-            timestamp: Some(Utc::now()),
-            datetime: Some(Utc::now().to_rfc3339()),
+            info: serde_json::json!({}), // Default empty JSON object
         }
     }
 
@@ -1120,10 +1135,17 @@ mod tests {
         FundingRateInfo {
             symbol: symbol.to_string(),
             funding_rate: rate,
-            timestamp: Some(Utc::now()),
-            datetime: Some(Utc::now().to_rfc3339()),
-            next_funding_time: Some(Utc::now()),
+            timestamp: Utc::now().timestamp_millis() as u64,
+            datetime: Utc::now().to_rfc3339(),
+            info: serde_json::json!({}), // Default empty JSON object
+            next_funding_time: Some(Utc::now().timestamp_millis() as u64 + 8 * 60 * 60 * 1000), // e.g., 8 hours later
             estimated_rate: Some(rate),
+            estimated_settle_price: Some(rate * 1.0001), // Default test value
+            exchange: ExchangeIdEnum::Binance,           // Default test value
+            funding_interval_hours: 8,                   // Default test value
+            mark_price: Some(rate * 1.0002),             // Default test value
+            index_price: Some(rate * 1.0000),            // Default test value
+            funding_countdown: Some(3600), // Default test value (e.g., 1 hour in seconds)
         }
     }
 

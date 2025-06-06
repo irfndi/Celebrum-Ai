@@ -293,7 +293,7 @@ impl Default for DataSourceMetrics {
 pub struct DataSourceManager {
     config: DataSourceManagerConfig,
     logger: crate::utils::logger::Logger,
-    kv_store: KvStore,
+    // kv_store: KvStore, // Removed this line
 
     // Circuit breakers for each data source
     circuit_breakers: Arc<std::sync::Mutex<HashMap<DataSourceType, CircuitBreaker>>>,
@@ -310,7 +310,8 @@ pub struct DataSourceManager {
 
 impl DataSourceManager {
     /// Create new DataSourceManager instance
-    pub fn new(kv_store: KvStore, config: DataSourceManagerConfig) -> ArbitrageResult<Self> {
+    pub fn new(config: DataSourceManagerConfig) -> ArbitrageResult<Self> {
+        // Removed kv_store parameter
         config.validate()?;
 
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
@@ -365,7 +366,7 @@ impl DataSourceManager {
         Ok(Self {
             config,
             logger,
-            kv_store,
+            // kv_store, // Removed this line
             circuit_breakers: Arc::new(std::sync::Mutex::new(circuit_breakers)),
             health_status: Arc::new(std::sync::Mutex::new(health_status)),
             metrics: Arc::new(std::sync::Mutex::new(metrics)),
@@ -374,9 +375,14 @@ impl DataSourceManager {
     }
 
     /// Get data with hierarchical fallback: Pipeline → KV → Database → API
-    pub async fn get_data<T>(&self, key: &str, data_type: &str) -> ArbitrageResult<Option<T>>
+    pub async fn get_data<T>(
+        &self,
+        kv_store: &KvStore,
+        key: &str,
+        data_type: &str,
+    ) -> ArbitrageResult<Option<T>>
     where
-        T: for<'de> serde::Deserialize<'de>,
+        T: for<'de> serde::Deserialize<'de> + serde::Serialize, // Added Serialize for potential caching
     {
         let start_time = chrono::Utc::now().timestamp_millis() as u64;
 
@@ -399,36 +405,98 @@ impl DataSourceManager {
             vec![DataSourceType::Cache] // Default to KV only
         };
 
+        let mut last_error: Option<ArbitrageError> = None;
+
         for source_type in sources {
             if !self.can_use_source(&source_type).await {
+                self.logger.warn(&format!(
+                    "Source {:?} cannot be used for key '{}' (circuit breaker or disabled)",
+                    source_type, key
+                ));
                 continue;
             }
 
-            match self.get_from_source(&source_type, key, data_type).await {
+            match self
+                .get_from_source(kv_store, &source_type, key, data_type)
+                .await
+            {
+                // Pass kv_store
                 Ok(Some(data)) => {
                     self.record_success(&source_type, start_time).await;
+                    // Optionally cache if retrieved from a slower source and caching is enabled
+                    if self.config.enable_caching
+                        && source_type != DataSourceType::Cache
+                        && source_type != DataSourceType::Pipeline
+                    {
+                        if let Err(e) = self
+                            .set_to_source(
+                                kv_store, // Pass kv_store
+                                &DataSourceType::Cache,
+                                key,
+                                &data,
+                                data_type,
+                                Some(self.config.cache_ttl_seconds),
+                            )
+                            .await
+                        {
+                            self.logger.error(&format!(
+                                "Failed to cache data for key '{}' from source {:?}: {}",
+                                key, source_type, e
+                            ));
+                        }
+                    }
                     return Ok(Some(data));
                 }
                 Ok(None) => {
                     // Data not found in this source, try next
+                    last_error = Some(ArbitrageError::not_found(format!(
+                        "Data not found for key '{}' in source {:?}",
+                        key, source_type
+                    )));
+                    self.logger.info(&format!(
+                        "Data not found for key '{}' in source {:?}, trying next.",
+                        key, source_type
+                    ));
                     continue;
                 }
                 Err(error) => {
                     self.record_failure(&source_type, start_time, &error).await;
+                    last_error = Some(error.clone());
                     if !self.config.enable_fallback_chain {
+                        self.logger.error(&format!(
+                            "Error from source {:?} for key '{}' and fallback disabled: {}",
+                            source_type, key, error
+                        ));
                         return Err(error);
                     }
+                    self.logger.warn(&format!(
+                        "Error from source {:?} for key '{}', trying next: {}",
+                        source_type, key, error
+                    ));
                     // Continue to next source
                 }
             }
         }
 
-        Ok(None)
+        self.logger.warn(&format!(
+            "Data not found for key '{}' in any configured source.",
+            key
+        ));
+        // If data is not found in any source, return the last error or a generic not_found error
+        if let Some(err) = last_error {
+            Err(err)
+        } else {
+            Err(ArbitrageError::not_found(format!(
+                "Data not found for key '{}' after trying all sources",
+                key
+            )))
+        }
     }
 
     /// Set data to multiple sources for redundancy
     pub async fn set_data<T>(
         &self,
+        kv_store: &KvStore, // Add kv_store parameter
         key: &str,
         data: &T,
         data_type: &str,
@@ -450,7 +518,14 @@ impl DataSourceManager {
         let mut success = false;
         if self.can_use_source(&DataSourceType::Cache).await {
             match self
-                .set_to_source(&DataSourceType::Cache, key, data, data_type, ttl_seconds)
+                .set_to_source(
+                    kv_store,
+                    &DataSourceType::Cache,
+                    key,
+                    data,
+                    data_type,
+                    ttl_seconds,
+                ) // Pass kv_store
                 .await
             {
                 Ok(()) => {
@@ -465,12 +540,15 @@ impl DataSourceManager {
             }
         }
 
-        // Optionally store in other sources for redundancy
+        // Optionally store in other sources for redundancy (non-KV sources)
         if self.config.enable_fallback_chain {
             for source_type in [DataSourceType::Database, DataSourceType::Pipeline] {
+                // Assuming these don't use kv_store directly
                 if self.can_use_source(&source_type).await {
+                    // If these sources ever need kv_store, it should be passed here too.
+                    // For now, assuming they are independent of the direct kv_store instance.
                     let _ = self
-                        .set_to_source(&source_type, key, data, data_type, ttl_seconds)
+                        .set_to_source(kv_store, &source_type, key, data, data_type, ttl_seconds) // Pass kv_store if source_type is Cache, otherwise it's ignored by non-cache branches
                         .await;
                 }
             }
@@ -480,7 +558,7 @@ impl DataSourceManager {
             Ok(())
         } else {
             Err(ArbitrageError::storage_error(
-                "Failed to store data in any source".to_string(),
+                "Failed to store data in primary cache (KV Store)".to_string(),
             ))
         }
     }
@@ -488,6 +566,7 @@ impl DataSourceManager {
     /// Get data from specific source
     async fn get_from_source<T>(
         &self,
+        kv_store: &KvStore, // Add kv_store parameter
         source_type: &DataSourceType,
         key: &str,
         _data_type: &str,
@@ -498,15 +577,19 @@ impl DataSourceManager {
         match source_type {
             DataSourceType::Cache => {
                 // Get from KV store
-                match self.kv_store.get(key).text().await {
+                match kv_store.get(key).text().await {
+                    // Use passed kv_store
                     Ok(Some(data_str)) => match serde_json::from_str::<T>(&data_str) {
                         Ok(data) => Ok(Some(data)),
-                        Err(e) => Err(ArbitrageError::serialization_error(e.to_string())),
+                        Err(e) => Err(ArbitrageError::serialization_error(format!(
+                            "Failed to deserialize data for key '{}': {}",
+                            key, e
+                        ))),
                     },
                     Ok(None) => Ok(None),
                     Err(e) => Err(ArbitrageError::storage_error(format!(
-                        "KV get error: {:?}",
-                        e
+                        "KV get error for key '{}': {:?}",
+                        key, e
                     ))),
                 }
             }
@@ -533,6 +616,7 @@ impl DataSourceManager {
     /// Set data to specific source
     async fn set_to_source<T>(
         &self,
+        kv_store: &KvStore, // Add kv_store parameter
         source_type: &DataSourceType,
         key: &str,
         data: &T,
@@ -545,17 +629,23 @@ impl DataSourceManager {
         match source_type {
             DataSourceType::Cache => {
                 // Set to KV store
-                let data_str = serde_json::to_string(data)
-                    .map_err(|e| ArbitrageError::serialization_error(e.to_string()))?;
+                let data_str = serde_json::to_string(data).map_err(|e| {
+                    ArbitrageError::serialization_error(format!(
+                        "Failed to serialize data for key '{}': {}",
+                        key, e
+                    ))
+                })?;
 
-                let mut put_request = self.kv_store.put(key, data_str)?;
+                let mut put_request = kv_store.put(key, data_str)?; // Use passed kv_store
                 if let Some(ttl) = ttl_seconds {
                     put_request = put_request.expiration_ttl(ttl);
                 }
-                put_request
-                    .execute()
-                    .await
-                    .map_err(|e| ArbitrageError::storage_error(format!("KV put error: {:?}", e)))?;
+                put_request.execute().await.map_err(|e| {
+                    ArbitrageError::storage_error(format!(
+                        "KV put error for key '{}': {:?}",
+                        key, e
+                    ))
+                })?;
                 Ok(())
             }
             DataSourceType::Pipeline => {
@@ -774,7 +864,11 @@ impl DataSourceManager {
     }
 
     /// Get comprehensive health summary
-    pub async fn get_health_summary(&self) -> ArbitrageResult<serde_json::Value> {
+    pub async fn get_health_summary(
+        &self,
+        _kv_store: &KvStore,
+    ) -> ArbitrageResult<serde_json::Value> {
+        // Correct: kv_store passed as parameter
         let health_status = self.get_health_status().await;
         let metrics = self.get_metrics().await;
 
@@ -800,7 +894,8 @@ impl DataSourceManager {
     }
 
     /// Perform health check on all data sources
-    pub async fn health_check(&self) -> ArbitrageResult<bool> {
+    pub async fn health_check(&self, _kv_store: &KvStore) -> ArbitrageResult<bool> {
+        // Correct: kv_store passed as parameter
         let health_status = self.get_health_status().await;
         let healthy_count = health_status.values().filter(|h| h.is_healthy).count();
         let total_count = health_status.len();
@@ -809,10 +904,9 @@ impl DataSourceManager {
         Ok(healthy_count as f32 / total_count as f32 >= 0.6)
     }
 
-    /// Get the underlying KV store for direct access
-    pub fn get_kv_store(&self) -> worker::kv::KvStore {
-        self.kv_store.clone()
-    }
+    // pub fn get_kv_store(&self) -> worker::kv::KvStore { // Method removed
+    //     // self.kv_store.clone() // This would cause a compile error as self.kv_store is removed
+    // }
 }
 
 #[cfg(test)]
@@ -830,7 +924,7 @@ mod tests {
     #[test]
     fn test_data_source_manager_config_high_concurrency() {
         let config = DataSourceManagerConfig::high_concurrency();
-        assert_eq!(config.connection_pool_size, 15); // or set to 25 in the builder
+        assert_eq!(config.connection_pool_size, 25);
         assert_eq!(config.default_timeout_seconds, 15);
         // remove obsolete circuit-breaker threshold assertion
     }

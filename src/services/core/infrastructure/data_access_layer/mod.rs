@@ -11,9 +11,7 @@ pub mod data_validator;
 pub use api_connector::{
     APIConnector, APIConnectorConfig, APIHealth, APIMetrics, APIRequest, APIResponse, ExchangeType,
 };
-pub use cache_layer::{
-    CacheEntryType, CacheHealth, CacheLayer, CacheLayerConfig, CacheMetrics, CacheStats,
-};
+pub use cache_layer::{CacheLayer, CacheLayerConfig, CacheMetrics};
 pub use data_coordinator::{
     CacheStrategy, CoordinationMetrics, DataAccessRequest, DataAccessResponse, DataCoordinator,
     DataCoordinatorConfig, DataSourceType,
@@ -96,12 +94,14 @@ impl DataAccessLayerConfig {
     pub fn high_concurrency() -> Self {
         Self {
             data_source_config: DataSourceManagerConfig::high_concurrency(),
-            cache_config: CacheLayerConfig::high_concurrency(),
+            cache_config: CacheLayerConfig::high_performance(),
             api_config: APIConnectorConfig::high_concurrency(),
             validator_config: DataValidatorConfig::high_performance(),
             coordinator_config: DataCoordinatorConfig::high_throughput(),
-            health_check_interval_seconds: 180, // 3 minutes
-            ..Default::default()
+            health_check_interval_seconds: 180,    // 3 minutes
+            enable_comprehensive_monitoring: true, // Default for high concurrency
+            enable_performance_optimization: true, // Default for high concurrency
+            enable_chaos_engineering: false, // Typically disabled for high concurrency focus unless testing resilience
         }
     }
 
@@ -113,8 +113,10 @@ impl DataAccessLayerConfig {
             api_config: APIConnectorConfig::high_reliability(),
             validator_config: DataValidatorConfig::high_quality(),
             coordinator_config: DataCoordinatorConfig::high_reliability(),
-            health_check_interval_seconds: 600, // 10 minutes
-            ..Default::default()
+            health_check_interval_seconds: 600,    // 10 minutes
+            enable_comprehensive_monitoring: true, // Essential for reliability
+            enable_performance_optimization: true, // Can coexist with reliability
+            enable_chaos_engineering: true,        // Important for testing reliability
         }
     }
 

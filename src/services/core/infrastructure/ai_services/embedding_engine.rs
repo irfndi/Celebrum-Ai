@@ -6,6 +6,7 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::{Datelike, Timelike};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::sync::Mutex; // Added this line
 use worker::{Env, Fetch, Method, RequestInit};
 
 /// Configuration for EmbeddingEngine
@@ -173,13 +174,14 @@ pub struct VectorizeMatch {
 }
 
 /// Embedding Engine for vector generation and similarity search
+#[derive(Clone)] // Added Clone derive
 pub struct EmbeddingEngine {
     config: EmbeddingEngineConfig,
     logger: crate::utils::logger::Logger,
     vectorize_available: Arc<std::sync::Mutex<bool>>,
     #[allow(dead_code)] // TODO: Will be used for health monitoring
     last_health_check: Arc<std::sync::Mutex<Option<u64>>>,
-    cache: Option<worker::kv::KvStore>,
+    cache: Arc<Mutex<Option<worker::kv::KvStore>>>, // Wrapped in Arc<Mutex<>>
     metrics: Arc<std::sync::Mutex<EmbeddingMetrics>>,
 }
 
@@ -252,14 +254,17 @@ impl EmbeddingEngine {
             logger,
             vectorize_available: Arc::new(std::sync::Mutex::new(vectorize_available)),
             last_health_check: Arc::new(std::sync::Mutex::new(None)),
-            cache: None,
+            cache: Arc::new(Mutex::new(None)), // Initialize cache as None, can be set later with with_cache
             metrics: Arc::new(std::sync::Mutex::new(EmbeddingMetrics::default())),
         })
     }
 
     /// Set cache store for caching operations
-    pub fn with_cache(mut self, cache: worker::kv::KvStore) -> Self {
-        self.cache = Some(cache);
+    pub fn with_cache(self, cache_store: worker::kv::KvStore) -> Self {
+        {
+            let mut cache_guard = self.cache.lock().unwrap();
+            *cache_guard = Some(cache_store);
+        } // cache_guard is dropped here
         self
     }
 
@@ -299,7 +304,7 @@ impl EmbeddingEngine {
         };
 
         // Cache the embedding
-        if self.cache.is_some() {
+        if self.cache.lock().unwrap().is_some() {
             let _ = self.cache_embedding(&opportunity_embedding).await;
         }
 
@@ -677,11 +682,18 @@ impl EmbeddingEngine {
 
     /// Cache embedding
     async fn cache_embedding(&self, embedding: &OpportunityEmbedding) -> ArbitrageResult<()> {
-        if let Some(ref cache) = self.cache {
+        let cache_store_clone = {
+            let cache_guard = self.cache.lock().unwrap();
+            let store_clone = cache_guard.clone(); // Clone the Option<KvStore>
+            drop(cache_guard); // Explicitly drop the guard
+            store_clone
+        };
+
+        if let Some(ref cache_store) = cache_store_clone {
             let cache_key = format!("embedding:{}", embedding.opportunity_id);
             let embedding_json = serde_json::to_string(embedding)?;
 
-            cache
+            cache_store
                 .put(&cache_key, &embedding_json)?
                 .expiration_ttl(self.config.cache_ttl_seconds)
                 .execute()
@@ -695,10 +707,17 @@ impl EmbeddingEngine {
         &self,
         opportunity_id: &str,
     ) -> ArbitrageResult<Option<OpportunityEmbedding>> {
-        if let Some(ref cache) = self.cache {
+        let cache_store_clone = {
+            let cache_guard = self.cache.lock().unwrap();
+            let store_clone = cache_guard.clone(); // Clone the Option<KvStore>
+            drop(cache_guard); // Explicitly drop the guard
+            store_clone
+        };
+
+        if let Some(ref cache_store) = cache_store_clone {
             let cache_key = format!("embedding:{}", opportunity_id);
 
-            match cache.get(&cache_key).text().await {
+            match cache_store.get(&cache_key).text().await {
                 Ok(Some(embedding_json)) => {
                     match serde_json::from_str::<OpportunityEmbedding>(&embedding_json) {
                         Ok(embedding) => return Ok(Some(embedding)),
@@ -720,71 +739,74 @@ impl EmbeddingEngine {
 
     /// Update embedding metrics
     async fn update_embedding_metrics(&self, elapsed_ms: u64, success: bool) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_embeddings_generated += 1;
+        let mut metrics_guard = self.metrics.lock().unwrap();
+        metrics_guard.total_embeddings_generated += 1;
 
-            // Update average embedding time
-            let total_time = metrics.avg_embedding_time_ms
-                * (metrics.total_embeddings_generated - 1) as f64
-                + elapsed_ms as f64;
-            metrics.avg_embedding_time_ms = total_time / metrics.total_embeddings_generated as f64;
+        // Update average embedding time
+        let total_time = metrics_guard.avg_embedding_time_ms
+            * (metrics_guard.total_embeddings_generated - 1) as f64
+            + elapsed_ms as f64;
+        metrics_guard.avg_embedding_time_ms =
+            total_time / metrics_guard.total_embeddings_generated as f64;
 
-            // Update success rate
-            if success {
-                metrics.success_rate =
-                    (metrics.success_rate * (metrics.total_embeddings_generated - 1) as f64 + 1.0)
-                        / metrics.total_embeddings_generated as f64;
-            } else {
-                metrics.success_rate = (metrics.success_rate
-                    * (metrics.total_embeddings_generated - 1) as f64)
-                    / metrics.total_embeddings_generated as f64;
-            }
-
-            metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        // Update success rate
+        if success {
+            metrics_guard.success_rate = (metrics_guard.success_rate
+                * (metrics_guard.total_embeddings_generated - 1) as f64
+                + 1.0)
+                / metrics_guard.total_embeddings_generated as f64;
+        } else {
+            metrics_guard.success_rate = (metrics_guard.success_rate
+                * (metrics_guard.total_embeddings_generated - 1) as f64)
+                / metrics_guard.total_embeddings_generated as f64;
         }
+
+        metrics_guard.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        // Guard is dropped here, no await was involved while holding it.
     }
 
     /// Update search metrics
     async fn update_search_metrics(&self, elapsed_ms: u64, _success: bool) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.total_similarity_searches += 1;
+        let mut metrics_guard = self.metrics.lock().unwrap();
+        metrics_guard.total_similarity_searches += 1;
 
-            // Update average search time
-            let total_time = metrics.avg_search_time_ms
-                * (metrics.total_similarity_searches - 1) as f64
-                + elapsed_ms as f64;
-            metrics.avg_search_time_ms = total_time / metrics.total_similarity_searches as f64;
+        // Update average search time
+        let total_time = metrics_guard.avg_search_time_ms
+            * (metrics_guard.total_similarity_searches - 1) as f64
+            + elapsed_ms as f64;
+        metrics_guard.avg_search_time_ms =
+            total_time / metrics_guard.total_similarity_searches as f64;
 
-            metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
+        metrics_guard.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        // Guard is dropped here, no await was involved while holding it.
     }
 
     /// Update cache metrics
     async fn update_cache_metrics(&self, hit: bool) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            if hit {
-                metrics.cache_hits += 1;
-            } else {
-                metrics.cache_misses += 1;
-            }
-            metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        let mut metrics_guard = self.metrics.lock().unwrap();
+        if hit {
+            metrics_guard.cache_hits += 1;
+        } else {
+            metrics_guard.cache_misses += 1;
         }
+        metrics_guard.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        // Guard is dropped here, no await was involved while holding it.
     }
 
     /// Update Vectorize metrics
     async fn update_vectorize_metrics(&self) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.vectorize_requests += 1;
-            metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
+        let mut metrics_guard = self.metrics.lock().unwrap();
+        metrics_guard.vectorize_requests += 1;
+        metrics_guard.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        // Guard is dropped here, no await was involved while holding it.
     }
 
     /// Update fallback metrics
     async fn update_fallback_metrics(&self) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.local_fallback_requests += 1;
-            metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
-        }
+        let mut metrics_guard = self.metrics.lock().unwrap();
+        metrics_guard.local_fallback_requests += 1;
+        metrics_guard.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+        // Guard is dropped here, no await was involved while holding it.
     }
 
     /// Get performance metrics

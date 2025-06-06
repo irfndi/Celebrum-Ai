@@ -293,6 +293,7 @@ impl PreferenceValidationResult {
 
 // ============= USER TRADING PREFERENCES SERVICE =============
 
+#[derive(Clone)]
 pub struct UserTradingPreferencesService {
     d1_service: DatabaseManager,
     logger: Logger,

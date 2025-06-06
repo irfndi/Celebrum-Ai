@@ -9,6 +9,14 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use worker::kv::KvStore;
 
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::time::{sleep, Duration};
+#[cfg(target_arch = "wasm32")]
+use {
+    gloo_timers::future::sleep as wasm_sleep,
+    std::time::Duration, // This will be the `Duration` used in wasm_sleep(Duration::from_millis(...))
+};
+
 use super::{
     data_transformer::{TransformationRequest, TransformationResponse},
     pipeline_manager::{PipelineEvent, PipelineManager, PipelineType},
@@ -504,7 +512,10 @@ impl IngestionCoordinator {
         };
 
         if should_rate_limit {
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            #[cfg(not(target_arch = "wasm32"))]
+            sleep(Duration::from_millis(100)).await;
+            #[cfg(target_arch = "wasm32")]
+            wasm_sleep(Duration::from_millis(100)).await;
             return Err(ArbitrageError::rate_limit_error("Rate limit exceeded"));
         }
 
@@ -515,7 +526,10 @@ impl IngestionCoordinator {
         };
 
         if should_circuit_break {
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            #[cfg(not(target_arch = "wasm32"))]
+            sleep(Duration::from_millis(500)).await;
+            #[cfg(target_arch = "wasm32")]
+            wasm_sleep(Duration::from_millis(500)).await;
             return Err(ArbitrageError::service_unavailable(
                 "Circuit breaker is open",
             ));

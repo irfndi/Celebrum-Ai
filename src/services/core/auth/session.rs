@@ -1,5 +1,5 @@
 //! Authentication Session Service
-//! 
+//!
 //! Session management integration for authentication workflows:
 //! - Session creation and validation
 //! - Integration with existing SessionManagementService
@@ -8,16 +8,19 @@
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::services::core::user::SessionManagementService;
+use crate::types::EnhancedUserSession;
 use crate::types::UserProfile;
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use worker::console_log;
+use chrono::{DateTime, Utc};
 use std::sync::Arc;
+use worker::console_log;
 
 /// Authentication Session Service
-/// 
+///
 /// Integrates with existing SessionManagementService for auth workflows
 pub struct AuthSessionService {
     session_management_service: Arc<SessionManagementService>,
+    #[allow(dead_code)] // Will be used for service discovery and DI
     service_container: Arc<ServiceContainer>,
 }
 
@@ -27,9 +30,7 @@ impl AuthSessionService {
         console_log!("🔐 Initializing Auth Session Service...");
 
         // Get session management service from container
-        let session_management_service = service_container
-            .get_session_management_service()
-            .ok_or_else(|| ArbitrageError::service_unavailable("Session management service not available"))?;
+        let session_management_service = service_container.session_service().clone();
 
         console_log!("✅ Auth Session Service initialized successfully");
 
@@ -40,7 +41,11 @@ impl AuthSessionService {
     }
 
     /// Create or update session for user authentication
-    pub async fn create_or_update_session(&self, telegram_id: i64, user_profile: &UserProfile) -> ArbitrageResult<super::SessionCreationResult> {
+    pub async fn create_or_update_session(
+        &self,
+        telegram_id: i64,
+        user_profile: &UserProfile,
+    ) -> ArbitrageResult<super::SessionCreationResult> {
         console_log!("🔐 Creating/updating session for user {}", telegram_id);
 
         let user_id_str = telegram_id.to_string(); // This is used as user_id for validate_session
@@ -93,17 +98,12 @@ impl AuthSessionService {
             .await?;
 
         if let Some(session_details) = session_details_option {
-            // Convert u64 timestamps to chrono::DateTime<chrono::Utc>
-            let created_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.created_at as i64)
-                .ok_or_else(|| ArbitrageError::internal_error("Invalid created_at timestamp in session_details"))?;
-            let expires_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.expires_at as i64)
-                .ok_or_else(|| ArbitrageError::internal_error("Invalid expires_at timestamp in session_details"))?;
-            let last_activity = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.last_activity_at as i64)
-                .ok_or_else(|| ArbitrageError::internal_error("Invalid last_activity_at timestamp in session_details"))?;
+            let (created_at, expires_at, last_activity) =
+                convert_session_timestamps(&session_details)?;
 
             let session_info = super::SessionInfo {
                 session_id: session_details.session_id, // Use the actual session_id from details
-                user_id: session_details.user_id,     // Use the actual user_id from details
+                user_id: session_details.user_id,       // Use the actual user_id from details
                 created_at,
                 expires_at,
                 last_activity,
@@ -111,7 +111,9 @@ impl AuthSessionService {
             console_log!("✅ Session validated: {}", session_info.session_id);
             Ok(session_info)
         } else {
-            Err(ArbitrageError::authentication_error("Invalid or expired session"))
+            Err(ArbitrageError::authentication_error(
+                "Invalid or expired session",
+            ))
         }
     }
 
@@ -119,7 +121,9 @@ impl AuthSessionService {
     pub async fn update_session_activity(&self, session_id: &str) -> ArbitrageResult<()> {
         console_log!("🔄 Updating session activity: {}", session_id);
 
-        self.session_management_service.update_activity(session_id).await?;
+        self.session_management_service
+            .update_activity(session_id)
+            .await?;
 
         console_log!("✅ Session activity updated: {}", session_id);
         Ok(())
@@ -129,7 +133,9 @@ impl AuthSessionService {
     pub async fn end_session(&self, session_id: &str) -> ArbitrageResult<()> {
         console_log!("🚪 Ending session: {}", session_id);
 
-        self.session_management_service.end_session(session_id).await?;
+        self.session_management_service
+            .end_session(session_id)
+            .await?;
         console_log!("✅ Session ended: {}", session_id);
         Ok(())
     }
@@ -139,15 +145,18 @@ impl AuthSessionService {
         console_log!("📊 Getting session stats for user: {}", user_id);
 
         // Check if user has active session
-        let active_session_option = self.session_management_service.validate_session(user_id).await?;
+        let active_session_option = self
+            .session_management_service
+            .validate_session(user_id)
+            .await?;
         let has_active_session = active_session_option.is_some();
 
         // TODO: Get more detailed session statistics from SessionManagementService
         // If active_session_option is Some(details), we could use details to populate more fields.
         let stats = SessionStats {
             has_active_session,
-            total_sessions: 1, // TODO: Get actual count
-            last_login: chrono::Utc::now(), // TODO: Get actual last login
+            total_sessions: 1,                            // TODO: Get actual count
+            last_login: chrono::Utc::now(),               // TODO: Get actual last login
             session_duration: chrono::Duration::hours(1), // TODO: Get actual duration
         };
 
@@ -165,21 +174,29 @@ impl SessionValidator {
     /// Create new session validator
     pub async fn new(service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
         let auth_session_service = AuthSessionService::new(service_container).await?;
-        
+
         Ok(Self {
             auth_session_service,
         })
     }
 
     /// Validate session and return user context
-    pub async fn validate_and_get_context(&self, session_id: &str) -> ArbitrageResult<SessionValidationResult> {
+    pub async fn validate_and_get_context(
+        &self,
+        session_id: &str,
+    ) -> ArbitrageResult<SessionValidationResult> {
         console_log!("🔍 Validating session and getting context: {}", session_id);
 
         // Validate session
-        let session_info = self.auth_session_service.validate_session(session_id).await?;
+        let session_info = self
+            .auth_session_service
+            .validate_session(session_id)
+            .await?;
 
         // Update session activity
-        self.auth_session_service.update_session_activity(session_id).await?;
+        self.auth_session_service
+            .update_session_activity(session_id)
+            .await?;
 
         console_log!("✅ Session validation successful: {}", session_id);
 
@@ -216,17 +233,23 @@ impl SessionManager {
     /// Create new session manager
     pub async fn new(service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
         let auth_session_service = AuthSessionService::new(service_container).await?;
-        
+
         Ok(Self {
             auth_session_service,
         })
     }
 
     /// Create session for user
-    pub async fn create_session(&self, telegram_id: i64, user_profile: &UserProfile) -> ArbitrageResult<super::SessionCreationResult> {
+    pub async fn create_session(
+        &self,
+        telegram_id: i64,
+        user_profile: &UserProfile,
+    ) -> ArbitrageResult<super::SessionCreationResult> {
         console_log!("🆕 Creating session for user: {}", telegram_id);
 
-        self.auth_session_service.create_or_update_session(telegram_id, user_profile).await
+        self.auth_session_service
+            .create_or_update_session(telegram_id, user_profile)
+            .await
     }
 
     /// Terminate session
@@ -237,7 +260,10 @@ impl SessionManager {
     }
 
     /// Get active sessions for user
-    pub async fn get_active_sessions(&self, user_id: &str) -> ArbitrageResult<Vec<super::SessionInfo>> {
+    pub async fn get_active_sessions(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<Vec<super::SessionInfo>> {
         console_log!("📋 Getting active sessions for user: {}", user_id);
 
         // user_id here is the user_id for SessionManagementService.validate_session
@@ -248,12 +274,8 @@ impl SessionManager {
             .await?;
 
         if let Some(session_details) = active_session_option {
-            let created_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.created_at as i64)
-                .ok_or_else(|| ArbitrageError::internal_error("Invalid created_at timestamp"))?;
-            let expires_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.expires_at as i64)
-                .ok_or_else(|| ArbitrageError::internal_error("Invalid expires_at timestamp"))?;
-            let last_activity = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(session_details.last_activity_at as i64)
-                .ok_or_else(|| ArbitrageError::internal_error("Invalid last_activity timestamp"))?;
+            let (created_at, expires_at, last_activity) =
+                convert_session_timestamps(&session_details)?;
 
             let session_info = super::SessionInfo {
                 session_id: session_details.session_id,
@@ -299,26 +321,41 @@ pub struct SessionValidationResult {
     pub user_id: String,
 }
 
+// Helper function to convert u64 timestamps from EnhancedUserSession to DateTime<Utc>
+fn convert_session_timestamps(
+    session: &EnhancedUserSession,
+) -> ArbitrageResult<(DateTime<Utc>, DateTime<Utc>, DateTime<Utc>)> {
+    let created_at = DateTime::<Utc>::from_timestamp_millis(session.created_at as i64)
+        .ok_or_else(|| ArbitrageError::internal_error("Invalid created_at timestamp"))?;
+    let expires_at = DateTime::<Utc>::from_timestamp_millis(session.expires_at as i64)
+        .ok_or_else(|| ArbitrageError::internal_error("Invalid expires_at timestamp"))?;
+    let last_activity = DateTime::<Utc>::from_timestamp_millis(session.last_activity_at as i64)
+        .ok_or_else(|| ArbitrageError::internal_error("Invalid last_activity timestamp"))?;
+    Ok((created_at, expires_at, last_activity))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::services::core::user::session_management::SessionManagementService as ActualSessionManagementService;
-    use crate::types::{EnhancedUserSession, EnhancedSessionState, SessionConfig, SessionAnalytics};
-    use std::sync::Arc;
+    use crate::types::{
+        EnhancedSessionState, EnhancedUserSession, SessionAnalytics, SessionConfig,
+    };
+    use parking_lot::Mutex;
     use std::collections::HashMap;
-    use tokio::sync::Mutex; // Use tokio's Mutex for async tests
+    use std::sync::Arc; // Use parking_lot's Mutex for WASM compatibility
 
     // Define a trait that SessionManagementService and its mock can implement
     // This is a better approach for mocking but requires refactoring SessionManagementService
     // For now, we'll create a specific mock struct.
 
-    #[derive(Clone)]
     struct MockSessionManagementService {
         expected_session: Mutex<Option<Option<EnhancedUserSession>>>,
         // Stores user_id -> EnhancedUserSession for start_session/update_activity simulation
         active_sessions_mock: Mutex<HashMap<String, EnhancedUserSession>>,
     }
 
+    #[allow(dead_code)]
     impl MockSessionManagementService {
         fn new() -> Self {
             Self {
@@ -327,16 +364,25 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)]
         async fn set_expected_validate_session_result(&self, result: Option<EnhancedUserSession>) {
-            *self.expected_session.lock().await = Some(result);
+            *self.expected_session.lock() = Some(result);
         }
 
         // Mocked methods from SessionManagementService that AuthSessionService calls
-        async fn validate_session(&self, _user_id: &str) -> ArbitrageResult<Option<EnhancedUserSession>> {
-            Ok(self.expected_session.lock().await.take().unwrap_or(None))
+        #[allow(dead_code)]
+        async fn validate_session(
+            &self,
+            _user_id: &str,
+        ) -> ArbitrageResult<Option<EnhancedUserSession>> {
+            Ok(self.expected_session.lock().take().unwrap_or(None))
         }
 
-        async fn start_session(&self, telegram_id: i64, user_id: String) -> ArbitrageResult<EnhancedUserSession> {
+        async fn start_session(
+            &self,
+            telegram_id: i64,
+            user_id: String,
+        ) -> ArbitrageResult<EnhancedUserSession> {
             let now = chrono::Utc::now().timestamp_millis() as u64;
             let session = EnhancedUserSession {
                 session_id: format!("session_mock_{}", telegram_id),
@@ -359,12 +405,15 @@ mod tests {
                 session_analytics: SessionAnalytics::default(),
                 config: SessionConfig::default(),
             };
-            self.active_sessions_mock.lock().await.insert(user_id, session.clone());
+            self.active_sessions_mock
+                .lock()
+                .insert(user_id, session.clone());
             Ok(session)
         }
 
+        #[allow(dead_code)]
         async fn update_activity(&self, user_id: &str) -> ArbitrageResult<()> {
-            let mut sessions = self.active_sessions_mock.lock().await;
+            let mut sessions = self.active_sessions_mock.lock();
             if let Some(session) = sessions.get_mut(user_id) {
                 session.last_activity_at = chrono::Utc::now().timestamp_millis() as u64;
                 session.expires_at = session.last_activity_at + 3600 * 1000; // Extend by 1 hour
@@ -372,8 +421,9 @@ mod tests {
             Ok(())
         }
 
+        #[allow(dead_code)]
         async fn end_session(&self, user_id: &str) -> ArbitrageResult<()> {
-            let mut sessions = self.active_sessions_mock.lock().await;
+            let mut sessions = self.active_sessions_mock.lock();
             if let Some(session) = sessions.get_mut(user_id) {
                 session.session_state = EnhancedSessionState::Terminated;
                 session.current_state = EnhancedSessionState::Terminated;
@@ -381,6 +431,7 @@ mod tests {
             Ok(())
         }
 
+        #[allow(dead_code)]
         async fn cleanup_expired_sessions(&self) -> ArbitrageResult<u32> {
             // Basic mock: just return 0
             Ok(0)
@@ -389,6 +440,7 @@ mod tests {
 
     // Helper to create AuthSessionService with a mocked SessionManagementService
     // This bypasses the ServiceContainer for focused unit testing.
+    #[allow(dead_code)]
     fn create_auth_session_service_with_mock(
         mock_sms: Arc<MockSessionManagementService>,
     ) -> AuthSessionService {
@@ -428,11 +480,12 @@ mod tests {
             service_container: Arc::new(ServiceContainer::new_for_test_DONT_USE()), // Requires a test constructor for ServiceContainer
         }
     }
-     // Mock ServiceContainer for testing purposes
+    // Mock ServiceContainer for testing purposes
     impl ServiceContainer {
         // This is a simplified constructor for testing and SHOULD NOT be used in production.
         // It's designed to allow injection of a specific SessionManagementService (or a mock cast to it).
         #[allow(non_snake_case)]
+        #[allow(dead_code)]
         fn new_for_test_DONT_USE() -> Self {
             // This is highly problematic as it tries to create real dependencies.
             // A proper test ServiceContainer would initialize fields with mocks or test doubles.
@@ -440,7 +493,6 @@ mod tests {
             panic!("ServiceContainer::new_for_test_DONT_USE should be implemented with proper test doubles/mocks for all fields");
         }
     }
-
 
     #[tokio::test]
     async fn test_auth_validate_session_valid_session() {
@@ -469,7 +521,9 @@ mod tests {
             session_analytics: SessionAnalytics::default(),
             config: SessionConfig::default(),
         };
-        mock_sms.set_expected_validate_session_result(Some(expected_session_details.clone())).await;
+        mock_sms
+            .set_expected_validate_session_result(Some(expected_session_details.clone()))
+            .await;
 
         // This is where the test setup is tricky due to AuthSessionService constructor
         // let auth_service = create_auth_session_service_with_mock(mock_sms.clone());
@@ -484,7 +538,7 @@ mod tests {
         // assert_eq!(session_info.created_at.timestamp_millis() as u64, now);
 
         // Placeholder assertion until DI/mocking is resolved
-        assert!(true, "Test structure for validate_session (valid) - DI/mocking needs improvement");
+        // Test structure for validate_session (valid) - DI/mocking needs improvement
     }
 
     #[tokio::test]
@@ -501,18 +555,25 @@ mod tests {
         //     panic!("Expected AuthenticationError");
         // }
 
-        assert!(true, "Test structure for validate_session (invalid) - DI/mocking needs improvement");
+        // Test structure for validate_session (invalid) - DI/mocking needs improvement
     }
 
-     #[tokio::test]
+    #[tokio::test]
     async fn test_auth_end_session() {
         let mock_sms = Arc::new(MockSessionManagementService::new());
         let user_id_to_end = "user_to_end_session";
 
         // Populate the mock's active sessions so end_session can find it
-        mock_sms.start_session(555, user_id_to_end.to_string()).await.unwrap();
-        assert!(mock_sms.active_sessions_mock.lock().await.get(user_id_to_end).unwrap().is_active());
-
+        mock_sms
+            .start_session(555, user_id_to_end.to_string())
+            .await
+            .unwrap();
+        assert!(mock_sms
+            .active_sessions_mock
+            .lock()
+            .get(user_id_to_end)
+            .unwrap()
+            .is_active());
 
         // let auth_service = create_auth_session_service_with_mock(mock_sms.clone());
         // let result = auth_service.end_session(user_id_to_end).await;
@@ -520,10 +581,10 @@ mod tests {
 
         // // Verify that the mock SessionManagementService's end_session was effectively called
         // // (i.e., session is marked as terminated in the mock's internal state)
-        // let session_in_mock = mock_sms.active_sessions_mock.lock().await.get(user_id_to_end).cloned();
+        // let session_in_mock = mock_sms.active_sessions_mock.lock().get(user_id_to_end).cloned();
         // assert!(session_in_mock.is_some());
         // assert!(!session_in_mock.unwrap().is_active()); // Should be terminated
 
-        assert!(true, "Test structure for end_session - DI/mocking needs improvement");
+        // Test structure for end_session - DI/mocking needs improvement
     }
 }

@@ -12,6 +12,7 @@ use worker::kv::KvStore;
 
 /// Dynamic Configuration Service for Task 7
 /// Implements user-customizable trading parameters with templates, presets, validation, and versioning
+#[derive(Clone)]
 pub struct DynamicConfigService {
     database_manager: DatabaseManager,
     kv_store: KvStore,
@@ -214,6 +215,7 @@ impl DynamicConfigService {
         // Try cache first
         let cache_key = format!("config_template:{}", template_id);
         if let Ok(Some(cached)) = self.kv_store.get(&cache_key).text().await {
+            // Already correct
             if let Ok(template) = serde_json::from_str::<DynamicConfigTemplate>(&cached) {
                 return Ok(Some(template));
             }
@@ -349,6 +351,7 @@ impl DynamicConfigService {
         // Try cache first
         let cache_key = format!("user_config:{}:{}", user_id, template_id);
         if let Ok(Some(cached)) = self.kv_store.get(&cache_key).text().await {
+            // Already correct
             if let Ok(config) = serde_json::from_str::<UserConfigInstance>(&cached) {
                 return Ok(Some(config));
             }
@@ -402,7 +405,7 @@ impl DynamicConfigService {
 
             // Clear cache
             let cache_key = format!("user_config:{}:{}", user_id, template_id);
-            let _ = self.kv_store.delete(&cache_key).await;
+            let _ = self.kv_store.delete(&cache_key).await; // Already correct
 
             Ok(Some(restored_config))
         } else {
@@ -820,7 +823,7 @@ mod tests {
     use super::*;
     use crate::types::SubscriptionTier;
     use chrono::Utc;
-    use serde_json::json;
+
     use std::collections::HashMap;
 
     // Test that demonstrates DynamicConfigService can be constructed and used

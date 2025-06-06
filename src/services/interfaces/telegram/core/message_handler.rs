@@ -1,7 +1,7 @@
 // src/services/interfaces/telegram/core/message_handler.rs
 
 //! Telegram Message Handler
-//! 
+//!
 //! Handles message processing, formatting, and sending including:
 //! - Message formatting and escaping
 //! - Rich message composition
@@ -11,7 +11,6 @@
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use worker::console_log;
 
 /// Message formatting and processing
 pub struct MessageHandler {
@@ -98,7 +97,10 @@ impl MessageHandler {
     }
 
     /// Format a balance message
-    pub fn format_balance_message(&self, balances: &HashMap<String, f64>) -> ArbitrageResult<String> {
+    pub fn format_balance_message(
+        &self,
+        balances: &HashMap<String, f64>,
+    ) -> ArbitrageResult<String> {
         let mut message = String::from("💳 *Account Balances*\n\n");
 
         if balances.is_empty() {
@@ -152,7 +154,10 @@ impl MessageHandler {
 
     /// Format an error message
     pub fn format_error_message(&self, error: &str) -> String {
-        format!("❌ *Error*\n\n{}\n\nPlease try again or contact support.", error)
+        format!(
+            "❌ *Error*\n\n{}\n\nPlease try again or contact support.",
+            error
+        )
     }
 
     /// Format a success message
@@ -187,7 +192,7 @@ impl MessageHandler {
             • Send any message to get started\n\
             • Use inline buttons for easy navigation\n\
             • Set up notifications in settings\n\n\
-            Need help? Contact support at @arbedge_support"
+            Need help? Contact support at @arbedge_support",
         )
     }
 
@@ -207,7 +212,7 @@ impl MessageHandler {
             • Real-time system metrics\n\
             • User activity tracking\n\
             • Performance monitoring\n\
-            • Error tracking and alerts"
+            • Error tracking and alerts",
         )
     }
 
@@ -215,7 +220,8 @@ impl MessageHandler {
     pub fn escape_markdown_v2(&self, text: &str) -> String {
         text.chars()
             .map(|c| match c {
-                '_' | '*' | '[' | ']' | '(' | ')' | '~' | '`' | '>' | '#' | '+' | '-' | '=' | '|' | '{' | '}' | '.' | '!' => {
+                '_' | '*' | '[' | ']' | '(' | ')' | '~' | '`' | '>' | '#' | '+' | '-' | '='
+                | '|' | '{' | '}' | '.' | '!' => {
                     format!("\\{}", c)
                 }
                 _ => c.to_string(),
@@ -268,9 +274,7 @@ impl MessageHandler {
             self.create_inline_button("📊 Dashboard", "settings_dashboard"),
         ]);
 
-        let row3 = self.create_inline_row(vec![
-            self.create_inline_button("🔙 Back", "main_menu"),
-        ]);
+        let row3 = self.create_inline_row(vec![self.create_inline_button("🔙 Back", "main_menu")]);
 
         self.create_inline_keyboard(vec![row1, row2, row3])
     }
@@ -298,7 +302,7 @@ impl MessageHandler {
     /// Validate message length
     pub fn validate_message_length(&self, text: &str) -> ArbitrageResult<()> {
         const MAX_MESSAGE_LENGTH: usize = 4096;
-        
+
         if text.len() > MAX_MESSAGE_LENGTH {
             return Err(ArbitrageError::validation_error(format!(
                 "Message too long: {} characters (max: {})",
@@ -335,7 +339,7 @@ impl MessageHandler {
                     chunks.push(current_chunk);
                     current_chunk = String::new();
                 }
-                
+
                 if line.len() > max_length {
                     // Split very long lines
                     let line_chunks = self.split_long_line(line, max_length);
@@ -377,4 +381,4 @@ impl Default for MessageHandler {
     fn default() -> Self {
         Self::new()
     }
-}  
+}

@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_circuit_breaker_default() {
-        let breaker = CircuitBreaker::default();
+        let mut breaker = CircuitBreaker::default();
         assert_eq!(breaker.state, CircuitBreakerState::Closed);
         assert_eq!(breaker.threshold, 5);
         assert!(breaker.can_execute());
@@ -388,14 +388,14 @@ mod tests {
     #[test]
     fn test_circuit_breaker_failure_handling() {
         let mut breaker = CircuitBreaker::new(2, 60);
-        
+
         // Should be closed initially
         assert!(breaker.can_execute());
-        
+
         // Record failures
         breaker.record_failure();
         assert!(breaker.can_execute()); // Still closed
-        
+
         breaker.record_failure();
         assert!(!breaker.can_execute()); // Now open
         assert_eq!(breaker.state, CircuitBreakerState::Open);
@@ -412,11 +412,11 @@ mod tests {
     #[test]
     fn test_rate_limiter() {
         let mut limiter = RateLimiter::new(2);
-        
+
         assert!(limiter.can_proceed());
         assert!(limiter.can_proceed());
         assert!(!limiter.can_proceed()); // Rate limit exceeded
-        
+
         assert_eq!(limiter.total_requests, 3);
         assert_eq!(limiter.rejected_requests, 1);
     }
@@ -437,4 +437,4 @@ mod tests {
         assert_eq!(unhealthy.response_time_ms, 500);
         assert!(unhealthy.error_message.is_some());
     }
-} 
+}

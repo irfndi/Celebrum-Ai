@@ -1,6 +1,7 @@
 // Data Coordinator - Main Orchestrator for Data Access Operations
 // Coordinates all data access components and provides unified interface
 
+use crate::services::core::infrastructure::ai_services::ai_cache::CacheEntryType;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -8,7 +9,7 @@ use std::sync::Arc;
 
 use super::{
     api_connector::{APIConnector, APIConnectorConfig, APIRequest, ExchangeType},
-    cache_layer::{CacheEntryType, CacheLayer, CacheLayerConfig},
+    cache_layer::{CacheLayer, CacheLayerConfig},
     data_source_manager::{DataSourceManager, DataSourceManagerConfig},
     data_validator::{DataValidator, DataValidatorConfig, ValidationResult},
 };
@@ -226,6 +227,7 @@ impl DataCoordinatorConfig {
 pub struct DataCoordinator {
     config: DataCoordinatorConfig,
     logger: crate::utils::logger::Logger,
+    kv_store: worker::kv::KvStore, // Added kv_store field
 
     // Component instances
     data_source_manager: Arc<DataSourceManager>,
@@ -246,7 +248,7 @@ impl DataCoordinator {
         cache_config: CacheLayerConfig,
         api_config: APIConnectorConfig,
         validator_config: DataValidatorConfig,
-        kv_store: worker::kv::KvStore,
+        kv_store: worker::kv::KvStore, // Re-added kv_store to parameters
     ) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
@@ -254,17 +256,15 @@ impl DataCoordinator {
         config.validate()?;
 
         // Initialize components
-        let data_source_manager = Arc::new(DataSourceManager::new(
-            kv_store.clone(),
-            data_source_config,
-        )?);
-        let cache_layer = Arc::new(CacheLayer::new(kv_store, cache_config)?);
+        let data_source_manager = Arc::new(DataSourceManager::new(data_source_config)?);
+        let cache_layer = Arc::new(CacheLayer::new(cache_config)?);
         let api_connector = Arc::new(APIConnector::new(api_config)?);
         let data_validator = Arc::new(DataValidator::new(validator_config)?);
 
         let coordinator = Self {
             config,
             logger,
+            kv_store, // Assign kv_store
             data_source_manager,
             cache_layer,
             api_connector,
@@ -460,48 +460,56 @@ impl DataCoordinator {
     ) -> ArbitrageResult<serde_json::Value> {
         match source_type {
             DataSourceType::Cache => {
-                let cache_type = self.determine_cache_type(&request.data_type);
+                let _cache_type = self.determine_cache_type(&request.data_type);
                 match self
                     .cache_layer
-                    .get::<serde_json::Value>(&request.key, cache_type)
+                    .get(&self.kv_store, &request.key) // Correct: &self.kv_store passed to cache_layer
                     .await?
                 {
-                    Some(data) => Ok(data),
+                    Some(data) => {
+                        // Parse the JSON string into a Value
+                        serde_json::from_str(&data).map_err(|e| {
+                            ArbitrageError::serialization_error(format!(
+                                "Failed to parse cached data: {}",
+                                e
+                            ))
+                        })
+                    }
                     None => Err(ArbitrageError::not_found("Data not found in cache")),
                 }
             }
             DataSourceType::KvStore => {
                 // Use data source manager for KV store access
                 self.data_source_manager
-                    .get_data::<serde_json::Value>(&request.key, &request.data_type)
+                    .get_data::<serde_json::Value>(&self.kv_store, &request.key, &request.data_type) // Correct: &self.kv_store passed to data_source_manager
                     .await?
                     .ok_or_else(|| ArbitrageError::not_found("Data not found in KV store"))
             }
             DataSourceType::D1Database => {
                 // Use data source manager for D1 database access
                 self.data_source_manager
-                    .get_data::<serde_json::Value>(&request.key, &request.data_type)
+                    .get_data::<serde_json::Value>(&self.kv_store, &request.key, &request.data_type)
                     .await?
                     .ok_or_else(|| ArbitrageError::not_found("Data not found in D1 database"))
             }
             DataSourceType::Pipeline => {
                 // Use data source manager for pipeline access
                 self.data_source_manager
-                    .get_data::<serde_json::Value>(&request.key, &request.data_type)
+                    .get_data::<serde_json::Value>(&self.kv_store, &request.key, &request.data_type)
                     .await?
                     .ok_or_else(|| ArbitrageError::not_found("Data not found in pipeline"))
             }
             DataSourceType::Queue => {
                 // Use data source manager for queue access
                 self.data_source_manager
-                    .get_data::<serde_json::Value>(&request.key, &request.data_type)
+                    .get_data::<serde_json::Value>(&self.kv_store, &request.key, &request.data_type)
                     .await?
                     .ok_or_else(|| ArbitrageError::not_found("Data not found in queue"))
             }
             DataSourceType::LocalFallback => {
                 // Use data source manager for local fallback access
                 self.data_source_manager
-                    .get_data::<serde_json::Value>(&request.key, &request.data_type)
+                    .get_data::<serde_json::Value>(&self.kv_store, &request.key, &request.data_type)
                     .await?
                     .ok_or_else(|| ArbitrageError::not_found("Data not found in local fallback"))
             }
@@ -548,15 +556,14 @@ impl DataCoordinator {
     /// Determine cache type from data type
     fn determine_cache_type(&self, data_type: &str) -> CacheEntryType {
         match data_type {
-            "market_data" => CacheEntryType::MarketData,
-            "funding_rates" => CacheEntryType::FundingRates,
-            "analytics" => CacheEntryType::Analytics,
+            "embedding" => CacheEntryType::Embedding,
+            "model_response" => CacheEntryType::ModelResponse,
+            "personalization" => CacheEntryType::PersonalizationScore,
+            "similarity" => CacheEntryType::SimilarityResult,
+            "routing" => CacheEntryType::RoutingDecision,
             "user_preferences" => CacheEntryType::UserPreferences,
-            "opportunities" => CacheEntryType::Opportunities,
-            "ai_analysis" => CacheEntryType::AIAnalysis,
-            "system_config" => CacheEntryType::SystemConfig,
-            "trading_pairs" => CacheEntryType::TradingPairs,
-            _ => CacheEntryType::MarketData, // Default
+            "features" => CacheEntryType::FeatureVector,
+            _ => CacheEntryType::ModelResponse, // Default
         }
     }
 
@@ -579,9 +586,12 @@ impl DataCoordinator {
         request: &DataAccessRequest,
         data: &serde_json::Value,
     ) -> ArbitrageResult<()> {
-        let cache_type = self.determine_cache_type(&request.data_type);
+        let _cache_type = self.determine_cache_type(&request.data_type);
+        let data_str = serde_json::to_string(data).map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to serialize data: {}", e))
+        })?;
         self.cache_layer
-            .set(&request.key, data, cache_type, None)
+            .put(&self.kv_store, &request.key, &data_str, None) // Correct: &self.kv_store passed to cache_layer
             .await
     }
 
@@ -702,10 +712,14 @@ impl DataCoordinator {
         // Check all component health
         let data_source_healthy = self
             .data_source_manager
-            .health_check()
+            .health_check(&self.kv_store) // Correct: &self.kv_store passed to data_source_manager
             .await
             .unwrap_or(false);
-        let cache_healthy = self.cache_layer.health_check().await.unwrap_or(false);
+        let cache_healthy = self
+            .cache_layer
+            .health_check(&self.kv_store)
+            .await
+            .unwrap_or(false); // Correct: &self.kv_store passed to cache_layer
         let api_healthy = self.api_connector.health_check().await.unwrap_or(false);
         let validator_healthy = self.data_validator.health_check().await.unwrap_or(false);
 
@@ -730,10 +744,10 @@ impl DataCoordinator {
         // Get component health
         let data_source_health = self
             .data_source_manager
-            .get_health_summary()
+            .get_health_summary(&self.kv_store) // Correct: &self.kv_store passed to data_source_manager
             .await
             .unwrap_or_default();
-        let cache_health = self.cache_layer.get_health().await;
+        let cache_health = self.cache_layer.health_check(&self.kv_store).await?; // Correct: &self.kv_store passed to cache_layer
         let api_health = self
             .api_connector
             .get_health_summary()
@@ -855,7 +869,7 @@ impl DataCoordinator {
 
     /// Get the underlying KvStore for direct access when needed
     pub fn get_kv_store(&self) -> worker::kv::KvStore {
-        self.data_source_manager.get_kv_store()
+        self.kv_store.clone()
     }
 
     /// Get coordinator configuration

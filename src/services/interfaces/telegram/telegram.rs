@@ -8,25 +8,26 @@ use crate::services::core::analysis::market_analysis::MarketAnalysisService;
 use crate::services::core::analysis::technical_analysis::TechnicalAnalysisService;
 use crate::services::core::infrastructure::DatabaseManager;
 // use crate::services::core::opportunities::opportunity_categorization::CategorizedOpportunity;
+use crate::services::core::opportunities::opportunity_distribution::NotificationSender;
 use crate::services::core::opportunities::opportunity_distribution::OpportunityDistributionService;
 use crate::services::core::opportunities::opportunity_engine::OpportunityEngine;
 use crate::services::core::trading::exchange::ExchangeService;
-use crate::services::core::trading::positions::PositionsService;
 use crate::services::core::user::session_management::SessionManagementService;
+
+#[cfg(target_arch = "wasm32")]
+use crate::services::core::trading::positions::PositionsService;
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::services::core::user::user_trading_preferences::UserTradingPreferencesService;
-use crate::types::{
-    // AiInsightsSummary, CommandPermission,
-    GroupRateLimitConfig,
-    GroupRegistration,
-    GroupSettings,
-    MessageAnalytics, // UserProfile, UserRole,
-};
+use crate::services::interfaces::telegram::core::bot_client::TelegramConfig;
+use crate::services::interfaces::telegram::telegram_keyboard::InlineKeyboard;
+use crate::types::OpportunityData;
+use crate::types::{GroupRateLimitConfig, GroupRegistration, GroupSettings, MessageAnalytics};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use uuid;
 use worker::console_log;
@@ -384,71 +385,9 @@ impl ChatContext {
 }
 
 #[derive(Clone)]
-pub struct TelegramConfig {
-    pub bot_token: String,
-    pub chat_id: String,
-    pub is_test_mode: bool,
-}
-
-impl Default for TelegramConfig {
-    fn default() -> Self {
-        Self {
-            bot_token: "test_token".to_string(),
-            chat_id: "0".to_string(),
-            is_test_mode: true,
-        }
-    }
-}
-
-// Simple InlineKeyboard placeholder for now
-#[derive(Debug, Clone)]
-pub struct InlineKeyboard {
-    pub buttons: Vec<Vec<InlineKeyboardButton>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct InlineKeyboardButton {
-    pub text: String,
-    pub callback_data: Option<String>,
-    pub url: Option<String>,
-}
-
-impl Default for InlineKeyboard {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl InlineKeyboard {
-    pub fn new() -> Self {
-        Self {
-            buttons: Vec::new(),
-        }
-    }
-
-    pub fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({
-            "inline_keyboard": self.buttons.iter().map(|row| {
-                row.iter().map(|button| {
-                    let mut btn = serde_json::json!({
-                        "text": button.text
-                    });
-                    if let Some(ref callback_data) = button.callback_data {
-                        btn["callback_data"] = serde_json::Value::String(callback_data.clone());
-                    }
-                    if let Some(ref url) = button.url {
-                        btn["url"] = serde_json::Value::String(url.clone());
-                    }
-                    btn
-                }).collect::<Vec<_>>()
-            }).collect::<Vec<_>>()
-        })
-    }
-}
-
 pub struct TelegramService {
     config: TelegramConfig,
-    http_client: Client,
+    http_client: Arc<Client>,
     #[allow(dead_code)]
     analytics_enabled: bool,
     group_registrations: std::collections::HashMap<String, GroupRegistration>,
@@ -471,6 +410,7 @@ pub struct TelegramService {
     // Trading services
     exchange_service: Option<ExchangeService>,
     #[allow(dead_code)]
+    #[cfg(target_arch = "wasm32")]
     positions_service: Option<PositionsService<worker::kv::KvStore>>,
 }
 
@@ -479,7 +419,7 @@ impl TelegramService {
     pub fn new(config: TelegramConfig) -> Self {
         Self {
             config,
-            http_client: Client::new(),
+            http_client: Arc::new(Client::new()),
             analytics_enabled: true,
             group_registrations: std::collections::HashMap::new(),
             // Core services - Optional for initialization, required for full functionality
@@ -498,7 +438,8 @@ impl TelegramService {
             ai_integration_service: None,
             // Trading services
             exchange_service: None,
-            positions_service: None,
+            #[cfg(target_arch = "wasm32")]
+            positions_service: None as Option<PositionsService<worker::kv::KvStore>>,
         }
     }
 
@@ -685,12 +626,12 @@ impl TelegramService {
             .and_then(|s| serde_json::from_str(s).ok())
             .unwrap_or_default();
 
-        let global_opportunities_enabled = row
+        let _global_opportunities_enabled = row
             .get("global_opportunities_enabled")
             .and_then(|s| s.parse::<bool>().ok())
             .unwrap_or(true);
 
-        let technical_analysis_enabled = row
+        let _technical_analysis_enabled = row
             .get("technical_analysis_enabled")
             .and_then(|s| s.parse::<bool>().ok())
             .unwrap_or(false);
@@ -753,8 +694,6 @@ impl TelegramService {
             admin_user_ids,
             bot_permissions: bot_permissions.into(),
             enabled_features,
-            global_opportunities_enabled,
-            technical_analysis_enabled,
             rate_limit_config,
             settings: crate::types::GroupSettings::default(),
             registered_at,
@@ -896,9 +835,7 @@ impl TelegramService {
                 "send_messages".to_string(),
             ])
             .unwrap(),
-            enabled_features: vec!["global_opportunities".to_string()],
-            global_opportunities_enabled: true,
-            technical_analysis_enabled: false,
+            enabled_features: vec!["global_opportunities".to_string()], // Add "technical_analysis" here if needed by default
             rate_limit_config: default_rate_limit,
             registered_at: current_time,
             last_activity: Some(current_time),
@@ -950,8 +887,6 @@ impl TelegramService {
                     serde_json::to_string(&registration.enabled_features)
                         .unwrap_or_else(|_| "[]".to_string()),
                 ),
-                serde_json::Value::Bool(registration.global_opportunities_enabled),
-                serde_json::Value::Bool(registration.technical_analysis_enabled),
                 serde_json::Value::String(
                     serde_json::to_string(&registration.rate_limit_config)
                         .unwrap_or_else(|_| "{}".to_string()),
@@ -1309,17 +1244,33 @@ impl TelegramService {
 
     /// Handle incoming webhook from Telegram
     pub async fn handle_webhook(&self, update: serde_json::Value) -> ArbitrageResult<String> {
-        // Basic webhook handling - extract message and respond
+        // Handle messages with production-ready responses
         if let Some(message) = update.get("message") {
             if let Some(text) = message.get("text").and_then(|t| t.as_str()) {
-                // Simple echo response for now
+                let chat = message.get("chat");
+                let chat_type = chat
+                    .and_then(|c| c.get("type"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("private");
+
+                // Handle /start command with proper welcome message
+                if text.starts_with("/start") {
+                    return Ok("🚀 Welcome to ArbEdge!\n\nYour gateway to advanced arbitrage trading opportunities.\n\n✨ Get started:\n• View live opportunities\n• Set up trading preferences\n• Connect your exchange APIs\n\nType /help for all available commands.".to_string());
+                }
+
+                // Handle group chat restrictions
+                if chat_type == "group" || chat_type == "supergroup" {
+                    return Ok("🔒 Security Notice: This bot is designed for private chat interactions. Please message me directly for full functionality and enhanced privacy.".to_string());
+                }
+
+                // Default response for other messages
                 return Ok(format!("Received: {}", text));
             }
         }
 
+        // Handle callback queries with proper "OK" response as expected by Telegram API
         if let Some(_callback_query) = update.get("callback_query") {
-            // Handle callback queries
-            return Ok("Callback query handled".to_string());
+            return Ok("OK".to_string());
         }
 
         Ok("Webhook processed".to_string())
@@ -1477,12 +1428,110 @@ impl TelegramService {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait::async_trait]
+impl NotificationSender for TelegramService {
+    fn clone_box(&self) -> Box<dyn NotificationSender> {
+        Box::new(self.clone())
+    }
+
+    async fn send_opportunity_notification(
+        &self,
+        chat_id: &str,
+        opportunity: &OpportunityData,
+        _is_private: bool,
+    ) -> ArbitrageResult<bool> {
+        let message = match opportunity {
+            OpportunityData::Arbitrage(arb) => format!(
+                "New Arbitrage Opportunity!\nSymbol: {}\nProfit: {:.2}%\nBuy Exchange: {}\nSell Exchange: {}\nDetails: {}",
+                arb.trading_pair,
+                arb.profit_percentage,
+                arb.long_exchange.as_str(),
+                arb.short_exchange.as_str(),
+                arb.details.clone().unwrap_or_else(|| "No details".to_string())
+            ),
+            OpportunityData::Technical(tech) => format!(
+                "New Technical Opportunity!\nSymbol: {}\nSignal: {:?}\nExpected Return: {:.2}%\nExchange(s): {}\nDetails: {}",
+                tech.trading_pair,
+                tech.signal_type,
+                tech.expected_return_percentage,
+                tech.exchanges.join(", "),
+                tech.details.clone().unwrap_or_else(|| "No details".to_string())
+            ),
+            OpportunityData::AI(ai) => format!(
+                "New AI Opportunity!\nSymbol: {}\nModel: {}\nExpected Return: {:.2}%\nExchange(s): {}\nReasoning: {}\nDetails: {}",
+                ai.trading_pair,
+                ai.ai_model,
+                ai.expected_return_percentage,
+                ai.exchanges.join(", "),
+                ai.reasoning,
+                ai.details.clone().unwrap_or_else(|| "No details".to_string())
+            ),
+        };
+        self.send_message_to_chat(chat_id, &message).await?;
+        Ok(true)
+    }
+
+    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
+        self.send_message_to_chat(chat_id, message).await
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[async_trait::async_trait(?Send)]
+impl NotificationSender for TelegramService {
+    fn clone_box(&self) -> Box<dyn NotificationSender> {
+        Box::new(self.clone())
+    }
+
+    async fn send_opportunity_notification(
+        &self,
+        chat_id: &str,
+        opportunity: &OpportunityData,
+        _is_private: bool,
+    ) -> ArbitrageResult<bool> {
+        let message = match opportunity {
+            OpportunityData::Arbitrage(arb) => format!(
+                "New Arbitrage Opportunity!\nSymbol: {}\nProfit: {:.2}%\nBuy Exchange: {}\nSell Exchange: {}\nDetails: {}",
+                arb.trading_pair,
+                arb.profit_percentage,
+                arb.long_exchange.as_str(),
+                arb.short_exchange.as_str(),
+                arb.details.clone().unwrap_or_else(|| "No details".to_string())
+            ),
+            OpportunityData::Technical(tech) => format!(
+                "New Technical Opportunity!\nSymbol: {}\nSignal: {:?}\nExpected Return: {:.2}%\nExchange(s): {}\nDetails: {}",
+                tech.trading_pair,
+                tech.signal_type,
+                tech.expected_return_percentage,
+                tech.exchanges.join(", "),
+                tech.details.clone().unwrap_or_else(|| "No details".to_string())
+            ),
+            OpportunityData::AI(ai) => format!(
+                "New AI Opportunity!\nSymbol: {}\nModel: {}\nExpected Return: {:.2}%\nExchange(s): {}\nReasoning: {}\nDetails: {}",
+                ai.trading_pair,
+                ai.ai_model,
+                ai.expected_return_percentage,
+                ai.exchanges.join(", "),
+                ai.reasoning,
+                ai.details.clone().unwrap_or_else(|| "No details".to_string())
+            ),
+        };
+        self.send_message_to_chat(chat_id, &message).await?;
+        Ok(true)
+    }
+
+    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
+        self.send_message_to_chat(chat_id, message).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::*;
-    use std::collections::HashMap;
+    // Removed unused imports: CommandPermission, SubscriptionTier, UserAccessLevel, UserProfile
 
+    // Mock UserProfileManagement for testing
     #[tokio::test]
     async fn test_format_user_preferences() {
         let service = TelegramService::new(TelegramConfig::default());
