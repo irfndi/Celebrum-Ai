@@ -28,27 +28,32 @@ if ! command -v curl &> /dev/null; then
     exit 1
 fi
 
-if ! command -v wrangler &> /dev/null; then
-    echo "❌ Error: wrangler is required to get bot token" >&2
-    exit 1
+# Load environment variables from .env file
+if [ -f .env ]; then
+    echo "🔑 Loading environment variables from .env file..."
+    set -a
+    source .env
+    set +a
+else
+    echo "⚠️ Warning: .env file not found, relying on existing environment variables"
 fi
 
-# Check if bot token exists in Cloudflare Secrets (without storing in variable)
-echo "🔑 Verifying bot token in Cloudflare Secrets..."
-if ! wrangler secret get TELEGRAM_BOT_TOKEN >/dev/null 2>&1; then
-    echo "❌ Error: TELEGRAM_BOT_TOKEN not found in Cloudflare Secrets" >&2
-    echo "💡 Please set it with: wrangler secret put TELEGRAM_BOT_TOKEN" >&2
+# Check if bot token exists
+echo "🔑 Verifying bot token..."
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+    echo "❌ Error: TELEGRAM_BOT_TOKEN not found in environment variables" >&2
+    echo "💡 Please set it in your .env file or as an environment variable" >&2
     exit 1
 fi
 
 # Worker URL - accept as environment variable or script argument with default
 WORKER_URL="${1:-${WORKER_URL:-https://arb-edge.irfandimarsya.workers.dev}}"
-WEBHOOK_URL="$WORKER_URL/webhook"
+WEBHOOK_URL="$WORKER_URL/telegram/webhook"
 
 echo "📡 Setting webhook URL: $WEBHOOK_URL"
 
-# Set webhook (using token directly from wrangler)
-if ! RESPONSE=$(curl -s --max-time 30 --connect-timeout 10 -X POST "https://api.telegram.org/bot$(wrangler secret get TELEGRAM_BOT_TOKEN)/setWebhook" \
+# Set webhook
+if ! RESPONSE=$(curl -s --max-time 30 --connect-timeout 10 -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
     -H "Content-Type: application/json" \
     -d "{\"url\": \"$WEBHOOK_URL\"}"); then
     echo "❌ Failed to connect to Telegram API (timeout or network error)" >&2
@@ -67,7 +72,7 @@ fi
 
 # Get webhook info to verify
 echo "🔍 Verifying webhook setup..."
-if ! WEBHOOK_INFO=$(curl -s --max-time 30 --connect-timeout 10 "https://api.telegram.org/bot$(wrangler secret get TELEGRAM_BOT_TOKEN)/getWebhookInfo"); then
+if ! WEBHOOK_INFO=$(curl -s --max-time 30 --connect-timeout 10 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"); then
     echo "⚠️ Warning: Failed to verify webhook setup (timeout or network error)" >&2
     echo "✅ Webhook was set, but verification failed"
 else

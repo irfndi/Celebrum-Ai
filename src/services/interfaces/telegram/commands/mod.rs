@@ -13,7 +13,7 @@ pub mod opportunities;
 pub mod admin;
 pub mod settings;
 
-use crate::services::interfaces::telegram::{UserInfo, UserPermissions};
+use super::{UserInfo, UserPermissions};
 use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;

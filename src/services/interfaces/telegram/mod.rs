@@ -18,10 +18,13 @@ pub mod utils;
 pub mod telegram;
 pub mod telegram_keyboard;
 
+// Export commands module publicly
+pub use commands::CommandRouter;
+
 // Export the new modular service and types - defined below in this file
-// pub use ModularTelegramService;
-// pub use UserInfo; 
-// pub use UserPermissions;
+pub use self::ModularTelegramService;
+pub use self::UserInfo; 
+pub use self::UserPermissions;
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::services::core::user::user_profile::UserProfileService;
@@ -248,14 +251,15 @@ impl ModularTelegramService {
 
         // Extract permissions from profile
         let permissions = UserPermissions {
-            access_level: user_profile.access_level.clone(),
-            subscription_tier: user_profile.subscription_tier.clone(),
-            beta_expires_at: user_profile.beta_expires_at,
-            can_trade: user_profile.can_trade(),
+            role: user_profile.access_level.clone(),
+            subscription_tier: user_profile.subscription_tier.to_string(),
+            daily_opportunity_limit: user_profile.subscription.daily_opportunity_limit.unwrap_or(5),
+            beta_access: user_profile.is_beta_active,
             is_admin: matches!(user_profile.access_level, crate::types::UserAccessLevel::Admin | crate::types::UserAccessLevel::SuperAdmin),
+            can_trade: user_profile.can_trade(),
         };
 
-        console_log!("✅ Permissions loaded for user {}: {:?}", user_info.user_id, permissions.access_level);
+        console_log!("✅ Permissions loaded for user {}: {:?}", user_info.user_id, permissions.role);
         Ok(permissions)
     }
 
@@ -373,7 +377,7 @@ impl ModularTelegramService {
     async fn handle_profile_command(&self, user_info: &UserInfo, permissions: &UserPermissions) -> ArbitrageResult<String> {
         console_log!("👤 Profile command for user {}", user_info.user_id);
         // TODO: Implement profile display
-        let message = format!("👤 *Your Profile*\n\nRole: {:?}\nBeta Access: {}", permissions.access_level, permissions.beta_expires_at);
+        let message = format!("👤 *Your Profile*\n\nRole: {:?}\nBeta Access: {}", permissions.role, permissions.beta_access);
         self.send_message_to_user(user_info, &message).await?;
         Ok("Profile command handled".to_string())
     }
@@ -453,14 +457,10 @@ pub struct UserInfo {
 /// User permissions and subscription info
 #[derive(Debug, Clone)]
 pub struct UserPermissions {
-    pub access_level: crate::types::UserAccessLevel,
-    pub subscription_tier: crate::types::SubscriptionTier,
-    pub beta_expires_at: Option<u64>,
-    pub can_trade: bool,
+    pub role: crate::types::UserAccessLevel,
+    pub subscription_tier: String,
+    pub daily_opportunity_limit: u32,
+    pub beta_access: bool,
     pub is_admin: bool,
-} 
-
-// Export the types so they can be used by command modules and external modules
-pub use UserInfo;
-pub use UserPermissions;
-pub use ModularTelegramService;
+    pub can_trade: bool,
+}

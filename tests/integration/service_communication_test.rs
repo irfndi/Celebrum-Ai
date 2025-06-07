@@ -58,7 +58,9 @@ mod service_communication_tests {
             }
         });
 
-        let result_before = telegram_service.handle_webhook(test_webhook.clone()).await;
+        let result_before = telegram_service
+            .handle_webhook(test_webhook.clone(), None)
+            .await;
         assert!(
             result_before.is_ok(),
             "Service should work without dependencies"
@@ -67,7 +69,7 @@ mod service_communication_tests {
         // Test dependency injection by setting services (if available)
         // Note: In a real test, we'd inject mock services here
         // For now, verify the service maintains its functionality
-        let result_after = telegram_service.handle_webhook(test_webhook).await;
+        let result_after = telegram_service.handle_webhook(test_webhook, None).await;
         assert!(
             result_after.is_ok(),
             "Service should maintain functionality after dependency injection"
@@ -93,7 +95,7 @@ mod service_communication_tests {
             }
         });
 
-        let result = telegram_service.handle_webhook(test_webhook).await;
+        let result = telegram_service.handle_webhook(test_webhook, None).await;
         assert!(
             result.is_ok(),
             "Service should handle requests gracefully without all dependencies"
@@ -117,7 +119,7 @@ mod service_communication_tests {
             }
         });
 
-        let result = telegram_service.handle_webhook(webhook_data).await;
+        let result = telegram_service.handle_webhook(webhook_data, None).await;
         assert!(
             result.is_ok(),
             "Service should provide stable webhook interface"
@@ -135,7 +137,9 @@ mod service_communication_tests {
             "invalid": "structure"
         });
 
-        let result = telegram_service.handle_webhook(malformed_webhook).await;
+        let result = telegram_service
+            .handle_webhook(malformed_webhook, None)
+            .await;
         assert!(
             result.is_ok(),
             "Service should handle malformed data gracefully"
@@ -185,8 +189,8 @@ mod service_communication_tests {
             }
         });
 
-        let result1 = service1.handle_webhook(webhook1).await;
-        let result2 = service2.handle_webhook(webhook2).await;
+        let result1 = service1.handle_webhook(webhook1, None).await;
+        let result2 = service2.handle_webhook(webhook2, None).await;
 
         // Both services should handle their webhooks independently
         assert!(

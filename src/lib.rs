@@ -87,7 +87,7 @@ async fn get_service_container(env: &Env) -> Result<Arc<ServiceContainer>> {
     }
 
     let kv_store = env.kv("ArbEdgeKV")?;
-    let d1 = env.d1("ARB_EDGE_D1")?;
+    let d1 = env.d1("ArbEdgeD1")?;
     let _database_manager = DatabaseManager::new(Arc::new(d1), DatabaseManagerConfig::default());
 
     // These services are initialized and managed by the ServiceContainer
@@ -456,14 +456,15 @@ async fn route_telegram_request(
 
             // Process webhook using telegram service
             if let Some(telegram_service) = &container.telegram_service {
-                let response = telegram_service
-                    .handle_webhook(webhook_data)
+                let response_text = telegram_service
+                    .handle_webhook(webhook_data, Some(container))
                     .await
                     .map_err(|e| {
                         worker::Error::RustError(format!("Failed to process webhook: {:?}", e))
                     })?;
 
-                Response::from_json(&response)
+                // Return plain text response for Telegram webhook
+                Response::ok(&response_text)
             } else {
                 Response::error("Telegram service not available", 503)
             }
@@ -624,6 +625,11 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     }
 
     let mut response = match (method.clone(), path) {
+        // Test endpoint without ServiceContainer to isolate issues
+        (Method::Get, "/test") => {
+            Response::ok("Test endpoint working - ServiceContainer not required")
+        }
+
         // Health endpoints - Use modular routing
         (Method::Get, "/health") => {
             route_health_check(req, &get_service_container(&env).await?).await

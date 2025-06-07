@@ -48,7 +48,7 @@ async fn test_e2e_session_creation_via_start_command() {
     });
 
     // Process webhook
-    let result = telegram_service.handle_webhook(start_webhook).await;
+    let result = telegram_service.handle_webhook(start_webhook, None).await;
 
     // Validate response
     assert!(result.is_ok());
@@ -114,7 +114,7 @@ async fn test_e2e_session_validation_for_protected_commands() {
             }
         });
 
-        let result = telegram_service.handle_webhook(webhook).await;
+        let result = telegram_service.handle_webhook(webhook, None).await;
         assert!(result.is_ok());
 
         // Without SessionManagementService, commands work normally
@@ -165,7 +165,7 @@ async fn test_e2e_session_exempt_commands() {
             }
         });
 
-        let result = telegram_service.handle_webhook(webhook).await;
+        let result = telegram_service.handle_webhook(webhook, None).await;
         assert!(result.is_ok());
 
         let response = result.unwrap();
@@ -236,7 +236,9 @@ async fn test_e2e_callback_query_session_validation() {
             }
         });
 
-        let result = telegram_service.handle_webhook(callback_webhook).await;
+        let result = telegram_service
+            .handle_webhook(callback_webhook, None)
+            .await;
         assert!(result.is_ok());
 
         let response = result.unwrap();
@@ -294,7 +296,7 @@ async fn test_e2e_session_activity_extension() {
             }
         });
 
-        let result = telegram_service.handle_webhook(webhook).await;
+        let result = telegram_service.handle_webhook(webhook, None).await;
         assert!(result.is_ok());
 
         // Each activity should extend session lifetime
@@ -353,7 +355,7 @@ async fn test_e2e_group_chat_session_restrictions() {
             }
         });
 
-        let result = telegram_service.handle_webhook(group_webhook).await;
+        let result = telegram_service.handle_webhook(group_webhook, None).await;
         assert!(result.is_ok());
 
         let response = result.unwrap();
@@ -404,7 +406,7 @@ async fn test_e2e_sequential_session_requests() {
             }
         });
 
-        let result = telegram_service.handle_webhook(webhook).await;
+        let result = telegram_service.handle_webhook(webhook, None).await;
         assert!(result.is_ok());
     }
 }
@@ -459,7 +461,7 @@ async fn test_e2e_malformed_webhook_handling() {
     ];
 
     for webhook in malformed_webhooks {
-        let result = telegram_service.handle_webhook(webhook).await;
+        let result = telegram_service.handle_webhook(webhook, None).await;
         // Should handle gracefully without panicking
         assert!(result.is_ok());
     }
@@ -505,7 +507,7 @@ async fn test_e2e_webhook_performance_benchmarks() {
 
     // Measure processing time
     let start_time = std::time::Instant::now();
-    let result = telegram_service.handle_webhook(webhook).await;
+    let result = telegram_service.handle_webhook(webhook, None).await;
     let processing_time = start_time.elapsed();
 
     assert!(result.is_ok());

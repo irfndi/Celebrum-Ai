@@ -167,7 +167,7 @@ pub async fn handle_telegram_webhook(mut req: Request, env: Env) -> Result<Respo
     use crate::services::interfaces::telegram::TelegramService;
 
     match TelegramService::from_env(&env) {
-        Ok(telegram_service) => match telegram_service.handle_webhook(update).await {
+        Ok(telegram_service) => match telegram_service.handle_webhook(update, None).await {
             Ok(result) => {
                 console_log!("✅ Telegram webhook processed: {}", result);
                 Response::ok("Webhook processed")

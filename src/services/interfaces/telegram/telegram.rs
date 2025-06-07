@@ -1256,7 +1256,13 @@ impl TelegramService {
     // ============= SECURE NOTIFICATION METHODS =============
 
     /// Handle incoming webhook from Telegram
-    pub async fn handle_webhook(&self, update: serde_json::Value) -> ArbitrageResult<String> {
+    pub async fn handle_webhook(
+        &self,
+        update: serde_json::Value,
+        _service_container: Option<
+            &Arc<crate::services::core::infrastructure::service_container::ServiceContainer>,
+        >,
+    ) -> ArbitrageResult<String> {
         // Handle messages with production-ready responses
         if let Some(message) = update.get("message") {
             if let Some(text) = message.get("text").and_then(|t| t.as_str()) {
@@ -1266,17 +1272,92 @@ impl TelegramService {
                     .and_then(|t| t.as_str())
                     .unwrap_or("private");
 
-                // Handle /start command with proper welcome message
-                if text.starts_with("/start") {
-                    return Ok("🚀 Welcome to ArbEdge!\n\nYour gateway to advanced arbitrage trading opportunities.\n\n✨ Get started:\n• View live opportunities\n• Set up trading preferences\n• Connect your exchange APIs\n\nType /help for all available commands.".to_string());
-                }
-
-                // Handle group chat restrictions
+                // Handle group chat restrictions first
                 if chat_type == "group" || chat_type == "supergroup" {
                     return Ok("🔒 Security Notice: This bot is designed for private chat interactions. Please message me directly for full functionality and enhanced privacy.".to_string());
                 }
 
-                // Default response for other messages
+                // Extract user information from message
+                let from = message.get("from");
+                let user_id = from
+                    .and_then(|f| f.get("id"))
+                    .and_then(|id| id.as_i64())
+                    .unwrap_or(0);
+                let username = from
+                    .and_then(|f| f.get("username"))
+                    .and_then(|u| u.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let first_name = from
+                    .and_then(|f| f.get("first_name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                // Handle basic commands directly for now (TODO: Use CommandRouter when module issues resolved)
+                if text.starts_with("/") {
+                    match text.trim() {
+                        "/start" => {
+                            return Ok(format!(
+                                "🚀 *Welcome to ArbEdge, {}!*\\n\\n\
+                                Your trading assistant is ready.\\n\\n\
+                                Available commands:\\n\
+                                • /help - Show all commands\\n\
+                                • /opportunities - View trading opportunities\\n\
+                                • /profile - View your profile",
+                                first_name
+                            ));
+                        }
+                        "/help" => {
+                            return Ok("🤖 *ArbEdge Bot Commands*\\n\\n\
+                                *Basic Commands:*\\n\
+                                🚀 `/start` - Start/restart your session\\n\
+                                👤 `/profile` - View your profile\\n\
+                                💰 `/opportunities` - View trading opportunities\\n\
+                                ❓ `/help` - Show this help\\n\\n\
+                                More features coming soon!"
+                                .to_string());
+                        }
+                        "/opportunities" => {
+                            return Ok("💰 *Trading Opportunities*\\n\\n\
+                                🔍 Scanning markets for arbitrage opportunities...\\n\\n\
+                                📊 Recent opportunities will appear here when detected.\\n\
+                                Use `/profile` to configure your trading preferences."
+                                .to_string());
+                        }
+                        "/profile" => {
+                            return Ok(format!(
+                                "👤 *Your Profile*\\n\\n\
+                                📋 *Basic Information:*\\n\
+                                Name: {}\\n\
+                                Username: @{}\\n\
+                                User ID: `{}`\\n\\n\
+                                🔐 *Account Status:*\\n\
+                                Role: Basic User\\n\
+                                Status: ✅ Active\\n\\n\
+                                💎 *Subscription & Access:*\\n\
+                                Tier: FREE\\n\
+                                Beta Access: ❌ Not Available\\n\
+                                Trading Enabled: ❌ No (Add API keys)\\n\
+                                Daily Limit: 5",
+                                first_name, username, user_id
+                            ));
+                        }
+                        _ => {
+                            return Ok(format!(
+                                "❓ Unknown command: {}\\n\\n\
+                                Available commands:\\n\
+                                • /start - Welcome message\\n\
+                                • /help - Show all commands\\n\
+                                • /opportunities - View opportunities\\n\
+                                • /profile - View your profile",
+                                text
+                            ));
+                        }
+                    }
+                }
+
+                // Default response for non-commands
                 return Ok(format!("Received: {}", text));
             }
         }

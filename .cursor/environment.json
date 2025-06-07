@@ -1,5 +1,5 @@
 {
   "agentCanUpdateSnapshot": true,
-  "install": "make ci",
-  "start": "make ci"
+  "install": "cargo install & pnpm install",
+  "start": "pnpm run dev"
 }
