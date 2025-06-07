@@ -20,11 +20,13 @@ use crate::services::core::user::session_management::SessionManagementService;
 use crate::services::core::user::user_profile::UserProfileService;
 // use crate::services::core::user::user_activity::UserActivityService;
 // use crate::services::core::user::group_management::GroupManagementService;
-use crate::services::interfaces::telegram::TelegramService;
+
+use crate::services::interfaces::telegram::telegram::TelegramService;
 // use crate::services::core::admin::{AdminService, UserManagementService, SystemConfigService, MonitoringService, AuditService};
 use crate::utils::feature_flags::{load_feature_flags, FeatureFlags};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;
+use worker::console_log;
 // use worker::console_log;
 use worker::{kv::KvStore, Env};
 
@@ -47,54 +49,39 @@ pub struct ServiceContainer {
 }
 
 impl ServiceContainer {
-    /// Create a new comprehensive service container with all dependencies
+    /// Create a new ServiceContainer with all core services initialized
     pub async fn new(env: &Env, kv_store: KvStore) -> ArbitrageResult<Self> {
-        let feature_flags = load_feature_flags("feature_flags.json").map_err(|e| {
-            ArbitrageError::configuration_error(format!("Failed to load feature flags: {}", e))
-        })?;
-        let custom_env = env;
+        let database_manager = DatabaseManager::new(
+            Arc::new(env.d1("ArbEdgeD1").map_err(|e| {
+                ArbitrageError::configuration_error(format!("Failed to get D1 database: {:?}", e))
+            })?),
+            DatabaseManagerConfig::default(),
+        );
 
-        let d1_database = env.d1("ArbEdgeD1").map_err(|e| {
-            ArbitrageError::infrastructure_error(format!(
-                "Failed to get D1 database ArbEdgeD1: {}",
-                e
-            ))
-        })?;
-        let d1_arc = Arc::new(d1_database);
+        let data_access_layer =
+            DataAccessLayer::new(DataAccessLayerConfig::default(), kv_store.clone()).await?;
 
-        let db_config = DatabaseManagerConfig::default();
-        let database_manager = DatabaseManager::new(d1_arc, db_config);
-
-        let dal_config = DataAccessLayerConfig::default();
-        let data_access_layer = DataAccessLayer::new(dal_config, kv_store.clone())
-            .await
-            .map_err(|e| {
-                ArbitrageError::configuration_error(format!(
-                    "Failed to create DataAccessLayer: {}",
-                    e
-                ))
-            })?;
-
-        let exchange_service = Arc::new(ExchangeService::new(custom_env)?);
-
-        // Fetch ENCRYPTION_KEY from environment for UserProfileService (with fallback)
-        let encryption_key = env
-            .var("ENCRYPTION_KEY")
-            .map(|secret| secret.to_string())
-            .unwrap_or_else(|_| {
-                // Use a development fallback key for testing
-                "dev_fallback_key_not_for_production".to_string()
-            });
-
-        let user_profile_service_instance = Arc::new(UserProfileService::new(
-            data_access_layer.get_kv_store(),
-            database_manager.clone(),
-            encryption_key,
-        ));
+        let feature_flags = load_feature_flags("feature_flags.json").unwrap_or_else(|_| {
+            console_log!("⚠️ Failed to load feature flags from file, using defaults");
+            Arc::new(FeatureFlags::new(std::collections::HashMap::new()))
+        });
 
         let session_service_instance = Arc::new(SessionManagementService::new(
             database_manager.clone(),
-            data_access_layer.get_kv_store(),
+            kv_store.clone(),
+        ));
+
+        let exchange_service = Arc::new(ExchangeService::new(env).map_err(|e| {
+            ArbitrageError::configuration_error(format!(
+                "Failed to create exchange service: {:?}",
+                e
+            ))
+        })?);
+
+        let user_profile_service_instance = Arc::new(UserProfileService::new(
+            kv_store.clone(),
+            database_manager.clone(),
+            "default_key".to_string(),
         ));
 
         let distribution_service = OpportunityDistributionService::new(
@@ -103,13 +90,26 @@ impl ServiceContainer {
             session_service_instance.clone(),
         );
 
+        // Initialize Telegram Service
+        let telegram_service = match TelegramService::from_env(env) {
+            Ok(service) => {
+                console_log!("✅ Telegram service initialized successfully");
+                Some(Arc::new(service))
+            }
+            Err(e) => {
+                console_log!("⚠️ Failed to initialize Telegram service: {:?}", e);
+                console_log!("⚠️ Telegram webhooks will not be available");
+                None
+            }
+        };
+
         // Initialize Admin Service
         // let admin_service = Self::create_admin_service(env, &kv_store)?;
 
         Ok(Self {
             session_service: session_service_instance,
             distribution_service,
-            telegram_service: None,
+            telegram_service,
             exchange_service,
             user_profile_service: Some(user_profile_service_instance),
             // admin_service: Some(Arc::new(admin_service)),
