@@ -146,4 +146,4 @@ vars = { ENVIRONMENT = "staging", LOG_LEVEL = "info" }
 
 # Production environment
 [env.production]
-vars = { ENVIRONMENT = "production", LOG_LEVEL = "warn" }
+vars = { ENVIRONMENT = "production", LOG_LEVEL = "warn", TELEGRAM_TEST_MODE = "false" }
