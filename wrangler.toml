@@ -20,6 +20,8 @@ SUPER_ADMIN_USER_ID = "1082762347"
 EXCHANGES = "binance,bybit,okx,bitget"
 MONITORED_PAIRS_CONFIG = '[{"symbol":"BTCUSDT","base":"BTC","quote":"USDT","exchange_id":"binance"},{"symbol":"ETHUSDT","base":"ETH","quote":"USDT","exchange_id":"binance"},{"symbol":"SOLUSDT","base":"SOL","quote":"USDT","exchange_id":"binance"}]'
 ARBITRAGE_THRESHOLD = "0.001"
+TELEGRAM_CHAT_ID = "1082762347"
+TELEGRAM_TEST_MODE = "false"
 
 # KV Namespaces
 [[kv_namespaces]]
@@ -136,7 +138,7 @@ enabled = true
 
 # Development environment
 [env.development]
-vars = { ENVIRONMENT = "development", LOG_LEVEL = "debug" }
+vars = { ENVIRONMENT = "development", LOG_LEVEL = "debug", TELEGRAM_TEST_MODE = "true" }
 
 # Staging environment  
 [env.staging]

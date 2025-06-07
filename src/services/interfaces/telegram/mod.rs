@@ -65,8 +65,8 @@ impl ModularTelegramService {
 
         // Get telegram configuration
         let bot_token = env
-            .var("TELEGRAM_BOT_TOKEN")
-            .map_err(|_| ArbitrageError::configuration_error("TELEGRAM_BOT_TOKEN not found"))?
+            .secret("TELEGRAM_BOT_TOKEN")
+            .map_err(|_| ArbitrageError::configuration_error("TELEGRAM_BOT_TOKEN secret not found"))?
             .to_string();
 
         let chat_id = env

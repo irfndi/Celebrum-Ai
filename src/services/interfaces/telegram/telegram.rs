@@ -446,8 +446,10 @@ impl TelegramService {
     /// Create TelegramService from environment variables
     pub fn from_env(env: &worker::Env) -> ArbitrageResult<Self> {
         let bot_token = env
-            .var("TELEGRAM_BOT_TOKEN")
-            .map_err(|_| ArbitrageError::configuration_error("TELEGRAM_BOT_TOKEN not found"))?
+            .secret("TELEGRAM_BOT_TOKEN")
+            .map_err(|_| {
+                ArbitrageError::configuration_error("TELEGRAM_BOT_TOKEN secret not found")
+            })?
             .to_string();
 
         // Chat ID is not required as env var since it's dynamic per user/group
@@ -1272,9 +1274,26 @@ impl TelegramService {
                     .and_then(|t| t.as_str())
                     .unwrap_or("private");
 
+                let chat_id = chat
+                    .and_then(|c| c.get("id"))
+                    .and_then(|id| id.as_i64())
+                    .unwrap_or(0);
+
                 // Handle group chat restrictions first
                 if chat_type == "group" || chat_type == "supergroup" {
-                    return Ok("🔒 Security Notice: This bot is designed for private chat interactions. Please message me directly for full functionality and enhanced privacy.".to_string());
+                    let response_text = "🔒 Security Notice: This bot is designed for private chat interactions. Please message me directly for full functionality and enhanced privacy.";
+                    // Send message to chat (only in production, not test mode)
+                    if !self.config.is_test_mode {
+                        let _ = self
+                            .send_message_to_chat(&chat_id.to_string(), response_text)
+                            .await;
+                    }
+                    // Return the actual message for testing, "OK" for production
+                    return Ok(if self.config.is_test_mode {
+                        response_text.to_string()
+                    } else {
+                        "OK".to_string()
+                    });
                 }
 
                 // Extract user information from message
@@ -1298,7 +1317,7 @@ impl TelegramService {
                 if text.starts_with("/") {
                     match text.trim() {
                         "/start" => {
-                            return Ok(format!(
+                            let response_text = format!(
                                 "🚀 *Welcome to ArbEdge, {}!*\\n\\n\
                                 Your trading assistant is ready.\\n\\n\
                                 Available commands:\\n\
@@ -1306,27 +1325,61 @@ impl TelegramService {
                                 • /opportunities - View trading opportunities\\n\
                                 • /profile - View your profile",
                                 first_name
-                            ));
+                            );
+                            // Send message to chat (only in production, not test mode)
+                            if !self.config.is_test_mode {
+                                let _ = self
+                                    .send_message_to_chat(&chat_id.to_string(), &response_text)
+                                    .await;
+                            }
+                            // Return the actual message for testing, "OK" for production
+                            return Ok(if self.config.is_test_mode {
+                                response_text
+                            } else {
+                                "OK".to_string()
+                            });
                         }
                         "/help" => {
-                            return Ok("🤖 *ArbEdge Bot Commands*\\n\\n\
+                            let response_text = "🤖 *ArbEdge Bot Commands*\\n\\n\
                                 *Basic Commands:*\\n\
                                 🚀 `/start` - Start/restart your session\\n\
                                 👤 `/profile` - View your profile\\n\
                                 💰 `/opportunities` - View trading opportunities\\n\
                                 ❓ `/help` - Show this help\\n\\n\
-                                More features coming soon!"
-                                .to_string());
+                                More features coming soon!";
+                            // Send message to chat (only in production, not test mode)
+                            if !self.config.is_test_mode {
+                                let _ = self
+                                    .send_message_to_chat(&chat_id.to_string(), response_text)
+                                    .await;
+                            }
+                            // Return the actual message for testing, "OK" for production
+                            return Ok(if self.config.is_test_mode {
+                                response_text.to_string()
+                            } else {
+                                "OK".to_string()
+                            });
                         }
                         "/opportunities" => {
-                            return Ok("💰 *Trading Opportunities*\\n\\n\
+                            let response_text = "💰 *Trading Opportunities*\\n\\n\
                                 🔍 Scanning markets for arbitrage opportunities...\\n\\n\
                                 📊 Recent opportunities will appear here when detected.\\n\
-                                Use `/profile` to configure your trading preferences."
-                                .to_string());
+                                Use `/profile` to configure your trading preferences.";
+                            // Send message to chat (only in production, not test mode)
+                            if !self.config.is_test_mode {
+                                let _ = self
+                                    .send_message_to_chat(&chat_id.to_string(), response_text)
+                                    .await;
+                            }
+                            // Return the actual message for testing, "OK" for production
+                            return Ok(if self.config.is_test_mode {
+                                response_text.to_string()
+                            } else {
+                                "OK".to_string()
+                            });
                         }
                         "/profile" => {
-                            return Ok(format!(
+                            let response_text = format!(
                                 "👤 *Your Profile*\\n\\n\
                                 📋 *Basic Information:*\\n\
                                 Name: {}\\n\
@@ -1341,10 +1394,22 @@ impl TelegramService {
                                 Trading Enabled: ❌ No (Add API keys)\\n\
                                 Daily Limit: 5",
                                 first_name, username, user_id
-                            ));
+                            );
+                            // Send message to chat (only in production, not test mode)
+                            if !self.config.is_test_mode {
+                                let _ = self
+                                    .send_message_to_chat(&chat_id.to_string(), &response_text)
+                                    .await;
+                            }
+                            // Return the actual message for testing, "OK" for production
+                            return Ok(if self.config.is_test_mode {
+                                response_text
+                            } else {
+                                "OK".to_string()
+                            });
                         }
                         _ => {
-                            return Ok(format!(
+                            let response_text = format!(
                                 "❓ Unknown command: {}\\n\\n\
                                 Available commands:\\n\
                                 • /start - Welcome message\\n\
@@ -1352,13 +1417,37 @@ impl TelegramService {
                                 • /opportunities - View opportunities\\n\
                                 • /profile - View your profile",
                                 text
-                            ));
+                            );
+                            // Send message to chat (only in production, not test mode)
+                            if !self.config.is_test_mode {
+                                let _ = self
+                                    .send_message_to_chat(&chat_id.to_string(), &response_text)
+                                    .await;
+                            }
+                            // Return the actual message for testing, "OK" for production
+                            return Ok(if self.config.is_test_mode {
+                                response_text
+                            } else {
+                                "OK".to_string()
+                            });
                         }
                     }
                 }
 
                 // Default response for non-commands
-                return Ok(format!("Received: {}", text));
+                let response_text = format!("Received: {}", text);
+                // Send message to chat (only in production, not test mode)
+                if !self.config.is_test_mode {
+                    let _ = self
+                        .send_message_to_chat(&chat_id.to_string(), &response_text)
+                        .await;
+                }
+                // Return the actual message for testing, "OK" for production
+                return Ok(if self.config.is_test_mode {
+                    response_text
+                } else {
+                    "OK".to_string()
+                });
             }
         }
 
