@@ -5,6 +5,8 @@ pub mod alert_manager;
 pub mod health_monitor;
 pub mod metrics_collector;
 pub mod observability_coordinator;
+pub mod real_time_health_monitor;
+pub mod service_degradation_alerting;
 pub mod trace_collector;
 
 // Re-export main types for easy access
@@ -20,6 +22,15 @@ pub use metrics_collector::{
 pub use observability_coordinator::{
     ObservabilityCoordinator, ObservabilityCoordinatorConfig, ObservabilityHealth,
     ObservabilityMetrics,
+};
+pub use real_time_health_monitor::{
+    HealthCheckOperation, HealthDashboardData, HealthSummary, PerformanceOverview,
+    RealTimeHealthConfig, RealTimeHealthMonitor, StorageHealthMetrics, StorageSystemType,
+};
+pub use service_degradation_alerting::{
+    BusinessImpactLevel, CascadingRiskLevel, DegradationAlert, DegradationAlertStatus,
+    DegradationFeatureFlags, DegradationMetrics, DegradationPattern, ImpactAssessment,
+    PatternHistory, ServiceDegradationAlerting, ServiceDegradationConfig, UserImpactLevel,
 };
 pub use trace_collector::{
     TraceCollector, TraceCollectorConfig, TraceContext, TraceSpan, TracingHealth, TracingMetrics,

@@ -1,7 +1,7 @@
 // src/services/interfaces/telegram/mod.rs
 
 //! Telegram Interface Module
-//! 
+//!
 //! Modular Telegram bot interface with user journey prioritization:
 //! - User Onboarding & Profile Management
 //! - RBAC & Subscription Status
@@ -9,51 +9,51 @@
 //! - Beta Features
 //! - Global Opportunities
 
-pub mod core;
 pub mod commands;
+pub mod core;
 pub mod features;
 pub mod utils;
 
 // Legacy telegram service (will be gradually replaced)
-pub mod telegram;
+pub mod legacy_telegram;
 pub mod telegram_keyboard;
 
 // Export commands module publicly
 pub use commands::CommandRouter;
 
 // Export the new modular service and types - defined below in this file
-pub use self::ModularTelegramService;
-pub use self::UserInfo; 
-pub use self::UserPermissions;
+// Note: These are defined later in this file
+
+// Re-export legacy TelegramService
+pub use legacy_telegram::TelegramService;
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
-use crate::services::core::user::user_profile::UserProfileService;
-use crate::services::core::user::session_management::SessionManagementService;
-use crate::services::core::opportunities::opportunity_engine::OpportunityEngine;
+// Imports removed as they are now used directly from ServiceContainer
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use worker::{console_log, Env};
 use serde_json::Value;
 use std::sync::Arc;
+use worker::{console_log, Env};
 
-use self::core::{TelegramBotClient, WebhookHandler, MessageHandler};
+use self::core::{MessageHandler, TelegramBotClient, WebhookHandler};
 
 /// Modular Telegram Service
-/// 
+///
 /// Focuses on user journey priorities:
 /// 1. User Onboarding & Profile Management
 /// 2. RBAC & Subscription Status  
 /// 3. Session Management
 /// 4. Beta Features
 /// 5. Global Opportunities
+#[allow(dead_code)]
 pub struct ModularTelegramService {
     // Core telegram functionality
     bot_client: TelegramBotClient,
     webhook_handler: WebhookHandler,
     message_handler: MessageHandler,
-    
+
     // Service dependencies
     service_container: Arc<ServiceContainer>,
-    
+
     // Configuration
     is_test_mode: bool,
 }
@@ -66,7 +66,9 @@ impl ModularTelegramService {
         // Get telegram configuration
         let bot_token = env
             .secret("TELEGRAM_BOT_TOKEN")
-            .map_err(|_| ArbitrageError::configuration_error("TELEGRAM_BOT_TOKEN secret not found"))?
+            .map_err(|_| {
+                ArbitrageError::configuration_error("TELEGRAM_BOT_TOKEN secret not found")
+            })?
             .to_string();
 
         let chat_id = env
@@ -103,14 +105,14 @@ impl ModularTelegramService {
     }
 
     /// Handle incoming webhook update
-    /// 
+    ///
     /// Priority: User onboarding and session management first
     pub async fn handle_webhook(&self, update: Value) -> ArbitrageResult<String> {
         console_log!("📱 Modular Telegram: Processing webhook update");
 
         // Extract user information for session management
         let user_info = self.extract_user_info(&update)?;
-        
+
         // Priority 1: Session Management - Ensure user has active session
         if let Err(e) = self.ensure_user_session(&user_info).await {
             console_log!("⚠️ Session management failed: {:?}", e);
@@ -119,9 +121,10 @@ impl ModularTelegramService {
 
         // Priority 2: User Profile & RBAC - Check user permissions
         let user_permissions = self.get_user_permissions(&user_info).await?;
-        
+
         // Priority 3: Process update with user context
-        self.process_update_with_context(update, &user_info, &user_permissions).await
+        self.process_update_with_context(update, &user_info, &user_permissions)
+            .await
     }
 
     /// Extract user information from update
@@ -136,7 +139,9 @@ impl ModularTelegramService {
             return self.extract_user_from_callback(callback_query);
         }
 
-        Err(ArbitrageError::validation_error("No user information found in update"))
+        Err(ArbitrageError::validation_error(
+            "No user information found in update",
+        ))
     }
 
     /// Extract user info from message
@@ -224,7 +229,7 @@ impl ModularTelegramService {
         let user_id_str = user_info.user_id.to_string();
         let has_session = session_service.validate_session(&user_id_str).await?;
 
-        if !has_session {
+        if has_session.is_none() {
             console_log!("⚠️ No active session for user {}", user_info.user_id);
             return Err(ArbitrageError::authentication_error("No active session"));
         }
@@ -241,25 +246,41 @@ impl ModularTelegramService {
         console_log!("👑 Checking permissions for user {}", user_info.user_id);
 
         // Get user profile service
-        let user_profile_service = self.service_container.user_profile_service()
-            .ok_or_else(|| ArbitrageError::service_unavailable("User profile service not available"))?;
+        let user_profile_service =
+            self.service_container
+                .user_profile_service()
+                .ok_or_else(|| {
+                    ArbitrageError::service_unavailable("User profile service not available")
+                })?;
 
         // Get user profile with RBAC info
         let user_id_str = user_info.user_id.to_string();
-        let user_profile = user_profile_service.get_user_profile(&user_id_str).await?
+        let user_profile = user_profile_service
+            .get_user_profile(&user_id_str)
+            .await?
             .ok_or_else(|| ArbitrageError::not_found("User profile not found"))?;
 
         // Extract permissions from profile
         let permissions = UserPermissions {
             role: user_profile.access_level.clone(),
             subscription_tier: user_profile.subscription_tier.to_string(),
-            daily_opportunity_limit: user_profile.subscription.daily_opportunity_limit.unwrap_or(5),
+            daily_opportunity_limit: user_profile
+                .subscription
+                .daily_opportunity_limit
+                .unwrap_or(5),
             beta_access: user_profile.is_beta_active,
-            is_admin: matches!(user_profile.access_level, crate::types::UserAccessLevel::Admin | crate::types::UserAccessLevel::SuperAdmin),
-            can_trade: user_profile.can_trade(),
+            is_admin: matches!(
+                user_profile.access_level,
+                crate::types::UserAccessLevel::Admin | crate::types::UserAccessLevel::SuperAdmin
+            ),
+            can_trade: user_profile.access_level.can_trade(),
         };
 
-        console_log!("✅ Permissions loaded for user {}: {:?}", user_info.user_id, permissions.role);
+        console_log!(
+            "✅ Permissions loaded for user {}: {:?}",
+            user_info.user_id,
+            permissions.role
+        );
         Ok(permissions)
     }
 
@@ -270,15 +291,22 @@ impl ModularTelegramService {
         user_info: &UserInfo,
         permissions: &UserPermissions,
     ) -> ArbitrageResult<String> {
-        console_log!("🎯 Processing update with user context for user {}", user_info.user_id);
+        console_log!(
+            "🎯 Processing update with user context for user {}",
+            user_info.user_id
+        );
 
         // Route to appropriate handler based on update type and permissions
         if let Some(message) = update.get("message") {
-            return self.handle_message_with_context(message, user_info, permissions).await;
+            return self
+                .handle_message_with_context(message, user_info, permissions)
+                .await;
         }
 
         if let Some(callback_query) = update.get("callback_query") {
-            return self.handle_callback_with_context(callback_query, user_info, permissions).await;
+            return self
+                .handle_callback_with_context(callback_query, user_info, permissions)
+                .await;
         }
 
         Ok("Update processed".to_string())
@@ -293,11 +321,14 @@ impl ModularTelegramService {
     ) -> ArbitrageResult<String> {
         // Check if it's a command
         if let Some(text) = message.get("text").and_then(|t| t.as_str()) {
-            return self.handle_command_with_context(text, user_info, permissions).await;
+            return self
+                .handle_command_with_context(text, user_info, permissions)
+                .await;
         }
 
         // Handle regular message
-        self.handle_regular_message_with_context(message, user_info, permissions).await
+        self.handle_regular_message_with_context(message, user_info, permissions)
+            .await
     }
 
     /// Handle command with proper context (Priority 3: Command Processing)
@@ -307,10 +338,18 @@ impl ModularTelegramService {
         user_info: &UserInfo,
         permissions: &UserPermissions,
     ) -> ArbitrageResult<String> {
-        console_log!("🎯 Processing command '{}' for user {} in chat type '{}'", command, user_info.user_id, user_info.chat_type);
+        console_log!(
+            "🎯 Processing command '{}' for user {} in chat type '{}'",
+            command,
+            user_info.user_id,
+            user_info.chat_type
+        );
 
         // Check if this is a group/channel context
-        let is_group_context = matches!(user_info.chat_type.as_str(), "group" | "supergroup" | "channel");
+        let is_group_context = matches!(
+            user_info.chat_type.as_str(),
+            "group" | "supergroup" | "channel"
+        );
 
         // In group/channel contexts, only allow specific commands
         if is_group_context {
@@ -329,18 +368,37 @@ impl ModularTelegramService {
             }
         }
 
-        // Private chat - full command processing
-        match command {
-            "/start" => self.handle_start_command(user_info, permissions).await,
-            "/help" => self.handle_help_command(user_info, permissions).await,
-            "/profile" => self.handle_profile_command(user_info, permissions).await,
-            "/opportunities" => self.handle_opportunities_command(user_info, permissions).await,
-            "/settings" => self.handle_settings_command(user_info, permissions).await,
-            "/admin" => self.handle_admin_command(user_info, permissions).await,
-            "/groups" => self.handle_groups_command(user_info, permissions).await,
-            "/addkey" => self.handle_add_key_command(user_info, permissions).await,
-            "/trade" => self.handle_trade_command(user_info, permissions).await,
-            _ => Ok(format!("❓ Unknown command: {}\n\nType /help to see available commands.", command)),
+        // Private chat - use CommandRouter for full command processing
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        let args: Vec<&str> = if parts.len() > 1 {
+            parts[1..].to_vec()
+        } else {
+            vec![]
+        };
+
+        match commands::CommandRouter::route_command(
+            command,
+            &args,
+            user_info,
+            permissions,
+            &self.service_container,
+        )
+        .await
+        {
+            Ok(response) => {
+                // Send the response to the user
+                self.send_message_to_user(user_info, &response).await?;
+                Ok("Command processed successfully".to_string())
+            }
+            Err(e) => {
+                console_log!("❌ Command processing failed: {:?}", e);
+                let error_message = format!(
+                    "❓ Unknown command: {}\n\nType /help to see available commands.",
+                    command
+                );
+                self.send_message_to_user(user_info, &error_message).await?;
+                Ok("Unknown command handled".to_string())
+            }
         }
     }
 
@@ -354,61 +412,17 @@ impl ModularTelegramService {
     /// Send message to user
     async fn send_message_to_user(&self, user_info: &UserInfo, text: &str) -> ArbitrageResult<()> {
         let chat_id = user_info.chat_id.to_string();
-        self.bot_client.send_message(&chat_id, text, Some("Markdown"), None).await?;
+        self.bot_client
+            .send_message(&chat_id, text, Some("HTML"), None)
+            .await?;
         Ok(())
-    }
-
-    // Command handlers (to be implemented)
-    async fn handle_start_command(&self, user_info: &UserInfo, permissions: &UserPermissions) -> ArbitrageResult<String> {
-        console_log!("🚀 Start command for user {}", user_info.user_id);
-        // TODO: Implement user onboarding flow
-        let message = "🚀 *Welcome to ArbEdge!*\n\nYour trading assistant is ready.";
-        self.send_message_to_user(user_info, message).await?;
-        Ok("Start command handled".to_string())
-    }
-
-    async fn handle_help_command(&self, user_info: &UserInfo, permissions: &UserPermissions) -> ArbitrageResult<String> {
-        console_log!("❓ Help command for user {}", user_info.user_id);
-        let message = self.message_handler.format_help_message();
-        self.send_message_to_user(user_info, &message).await?;
-        Ok("Help command handled".to_string())
-    }
-
-    async fn handle_profile_command(&self, user_info: &UserInfo, permissions: &UserPermissions) -> ArbitrageResult<String> {
-        console_log!("👤 Profile command for user {}", user_info.user_id);
-        // TODO: Implement profile display
-        let message = format!("👤 *Your Profile*\n\nRole: {:?}\nBeta Access: {}", permissions.role, permissions.beta_access);
-        self.send_message_to_user(user_info, &message).await?;
-        Ok("Profile command handled".to_string())
-    }
-
-    async fn handle_opportunities_command(&self, user_info: &UserInfo, permissions: &UserPermissions) -> ArbitrageResult<String> {
-        console_log!("💰 Opportunities command for user {}", user_info.user_id);
-        // TODO: Implement global opportunities using our keys
-        let message = "💰 *Global Opportunities*\n\nFetching latest opportunities...";
-        self.send_message_to_user(user_info, message).await?;
-        Ok("Opportunities command handled".to_string())
-    }
-
-    async fn handle_settings_command(&self, user_info: &UserInfo, permissions: &UserPermissions) -> ArbitrageResult<String> {
-        console_log!("⚙️ Settings command for user {}", user_info.user_id);
-        let message = "⚙️ *Settings*\n\nConfigure your preferences here.";
-        self.send_message_to_user(user_info, message).await?;
-        Ok("Settings command handled".to_string())
-    }
-
-    async fn handle_admin_command(&self, user_info: &UserInfo, permissions: &UserPermissions) -> ArbitrageResult<String> {
-        if !permissions.is_admin {
-            return Ok("❌ Admin access required.".to_string());
-        }
-        Ok("🔧 Admin panel - Feature coming soon!".to_string())
     }
 
     async fn handle_regular_message_with_context(
         &self,
-        message: &Value,
+        _message: &Value,
         user_info: &UserInfo,
-        permissions: &UserPermissions,
+        _permissions: &UserPermissions,
     ) -> ArbitrageResult<String> {
         console_log!("💭 Regular message from user {}", user_info.user_id);
         let response = "💭 I received your message. Use /help to see available commands.";
@@ -418,29 +432,13 @@ impl ModularTelegramService {
 
     async fn handle_callback_with_context(
         &self,
-        callback_query: &Value,
+        _callback_query: &Value,
         user_info: &UserInfo,
-        permissions: &UserPermissions,
+        _permissions: &UserPermissions,
     ) -> ArbitrageResult<String> {
         console_log!("🔘 Callback query from user {}", user_info.user_id);
         // TODO: Implement callback handling
         Ok("Callback handled".to_string())
-    }
-
-    async fn handle_groups_command(&self, user_info: &UserInfo, permissions: &UserPermissions) -> ArbitrageResult<String> {
-        // Show groups where user is admin
-        Ok("📊 **Your Groups**\n\n🔹 Group management coming soon!\n🔹 Add me to groups and I'll automatically detect admin status\n🔹 Configure AI and subscription settings here".to_string())
-    }
-
-    async fn handle_add_key_command(&self, user_info: &UserInfo, permissions: &UserPermissions) -> ArbitrageResult<String> {
-        Ok("🔑 **Add API Key**\n\n🔹 Exchange API keys for trading\n🔹 AI API keys for enhanced analysis\n🔹 Key management interface coming soon!\n\n💡 Tip: Free tier users can use BYOK (Bring Your Own Key)".to_string())
-    }
-
-    async fn handle_trade_command(&self, user_info: &UserInfo, permissions: &UserPermissions) -> ArbitrageResult<String> {
-        if !permissions.can_trade {
-            return Ok("❌ Trading not available. Please add exchange API keys first.\n\nUse /addkey to add your exchange API keys.".to_string());
-        }
-        Ok("💹 **Trading Panel**\n\n🔹 Manual trading interface\n🔹 Position management\n🔹 Portfolio overview\n\n⚠️ Trading interface coming soon!".to_string())
     }
 }
 

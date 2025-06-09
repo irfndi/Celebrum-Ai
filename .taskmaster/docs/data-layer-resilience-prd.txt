@@ -1,0 +1,446 @@
+# Product Requirements Document: Comprehensive Data Layer Resilience
+
+## Project Overview
+Implement a fault-tolerant, multi-tier data access layer with KV caching, persistent storage (R2/D1), chaos engineering resilience, and automatic cleanup mechanisms for the ArbEdge platform.
+
+## Executive Summary
+The current data layer lacks comprehensive resilience mechanisms. We need to implement a robust multi-tier architecture that provides:
+- Fast KV caching with automatic failover 
+- Persistent storage with R2/D1 integration
+- Chaos engineering fault tolerance
+- Cloudflare pipeline integration
+- Automatic synchronization and cleanup
+- Backward compatibility with existing services
+
+## Goals & Success Criteria
+
+### Primary Goals
+1. **Zero Data Loss**: 99.99% data persistence guarantee
+2. **High Availability**: <50ms cache access, <200ms database access
+3. **Fault Tolerance**: Service continues during component failures
+4. **Auto-Recovery**: Automatic sync when services come back online
+5. **Clean Operations**: Automatic cleanup prevents storage bloat
+
+### Key Performance Indicators (KPIs)
+- Cache hit ratio: >95%
+- Database failover time: <500ms
+- Sync completion time: <5 seconds after service recovery
+- Storage cleanup efficiency: >90% obsolete data removal
+- System uptime: >99.9%
+
+## Technical Architecture
+
+### Core Components
+
+#### 1. Multi-Tier Data Access Layer
+```
+Application Layer
+    ↓
+Cache Layer (KV Store)
+    ↓ (on miss/write-through)
+Persistence Layer (D1/R2)
+    ↓ (backup/archive)
+Cold Storage (R2 Archive)
+```
+
+#### 2. Service Integration Points
+- **KV Store**: Cloudflare Workers KV (primary cache)
+- **Database**: D1 (structured data) + R2 (blob storage)
+- **Pipeline**: Cloudflare Workers (processing)
+- **Monitoring**: Real-time health checks
+- **Cleanup**: Scheduled maintenance workers
+
+#### 3. Data Flow Patterns
+- **Read Path**: KV → D1 → R2 (with circuit breakers)
+- **Write Path**: Atomic KV+D1 writes with rollback
+- **Sync Path**: Diff-based reconciliation
+- **Cleanup Path**: TTL-based + manual policies
+
+## Detailed Requirements
+
+### Phase 1: Foundation Infrastructure (Week 1-2)
+
+#### 1.1 Enhanced KV Cache System
+**Requirements:**
+- Implement hierarchical caching with multiple TTL tiers
+- Add compression for large objects (>1KB)
+- Implement cache warming strategies
+- Add metadata tracking for cleanup
+
+**Deliverables:**
+- `KvCacheManager` with tier management
+- Compression middleware
+- Cache warming service  
+- Metadata tracking system
+
+#### 1.2 D1/R2 Persistence Layer
+**Requirements:**
+- Design schema for both structured (D1) and blob (R2) data
+- Implement connection pooling and retry logic
+- Add transaction support with rollback capabilities
+- Create data migration utilities
+
+**Deliverables:**
+- Database schema definitions
+- Connection management service
+- Transaction coordinator
+- Migration scripts
+
+#### 1.3 Circuit Breaker & Health Monitoring
+**Requirements:**
+- Implement circuit breakers for all external dependencies
+- Add real-time health monitoring for KV, D1, R2
+- Create alerting for service degradation
+- Build automatic failover mechanisms
+
+**Deliverables:**
+- Circuit breaker implementation
+- Health monitoring dashboard
+- Alert management system
+- Failover automation
+
+### Phase 2: Resilience Mechanisms (Week 3-4)
+
+#### 2.1 Chaos Engineering Framework
+**Requirements:**
+- Build fault injection system for testing
+- Implement automated chaos experiments
+- Add resilience testing for all failure modes
+- Create recovery verification tests
+
+**Test Scenarios:**
+- KV store unavailability (30s, 5min, 1hr)
+- D1 database connection failures
+- R2 storage access denial
+- Cloudflare pipeline disruption
+- Network partitioning between services
+
+**Deliverables:**
+- Chaos testing framework
+- Automated fault injection
+- Recovery verification suite
+- Resilience metrics dashboard
+
+#### 2.2 Data Synchronization Engine
+**Requirements:**
+- Implement eventually consistent synchronization
+- Add conflict resolution for concurrent updates
+- Create diff-based sync for efficiency
+- Build manual sync triggers for operators
+
+**Sync Strategies:**
+- **Write-through**: Updates go to both KV and D1
+- **Write-behind**: Async writes to D1 with batching
+- **Read-repair**: Fix inconsistencies during reads
+- **Periodic reconciliation**: Scheduled consistency checks
+
+**Deliverables:**
+- Sync coordinator service
+- Conflict resolution engine
+- Diff calculation algorithms  
+- Manual sync tools
+
+### Phase 3: Operational Excellence (Week 5-6)
+
+#### 3.1 Automated Cleanup System
+**Requirements:**
+- Implement TTL-based automatic cleanup
+- Add manual cleanup policies for operators
+- Create storage usage monitoring
+- Build cleanup impact analysis
+
+**Cleanup Policies:**
+- **TTL-based**: Automatic expiration by data type
+- **Usage-based**: Remove least-recently-used items
+- **Size-based**: Cleanup when storage thresholds hit
+- **Manual**: Operator-triggered cleanup with safeguards
+
+**Deliverables:**
+- Cleanup scheduler service
+- Policy management interface
+- Storage analytics dashboard
+- Cleanup impact tools
+
+#### 3.2 Monitoring & Observability
+**Requirements:**
+- Comprehensive metrics for all data operations
+- Real-time alerting for anomalies
+- Performance monitoring and optimization
+- Cost tracking for storage usage
+
+**Metrics Categories:**
+- **Performance**: Latency, throughput, cache hit rates
+- **Reliability**: Error rates, failover frequency, sync lag
+- **Capacity**: Storage usage, growth trends, cleanup effectiveness
+- **Cost**: KV requests, D1 queries, R2 bandwidth
+
+**Deliverables:**
+- Metrics collection system
+- Real-time monitoring dashboard
+- Alerting and notification system
+- Cost analysis tools
+
+### Phase 4: Backward Compatibility & Migration (Week 7-8)
+
+#### 4.1 Legacy System Integration
+**Requirements:**
+- Maintain compatibility with existing services
+- Implement gradual migration strategies
+- Add feature flags for rollback capability
+- Create data validation for migrations
+
+**Migration Strategy:**
+- **Dual-write**: Write to both old and new systems
+- **Gradual read migration**: Shift reads incrementally
+- **Validation**: Compare results between systems
+- **Rollback**: Quick revert if issues arise
+
+**Deliverables:**
+- Migration orchestration system
+- Feature flag management
+- Data validation tools
+- Rollback procedures
+
+#### 4.2 Integration Testing & Validation
+**Requirements:**
+- End-to-end testing of all scenarios
+- Performance benchmarking
+- Resilience validation under load
+- Production readiness checklist
+
+**Testing Scope:**
+- **Functional**: All CRUD operations work correctly
+- **Performance**: Meets latency and throughput targets
+- **Resilience**: Survives chaos testing scenarios
+- **Integration**: Works with existing Telegram/API systems
+
+**Deliverables:**
+- Comprehensive test suite
+- Performance benchmark results
+- Resilience test report
+- Production deployment plan
+
+## Implementation Specifications
+
+### Data Storage Architecture
+
+#### KV Store Organization
+```
+/users/{user_id}/profile
+/users/{user_id}/session
+/users/{user_id}/preferences
+/opportunities/live/{opportunity_id}
+/opportunities/cached/{market_pair}
+/analytics/metrics/{date}/{type}
+/admin/config/{service_name}
+```
+
+#### D1 Database Schema
+```sql
+-- Core user data
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    telegram_user_id INTEGER UNIQUE,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    data_version INTEGER DEFAULT 1
+);
+
+-- Opportunity tracking
+CREATE TABLE opportunities (
+    id TEXT PRIMARY KEY,
+    market_pair TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    data_blob TEXT NOT NULL
+);
+
+-- Sync coordination
+CREATE TABLE sync_status (
+    service_name TEXT PRIMARY KEY,
+    last_sync_at INTEGER NOT NULL,
+    sync_version INTEGER NOT NULL,
+    status TEXT NOT NULL
+);
+```
+
+#### R2 Storage Organization
+```
+/backups/daily/{date}/users.json
+/backups/daily/{date}/opportunities.json
+/archives/historical/{year}/{month}/
+/exports/admin/{timestamp}/
+/logs/application/{date}/
+```
+
+### API Specifications
+
+#### Data Access Service Interface
+```typescript
+interface DataAccessService {
+  // Primary operations
+  get<T>(key: string): Promise<T | null>;
+  set<T>(key: string, value: T, ttl?: number): Promise<void>;
+  delete(key: string): Promise<void>;
+  
+  // Batch operations
+  getBatch<T>(keys: string[]): Promise<Map<string, T>>;
+  setBatch<T>(items: Map<string, T>, ttl?: number): Promise<void>;
+  
+  // Health and sync
+  healthCheck(): Promise<HealthStatus>;
+  forceSync(service?: string): Promise<SyncResult>;
+  
+  // Cleanup operations
+  cleanup(policy: CleanupPolicy): Promise<CleanupResult>;
+  getStorageStats(): Promise<StorageStats>;
+}
+```
+
+#### Circuit Breaker Configuration
+```typescript
+interface CircuitBreakerConfig {
+  failureThreshold: number;    // 5 failures
+  recoveryTimeout: number;     // 30 seconds
+  monitoringPeriod: number;    // 60 seconds
+  halfOpenMaxRequests: number; // 3 requests
+}
+```
+
+### Chaos Engineering Test Matrix
+
+| Scenario | Duration | Expected Behavior | Recovery SLA |
+|----------|----------|-------------------|--------------|
+| KV Unavailable | 30s | Use D1 fallback | <5s to detect, immediate failover |
+| D1 Connection Loss | 5min | Cache-only mode | <10s to detect, continue with cache |
+| R2 Access Denied | 1hr | Skip archival | <30s to detect, queue for retry |
+| Pipeline Disruption | 15min | Direct data flow | <15s to detect, bypass pipeline |
+| Network Partition | 30min | Isolated operation | <30s to detect, sync on recovery |
+
+### Performance Targets
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| Cache Hit Rate | >95% | 24h rolling average |
+| Cache Response Time | <50ms | 99th percentile |
+| Database Response Time | <200ms | 99th percentile |
+| Failover Detection Time | <30s | Maximum time to detect failure |
+| Sync Completion Time | <5s | Time to sync after recovery |
+| Cleanup Efficiency | >90% | % of obsolete data removed |
+| Storage Growth Rate | <10%/month | Excluding business growth |
+
+### Security & Compliance
+
+#### Data Protection
+- Encryption at rest for sensitive data
+- Encryption in transit for all operations
+- Access logging for audit requirements
+- Data retention policy compliance
+
+#### Access Control
+- Service-to-service authentication
+- Rate limiting for all operations
+- Admin access controls for manual operations
+- Emergency access procedures
+
+### Operational Procedures
+
+#### Deployment Strategy
+1. **Phase 1**: Deploy infrastructure with feature flags off
+2. **Phase 2**: Enable for test users (1% traffic)
+3. **Phase 3**: Gradual rollout (10%, 50%, 100%)
+4. **Phase 4**: Deprecate old system after validation
+
+#### Monitoring & Alerting
+- **Critical Alerts**: Service down, data corruption, sync failures
+- **Warning Alerts**: High latency, low cache hit rate, storage growth
+- **Info Alerts**: Cleanup completion, sync completion, performance reports
+
+#### Incident Response
+- **P0**: Data loss or corruption (< 15min response)
+- **P1**: Service unavailable (< 30min response)  
+- **P2**: Performance degradation (< 2hr response)
+- **P3**: Non-critical issues (< 24hr response)
+
+## Success Metrics & Validation
+
+### Technical Metrics
+- **Availability**: 99.9% uptime SLA
+- **Performance**: <50ms cache, <200ms database
+- **Reliability**: <0.01% error rate
+- **Resilience**: Pass all chaos engineering tests
+
+### Business Metrics
+- **User Experience**: No degradation in app responsiveness
+- **Cost Efficiency**: <20% increase in infrastructure costs
+- **Developer Productivity**: <10% increase in deployment complexity
+- **Operational Overhead**: <5% increase in monitoring workload
+
+### Acceptance Criteria
+- [ ] All chaos engineering tests pass
+- [ ] Performance targets met under load
+- [ ] Zero data loss during failover scenarios
+- [ ] Cleanup system maintains <10% storage growth
+- [ ] Backward compatibility with existing services
+- [ ] Complete monitoring and alerting coverage
+- [ ] Documentation and runbooks complete
+- [ ] Team training completed
+
+## Risk Assessment & Mitigation
+
+### High-Risk Areas
+1. **Data Consistency**: Complex sync logic could cause corruption
+   - **Mitigation**: Extensive testing, gradual rollout, validation checks
+
+2. **Performance Impact**: Additional layers could increase latency
+   - **Mitigation**: Comprehensive benchmarking, circuit breakers
+
+3. **Operational Complexity**: More moving parts, harder debugging
+   - **Mitigation**: Excellent monitoring, clear runbooks, team training
+
+4. **Migration Risks**: Data loss during transition from old system
+   - **Mitigation**: Dual-write strategy, extensive validation, rollback plans
+
+### Dependencies & Assumptions
+- Cloudflare KV, D1, and R2 services remain stable
+- Current data access patterns don't change dramatically
+- Team has capacity for increased operational complexity
+- Budget approved for infrastructure cost increases
+
+## Timeline & Milestones
+
+### Week 1-2: Foundation Infrastructure
+- [ ] Enhanced KV cache system
+- [ ] D1/R2 persistence layer  
+- [ ] Circuit breaker implementation
+- [ ] Basic health monitoring
+
+### Week 3-4: Resilience Mechanisms
+- [ ] Chaos engineering framework
+- [ ] Data synchronization engine
+- [ ] Fault injection testing
+- [ ] Recovery automation
+
+### Week 5-6: Operational Excellence
+- [ ] Automated cleanup system
+- [ ] Comprehensive monitoring
+- [ ] Performance optimization
+- [ ] Cost tracking tools
+
+### Week 7-8: Integration & Deployment
+- [ ] Legacy system integration
+- [ ] Migration orchestration
+- [ ] End-to-end testing
+- [ ] Production deployment
+
+## Success Definition
+This project succeeds when:
+1. **Zero data loss** during any single component failure
+2. **Performance targets** met under production load
+3. **Chaos engineering tests** all pass consistently  
+4. **Automatic recovery** works without manual intervention
+5. **Storage growth** controlled through effective cleanup
+6. **Backward compatibility** maintained throughout migration
+7. **Team confidence** high in system reliability
+
+The system should be so resilient that component failures become non-events that are handled automatically without user impact or manual intervention. 

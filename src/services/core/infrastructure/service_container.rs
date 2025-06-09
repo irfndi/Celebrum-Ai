@@ -13,7 +13,7 @@ use crate::services::core::infrastructure::database_repositories::{
 };
 // use crate::services::core::infrastructure::queue_manager::QueueManager;
 use crate::services::core::opportunities::opportunity_distribution::OpportunityDistributionService;
-// use crate::services::core::opportunities::opportunity_engine::OpportunityEngine;
+use crate::services::core::opportunities::opportunity_engine::OpportunityEngine;
 use crate::services::core::trading::exchange::ExchangeService;
 // use crate::services::core::trading::position_manager::PositionManager;
 use crate::services::core::user::session_management::SessionManagementService;
@@ -21,7 +21,7 @@ use crate::services::core::user::user_profile::UserProfileService;
 // use crate::services::core::user::user_activity::UserActivityService;
 // use crate::services::core::user::group_management::GroupManagementService;
 
-use crate::services::interfaces::telegram::telegram::TelegramService;
+use crate::services::interfaces::telegram::legacy_telegram::TelegramService;
 // use crate::services::core::admin::{AdminService, UserManagementService, SystemConfigService, MonitoringService, AuditService};
 use crate::utils::feature_flags::{load_feature_flags, FeatureFlags};
 use crate::utils::{ArbitrageError, ArbitrageResult};
@@ -39,6 +39,7 @@ pub struct ServiceContainer {
     pub telegram_service: Option<Arc<TelegramService>>,
     pub exchange_service: Arc<ExchangeService>,
     pub user_profile_service: Option<Arc<UserProfileService>>,
+    pub opportunity_engine: Option<Arc<OpportunityEngine>>,
     // pub admin_service: Option<Arc<AdminService>>, // Temporarily commented out
     // pub auth_service: Option<Arc<AuthService>>, // Commented out until AuthService is implemented
     // pub ai_coordinator: Option<Arc<AICoordinator>>, // Commented out until AICoordinator is implemented
@@ -90,6 +91,16 @@ impl ServiceContainer {
             session_service_instance.clone(),
         );
 
+        // Initialize OpportunityEngine
+        let opportunity_engine = Self::initialize_opportunity_engine(
+            env,
+            user_profile_service_instance.clone(),
+            kv_store.clone(),
+            database_manager.clone(),
+        )
+        .await
+        .ok();
+
         // Initialize Telegram Service
         let telegram_service = match TelegramService::from_env(env) {
             Ok(service) => {
@@ -117,7 +128,63 @@ impl ServiceContainer {
             database_manager,
             data_access_layer,
             feature_flags,
+            opportunity_engine,
         })
+    }
+
+    /// Initialize OpportunityEngine with proper dependencies
+    async fn initialize_opportunity_engine(
+        _env: &Env,
+        user_profile_service: Arc<UserProfileService>,
+        kv_store: KvStore,
+        database_manager: DatabaseManager,
+    ) -> ArbitrageResult<Arc<OpportunityEngine>> {
+        // Create UserAccessService
+        let user_access_service = Arc::new(
+            crate::services::core::user::user_access::UserAccessService::new(
+                database_manager.clone(),
+                (*user_profile_service).clone(),
+                kv_store.clone(),
+            ),
+        );
+
+        // Create AiBetaIntegrationService
+        let ai_config = crate::services::core::ai::ai_beta_integration::AiBetaConfig::default();
+        let ai_service = Arc::new(
+            crate::services::core::ai::ai_beta_integration::AiBetaIntegrationService::new(
+                ai_config,
+            ),
+        );
+
+        // Create OpportunityConfig with defaults
+        let config =
+            crate::services::core::opportunities::opportunity_core::OpportunityConfig::default();
+
+        let engine = OpportunityEngine::new(
+            user_profile_service,
+            user_access_service,
+            ai_service,
+            kv_store,
+            config,
+        )?;
+
+        console_log!("✅ OpportunityEngine initialized successfully");
+        Ok(Arc::new(engine))
+    }
+
+    /// Get OpportunityEngine (expected by commands)
+    pub fn get_opportunity_engine(&self) -> Option<Arc<OpportunityEngine>> {
+        self.opportunity_engine.clone()
+    }
+
+    /// Get OpportunityDistributionService (expected by commands)
+    pub fn get_opportunity_distribution_service(&self) -> &OpportunityDistributionService {
+        &self.distribution_service
+    }
+
+    /// Global opportunity service (alias for distribution service)
+    pub fn global_opportunity_service(&self) -> &OpportunityDistributionService {
+        &self.distribution_service
     }
 
     /// Create AdminService with all sub-services

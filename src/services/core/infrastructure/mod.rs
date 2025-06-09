@@ -40,8 +40,13 @@ pub mod notification_module;
 pub mod shared_types;
 
 // ============= CORE INFRASTRUCTURE COMPONENTS =============
+pub mod automatic_failover_coordinator;
 pub mod cache_manager;
+pub mod chaos_engineering;
+pub mod circuit_breaker_service;
 pub mod database_core;
+pub mod enhanced_kv_cache;
+pub mod failover_service;
 pub mod infrastructure_engine;
 pub mod service_health;
 
@@ -107,8 +112,38 @@ pub use database_repositories::{
 };
 
 // ============= CORE INFRASTRUCTURE EXPORTS =============
+pub use automatic_failover_coordinator::{
+    AutomaticFailoverConfig, AutomaticFailoverCoordinator, AutomaticFailoverFeatureFlags,
+    CoordinatedFailoverManager, CoordinatorMetrics, FailoverDecision, FailoverDecisionEngine,
+    FailoverEvent, FailoverEventType, HealthSignalEvent, RecoveryAutomationEngine,
+    RecoveryDecision, RecoveryMethod, RecoveryOperation, RecoveryStatus, RecoveryStep,
+};
 pub use cache_manager::{CacheConfig, CacheHealth, CacheManager, CacheResult};
-pub use database_core::{BatchOperation, DatabaseCore, DatabaseHealth, DatabaseResult};
+pub use chaos_engineering::{
+    ChaosCoordinator, ChaosCoordinatorConfig, ChaosCoordinatorMetrics, ChaosEngineeringConfig,
+    ChaosEngineeringFramework, ChaosFeatureFlags, ExperimentEngine, ExperimentState,
+    ExperimentType, FaultInjector, FaultType, InjectionTarget,
+    RecoveryStatus as ChaosRecoveryStatus, RecoveryVerificationResult, RecoveryVerifier,
+    SafetyController, SafetyRule, SafetyViolation, ViolationSeverity,
+};
+pub use circuit_breaker_service::{
+    CircuitBreakerConfig, CircuitBreakerMetrics, CircuitBreakerService, CircuitBreakerStateInfo,
+    CircuitBreakerType, EnhancedCircuitBreaker,
+};
+pub use database_core::{
+    BatchOperation as DatabaseBatchOperation, DatabaseCore, DatabaseHealth, DatabaseResult,
+};
+pub use enhanced_kv_cache::{
+    AccessPattern, BatchOperation as CacheBatchOperation, BatchResult, CacheEntry,
+    CacheManagerMetrics, CacheOperation, CacheTier, CacheWarmingService, CleanupConfig,
+    CompressionConfig, CompressionEngine, CompressionStats, DataType, EnhancedCacheConfig,
+    EnhancedCacheStats, GeneralConfig, KvCacheManager, MetadataTracker, TierConfig, TierStats,
+    WarmingConfig, WarmingStats,
+};
+pub use failover_service::{
+    FailoverConfig, FailoverMetrics, FailoverService, FailoverState, FailoverStatus,
+    FailoverStrategy, FailoverType, ServiceConfig,
+};
 pub use infrastructure_engine::{
     InfrastructureEngine, InfrastructureHealth, ServiceInfo, ServiceRegistration, ServiceStatus,
     ServiceType,
@@ -132,6 +167,9 @@ pub mod analytics_module;
 // 8. Financial Module - Real-Time Financial Monitoring and Analysis System (NEW)
 pub mod financial_module;
 
+// 9. Persistence Layer - D1/R2 Unified Data Persistence Architecture (NEW)
+pub mod persistence_layer;
+
 pub use analytics_module::{
     AnalyticsCoordinator, AnalyticsModuleConfig, DataProcessor, MetricsAggregator, ReportGenerator,
 };
@@ -140,6 +178,12 @@ pub use financial_module::{
     BalanceTracker, ExchangeBalanceSnapshot, FinancialCoordinator, FinancialModule,
     FinancialModuleConfig, FinancialModuleHealth, FinancialModuleMetrics, FundAnalyzer,
     FundOptimizationResult, PortfolioAnalytics,
+};
+
+pub use persistence_layer::{
+    ConnectionHealth, ConnectionManager, ConnectionMetrics, ConnectionPool, ConnectionStats,
+    D1Config, PersistenceConfig, PersistenceHealth, PersistenceLayer, PersistenceMetrics,
+    PoolConfig, R2Config, SchemaHealth, SchemaManager, SchemaMetrics, ServiceHealth,
 };
 
 /// Revolutionary Infrastructure Configuration for High-Concurrency Trading
@@ -163,6 +207,7 @@ pub struct InfrastructureConfig {
     // Core infrastructure configurations
     pub database_core_config: DatabaseCoreConfig,
     pub cache_manager_config: CacheManagerConfig,
+    pub chaos_engineering_config: chaos_engineering::ChaosEngineeringConfig,
     pub service_health_config: ServiceHealthConfig,
     pub infrastructure_engine_config: InfrastructureEngineConfig,
 
@@ -230,6 +275,7 @@ impl Default for InfrastructureConfig {
 
             database_core_config: DatabaseCoreConfig::default(),
             cache_manager_config: CacheManagerConfig::default(),
+            chaos_engineering_config: chaos_engineering::ChaosEngineeringConfig::default(),
             service_health_config: ServiceHealthConfig::default(),
             infrastructure_engine_config: InfrastructureEngineConfig::default(),
 
@@ -322,6 +368,7 @@ impl InfrastructureConfig {
                 batch_size: 200,
                 retry_attempts: 5,
             },
+            chaos_engineering_config: chaos_engineering::ChaosEngineeringConfig::default(),
             service_health_config: ServiceHealthConfig {
                 health_check_interval_seconds: 15,
                 enable_dependency_tracking: true,
@@ -381,6 +428,7 @@ impl InfrastructureConfig {
                 batch_size: 50,
                 retry_attempts: 10,
             },
+            chaos_engineering_config: chaos_engineering::ChaosEngineeringConfig::default(),
             service_health_config: ServiceHealthConfig {
                 health_check_interval_seconds: 10,
                 enable_dependency_tracking: true,
@@ -445,6 +493,7 @@ pub struct InfrastructureManager {
     // Core infrastructure
     database_core: Option<DatabaseCore>,
     cache_manager: Option<CacheManager>,
+    chaos_engineering: Option<chaos_engineering::ChaosEngineeringFramework>,
     service_health: Option<ServiceHealthManager>,
     infrastructure_engine: Option<InfrastructureEngine>,
 
@@ -471,6 +520,7 @@ impl InfrastructureManager {
             database_repositories: None,
             database_core: None,
             cache_manager: None,
+            chaos_engineering: None,
             service_health: None,
             infrastructure_engine: None,
             analytics_engine: None,
@@ -500,6 +550,13 @@ impl InfrastructureManager {
             })?,
             infrastructure_engine::InfrastructureConfig::default(),
         ));
+
+        // Initialize chaos engineering framework
+        let mut chaos_framework = chaos_engineering::ChaosEngineeringFramework::new(
+            self.config.chaos_engineering_config.clone(),
+        )?;
+        chaos_framework.initialize(env).await?;
+        self.chaos_engineering = Some(chaos_framework);
 
         // Initialize modular components
         self.notification_module = Some(
@@ -624,6 +681,14 @@ impl InfrastructureManager {
         self.cache_manager
             .as_ref()
             .ok_or_else(|| ArbitrageError::new(ErrorKind::Internal, "CacheManager not initialized"))
+    }
+
+    pub fn chaos_engineering(
+        &self,
+    ) -> ArbitrageResult<&chaos_engineering::ChaosEngineeringFramework> {
+        self.chaos_engineering.as_ref().ok_or_else(|| {
+            ArbitrageError::new(ErrorKind::Internal, "ChaosEngineering not initialized")
+        })
     }
 
     pub fn service_health(&self) -> ArbitrageResult<&ServiceHealthManager> {

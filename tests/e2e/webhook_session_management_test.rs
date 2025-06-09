@@ -1,5 +1,5 @@
 use arb_edge::services::interfaces::telegram::core::bot_client::TelegramConfig;
-use arb_edge::services::interfaces::telegram::telegram::TelegramService;
+use arb_edge::services::interfaces::telegram::legacy_telegram::TelegramService;
 use serde_json::json;
 
 /// E2E Webhook Tests for Session Management Integration

@@ -26,7 +26,7 @@ INSERT OR REPLACE INTO user_profiles (
     'high',
     '{"max_position_size":10000.0,"preferred_exchanges":["binance","bybit"],"auto_execution_enabled":true,"max_daily_trades":100,"profit_threshold":0.001}',
     '{"telegram_enabled":true,"email_enabled":true,"push_enabled":true,"priority_filter":"all","quiet_hours":false}',
-    'superadmin',
+    'pro',
     'active',
     'verified',
     datetime('now'),

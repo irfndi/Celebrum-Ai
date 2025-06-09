@@ -4,38 +4,7 @@
 pub mod core;
 
 // Interface services for different platforms
-pub mod interfaces {
-    pub mod telegram {
-        pub mod core;
-        // Temporarily commented out to fix main compilation issues
-        // pub mod commands;
-        // pub mod features;
-        // pub mod utils;
-        #[allow(clippy::module_inception)]
-        pub mod telegram;
-        pub mod telegram_keyboard;
-
-        pub use telegram::TelegramService;
-        pub use telegram_keyboard::{InlineKeyboard, InlineKeyboardButton};
-
-        // Temporarily commented out problematic re-exports
-        // pub use telegram::{ModularTelegramService, UserInfo, UserPermissions};
-    }
-
-    pub mod api {
-        // TODO: Implement REST API interface modules
-        // - api_service.rs: Core API service for HTTP endpoints
-        // - api_middleware.rs: Authentication and rate limiting middleware
-        // - api_routes.rs: Route definitions and handlers
-    }
-
-    pub mod discord {
-        // TODO: Implement Discord bot interface modules
-        // - discord_service.rs: Core Discord bot service
-        // - discord_commands.rs: Discord slash commands and interactions
-        // - discord_embeds.rs: Rich embed formatting for Discord messages
-    }
-}
+pub mod interfaces;
 
 // Re-export commonly used services for backward compatibility
 pub use core::ai::{AiBetaIntegrationService, AiIntegrationService, AiIntelligenceService};
@@ -78,4 +47,7 @@ pub use core::user::{
     DynamicConfigService, SessionManagementService, UserProfileService,
     UserTradingPreferencesService,
 };
-pub use interfaces::telegram::{InlineKeyboard, InlineKeyboardButton, TelegramService};
+pub use interfaces::telegram::{
+    ModularTelegramService, TelegramService, UserInfo, UserPermissions,
+};
+pub use interfaces::{InlineKeyboard, InlineKeyboardButton};

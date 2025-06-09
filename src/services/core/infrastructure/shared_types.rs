@@ -39,7 +39,7 @@ impl Default for ComponentHealth {
 }
 
 /// Circuit breaker for managing service failures
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CircuitBreaker {
     pub state: CircuitBreakerState,
     pub failure_count: u32,
@@ -52,7 +52,7 @@ pub struct CircuitBreaker {
 }
 
 /// Circuit breaker state
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CircuitBreakerState {
     Closed,   // Normal operation
     Open,     // Circuit breaker is open, requests fail fast

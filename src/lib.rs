@@ -445,6 +445,7 @@ async fn route_telegram_request(
     req: Request,
     container: &Arc<ServiceContainer>,
     action: &str,
+    env: &Env,
 ) -> Result<Response> {
     console_log!("📱 Routing telegram request: {}", action);
 
@@ -454,19 +455,28 @@ async fn route_telegram_request(
             let mut req_clone = req;
             let webhook_data: serde_json::Value = req_clone.json().await?;
 
-            // Process webhook using telegram service
-            if let Some(telegram_service) = &container.telegram_service {
-                let response_text = telegram_service
-                    .handle_webhook(webhook_data, Some(container))
-                    .await
-                    .map_err(|e| {
-                        worker::Error::RustError(format!("Failed to process webhook: {:?}", e))
-                    })?;
+            // Process webhook using ModularTelegramService
+            match crate::services::interfaces::telegram::ModularTelegramService::new(
+                env,
+                container.clone(),
+            )
+            .await
+            {
+                Ok(modular_service) => {
+                    let response_text = modular_service
+                        .handle_webhook(webhook_data)
+                        .await
+                        .map_err(|e| {
+                            worker::Error::RustError(format!("Failed to process webhook: {:?}", e))
+                        })?;
 
-                // Return plain text response for Telegram webhook
-                Response::ok(&response_text)
-            } else {
-                Response::error("Telegram service not available", 503)
+                    // Return plain text response for Telegram webhook
+                    Response::ok(&response_text)
+                }
+                Err(e) => {
+                    console_log!("⚠️ Failed to initialize ModularTelegramService: {:?}", e);
+                    Response::error("Telegram service not available", 503)
+                }
             }
         }
         "send" => {
@@ -667,10 +677,10 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
         // Telegram endpoints - Use modular routing
         (Method::Post, "/telegram/webhook") => {
-            route_telegram_request(req, &get_service_container(&env).await?, "webhook").await
+            route_telegram_request(req, &get_service_container(&env).await?, "webhook", &env).await
         }
         (Method::Post, "/telegram/send") => {
-            route_telegram_request(req, &get_service_container(&env).await?, "send").await
+            route_telegram_request(req, &get_service_container(&env).await?, "send", &env).await
         }
 
         // Authentication endpoints - Use modular routing

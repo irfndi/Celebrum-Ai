@@ -1,76 +1,72 @@
-# Product Requirements Document: Fix PR Comments - PR #31
+# Product Requirements Document: Telegram Command Router Fix & Data Layer Resilience
 
 ## Project Overview
-Fix all outstanding PR comments identified in commit 5078ad8 to ensure code quality, security, and maintainability. This includes addressing security vulnerabilities, code consistency issues, missing implementations, and technical debt.
+Fix the Telegram modular command system to properly route commands to sophisticated handlers, then implement comprehensive data layer resilience with caching, persistence, and fault tolerance.
 
-## Business Context
-This is critical for:
-- Maintaining code security by removing hardcoded secrets
-- Ensuring CI/CD pipeline reliability  
-- Improving code maintainability and consistency
-- Implementing missing critical functionality
-- Resolving technical debt that could impact future development
+## Phase 1: Telegram Command Router Fix
 
-## Technical Requirements
+### Problem Statement
+The Telegram command system has a critical architectural issue where the CommandRouter uses basic implementations instead of delegating to sophisticated modular handlers in profile.rs, opportunities.rs, admin.rs, etc.
 
-### Security Fixes (High Priority)
-1. **Remove hardcoded API keys** from `.cursor/mcp.json` and replace with environment variable references
-2. **Fix WebPush VAPID authentication** - implement proper JWT token generation and encryption
-3. **Replace placeholder API endpoints** with configurable URLs in queue handlers
+### Requirements
+1. **Fix Command Router**: Update CommandRouter::route_command to delegate to proper handlers
+2. **RBAC Support**: Ensure all user roles and subscription tiers work properly
+3. **Beta Features**: Enable beta command routing
+4. **Admin Permissions**: Support different admin levels (Admin vs SuperAdmin)
+5. **Pass CI**: All tests must pass with proper compilation
 
-### Code Quality & Consistency (High Priority)  
-1. **Fix service initialization duplication** in user management handlers - create helper function
-2. **Standardize timestamp usage** - resolve chrono vs SystemTime inconsistencies
-3. **Update KV namespace** from "ARBITRAGE_KV" to "ArbEdgeKV" for consistency
-4. **Fix exponential backoff overflow** risks in retry logic
+### Success Criteria
+- All commands route to proper modular handlers
+- RBAC works for all user types and subscription tiers
+- Beta features accessible via /beta commands
+- Admin commands differentiate between admin levels
+- Comprehensive tests coverage
+- make ci passes successfully
 
-### Missing Critical Functionality (High Priority)
-1. **Implement position management handlers** - full CRUD operations for `/api/v1/trading/positions`
-2. **Create fallback opportunity finding service** to replace 503 errors during refactoring
-3. **Implement proper health checks** instead of hardcoded healthy status returns
-4. **Fix admin action error handling** with proper logging and auditing
+## Phase 2: Data Layer Resilience
 
-### Documentation & Configuration (Medium Priority)
-1. **Fix formatting issues** in .roomodes file newline characters
-2. **Clarify mode triggers documentation** in boomerang rules  
-3. **Expand or remove underdeveloped sections** in dev_workflow.md
-4. **Resolve conflicting error counts** in implementation plan documents
+### Problem Statement
+Need comprehensive data layer with fault tolerance, caching, persistence, and cleanup mechanisms using Cloudflare services (KV, D1, R2).
 
-### Performance & Monitoring (Medium Priority)
-1. **Implement efficient data retrieval** for logs and alerts instead of fixed-range iteration
-2. **Add proper performance metrics** collection instead of hardcoded values
-3. **Implement KV store cleanup** for test keys in health checks
-4. **Fix misleading service status** when fail_fast is enabled
+### Requirements
+1. **Multi-layer Data Access**: KV cache + D1/R2 persistence
+2. **Fault Tolerance**: Graceful degradation when services fail
+3. **Sync Mechanisms**: Keep cache and persistence in sync
+4. **Cleanup**: Automatic cache expiration and cleanup
+5. **Backward Compatibility**: Handle service restoration gracefully
+6. **Chaos Engineering**: Test fault scenarios
 
-### Implementation Strategy
-- Use feature flags for gradual migration where appropriate
-- Maintain backward compatibility during transitions
-- Include proper error handling and logging
-- Add comprehensive tests for new functionality
-- Update documentation alongside code changes
+### Architecture Components
+- Primary: Cloudflare KV (cache)
+- Secondary: Cloudflare D1 (relational data)
+- Tertiary: Cloudflare R2 (object storage)
+- Fallback: Local/memory cache
+- Sync: Background sync processes
+- Cleanup: TTL and periodic cleanup jobs
 
-## Success Criteria
-- All PR comments resolved and marked as fixed
-- `make ci` passes without errors
-- No hardcoded secrets in version control
-- All critical functionality properly implemented
-- Documentation is clear and up-to-date
-- No performance regressions introduced
+### Success Criteria
+- Data accessible even with partial service failures
+- Automatic failover and recovery
+- Cache invalidation and sync working
+- Performance maintained under fault conditions
+- Comprehensive monitoring and alerting
+- Comprehensive tests coverage
+- make ci passes successfully
 
 ## Technical Stack
-- Rust with Cloudflare Workers
-- KV Store for persistence
-- D1 Database for structured data
-- WebPush notifications
-- Telegram Bot integration
-- RESTful API endpoints
+- Rust for core services
+- Cloudflare Workers for edge computing
+- Cloudflare KV for caching
+- Cloudflare D1 for relational data
+- Cloudflare R2 for object storage
+- Telegram Bot API for user interface
 
-## Acceptance Criteria
-1. Security vulnerabilities eliminated
-2. Missing API endpoints fully functional
-3. Code consistency improved across codebase
-4. Performance issues resolved
-5. Documentation clarity enhanced
-6. CI/CD pipeline stability ensured
-7. All tests passing
-8. PR comments marked as resolved 
+## Timeline
+Phase 1: 1-2 days (Command router fix)
+Phase 2: 3-5 days (Data layer implementation)
+
+## Dependencies
+- Existing Telegram modular handlers
+- Cloudflare account and services
+- Service container architecture
+- Error handling framework 

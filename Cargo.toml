@@ -37,6 +37,7 @@ approx = "0.5"
 md5 = "0.7"
 http = "1.0"
 parking_lot = "0.12"
+flate2 = "1.1.2"
 
 # WASM-specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -88,6 +89,10 @@ path = "tests/integration/session_opportunity_integration_test.rs"
 [[test]]
 name = "service_communication_test"
 path = "tests/integration/service_communication_test.rs"
+
+[[test]]
+name = "persistence_layer_integration_test"
+path = "tests/integration/persistence_layer_integration_test.rs"
 
 
 

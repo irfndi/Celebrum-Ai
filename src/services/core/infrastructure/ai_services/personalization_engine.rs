@@ -3,7 +3,7 @@
 
 use super::ai_cache::AICache;
 use crate::services::core::analysis::market_analysis::TimeHorizon; // Keep this import
-use crate::services::interfaces::telegram::telegram::{
+use crate::services::interfaces::telegram::legacy_telegram::{
     AlertSettings, DashboardLayout, DisplaySettings, NotificationSettings, UserPreferences,
 };
 use crate::types::ArbitrageOpportunity;

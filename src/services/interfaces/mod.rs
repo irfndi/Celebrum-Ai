@@ -1,7 +1,9 @@
 // src/services/interfaces/mod.rs
 
-pub mod telegram;
 pub mod api;
 pub mod discord;
+pub mod telegram;
 
-pub use telegram::*; 
+// Re-export specific items from telegram module
+pub use telegram::telegram_keyboard::{InlineKeyboard, InlineKeyboardButton};
+pub use telegram::{ModularTelegramService, TelegramService, UserInfo, UserPermissions};

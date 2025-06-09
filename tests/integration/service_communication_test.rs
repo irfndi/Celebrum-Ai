@@ -1,5 +1,5 @@
 use arb_edge::services::interfaces::telegram::{
-    core::bot_client::TelegramConfig, telegram::TelegramService,
+    core::bot_client::TelegramConfig, legacy_telegram::TelegramService,
 };
 
 #[cfg(test)]
