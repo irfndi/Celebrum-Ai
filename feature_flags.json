@@ -12,5 +12,16 @@
     "chaos_metrics_dashboard": false,
     "max_concurrent_experiments": 1,
     "max_fault_intensity": 0.2
+  },
+  "automated_cleanup": {
+    "enabled": false,
+    "policy_management": false,
+    "storage_analytics": false,
+    "impact_analysis": false,
+    "cleanup_validation": false,
+    "max_policies_per_tenant": 1000,
+    "max_cleanup_batch_size": 10000,
+    "max_execution_time_minutes": 60,
+    "require_approval_threshold": 50000
   }
 }

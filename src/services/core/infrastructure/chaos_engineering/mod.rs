@@ -28,6 +28,7 @@ use crate::utils::error::{ArbitrageError, ArbitrageResult, ErrorKind};
 
 // Core chaos engineering components
 pub mod chaos_coordinator;
+pub mod chaos_metrics;
 pub mod experiment_engine;
 pub mod experiment_orchestrator;
 pub mod fault_injection;
@@ -254,6 +255,28 @@ impl ChaosEngineeringFramework {
         }
 
         Ok(health)
+    }
+
+    /// Trigger a recovery test manually
+    pub async fn trigger_recovery_test(
+        &self,
+        _service_name: &str,
+        _env: &Env,
+    ) -> ArbitrageResult<()> {
+        if !self.is_initialized {
+            return Err(ArbitrageError::new(
+                ErrorKind::Internal,
+                "Chaos engineering framework not initialized".to_string(),
+            ));
+        }
+
+        // Trigger a controlled recovery test scenario - just check if recovery verifier is available
+        if let Some(ref _recovery_verifier) = self.recovery_verifier {
+            // Recovery verifier is available and healthy
+            // In production, this would trigger actual recovery testing
+        }
+
+        Ok(())
     }
 
     /// Shutdown the chaos engineering framework
