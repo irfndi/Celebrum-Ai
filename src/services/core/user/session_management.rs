@@ -7,8 +7,8 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::{self};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use worker::wasm_bindgen::JsValue;
 use worker::console_log;
+use worker::wasm_bindgen::JsValue;
 
 /// Comprehensive session management service for user lifecycle tracking
 /// and push notification eligibility management
@@ -54,15 +54,24 @@ impl SessionManagementService {
         let session = EnhancedUserSession::new(user_id, telegram_id);
 
         // Store in database
-        console_log!("SessionManagementService: Storing session in database for user {}", session.user_id);
+        console_log!(
+            "SessionManagementService: Storing session in database for user {}",
+            session.user_id
+        );
         self.store_session(&session).await?;
 
         // Cache in KV for fast lookups
-        console_log!("SessionManagementService: Caching session in KV for user {}", session.user_id);
+        console_log!(
+            "SessionManagementService: Caching session in KV for user {}",
+            session.user_id
+        );
         self.cache_session(&session).await?;
 
         // Record session analytics
-        console_log!("SessionManagementService: Recording session start for user {}", session.user_id);
+        console_log!(
+            "SessionManagementService: Recording session start for user {}",
+            session.user_id
+        );
         self.record_session_start(&session).await?;
 
         Ok(session)
@@ -73,23 +82,39 @@ impl SessionManagementService {
         &self,
         user_id: &str,
     ) -> ArbitrageResult<Option<EnhancedUserSession>> {
-        console_log!("SessionManagementService: Validating session for user {}", user_id);
+        console_log!(
+            "SessionManagementService: Validating session for user {}",
+            user_id
+        );
         match self.get_session_by_user_id(user_id).await {
             Ok(session) => {
                 if session.is_active() {
-                    console_log!("SessionManagementService: Session active for user {}", user_id);
+                    console_log!(
+                        "SessionManagementService: Session active for user {}",
+                        user_id
+                    );
                     Ok(Some(session))
                 } else {
-                    console_log!("SessionManagementService: Session inactive for user {}", user_id);
+                    console_log!(
+                        "SessionManagementService: Session inactive for user {}",
+                        user_id
+                    );
                     Ok(None)
                 }
             }
             Err(e) if e.error_code.as_deref() == Some("SESSION_NOT_FOUND") => {
-                console_log!("SessionManagementService: Session not found for user {}", user_id);
+                console_log!(
+                    "SessionManagementService: Session not found for user {}",
+                    user_id
+                );
                 Ok(None)
             } // Not found is not an error here
             Err(e) => {
-                console_log!("SessionManagementService: Error getting session for user {}: {:?}", user_id, e);
+                console_log!(
+                    "SessionManagementService: Error getting session for user {}: {:?}",
+                    user_id,
+                    e
+                );
                 Err(e)
             } // Other errors are propagated
         }
@@ -100,23 +125,39 @@ impl SessionManagementService {
         &self,
         telegram_id: i64,
     ) -> ArbitrageResult<Option<EnhancedUserSession>> {
-        console_log!("SessionManagementService: Validating session by Telegram ID {}", telegram_id);
+        console_log!(
+            "SessionManagementService: Validating session by Telegram ID {}",
+            telegram_id
+        );
         match self.get_session_by_telegram_id(telegram_id).await {
             Ok(session) => {
                 if session.is_active() {
-                    console_log!("SessionManagementService: Session active for Telegram ID {}", telegram_id);
+                    console_log!(
+                        "SessionManagementService: Session active for Telegram ID {}",
+                        telegram_id
+                    );
                     Ok(Some(session))
                 } else {
-                    console_log!("SessionManagementService: Session inactive for Telegram ID {}", telegram_id);
+                    console_log!(
+                        "SessionManagementService: Session inactive for Telegram ID {}",
+                        telegram_id
+                    );
                     Ok(None)
                 }
             }
             Err(e) if e.error_code.as_deref() == Some("SESSION_NOT_FOUND") => {
-                console_log!("SessionManagementService: Session not found for Telegram ID {}", telegram_id);
+                console_log!(
+                    "SessionManagementService: Session not found for Telegram ID {}",
+                    telegram_id
+                );
                 Ok(None)
             } // Not found is not an error here
             Err(e) => {
-                console_log!("SessionManagementService: Error getting session for Telegram ID {}: {:?}", telegram_id, e);
+                console_log!(
+                    "SessionManagementService: Error getting session for Telegram ID {}: {:?}",
+                    telegram_id,
+                    e
+                );
                 Err(e)
             } // Other errors are propagated
         }
@@ -124,13 +165,22 @@ impl SessionManagementService {
 
     /// Update user activity and extend session
     pub async fn update_activity(&self, user_id: &str) -> ArbitrageResult<()> {
-        console_log!("SessionManagementService: Updating activity for user {}", user_id);
+        console_log!(
+            "SessionManagementService: Updating activity for user {}",
+            user_id
+        );
         let mut session = self.get_session_by_user_id(user_id).await?;
         session.update_activity();
 
-        console_log!("SessionManagementService: Updating session in DB for user {}", user_id);
+        console_log!(
+            "SessionManagementService: Updating session in DB for user {}",
+            user_id
+        );
         self.update_session(&session).await?;
-        console_log!("SessionManagementService: Caching updated session in KV for user {}", user_id);
+        console_log!(
+            "SessionManagementService: Caching updated session in KV for user {}",
+            user_id
+        );
         self.cache_session(&session).await?;
 
         Ok(())
@@ -138,13 +188,22 @@ impl SessionManagementService {
 
     /// Update activity by telegram ID (faster)
     pub async fn update_activity_by_telegram_id(&self, telegram_id: i64) -> ArbitrageResult<()> {
-        console_log!("SessionManagementService: Updating activity for Telegram ID {}", telegram_id);
+        console_log!(
+            "SessionManagementService: Updating activity for Telegram ID {}",
+            telegram_id
+        );
         let mut session = self.get_session_by_telegram_id(telegram_id).await?;
         session.update_activity();
 
-        console_log!("SessionManagementService: Updating session in DB for Telegram ID {}", telegram_id);
+        console_log!(
+            "SessionManagementService: Updating session in DB for Telegram ID {}",
+            telegram_id
+        );
         self.update_session(&session).await?;
-        console_log!("SessionManagementService: Caching updated session in KV for Telegram ID {}", telegram_id);
+        console_log!(
+            "SessionManagementService: Caching updated session in KV for Telegram ID {}",
+            telegram_id
+        );
         self.cache_session(&session).await?;
 
         Ok(())
@@ -152,17 +211,29 @@ impl SessionManagementService {
 
     /// End a session manually
     pub async fn end_session(&self, user_id: &str) -> ArbitrageResult<()> {
-        console_log!("SessionManagementService: Ending session for user {}", user_id);
+        console_log!(
+            "SessionManagementService: Ending session for user {}",
+            user_id
+        );
         let mut session = self.get_session_by_user_id(user_id).await?;
         session.terminate();
 
-        console_log!("SessionManagementService: Updating session in DB (terminated) for user {}", user_id);
+        console_log!(
+            "SessionManagementService: Updating session in DB (terminated) for user {}",
+            user_id
+        );
         self.update_session(&session).await?;
-        console_log!("SessionManagementService: Invalidating session cache for user {}", user_id);
+        console_log!(
+            "SessionManagementService: Invalidating session cache for user {}",
+            user_id
+        );
         self.invalidate_session_cache(session.telegram_id).await?;
 
         // Record session analytics
-        console_log!("SessionManagementService: Recording session end for user {}", user_id);
+        console_log!(
+            "SessionManagementService: Recording session end for user {}",
+            user_id
+        );
         self.record_session_end(&session, SessionOutcome::Terminated)
             .await?;
 
@@ -171,7 +242,10 @@ impl SessionManagementService {
 
     /// Get session by session ID
     pub async fn get_session(&self, session_id: &str) -> ArbitrageResult<EnhancedUserSession> {
-        console_log!("SessionManagementService: Getting session by ID {}", session_id);
+        console_log!(
+            "SessionManagementService: Getting session by ID {}",
+            session_id
+        );
         let stmt = self.d1_service.prepare(
             "SELECT * FROM user_sessions WHERE session_id = ? AND session_state = 'active' ORDER BY created_at DESC LIMIT 1"
         );
@@ -189,23 +263,35 @@ impl SessionManagementService {
 
         match result {
             Some(row) => {
-                console_log!("SessionManagementService: Session found by ID {}", session_id);
+                console_log!(
+                    "SessionManagementService: Session found by ID {}",
+                    session_id
+                );
                 // Convert serde_json::Value to HashMap
                 let row_map = if let serde_json::Value::Object(map) = row {
                     map.into_iter()
                         .collect::<std::collections::HashMap<String, serde_json::Value>>()
                 } else {
-                    console_log!("SessionManagementService: Invalid row format for session ID {}", session_id);
+                    console_log!(
+                        "SessionManagementService: Invalid row format for session ID {}",
+                        session_id
+                    );
                     return Err(ArbitrageError::database_error("Invalid row format"));
                 };
                 let session = self.row_to_session(row_map)?;
                 // Cache for future lookups
-                console_log!("SessionManagementService: Caching session from DB for ID {}", session_id);
+                console_log!(
+                    "SessionManagementService: Caching session from DB for ID {}",
+                    session_id
+                );
                 self.cache_session(&session).await?;
                 Ok(session)
             }
             None => {
-                console_log!("SessionManagementService: Session not found for ID {}", session_id);
+                console_log!(
+                    "SessionManagementService: Session not found for ID {}",
+                    session_id
+                );
                 Err(ArbitrageError::session_not_found(session_id.to_string()))
             }
         }
@@ -216,7 +302,10 @@ impl SessionManagementService {
         &self,
         user_id: &str,
     ) -> ArbitrageResult<EnhancedUserSession> {
-        console_log!("SessionManagementService: Getting session by user ID {}", user_id);
+        console_log!(
+            "SessionManagementService: Getting session by user ID {}",
+            user_id
+        );
         let stmt = self.d1_service.prepare(
             "SELECT * FROM user_sessions WHERE user_id = ? AND session_state = 'active' ORDER BY created_at DESC LIMIT 1"
         );
@@ -234,13 +323,19 @@ impl SessionManagementService {
 
         match result {
             Some(row) => {
-                console_log!("SessionManagementService: Session found by user ID {}", user_id);
+                console_log!(
+                    "SessionManagementService: Session found by user ID {}",
+                    user_id
+                );
                 self.row_to_session(row)
-            },
+            }
             None => {
-                console_log!("SessionManagementService: Session not found for user ID {}", user_id);
+                console_log!(
+                    "SessionManagementService: Session not found for user ID {}",
+                    user_id
+                );
                 Err(ArbitrageError::session_not_found(user_id))
-            },
+            }
         }
     }
 
@@ -249,13 +344,19 @@ impl SessionManagementService {
         &self,
         telegram_id: i64,
     ) -> ArbitrageResult<EnhancedUserSession> {
-        console_log!("SessionManagementService: Getting session by Telegram ID {} (checking KV cache first)", telegram_id);
+        console_log!(
+            "SessionManagementService: Getting session by Telegram ID {} (checking KV cache first)",
+            telegram_id
+        );
         // Try KV cache first
         let cache_key = format!("session_cache:{}", telegram_id);
         if let Ok(Some(cached_data)) = self.kv_service.get(&cache_key).text().await {
             if let Ok(session) = serde_json::from_str::<EnhancedUserSession>(&cached_data) {
                 if session.is_active() {
-                    console_log!("SessionManagementService: Session found in KV cache for Telegram ID {}", telegram_id);
+                    console_log!(
+                        "SessionManagementService: Session found in KV cache for Telegram ID {}",
+                        telegram_id
+                    );
                     return Ok(session);
                 }
             }
@@ -283,17 +384,26 @@ impl SessionManagementService {
 
         match result {
             Some(row) => {
-                console_log!("SessionManagementService: Session found in DB for Telegram ID {}", telegram_id);
+                console_log!(
+                    "SessionManagementService: Session found in DB for Telegram ID {}",
+                    telegram_id
+                );
                 let session = self.row_to_session(row)?;
                 // Cache for future lookups
-                console_log!("SessionManagementService: Caching session from DB for Telegram ID {}", telegram_id);
+                console_log!(
+                    "SessionManagementService: Caching session from DB for Telegram ID {}",
+                    telegram_id
+                );
                 self.cache_session(&session).await?;
                 Ok(session)
             }
             None => {
-                console_log!("SessionManagementService: Session not found in DB for Telegram ID {}", telegram_id);
+                console_log!(
+                    "SessionManagementService: Session not found in DB for Telegram ID {}",
+                    telegram_id
+                );
                 Err(ArbitrageError::session_not_found(telegram_id.to_string()))
-            },
+            }
         }
     }
 
@@ -624,7 +734,10 @@ impl SessionManagementService {
 
     /// Store session in database
     async fn store_session(&self, session: &EnhancedUserSession) -> ArbitrageResult<()> {
-        console_log!("SessionManagementService (store_session): Storing session {}", session.session_id);
+        console_log!(
+            "SessionManagementService (store_session): Storing session {}",
+            session.session_id
+        );
         // Validate telegram_id before storing
         Self::validate_telegram_id_for_js(session.telegram_id)?;
         let stmt = self.d1_service.prepare(
@@ -664,7 +777,10 @@ impl SessionManagementService {
 
     /// Update existing session in database
     async fn update_session(&self, session: &EnhancedUserSession) -> ArbitrageResult<()> {
-        console_log!("SessionManagementService (update_session): Updating session {}", session.session_id);
+        console_log!(
+            "SessionManagementService (update_session): Updating session {}",
+            session.session_id
+        );
         let stmt = self.d1_service.prepare(
             r#"
             UPDATE user_sessions SET
@@ -696,7 +812,10 @@ impl SessionManagementService {
 
     /// Cache session in KV store for fast lookups
     async fn cache_session(&self, session: &EnhancedUserSession) -> ArbitrageResult<()> {
-        console_log!("SessionManagementService (cache_session): Caching session {}", session.session_id);
+        console_log!(
+            "SessionManagementService (cache_session): Caching session {}",
+            session.session_id
+        );
         let cache_key = format!("session_cache:{}", session.telegram_id);
         let session_json = serde_json::to_string(session).map_err(|e| {
             ArbitrageError::parse_error(format!("Failed to serialize session: {}", e))
