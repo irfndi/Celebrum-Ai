@@ -2,9 +2,13 @@
 // Replaces monitoring_observability.rs (1,691 lines) with 5 specialized components
 
 pub mod alert_manager;
+pub mod cost_tracking_analysis_engine;
 pub mod health_monitor;
+pub mod metrics_collection_engine;
 pub mod metrics_collector;
 pub mod observability_coordinator;
+pub mod performance_monitoring_dashboard;
+pub mod real_time_alerting_system;
 pub mod real_time_health_monitor;
 pub mod service_degradation_alerting;
 pub mod trace_collector;
@@ -13,8 +17,27 @@ pub mod trace_collector;
 pub use alert_manager::{
     AlertHealth, AlertManager, AlertManagerConfig, AlertRule, AlertSeverity, AlertStatus,
 };
+pub use cost_tracking_analysis_engine::{
+    AllocationEngine, AllocationResult, AllocationRule, AllocationScope, AnalyticsPerformance,
+    AnomalyDetector, AnomalyScope, AnomalySeverity, AnomalyStatus, AnomalyType as CostAnomalyType,
+    Budget, BudgetPeriod, BudgetScope, BudgetStatus, BudgetType, CostAllocationMethod,
+    CostAnalyticsConfig, CostAnomaly, CostDashboardMetrics, CostDataPoint, CostDriver, CostEntry,
+    CostForecast, CostOptimizationRecommendation, CostTrackingAnalysisEngine, EscalationRule,
+    ForecastEngine, ForecastFactor, ForecastModel, ForecastScope, ImpactAnalysis,
+    ImplementationEffort, NotificationSettings, RecommendationEngine, RecommendationPriority,
+    RecommendationRuleSet, RecommendationStatus, RecommendationType,
+    ResourceType as CostResourceType, RiskLevel, RootCause, SharedCostPool, Stakeholder,
+    ThresholdAction, TrendAnalysis, TrendDirection as CostTrendDirection, UnitCostMetric,
+    UnitCostType,
+};
 pub use health_monitor::{
     ComponentHealth, HealthCheck, HealthMetrics, HealthMonitor, HealthMonitorConfig, HealthStatus,
+};
+pub use metrics_collection_engine::{
+    BusinessMetrics, ContainerMetrics, CostMetrics, DurationMetrics, EnhancedMetricValue, Exemplar,
+    ExportConfig, GcMetrics, InfrastructureMetrics, MemoryMetrics, MetricsCollectionConfig,
+    MetricsCollectionEngine, MetricsCollectionHealth, NetworkMetrics, OtelMetricType, RedMetrics,
+    SamplingConfig, StorageMetrics,
 };
 pub use metrics_collector::{
     MetricType, MetricValue, MetricsCollector, MetricsCollectorConfig, MetricsData, MetricsHealth,
@@ -22,6 +45,19 @@ pub use metrics_collector::{
 pub use observability_coordinator::{
     ObservabilityCoordinator, ObservabilityCoordinatorConfig, ObservabilityHealth,
     ObservabilityMetrics,
+};
+pub use performance_monitoring_dashboard::{
+    AggregationType, AlertCondition, AlertSeverity as DashboardAlertSeverity, AnomalyDetection,
+    AnomalyType, ChartConfig, ChartType, ComparisonOperator, DashboardConfig, DashboardLayout,
+    DashboardReport, DashboardTheme, DataPoint, DataQuality, DataSource, DrillDownConfig,
+    PerformanceMonitoringDashboard, Recommendation, ReportType, ResourceType, SloTracker,
+    TimeRange, TrendDirection, WidgetType,
+};
+pub use real_time_alerting_system::{
+    Alert, AlertCorrelationGroup, AlertSeverity as RtaAlertSeverity, AlertState, AlertingCommand,
+    AlertingSystemConfig, AnomalyDetectionAlgorithm, AnomalyDetectionConfig, CorrelationKey,
+    EscalationLevel, EscalationPolicy, MetricStatistics, NotificationChannel, NotificationStatus,
+    NotificationTemplate, RealTimeAlertingSystem, SuppressionRule,
 };
 pub use real_time_health_monitor::{
     HealthCheckOperation, HealthDashboardData, HealthSummary, PerformanceOverview,

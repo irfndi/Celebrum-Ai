@@ -170,6 +170,9 @@ pub mod financial_module;
 // 9. Persistence Layer - D1/R2 Unified Data Persistence Architecture (NEW)
 pub mod persistence_layer;
 
+// 10. Legacy System Integration - Migration and Compatibility Framework (NEW)
+pub mod legacy_system_integration;
+
 pub use analytics_module::{
     AnalyticsCoordinator, AnalyticsModuleConfig, DataProcessor, MetricsAggregator, ReportGenerator,
 };
@@ -184,6 +187,12 @@ pub use persistence_layer::{
     ConnectionHealth, ConnectionManager, ConnectionMetrics, ConnectionPool, ConnectionStats,
     D1Config, PersistenceConfig, PersistenceHealth, PersistenceLayer, PersistenceMetrics,
     PoolConfig, R2Config, SchemaHealth, SchemaManager, SchemaMetrics, ServiceHealth,
+};
+
+pub use legacy_system_integration::{
+    FeatureFlagMigrationManager, LegacySystemIntegrationConfig, LegacySystemIntegrationHealth,
+    LegacySystemIntegrationMetrics, MigrationFeatureConfig, MigrationFeatureFlags, MigrationPhase,
+    RolloutConfig, RolloutProgress, RolloutStrategy, SafetyThreshold,
 };
 
 /// Revolutionary Infrastructure Configuration for High-Concurrency Trading
@@ -214,6 +223,7 @@ pub struct InfrastructureConfig {
     // Legacy component configurations (to be migrated)
     pub analytics_config: AnalyticsEngineConfig,
     pub financial_module_config: FinancialModuleConfig,
+    pub legacy_system_integration_config: legacy_system_integration::LegacySystemIntegrationConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -281,6 +291,8 @@ impl Default for InfrastructureConfig {
 
             analytics_config: AnalyticsEngineConfig::default(),
             financial_module_config: FinancialModuleConfig::default(),
+            legacy_system_integration_config:
+                legacy_system_integration::LegacySystemIntegrationConfig::default(),
         }
     }
 }
@@ -392,6 +404,8 @@ impl InfrastructureConfig {
                 enable_batching: true,
             },
             financial_module_config: FinancialModuleConfig::high_performance(),
+            legacy_system_integration_config:
+                legacy_system_integration::LegacySystemIntegrationConfig::default(),
         }
     }
 
@@ -452,6 +466,8 @@ impl InfrastructureConfig {
                 enable_batching: true,
             },
             financial_module_config: FinancialModuleConfig::high_reliability(),
+            legacy_system_integration_config:
+                legacy_system_integration::LegacySystemIntegrationConfig::default(),
         }
     }
 
@@ -500,6 +516,7 @@ pub struct InfrastructureManager {
     // Legacy components (to be migrated)
     analytics_engine: Option<AnalyticsEngineService>,
     financial_module: Option<FinancialModule>,
+    legacy_system_integration: Option<legacy_system_integration::FeatureFlagMigrationManager>,
 
     // Runtime state
     is_initialized: bool,
@@ -525,6 +542,7 @@ impl InfrastructureManager {
             infrastructure_engine: None,
             analytics_engine: None,
             financial_module: None,
+            legacy_system_integration: None,
             is_initialized: false,
             startup_time: None,
         })
@@ -623,6 +641,14 @@ impl InfrastructureManager {
         financial_module.initialize(env).await?;
         self.financial_module = Some(financial_module);
 
+        // Initialize legacy system integration
+        self.legacy_system_integration = Some(
+            legacy_system_integration::FeatureFlagMigrationManager::new(
+                legacy_system_integration::MigrationFeatureFlags::default(),
+            )
+            .await?,
+        );
+
         self.is_initialized = true;
         self.startup_time = Some(start_time);
 
@@ -716,6 +742,17 @@ impl InfrastructureManager {
         })
     }
 
+    pub fn legacy_system_integration(
+        &self,
+    ) -> ArbitrageResult<&legacy_system_integration::FeatureFlagMigrationManager> {
+        self.legacy_system_integration.as_ref().ok_or_else(|| {
+            ArbitrageError::new(
+                ErrorKind::Internal,
+                "LegacySystemIntegration not initialized",
+            )
+        })
+    }
+
     pub fn is_initialized(&self) -> bool {
         self.is_initialized
     }
@@ -780,6 +817,15 @@ impl InfrastructureManager {
         if let Ok(cache) = self.cache_manager() {
             let cache_health = cache.health_check().await.unwrap_or_default();
             health_status.insert("cache_manager".to_string(), cache_health.is_healthy);
+        }
+
+        // Check legacy system integration
+        if let Ok(legacy_integration) = self.legacy_system_integration() {
+            let legacy_health = legacy_integration.get_health().await;
+            health_status.insert(
+                "legacy_system_integration".to_string(),
+                legacy_health.is_healthy,
+            );
         }
 
         Ok(health_status)

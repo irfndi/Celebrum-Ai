@@ -38,6 +38,31 @@ impl Default for ComponentHealth {
     }
 }
 
+impl ComponentHealth {
+    pub fn new(
+        is_healthy: bool,
+        component_name: String,
+        uptime_seconds: u64,
+        performance_score: f32,
+        error_count: u32,
+        warning_count: u32,
+    ) -> Self {
+        Self {
+            is_healthy,
+            last_check: chrono::Utc::now().timestamp_millis() as u64,
+            error_count,
+            warning_count,
+            uptime_seconds,
+            performance_score,
+            resource_usage_percent: 0.0,
+            last_error: None,
+            last_warning: None,
+            component_name,
+            version: "1.0.0".to_string(),
+        }
+    }
+}
+
 /// Circuit breaker for managing service failures
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CircuitBreaker {

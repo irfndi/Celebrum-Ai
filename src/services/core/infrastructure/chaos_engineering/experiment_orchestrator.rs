@@ -6,15 +6,12 @@ use serde::{Deserialize, Serialize};
 
 use worker::Env;
 
-#[cfg(target_arch = "wasm32")]
-use gloo_timers;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen_futures;
-
 use crate::services::core::infrastructure::chaos_engineering::{
     ChaosEngineeringConfig, RecoveryVerifier,
 };
 use crate::utils::error::{ArbitrageError, ArbitrageResult};
+#[cfg(target_arch = "wasm32")]
+use gloo_timers;
 
 /// Status of a chaos experiment campaign
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
