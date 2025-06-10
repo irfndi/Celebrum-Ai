@@ -760,49 +760,11 @@ impl Repository for AIDataRepository {
 
     async fn initialize(&self) -> ArbitrageResult<()> {
         // Create AI tables
-        let create_ai_enhancements_table = "
-            CREATE TABLE IF NOT EXISTS ai_enhancements (
-                enhancement_id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                enhancement_type TEXT NOT NULL,
-                enhancement_data TEXT NOT NULL,
-                confidence_score REAL NOT NULL,
-                is_active BOOLEAN DEFAULT true,
-                created_at INTEGER NOT NULL,
-                last_applied_at INTEGER
-            )
-        ";
+        let create_ai_enhancements_table = "CREATE TABLE IF NOT EXISTS ai_enhancements (enhancement_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, enhancement_type TEXT NOT NULL, enhancement_data TEXT NOT NULL, confidence_score REAL NOT NULL, is_active BOOLEAN DEFAULT true, created_at INTEGER NOT NULL, last_applied_at INTEGER)";
 
-        let create_ai_insights_table = "
-            CREATE TABLE IF NOT EXISTS ai_insights (
-                insight_id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                insight_type TEXT NOT NULL,
-                title TEXT NOT NULL,
-                description TEXT NOT NULL,
-                insight_data TEXT NOT NULL,
-                priority TEXT NOT NULL,
-                confidence_score REAL NOT NULL,
-                is_read BOOLEAN DEFAULT false,
-                created_at INTEGER NOT NULL,
-                read_at INTEGER
-            )
-        ";
+        let create_ai_insights_table = "CREATE TABLE IF NOT EXISTS ai_insights (insight_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, insight_type TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL, insight_data TEXT NOT NULL, priority TEXT NOT NULL, confidence_score REAL NOT NULL, is_read BOOLEAN DEFAULT false, created_at INTEGER NOT NULL, read_at INTEGER)";
 
-        let create_ai_suggestions_table = "
-            CREATE TABLE IF NOT EXISTS ai_suggestions (
-                suggestion_id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                suggestion_type TEXT NOT NULL,
-                title TEXT NOT NULL,
-                description TEXT NOT NULL,
-                suggestion_data TEXT NOT NULL,
-                confidence_score REAL NOT NULL,
-                is_active BOOLEAN DEFAULT true,
-                created_at INTEGER NOT NULL,
-                expires_at INTEGER
-            )
-        ";
+        let create_ai_suggestions_table = "CREATE TABLE IF NOT EXISTS ai_suggestions (suggestion_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, suggestion_type TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL, suggestion_data TEXT NOT NULL, confidence_score REAL NOT NULL, is_active BOOLEAN DEFAULT true, created_at INTEGER NOT NULL, expires_at INTEGER)";
 
         self.db
             .exec(create_ai_enhancements_table)

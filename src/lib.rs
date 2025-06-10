@@ -1578,13 +1578,48 @@ async fn cleanup_expired_sessions(
 async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
     console_log!("🔄 Starting scheduled opportunity monitoring...");
 
-    // Create custom environment for opportunity service
-    // let _custom_env = env;
+    // Initialize service container to access opportunity engine
+    let kv = env.kv("ArbEdgeKV").expect("KV binding not found");
+    let service_container = ServiceContainer::new(&env, kv).await?;
 
-    // Create opportunity service
-    // let opportunity_service = create_opportunity_service(&custom_env).await?;
+    // Generate global opportunities using the opportunity engine
+    console_log!("🔍 Generating global opportunities...");
+    match service_container.opportunity_engine {
+        Some(ref opportunity_engine) => {
+            console_log!("⚠️ DEBUG: About to call generate_global_opportunities");
+            match opportunity_engine.generate_global_opportunities(None).await {
+                Ok(opportunities) => {
+                    console_log!("✅ Generated {} global opportunities", opportunities.len());
 
-    // Run maintenance
+                    // Distribute the opportunities using the distribution service
+                    let distribution_service = &service_container.distribution_service;
+                    let mut distributed_count = 0;
+                    for global_opp in opportunities {
+                        // Convert GlobalOpportunity to ArbitrageOpportunity for distribution
+                        if let crate::types::OpportunityData::Arbitrage(arb_opp) =
+                            global_opp.opportunity_data
+                        {
+                            match distribution_service.distribute_opportunity(arb_opp).await {
+                                Ok(count) => distributed_count += count,
+                                Err(e) => {
+                                    console_log!("⚠️ Failed to distribute opportunity: {:?}", e);
+                                }
+                            }
+                        }
+                    }
+                    console_log!("📤 Distributed to {} users", distributed_count);
+                }
+                Err(e) => {
+                    console_log!("⚠️ Failed to generate opportunities: {:?}", e);
+                }
+            }
+        }
+        None => {
+            console_log!("⚠️ Opportunity engine not available");
+        }
+    }
+
+    // Run maintenance after opportunity generation
     run_five_minute_maintenance(&env).await?;
 
     console_log!("✅ Scheduled opportunity monitoring completed successfully");

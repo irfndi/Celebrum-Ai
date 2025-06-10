@@ -581,6 +581,40 @@ impl UserRepository {
 
         let account_balance_usdt = get_f64_field(&row, "account_balance_usdt", 0.0);
 
+        // Parse profile_data column to extract access level
+        let access_level = if let Ok(profile_data_str) = get_string_field(&row, "profile_data") {
+            // Parse the JSON string from profile_data column
+            if let Ok(profile_data) = serde_json::from_str::<serde_json::Value>(&profile_data_str) {
+                if let Some(access_level_str) =
+                    profile_data.get("access_level").and_then(|v| v.as_str())
+                {
+                    match access_level_str {
+                        "unlimited" => UserAccessLevel::SuperAdmin,
+                        "admin" => UserAccessLevel::Admin,
+                        "premium" => UserAccessLevel::Premium,
+                        "paid" => UserAccessLevel::Paid,
+                        "verified" => UserAccessLevel::Verified,
+                        "registered" => UserAccessLevel::Registered,
+                        "free" => UserAccessLevel::Free,
+                        "guest" => UserAccessLevel::Guest,
+                        "beta_user" => UserAccessLevel::BetaUser,
+                        "free_without_api" => UserAccessLevel::FreeWithoutAPI,
+                        "free_with_api" => UserAccessLevel::FreeWithAPI,
+                        "subscription_with_api" => UserAccessLevel::SubscriptionWithAPI,
+                        "basic" => UserAccessLevel::Basic,
+                        "user" => UserAccessLevel::User,
+                        _ => UserAccessLevel::Free, // Default fallback
+                    }
+                } else {
+                    UserAccessLevel::Free // Default if access_level not found in JSON
+                }
+            } else {
+                UserAccessLevel::Free // Default if JSON parsing fails
+            }
+        } else {
+            UserAccessLevel::Free // Default if profile_data column not found
+        };
+
         Ok(UserProfile {
             user_id,
             telegram_user_id: Some(telegram_user_id),
@@ -588,7 +622,7 @@ impl UserRepository {
             email: None, // Email not stored in this table
             subscription_tier: serde_json::from_value(subscription.clone())
                 .unwrap_or(SubscriptionTier::Free),
-            access_level: UserAccessLevel::Free, // Default access level
+            access_level, // Use the parsed access level instead of hardcoded default
             is_active,
             is_beta_active: get_bool_field(&row, "is_beta_active", false),
             created_at,
@@ -788,76 +822,35 @@ impl Repository for UserRepository {
     }
 
     async fn initialize(&self) -> ArbitrageResult<()> {
-        // Create tables if they don't exist
-        let create_user_profiles_table = "
-            CREATE TABLE IF NOT EXISTS user_profiles (
-                user_id TEXT PRIMARY KEY,
-                telegram_id INTEGER,
-                username TEXT,
-                api_keys TEXT,
-                subscription_tier TEXT,
-                trading_preferences TEXT,
-                created_at INTEGER,
-                updated_at INTEGER,
-                last_login_at INTEGER,
-                account_status TEXT DEFAULT 'active',
-                beta_expires_at INTEGER,
-                account_balance_usdt REAL DEFAULT 0.0
-            )
-        ";
+        // In production, tables already exist - just verify they're accessible
+        // Skip table creation to avoid schema conflicts
 
-        let create_trading_preferences_table = "
-            CREATE TABLE IF NOT EXISTS user_trading_preferences (
-                user_id TEXT PRIMARY KEY,
-                preferences_data TEXT,
-                created_at INTEGER,
-                updated_at INTEGER
-            )
-        ";
+        // Test that we can access the user_profiles table
+        let test_query = "SELECT COUNT(*) as count FROM user_profiles LIMIT 1";
+        let result = self
+            .db
+            .prepare(test_query)
+            .first::<HashMap<String, serde_json::Value>>(None)
+            .await;
 
-        let create_api_keys_table = "
-            CREATE TABLE IF NOT EXISTS user_api_keys (
-                user_id TEXT,
-                exchange_id TEXT,
-                api_key_data TEXT,
-                created_at INTEGER,
-                updated_at INTEGER,
-                PRIMARY KEY (user_id, exchange_id)
-            )
-        ";
+        match result {
+            Ok(_) => {
+                // Table exists and is accessible
+                Ok(())
+            }
+            Err(_) => {
+                // If table doesn't exist, we're in a development environment
+                // Create minimal table structure for development only
+                let create_user_profiles_table = "CREATE TABLE IF NOT EXISTS user_profiles (user_id TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL, username TEXT, profile_data TEXT)";
 
-        // Execute table creation
-        self.db
-            .exec(create_user_profiles_table)
-            .await
-            .map_err(|e| database_error("create user_profiles table", e))?;
+                self.db
+                    .exec(create_user_profiles_table)
+                    .await
+                    .map_err(|e| database_error("create user_profiles table", e))?;
 
-        self.db
-            .exec(create_trading_preferences_table)
-            .await
-            .map_err(|e| database_error("create user_trading_preferences table", e))?;
-
-        self.db
-            .exec(create_api_keys_table)
-            .await
-            .map_err(|e| database_error("create user_api_keys table", e))?;
-
-        // Create indexes for better performance
-        let create_telegram_index = "CREATE INDEX IF NOT EXISTS idx_user_profiles_telegram_id ON user_profiles(telegram_id)";
-        let create_status_index =
-            "CREATE INDEX IF NOT EXISTS idx_user_profiles_status ON user_profiles(account_status)";
-
-        self.db
-            .exec(create_telegram_index)
-            .await
-            .map_err(|e| database_error("create telegram_id index", e))?;
-
-        self.db
-            .exec(create_status_index)
-            .await
-            .map_err(|e| database_error("create status index", e))?;
-
-        Ok(())
+                Ok(())
+            }
+        }
     }
 
     async fn shutdown(&self) -> ArbitrageResult<()> {

@@ -113,18 +113,39 @@ impl ModularTelegramService {
         // Extract user information for session management
         let user_info = self.extract_user_info(&update)?;
 
-        // Priority 1: Session Management - Ensure user has active session
-        if let Err(e) = self.ensure_user_session(&user_info).await {
-            console_log!("⚠️ Session management failed: {:?}", e);
-            return self.handle_session_error(&user_info).await;
+        // Check if this is a /start command - if so, allow without session validation
+        let is_start_command = self.is_start_command(&update);
+
+        // Priority 1: Session Management (unless it's /start command)
+        if !is_start_command {
+            if let Err(e) = self.ensure_user_session(&user_info).await {
+                console_log!("⚠️ Session management failed: {:?}", e);
+                return self.handle_session_error(&user_info).await;
+            }
         }
 
-        // Priority 2: User Profile & RBAC - Check user permissions
-        let user_permissions = self.get_user_permissions(&user_info).await?;
+        // Priority 2: User Profile & RBAC - Check user permissions (handle gracefully for new users)
+        let user_permissions = if is_start_command {
+            // For /start command, use default permissions (will be properly set after user creation)
+            self.get_default_permissions()
+        } else {
+            self.get_user_permissions(&user_info).await?
+        };
 
         // Priority 3: Process update with user context
-        self.process_update_with_context(update, &user_info, &user_permissions)
-            .await
+        let result = self
+            .process_update_with_context(update, &user_info, &user_permissions)
+            .await?;
+
+        // Priority 4: After processing /start, ensure session is created
+        if is_start_command {
+            if let Err(e) = self.create_user_session(&user_info).await {
+                console_log!("⚠️ Failed to create session after /start: {:?}", e);
+                // Don't fail the request, just log the warning
+            }
+        }
+
+        Ok(result)
     }
 
     /// Extract user information from update
@@ -241,11 +262,10 @@ impl ModularTelegramService {
         Ok(())
     }
 
-    /// Get user permissions (Priority 2: RBAC & Subscription)
+    /// Get user permissions (RBAC check) (Priority 2)
     async fn get_user_permissions(&self, user_info: &UserInfo) -> ArbitrageResult<UserPermissions> {
         console_log!("👑 Checking permissions for user {}", user_info.user_id);
 
-        // Get user profile service
         let user_profile_service =
             self.service_container
                 .user_profile_service()
@@ -253,10 +273,9 @@ impl ModularTelegramService {
                     ArbitrageError::service_unavailable("User profile service not available")
                 })?;
 
-        // Get user profile with RBAC info
-        let user_id_str = user_info.user_id.to_string();
+        // Get user profile using telegram_user_id lookup instead of user_id string conversion
         let user_profile = user_profile_service
-            .get_user_profile(&user_id_str)
+            .get_user_by_telegram_id(user_info.user_id)
             .await?
             .ok_or_else(|| ArbitrageError::not_found("User profile not found"))?;
 
@@ -402,6 +421,58 @@ impl ModularTelegramService {
         }
     }
 
+    /// Check if the update contains a /start command
+    fn is_start_command(&self, update: &Value) -> bool {
+        if let Some(message) = update.get("message") {
+            if let Some(text) = message.get("text").and_then(|t| t.as_str()) {
+                return text.trim().starts_with("/start");
+            }
+        }
+        false
+    }
+
+    /// Get default permissions for new users (used during /start)
+    fn get_default_permissions(&self) -> UserPermissions {
+        UserPermissions {
+            role: crate::types::UserAccessLevel::User,
+            subscription_tier: "free".to_string(),
+            daily_opportunity_limit: 3, // Free tier default
+            beta_access: false,
+            is_admin: false,
+            can_trade: true,
+        }
+    }
+
+    /// Create user session after successful /start command processing
+    async fn create_user_session(&self, user_info: &UserInfo) -> ArbitrageResult<()> {
+        console_log!("🔐 Creating session for new user {}", user_info.user_id);
+
+        let session_service = self.service_container.session_service();
+        let user_id_str = user_info.user_id.to_string();
+
+        // Create new session using start_session method
+        match session_service
+            .start_session(user_info.user_id, user_id_str)
+            .await
+        {
+            Ok(_) => {
+                console_log!(
+                    "✅ Session created successfully for user {}",
+                    user_info.user_id
+                );
+                Ok(())
+            }
+            Err(e) => {
+                console_log!(
+                    "❌ Failed to create session for user {}: {:?}",
+                    user_info.user_id,
+                    e
+                );
+                Err(e)
+            }
+        }
+    }
+
     /// Handle session error
     async fn handle_session_error(&self, user_info: &UserInfo) -> ArbitrageResult<String> {
         let message = "🔐 *Session Required*\n\nPlease start a new session with /start to continue using the bot.";
@@ -461,4 +532,83 @@ pub struct UserPermissions {
     pub beta_access: bool,
     pub is_admin: bool,
     pub can_trade: bool,
+}
+
+impl UserPermissions {
+    /// Check if user can access trading features
+    pub fn can_access_trading_features(&self) -> bool {
+        matches!(
+            self.role,
+            crate::types::UserAccessLevel::Paid
+                | crate::types::UserAccessLevel::Premium
+                | crate::types::UserAccessLevel::Admin
+                | crate::types::UserAccessLevel::SuperAdmin
+        ) || self.can_trade
+    }
+
+    /// Check if user can automate trading
+    pub fn can_automate_trading(&self) -> bool {
+        matches!(
+            self.role,
+            crate::types::UserAccessLevel::Premium
+                | crate::types::UserAccessLevel::Admin
+                | crate::types::UserAccessLevel::SuperAdmin
+        )
+    }
+
+    /// Check if user can request manual scans
+    pub fn can_request_manual_scans(&self) -> bool {
+        matches!(
+            self.role,
+            crate::types::UserAccessLevel::Paid
+                | crate::types::UserAccessLevel::Premium
+                | crate::types::UserAccessLevel::Admin
+                | crate::types::UserAccessLevel::SuperAdmin
+        )
+    }
+
+    /// Check if user can access API features
+    pub fn can_access_api_features(&self) -> bool {
+        matches!(
+            self.role,
+            crate::types::UserAccessLevel::Paid
+                | crate::types::UserAccessLevel::Premium
+                | crate::types::UserAccessLevel::Admin
+                | crate::types::UserAccessLevel::SuperAdmin
+        )
+    }
+
+    /// Check if user can access AI features
+    pub fn can_access_ai_features(&self) -> bool {
+        matches!(
+            self.role,
+            crate::types::UserAccessLevel::Paid
+                | crate::types::UserAccessLevel::Premium
+                | crate::types::UserAccessLevel::Admin
+                | crate::types::UserAccessLevel::SuperAdmin
+                | crate::types::UserAccessLevel::BetaUser
+        ) && self.beta_access
+    }
+
+    /// Get access level as string for display
+    pub fn access_level(&self) -> String {
+        match self.role {
+            crate::types::UserAccessLevel::Guest => "Guest".to_string(),
+            crate::types::UserAccessLevel::Free => "Free".to_string(),
+            crate::types::UserAccessLevel::Registered => "Registered".to_string(),
+            crate::types::UserAccessLevel::Verified => "Verified".to_string(),
+            crate::types::UserAccessLevel::Paid => "Paid".to_string(),
+            crate::types::UserAccessLevel::Premium => "Premium".to_string(),
+            crate::types::UserAccessLevel::Admin => "Admin".to_string(),
+            crate::types::UserAccessLevel::SuperAdmin => "Super Admin".to_string(),
+            crate::types::UserAccessLevel::BetaUser => "Beta User".to_string(),
+            crate::types::UserAccessLevel::FreeWithoutAPI => "Free (No API)".to_string(),
+            crate::types::UserAccessLevel::FreeWithAPI => "Free (With API)".to_string(),
+            crate::types::UserAccessLevel::SubscriptionWithAPI => {
+                "Subscription (With API)".to_string()
+            }
+            crate::types::UserAccessLevel::Basic => "Basic".to_string(),
+            crate::types::UserAccessLevel::User => "User".to_string(),
+        }
+    }
 }

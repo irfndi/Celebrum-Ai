@@ -157,11 +157,22 @@ impl OpportunityUtils {
 
     /// Calculate price difference percentage
     pub fn calculate_price_difference_percent(price_a: f64, price_b: f64) -> f64 {
-        if price_a > 0.0 {
+        let result = if price_a > 0.0 {
             ((price_b - price_a).abs() / price_a) * 100.0
         } else {
             0.0
-        }
+        };
+
+        // Log price difference calculation
+        log::debug!(
+            "🧮 PRICE CALC DEBUG - Price A: ${:.2}, Price B: ${:.2}, Diff: ${:.2}, Result: {:.4}%",
+            price_a,
+            price_b,
+            (price_b - price_a).abs(),
+            result
+        );
+
+        result
     }
 
     /// Calculate price change percentage from ticker data

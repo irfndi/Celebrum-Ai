@@ -52,12 +52,15 @@ pub struct ServiceContainer {
 impl ServiceContainer {
     /// Create a new ServiceContainer with all core services initialized
     pub async fn new(env: &Env, kv_store: KvStore) -> ArbitrageResult<Self> {
-        let database_manager = DatabaseManager::new(
+        let mut database_manager = DatabaseManager::new(
             Arc::new(env.d1("ArbEdgeD1").map_err(|e| {
                 ArbitrageError::configuration_error(format!("Failed to get D1 database: {:?}", e))
             })?),
             DatabaseManagerConfig::default(),
         );
+
+        // CRITICAL: Initialize repositories to ensure UserRepository is available
+        database_manager.initialize_repositories().await?;
 
         let data_access_layer =
             DataAccessLayer::new(DataAccessLayerConfig::default(), kv_store.clone()).await?;
@@ -95,6 +98,7 @@ impl ServiceContainer {
         let opportunity_engine = Self::initialize_opportunity_engine(
             env,
             user_profile_service_instance.clone(),
+            exchange_service.clone(),
             kv_store.clone(),
             database_manager.clone(),
         )
@@ -136,6 +140,7 @@ impl ServiceContainer {
     async fn initialize_opportunity_engine(
         _env: &Env,
         user_profile_service: Arc<UserProfileService>,
+        exchange_service: Arc<ExchangeService>,
         kv_store: KvStore,
         database_manager: DatabaseManager,
     ) -> ArbitrageResult<Arc<OpportunityEngine>> {
@@ -164,6 +169,7 @@ impl ServiceContainer {
             user_profile_service,
             user_access_service,
             ai_service,
+            exchange_service.clone(),
             kv_store,
             config,
         )?;

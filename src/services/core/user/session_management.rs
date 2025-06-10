@@ -4,6 +4,7 @@ use crate::types::{
     SessionConfig, SessionOutcome,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
+
 use serde_json::{self};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -412,48 +413,48 @@ impl SessionManagementService {
         &self,
         user_id: &str,
         opportunity: &ArbitrageOpportunity,
-        chat_context: &ChatContext,
+        _chat_context: &ChatContext,
     ) -> ArbitrageResult<bool> {
         // Layer 1: Session validation
         let session = self.validate_session(user_id).await?;
         if session.is_none() {
             return Ok(false);
         }
-        // let session = session.unwrap(); // We have a valid session if we reach here
 
         // Layer 2: Rate limiting - prevent spam
         if !self.check_notification_rate_limit(user_id).await? {
             return Ok(false);
         }
 
-        // Layer 3: Subscription & permissions (basic implementation)
-        // Check if user has basic access to notifications
-        if !self.check_basic_notification_permissions(user_id).await? {
-            return Ok(false);
-        }
-
-        // Layer 4: User preferences (basic implementation)
-        // Check if user has notifications enabled for this opportunity type
+        // Layer 3: Basic notification permissions
         if !self
-            .check_notification_preferences(user_id, opportunity)
+            .check_basic_notification_permissions(user_id, opportunity, _chat_context)
             .await?
         {
             return Ok(false);
         }
 
-        // Layer 5: Technical compatibility (basic implementation)
-        // Check if user has compatible setup for this opportunity
+        // Layer 4: Notification preferences
         if !self
-            .check_technical_compatibility(user_id, opportunity)
+            .check_notification_preferences(user_id, opportunity, _chat_context)
+            .await?
+        {
+            return Ok(false);
+        }
+
+        // Layer 5: Technical compatibility checks
+        if !self
+            .check_technical_compatibility(user_id, opportunity, _chat_context)
             .await?
         {
             return Ok(false);
         }
 
         // Layer 6: Context & compliance
-        // Basic context validation - all contexts are currently eligible
-        // Groups get enhanced limits but same eligibility rules
-        if !self.check_context_compliance(chat_context).await? {
+        if !self
+            .check_context_compliance(user_id, opportunity, _chat_context)
+            .await?
+        {
             return Ok(false);
         }
 
@@ -525,7 +526,12 @@ impl SessionManagementService {
     }
 
     /// Check basic notification permissions (placeholder for subscription integration)
-    async fn check_basic_notification_permissions(&self, _user_id: &str) -> ArbitrageResult<bool> {
+    async fn check_basic_notification_permissions(
+        &self,
+        _user_id: &str,
+        _opportunity: &ArbitrageOpportunity,
+        _chat_context: &ChatContext,
+    ) -> ArbitrageResult<bool> {
         // TODO: Integrate with UserProfileService to check subscription tier
         // For now, allow all users with valid sessions
         Ok(true)
@@ -536,6 +542,7 @@ impl SessionManagementService {
         &self,
         user_id: &str,
         opportunity: &ArbitrageOpportunity,
+        _chat_context: &ChatContext,
     ) -> ArbitrageResult<bool> {
         // Check if user has disabled notifications for this opportunity type
         let pref_key = format!("notification_pref:{}:{:?}", user_id, opportunity.r#type);
@@ -557,6 +564,7 @@ impl SessionManagementService {
         &self,
         _user_id: &str,
         _opportunity: &ArbitrageOpportunity,
+        _chat_context: &ChatContext,
     ) -> ArbitrageResult<bool> {
         // TODO: Integrate with UserProfileService to check:
         // - User has API keys for required exchanges
@@ -567,7 +575,12 @@ impl SessionManagementService {
     }
 
     /// Check context compliance (groups, channels, private chats)
-    async fn check_context_compliance(&self, _chat_context: &ChatContext) -> ArbitrageResult<bool> {
+    async fn check_context_compliance(
+        &self,
+        _user_id: &str,
+        _opportunity: &ArbitrageOpportunity,
+        _chat_context: &ChatContext,
+    ) -> ArbitrageResult<bool> {
         // Basic context validation - all contexts currently eligible
         // Future: Could implement context-specific rules
         // - Private chats: full notifications

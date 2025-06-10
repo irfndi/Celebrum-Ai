@@ -9,6 +9,7 @@ use crate::services::core::opportunities::{
     opportunity_builders::OpportunityBuilder,
     opportunity_core::{OpportunityConfig, OpportunityContext},
 };
+use crate::services::core::trading::exchange::ExchangeService;
 use crate::services::core::user::user_access::UserAccessService;
 use crate::services::core::user::UserProfileService;
 use crate::services::CacheManager;
@@ -47,6 +48,7 @@ impl OpportunityEngine {
         user_profile_service: Arc<UserProfileService>,
         user_access_service: Arc<UserAccessService>,
         ai_service: Arc<AiBetaIntegrationService>,
+        exchange_service: Arc<ExchangeService>,
         kv_store: KvStore,
         config: OpportunityConfig,
     ) -> ArbitrageResult<Self> {
@@ -56,9 +58,8 @@ impl OpportunityEngine {
             Arc::new(kv_store.clone()),
         ));
 
-        // Create market analyzer without exchange service for now
-        // TODO: Properly inject ExchangeService when available
-        let market_analyzer = Arc::new(MarketAnalyzer::new_without_exchange());
+        // Create market analyzer with proper exchange service dependency injection
+        let market_analyzer = Arc::new(MarketAnalyzer::new_production(exchange_service));
         let ai_enhancer = Arc::new(AIEnhancer::new(ai_service, access_manager.clone()));
         let cache_manager = Arc::new(CacheManager::new(kv_store.clone()));
         let opportunity_builder = Arc::new(OpportunityBuilder::new(config.clone()));
@@ -419,33 +420,57 @@ impl OpportunityEngine {
         &self,
         pairs: Option<Vec<String>>,
     ) -> ArbitrageResult<Vec<GlobalOpportunity>> {
-        // Check cache first
+        // Check cache first (temporarily disabled for debugging)
+        log::warn!("🔍 CACHE DEBUG - Checking cache for global_opportunities");
         if let Ok(Some(cached_opportunities)) = self
             .cache_manager
             .get::<Vec<GlobalOpportunity>>("global_opportunities")
             .await
         {
+            log::warn!(
+                "📦 CACHE DEBUG - Found {} cached opportunities, returning",
+                cached_opportunities.len()
+            );
             return Ok(cached_opportunities);
         }
+        log::warn!("📦 CACHE DEBUG - No cached opportunities found, generating new ones");
 
         let trading_pairs = pairs.unwrap_or_else(|| self.config.default_pairs.clone());
         let monitored_exchanges = self.config.monitored_exchanges.clone();
 
+        // CRITICAL DEBUG: Log what we're processing
+        log::warn!(
+            "🏁 ENGINE START - Pairs: {:?}, Exchanges: {:?}",
+            trading_pairs,
+            monitored_exchanges
+        );
+
         // Generate arbitrage opportunities across all monitored exchanges
         let mut global_opportunities = Vec::new();
         for pair in &trading_pairs {
+            log::warn!(
+                "🔍 ENGINE DEBUG - Processing pair: {}, exchanges: {:?}",
+                pair,
+                monitored_exchanges
+            );
             let arbitrage_opportunities = self
                 .market_analyzer
                 .detect_arbitrage_opportunities(pair, &monitored_exchanges, &self.config)
                 .await?;
+            log::warn!(
+                "📊 ENGINE DEBUG - Found {} arbitrage opportunities for {}",
+                arbitrage_opportunities.len(),
+                pair
+            );
 
             for arb_opp in arbitrage_opportunities {
-                let opportunity = self.opportunity_builder.build_funding_rate_arbitrage(
-                    arb_opp.pair,
+                // Use PRICE ARBITRAGE instead of funding rate arbitrage for market analyzer results
+                let opportunity = self.opportunity_builder.build_price_arbitrage(
+                    arb_opp.pair.clone(),
                     arb_opp.long_exchange,
                     arb_opp.short_exchange,
-                    arb_opp.long_rate.unwrap_or(0.0),
-                    arb_opp.short_rate.unwrap_or(0.0),
+                    arb_opp.buy_price,
+                    arb_opp.sell_price,
                     &OpportunityContext::Global { system_level: true },
                 )?;
 

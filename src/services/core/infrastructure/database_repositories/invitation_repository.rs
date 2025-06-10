@@ -996,46 +996,11 @@ impl Repository for InvitationRepository {
 
     async fn initialize(&self) -> ArbitrageResult<()> {
         // Create tables if they don't exist
-        let create_invitation_codes_table = "
-            CREATE TABLE IF NOT EXISTS invitation_codes (
-                code TEXT PRIMARY KEY,
-                created_by TEXT,
-                created_at INTEGER NOT NULL,
-                expires_at INTEGER,
-                max_uses INTEGER,
-                current_uses INTEGER DEFAULT 0,
-                is_active BOOLEAN DEFAULT true,
-                purpose TEXT NOT NULL
-            )
-        ";
+        let create_invitation_codes_table = "CREATE TABLE IF NOT EXISTS invitation_codes (code TEXT PRIMARY KEY, created_by TEXT, created_at INTEGER NOT NULL, expires_at INTEGER, max_uses INTEGER, current_uses INTEGER DEFAULT 0, is_active BOOLEAN DEFAULT true, purpose TEXT NOT NULL)";
 
-        let create_invitation_usage_table = "
-            CREATE TABLE IF NOT EXISTS invitation_usage (
-                id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-                invitation_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                telegram_id INTEGER NOT NULL,
-                used_at INTEGER NOT NULL,
-                beta_expires_at INTEGER NOT NULL,
-                created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-                UNIQUE(user_id)
-            )
-        ";
+        let create_invitation_usage_table = "CREATE TABLE IF NOT EXISTS invitation_usage (id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))), invitation_id TEXT NOT NULL, user_id TEXT NOT NULL, telegram_id INTEGER NOT NULL, used_at INTEGER NOT NULL, beta_expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000), UNIQUE(user_id))";
 
-        let create_user_invitations_table = "
-            CREATE TABLE IF NOT EXISTS user_invitations (
-                invitation_id TEXT PRIMARY KEY,
-                inviter_user_id TEXT NOT NULL,
-                invitee_identifier TEXT NOT NULL,
-                invitation_type TEXT NOT NULL,
-                status TEXT NOT NULL,
-                message TEXT,
-                invitation_data TEXT,
-                created_at INTEGER NOT NULL,
-                expires_at INTEGER,
-                accepted_at INTEGER
-            )
-        ";
+        let create_user_invitations_table = "CREATE TABLE IF NOT EXISTS user_invitations (invitation_id TEXT PRIMARY KEY, inviter_user_id TEXT NOT NULL, invitee_identifier TEXT NOT NULL, invitation_type TEXT NOT NULL, status TEXT NOT NULL, message TEXT, invitation_data TEXT, created_at INTEGER NOT NULL, expires_at INTEGER, accepted_at INTEGER)";
 
         // Execute table creation
         self.db

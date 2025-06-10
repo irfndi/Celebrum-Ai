@@ -18,7 +18,6 @@ RATE_LIMIT_REQUESTS_PER_MINUTE = "60"
 CACHE_TTL_SECONDS = "300"
 SUPER_ADMIN_USER_ID = "1082762347"
 EXCHANGES = "binance,bybit,okx,bitget"
-MONITORED_PAIRS_CONFIG = '[{"symbol":"BTCUSDT","base":"BTC","quote":"USDT","exchange_id":"binance"},{"symbol":"ETHUSDT","base":"ETH","quote":"USDT","exchange_id":"binance"},{"symbol":"SOLUSDT","base":"SOL","quote":"USDT","exchange_id":"binance"}]'
 ARBITRAGE_THRESHOLD = "0.001"
 TELEGRAM_CHAT_ID = "1082762347"
 TELEGRAM_TEST_MODE = "false"
@@ -112,18 +111,8 @@ binding = "ARBITRAGE_ANALYTICS"
 dataset = "arbitrage_analytics"
 
 # Cron Triggers
-# Note: Cron triggers may require a paid plan - commented out for free tier deployment
-# [[triggers.crons]]
-# cron = "*/5 * * * *"  # Every 5 minutes
-# name = "market-data-refresh"
-
-# [[triggers.crons]]
-# cron = "0 */1 * * *"  # Every hour
-# name = "analytics-aggregation"
-
-# [[triggers.crons]]
-# cron = "0 0 * * *"    # Daily at midnight
-# name = "cleanup-expired-data"
+[triggers]
+crons = ["*/5 * * * *"]
 
 
 
@@ -146,4 +135,4 @@ vars = { ENVIRONMENT = "staging", LOG_LEVEL = "info" }
 
 # Production environment
 [env.production]
-vars = { ENVIRONMENT = "production", LOG_LEVEL = "warn", TELEGRAM_TEST_MODE = "false" }
+vars = { ENVIRONMENT = "production", LOG_LEVEL = "debug", TELEGRAM_TEST_MODE = "false" }

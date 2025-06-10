@@ -2,8 +2,8 @@
 // Manages all specialized repository components and provides unified access
 
 use super::{
-    utils::*, InvitationRepository, InvitationRepositoryConfig, Repository, RepositoryConfig,
-    RepositoryHealth, RepositoryMetrics, UserRepository, UserRepositoryConfig,
+    utils::current_timestamp_ms, InvitationRepository, InvitationRepositoryConfig, Repository,
+    RepositoryConfig, RepositoryHealth, RepositoryMetrics, UserRepository, UserRepositoryConfig,
 };
 use crate::services::core::user::user_trading_preferences::UserTradingPreferences;
 use crate::utils::{ArbitrageError, ArbitrageResult};
@@ -1251,27 +1251,125 @@ impl DatabaseManager {
         &self,
         analysis: &serde_json::Value,
     ) -> ArbitrageResult<()> {
-        let analysis_data = serde_json::to_string(analysis).map_err(|e| {
-            ArbitrageError::parse_error(format!("Failed to serialize analysis: {}", e))
-        })?;
+        let start_time = current_timestamp_ms();
 
-        let stmt = self.db.prepare(
-            "INSERT INTO opportunity_analysis (
-                analysis_data, created_at
-            ) VALUES (?, ?)",
-        );
+        let query =
+            "INSERT INTO opportunity_analysis (id, analysis_data, timestamp) VALUES (?, ?, ?)";
+        let params = vec![
+            JsValue::from_str(&format!("analysis_{}", start_time)),
+            JsValue::from_str(&analysis.to_string()),
+            JsValue::from_f64(start_time as f64),
+        ];
 
-        stmt.bind(&[analysis_data.into(), chrono::Utc::now().to_rfc3339().into()])
-            .map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
-            })?
-            .run()
-            .await
-            .map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to execute query: {}", e))
-            })?;
+        match self.execute(query, &params).await {
+            Ok(_) => {
+                self.update_metrics(start_time, true).await;
+                console_log!("✅ Opportunity analysis stored successfully");
+                Ok(())
+            }
+            Err(e) => {
+                self.update_metrics(start_time, false).await;
+                console_log!("❌ Failed to store opportunity analysis: {}", e);
+                Err(e)
+            }
+        }
+    }
 
-        Ok(())
+    /// Store basic arbitrage opportunity in opportunities table (CRITICAL MISSING METHOD)
+    pub async fn store_opportunity(
+        &self,
+        opportunity: &crate::types::ArbitrageOpportunity,
+    ) -> ArbitrageResult<()> {
+        let start_time = current_timestamp_ms();
+
+        let query = "INSERT INTO opportunities (
+            id, pair, long_exchange, short_exchange, long_rate, short_rate, 
+            rate_difference, net_rate_difference, potential_profit_value, 
+            type, details, timestamp, detection_timestamp, expiry_timestamp,
+            priority_score, max_participants, current_participants, 
+            distribution_strategy, source, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        let params = vec![
+            JsValue::from_str(&opportunity.id),
+            JsValue::from_str(&opportunity.trading_pair),
+            JsValue::from_str(opportunity.long_exchange.as_str()),
+            JsValue::from_str(opportunity.short_exchange.as_str()),
+            JsValue::from_f64(opportunity.long_rate.unwrap_or(0.0)),
+            JsValue::from_f64(opportunity.short_rate.unwrap_or(0.0)),
+            JsValue::from_f64(opportunity.profit_percentage),
+            JsValue::from_f64(opportunity.net_rate_difference.unwrap_or(0.0)),
+            JsValue::from_f64(opportunity.potential_profit_value.unwrap_or(0.0)),
+            JsValue::from_str("price_arbitrage"),
+            JsValue::from_str(&format!(
+                "{}% profit between {} and {}",
+                opportunity.profit_percentage,
+                opportunity.long_exchange.as_str(),
+                opportunity.short_exchange.as_str()
+            )),
+            JsValue::from_f64(start_time as f64),
+            JsValue::from_f64(start_time as f64), // detection_timestamp
+            JsValue::from_f64((start_time + 300000) as f64), // expiry_timestamp (5 min from now)
+            JsValue::from_f64(opportunity.profit_percentage * 10.0), // priority_score
+            JsValue::from_f64(1000.0),            // max_participants
+            JsValue::from_f64(0.0),               // current_participants
+            JsValue::from_str("immediate"),       // distribution_strategy
+            JsValue::from_str("SystemGenerated"), // source
+            JsValue::from_f64(start_time as f64), // created_at
+        ];
+
+        match self.execute(query, &params).await {
+            Ok(_) => {
+                self.update_metrics(start_time, true).await;
+                log::info!("✅ Stored opportunity {} successfully", opportunity.id);
+                Ok(())
+            }
+            Err(e) => {
+                self.update_metrics(start_time, false).await;
+                log::error!("❌ Failed to store opportunity {}: {}", opportunity.id, e);
+                Err(e)
+            }
+        }
+    }
+
+    /// Store opportunity distribution relationship (CRITICAL MISSING METHOD)
+    pub async fn store_opportunity_distribution(
+        &self,
+        opportunity_id: &str,
+        user_id: &str,
+    ) -> ArbitrageResult<()> {
+        let start_time = current_timestamp_ms();
+
+        let query = "INSERT INTO opportunity_distributions (
+            opportunity_id, user_id, distributed_at
+        ) VALUES (?, ?, ?)";
+
+        let params = vec![
+            JsValue::from_str(opportunity_id),
+            JsValue::from_str(user_id),
+            JsValue::from_f64(start_time as f64),
+        ];
+
+        match self.execute(query, &params).await {
+            Ok(_) => {
+                self.update_metrics(start_time, true).await;
+                console_log!(
+                    "✅ Opportunity distribution stored: {} -> user {}",
+                    opportunity_id,
+                    user_id
+                );
+                Ok(())
+            }
+            Err(e) => {
+                self.update_metrics(start_time, false).await;
+                console_log!(
+                    "❌ Failed to store opportunity distribution {}: {}",
+                    opportunity_id,
+                    e
+                );
+                Err(e)
+            }
+        }
     }
 
     /// Get user opportunity preferences (Opportunity Categorization compatibility)
@@ -1382,7 +1480,7 @@ impl DatabaseManager {
             // Fallback: direct database query
             let stmt = self
                 .db
-                .prepare("SELECT profile_data FROM user_profiles WHERE telegram_user_id = ?");
+                .prepare("SELECT profile_data FROM user_profiles WHERE telegram_id = ?");
 
             let result = stmt
                 .bind(&[telegram_user_id.into()])
@@ -1426,7 +1524,7 @@ impl DatabaseManager {
 
             let stmt = self.db.prepare(
                 "INSERT INTO user_profiles (
-                    user_id, telegram_user_id, profile_data, created_at, updated_at
+                    user_id, telegram_id, profile_data, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?)",
             );
 

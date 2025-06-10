@@ -153,6 +153,11 @@ impl OpportunityDistributionService {
     ) -> ArbitrageResult<u32> {
         let start_time = chrono::Utc::now().timestamp_millis() as u64;
 
+        // **CRITICAL FIX**: Store opportunity in database FIRST
+        self.database_repositories
+            .store_opportunity(&opportunity)
+            .await?;
+
         // Create global opportunity with metadata
         let global_opportunity = GlobalOpportunity {
             id: format!("global_arb_{}", opportunity.id),
@@ -220,7 +225,7 @@ impl OpportunityDistributionService {
         let mut eligible_users = Vec::new();
 
         // Query database for active sessions
-        let query = "SELECT telegram_id FROM user_sessions WHERE expires_at > datetime('now') AND is_active = 1 LIMIT 1000";
+        let query = "SELECT telegram_id FROM user_sessions WHERE expires_at > strftime('%s', 'now') * 1000 AND session_state = 'active' LIMIT 1000";
         let result = self.database_repositories.query(query, &[]).await?;
         let rows = result.results::<HashMap<String, serde_json::Value>>()?;
 
@@ -726,6 +731,13 @@ impl OpportunityDistributionService {
         user_id: &str,
         opportunity: &GlobalOpportunity,
     ) -> ArbitrageResult<()> {
+        // **CRITICAL FIX**: Store opportunity distribution relationship in database
+        if let Some(arbitrage_opp) = opportunity.opportunity_data.as_arbitrage() {
+            self.database_repositories
+                .store_opportunity_distribution(&arbitrage_opp.id, user_id)
+                .await?;
+        }
+
         // Update user distribution tracking
         self.update_user_distribution_tracking(user_id, opportunity)
             .await?;
@@ -1275,26 +1287,7 @@ impl OpportunityDistributionService {
         user_id: &str,
     ) -> ArbitrageResult<Vec<ArbitrageOpportunity>> {
         let cache_key = format!("user_opportunities:{}", user_id);
-        let query = r#"
-            SELECT 
-                opportunity_id,
-                pair,
-                long_exchange,
-                short_exchange,
-                long_rate,
-                short_rate,
-                rate_difference,
-                net_rate_difference,
-                potential_profit_value,
-                opportunity_type,
-                details,
-                timestamp
-            FROM user_opportunities 
-            WHERE user_id = ? 
-            AND timestamp > ? 
-            ORDER BY timestamp DESC 
-            LIMIT 50
-        "#;
+        let query = "SELECT o.id as opportunity_id, o.pair, o.long_exchange, o.short_exchange, o.long_rate, o.short_rate, o.rate_difference, o.net_rate_difference, o.potential_profit_value, o.type as opportunity_type, o.details, o.timestamp FROM opportunities o INNER JOIN opportunity_distributions od ON o.id = od.opportunity_id WHERE od.user_id = ? AND o.timestamp > ? ORDER BY o.timestamp DESC LIMIT 50";
 
         let one_hour_ago = chrono::Utc::now().timestamp() as u64 - 3600;
         let params = vec![
@@ -1309,25 +1302,7 @@ impl OpportunityDistributionService {
     /// Get all opportunities for admin access
     pub async fn get_all_opportunities(&self) -> ArbitrageResult<Vec<ArbitrageOpportunity>> {
         let cache_key = "all_opportunities";
-        let query = r#"
-            SELECT 
-                opportunity_id,
-                pair,
-                long_exchange,
-                short_exchange,
-                long_rate,
-                short_rate,
-                rate_difference,
-                net_rate_difference,
-                potential_profit_value,
-                opportunity_type,
-                details,
-                timestamp
-            FROM opportunities 
-            WHERE timestamp > ? 
-            ORDER BY timestamp DESC 
-            LIMIT 100
-        "#;
+        let query = "SELECT id as opportunity_id, pair, long_exchange, short_exchange, long_rate, short_rate, rate_difference, net_rate_difference, potential_profit_value, type as opportunity_type, details, timestamp FROM opportunities WHERE timestamp > ? ORDER BY timestamp DESC LIMIT 100";
 
         let one_hour_ago = chrono::Utc::now().timestamp() as u64 - 3600;
         let params = vec![serde_json::Value::Number(serde_json::Number::from(
