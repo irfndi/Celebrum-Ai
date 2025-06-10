@@ -422,20 +422,22 @@ impl DatabaseManager {
         console_log!("Executing D1 query: {}", query);
         let result = stmt
             .bind(params)
-            .map_err(|e| {
-                ArbitrageError::database_error(format!(
-                    "Failed to bind parameters for query '{}': {}",
-                    query, e
-                ))
-            })?
-            .all()
-            .await
-            .map_err(|e| {
-                ArbitrageError::database_error(format!(
-                    "Failed to execute D1 query '{}': {}",
-                    query, e
-                ))
-            });
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters for query '{}': {}", query, e)));
+
+        let result = match result {
+            Ok(bound_stmt) => {
+                bound_stmt
+                    .all()
+                    .await
+                    .map_err(|e| {
+                        ArbitrageError::database_error(format!(
+                            "Failed to execute D1 query '{}': {}",
+                            query, e
+                        ))
+                    })
+            },
+            Err(e) => Err(e),
+        };
 
         if let Err(e) = &result {
             console_log!("D1 query error: {:?}", e);
@@ -458,20 +460,22 @@ impl DatabaseManager {
         let stmt = self.db.prepare(query);
         let result = stmt
             .bind(params)
-            .map_err(|e| {
-                ArbitrageError::database_error(format!(
-                    "Failed to bind parameters for statement '{}': {}",
-                    query, e
-                ))
-            })?
-            .run()
-            .await
-            .map_err(|e| {
-                ArbitrageError::database_error(format!(
-                    "Failed to execute D1 statement '{}': {}",
-                    query, e
-                ))
-            });
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind parameters for statement '{}': {}", query, e)));
+
+        let result = match result {
+            Ok(bound_stmt) => {
+                bound_stmt
+                    .run()
+                    .await
+                    .map_err(|e| {
+                        ArbitrageError::database_error(format!(
+                            "Failed to execute D1 statement '{}': {}",
+                            query, e
+                        ))
+                    })
+            },
+            Err(e) => Err(e),
+        };
 
         if let Err(e) = &result {
             console_log!("D1 statement error: {:?}", e);
