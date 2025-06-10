@@ -442,28 +442,41 @@ macro_rules! log_debug {
 pub fn set_panic_hook() {
     #[cfg(target_arch = "wasm32")]
     {
-        std::panic::set_hook(Box::new(|info| {
-            let mut msg = String::new();
+        // Use OnceLock to ensure the panic hook is only set once
+        static ONCE_PANIC_HOOK: OnceLock<()> = OnceLock::new();
+        ONCE_PANIC_HOOK.get_or_init(|| {
+            std::panic::set_hook(Box::new(|info| {
+                let mut msg = String::new();
 
-            if let Some(s) = info.payload().downcast_ref::<&str>() {
-                msg.push_str(&format!("panic occurred: {}", s));
-            } else if let Some(s) = info.payload().downcast_ref::<String>() {
-                msg.push_str(&format!("panic occurred: {}", s));
-            } else {
-                msg.push_str("panic occurred");
-            }
+                if let Some(s) = info.payload().downcast_ref::<&str>() {
+                    msg.push_str(&format!("panic occurred: {}", s));
+                } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                    msg.push_str(&format!("panic occurred: {}", s));
+                } else {
+                    msg.push_str("panic occurred");
+                }
 
-            if let Some(location) = info.location() {
-                msg.push_str(&format!(
-                    " at {}:{}:{}",
-                    location.file(),
-                    location.line(),
-                    location.column()
-                ));
-            }
+                if let Some(location) = info.location() {
+                    msg.push_str(&format!(
+                        " at {}:{}:{}",
+                        location.file(),
+                        location.line(),
+                        location.column()
+                    ));
+                }
 
-            console_log!("🚨 PANIC: {}", msg);
-        }));
+                // Use the global logger to report the panic
+                // Fallback to console_log if logger not yet initialized
+                if let Some(logger) = super::logger::GLOBAL_LOGGER.get() {
+                    logger.error_with_meta(
+                        "Application Panic",
+                        Some(&serde_json::json!({ "panic_info": msg })),
+                    );
+                } else {
+                    console_log!("🚨 PANIC: {}", msg);
+                }
+            }));
+        });
     }
 
     #[cfg(not(target_arch = "wasm32"))]

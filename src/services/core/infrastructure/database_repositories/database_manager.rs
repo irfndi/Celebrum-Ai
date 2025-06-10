@@ -10,7 +10,7 @@ use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use worker::{kv::KvStore, wasm_bindgen::JsValue, D1Database};
+use worker::{console_log, kv::KvStore, wasm_bindgen::JsValue, D1Database};
 
 // For D1Result JsValue conversion
 use worker::js_sys;
@@ -418,14 +418,30 @@ impl DatabaseManager {
         let start_time = current_timestamp_ms();
 
         let stmt = self.db.prepare(query);
-        let result = stmt
-            .bind(params)
-            .map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
-            })?
-            .all()
-            .await
-            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute query: {}", e)));
+
+        console_log!("Executing D1 query: {}", query);
+        let result = stmt.bind(params).map_err(|e| {
+            ArbitrageError::database_error(format!(
+                "Failed to bind parameters for query '{}': {}",
+                query, e
+            ))
+        });
+
+        let result = match result {
+            Ok(bound_stmt) => bound_stmt.all().await.map_err(|e| {
+                ArbitrageError::database_error(format!(
+                    "Failed to execute D1 query '{}': {}",
+                    query, e
+                ))
+            }),
+            Err(e) => Err(e),
+        };
+
+        if let Err(e) = &result {
+            console_log!("D1 query error: {:?}", e);
+        } else {
+            console_log!("D1 query executed successfully: {}", query);
+        }
 
         self.update_metrics(start_time, result.is_ok()).await;
         result
@@ -440,16 +456,28 @@ impl DatabaseManager {
         let start_time = current_timestamp_ms();
 
         let stmt = self.db.prepare(query);
-        let result = stmt
-            .bind(params)
-            .map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
-            })?
-            .run()
-            .await
-            .map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to execute statement: {}", e))
-            });
+        let result = stmt.bind(params).map_err(|e| {
+            ArbitrageError::database_error(format!(
+                "Failed to bind parameters for statement '{}': {}",
+                query, e
+            ))
+        });
+
+        let result = match result {
+            Ok(bound_stmt) => bound_stmt.run().await.map_err(|e| {
+                ArbitrageError::database_error(format!(
+                    "Failed to execute D1 statement '{}': {}",
+                    query, e
+                ))
+            }),
+            Err(e) => Err(e),
+        };
+
+        if let Err(e) = &result {
+            console_log!("D1 statement error: {:?}", e);
+        } else {
+            console_log!("D1 statement executed successfully: {}", query);
+        }
 
         self.update_metrics(start_time, result.is_ok()).await;
         result
@@ -477,15 +505,24 @@ impl DatabaseManager {
         // We execute them sequentially. If one fails, subsequent ones won't run, and we return an error.
         // This provides some level of atomicity for this sequence but isn't a true DB transaction.
         for (idx, query) in queries.iter().enumerate() {
+            console_log!("Executing D1 transactional query {}: {}", idx + 1, query);
             let stmt = self.db.prepare(query);
             // Convert String params to JsValue
             let js_params: Vec<worker::wasm_bindgen::JsValue> =
                 params_list[idx].iter().map(|s| s.into()).collect();
             let bound_stmt = stmt.bind(&js_params).map_err(|e| {
-                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+                ArbitrageError::database_error(format!(
+                    "Failed to bind parameters for transactional query '{}': {}",
+                    query, e
+                ))
             })?;
             match bound_stmt.run().await {
                 Ok(d1_result) => {
+                    console_log!(
+                        "D1 transactional query {} executed successfully: {}",
+                        idx + 1,
+                        query
+                    );
                     let mut parsed_results_for_query = Vec::new();
                     // d1_result.results() returns Result<Vec<serde_json::Value>, Error>, we need to convert to HashMap
                     if let Ok(rows) = d1_result.results::<serde_json::Value>() {
