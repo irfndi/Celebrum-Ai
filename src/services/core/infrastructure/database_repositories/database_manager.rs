@@ -430,15 +430,10 @@ impl DatabaseManager {
             })?
             .all()
             .await
-            .map_err(|e| {
-                ArbitrageError::database_error(format!(
-                    "Failed to execute D1 query '{}': {}",
-                    query, e
-                ))
-            });
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to execute D1 query '{}': {}", query, e)));
 
-        if result.is_err() {
-            console_log!("D1 query error: {}", result.as_ref().unwrap_err());
+        if let Err(e) = &result {
+            console_log!("D1 query error: {:?}", e);
         } else {
             console_log!("D1 query executed successfully: {}", query);
         }
@@ -456,26 +451,19 @@ impl DatabaseManager {
         let start_time = current_timestamp_ms();
 
         let stmt = self.db.prepare(query);
-        console_log!("Executing D1 statement: {}", query);
         let result = stmt
             .bind(params)
             .map_err(|e| {
-                ArbitrageError::database_error(format!(
-                    "Failed to bind parameters for statement '{}': {}",
-                    query, e
-                ))
+                ArbitrageError::database_error(format!("Failed to bind parameters for statement '{}': {}", query, e))
             })?
             .run()
             .await
             .map_err(|e| {
-                ArbitrageError::database_error(format!(
-                    "Failed to execute D1 statement '{}': {}",
-                    query, e
-                ))
+                ArbitrageError::database_error(format!("Failed to execute D1 statement '{}': {}", query, e))
             });
 
-        if result.is_err() {
-            console_log!("D1 statement error: {}", result.as_ref().unwrap_err());
+        if let Err(e) = &result {
+            console_log!("D1 statement error: {:?}", e);
         } else {
             console_log!("D1 statement executed successfully: {}", query);
         }
