@@ -22,7 +22,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "wrangler": "^4.19.1"
+    "wrangler": "^4.19.2"
   },
   "pnpm": {
     "overrides": {}
