@@ -95,5 +95,8 @@
     "validation_timeout_seconds": 30,
     "dual_write_timeout_ms": 5000,
     "read_migration_timeout_ms": 3000
-  }
+  },
+  "trading_manual": false,
+  "ai_features": false,
+  "admin_panel": false
 }

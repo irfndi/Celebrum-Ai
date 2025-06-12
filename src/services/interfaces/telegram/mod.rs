@@ -389,6 +389,7 @@ impl ModularTelegramService {
 
         // Private chat - use CommandRouter for full command processing
         let parts: Vec<&str> = command.split_whitespace().collect();
+        let base_command = parts.first().unwrap_or(&"");
         let args: Vec<&str> = if parts.len() > 1 {
             parts[1..].to_vec()
         } else {
@@ -396,7 +397,7 @@ impl ModularTelegramService {
         };
 
         match commands::CommandRouter::route_command(
-            command,
+            base_command,
             &args,
             user_info,
             permissions,

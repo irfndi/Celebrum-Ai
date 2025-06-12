@@ -1045,8 +1045,53 @@ impl MarketAnalyzer {
         Ok(opportunities)
     }
 
-    /// Get ticker data for a specific exchange (mock implementation)
+    /// Get ticker data for a specific exchange (REAL IMPLEMENTATION)
     async fn get_ticker_for_exchange(
+        &self,
+        pair: &str,
+        exchange: &ExchangeIdEnum,
+    ) -> ArbitrageResult<Ticker> {
+        // Use real exchange service to fetch actual market data
+        let exchange_id = exchange.to_string();
+
+        log::debug!(
+            "🔍 REAL MARKET DATA - Fetching ticker for {} on {}",
+            pair,
+            exchange_id
+        );
+
+        match self.exchange_service.get_ticker(&exchange_id, pair).await {
+            Ok(ticker) => {
+                log::debug!(
+                    "✅ REAL TICKER - Exchange: {}, Pair: {}, Price: ${:.2}, Volume: {:.2}",
+                    exchange_id,
+                    pair,
+                    ticker.last.unwrap_or(0.0),
+                    ticker.base_volume.unwrap_or(0.0)
+                );
+                Ok(ticker)
+            }
+            Err(e) => {
+                log::warn!(
+                    "❌ TICKER FETCH FAILED - Exchange: {}, Pair: {}, Error: {:?}",
+                    exchange_id,
+                    pair,
+                    e
+                );
+
+                // Fallback to mock data only if real data fails
+                log::warn!(
+                    "🔄 FALLBACK - Using mock data for {} on {}",
+                    pair,
+                    exchange_id
+                );
+                self.get_mock_ticker_for_exchange(pair, exchange).await
+            }
+        }
+    }
+
+    /// Fallback mock ticker implementation (only used when real data fails)
+    async fn get_mock_ticker_for_exchange(
         &self,
         pair: &str,
         exchange: &ExchangeIdEnum,
@@ -1080,14 +1125,12 @@ impl MarketAnalyzer {
         let final_price = adjusted_price * (1.0 + micro_variance);
 
         // Log price calculation for debugging
-        log::debug!(
-            "🔍 PRICE DEBUG - Exchange: {:?}, Pair: {}, Base: ${:.2}, Variance: {:.4}%, Adjusted: ${:.2}, Micro: {:.6}%, Final: ${:.2}",
+        log::warn!(
+            "⚠️ MOCK DATA - Exchange: {:?}, Pair: {}, Base: ${:.2}, Variance: {:.4}%, Final: ${:.2}",
             exchange,
             pair,
             base_price,
             price_variance * 100.0,
-            adjusted_price,
-            micro_variance * 100.0,
             final_price
         );
 
