@@ -458,13 +458,43 @@ impl CommandRouter {
         permissions: &UserPermissions,
         service_container: &Arc<ServiceContainer>,
     ) -> ArbitrageResult<String> {
+        // Derive internal user_id (may include prefixes) from database profile; fallback to Telegram ID string
+        let db_user_id: String =
+            if let Some(user_profile_service) = &service_container.user_profile_service {
+                match user_profile_service
+                    .get_user_by_telegram_id(user_info.user_id)
+                    .await
+                {
+                    Ok(Some(profile)) => profile.user_id.clone(),
+                    _ => user_info.user_id.to_string(),
+                }
+            } else {
+                user_info.user_id.to_string()
+            };
+
         // Get recent opportunities from distribution service
         match service_container
             .distribution_service()
-            .get_user_opportunities(&user_info.user_id.to_string())
+            .get_user_opportunities(&db_user_id)
             .await
         {
             Ok(opportunities) => {
+                let opportunities = if opportunities.is_empty() {
+                    // Fallback: load latest global opportunities
+                    console_log!(
+                        "No personal opportunities for user {}, falling back to global list",
+                        user_info.user_id
+                    );
+
+                    service_container
+                        .distribution_service()
+                        .get_all_opportunities()
+                        .await
+                        .unwrap_or_default()
+                } else {
+                    opportunities
+                };
+
                 if opportunities.is_empty() {
                     let mut message = "📊 <b>No Current Opportunities</b>\n\n".to_string();
 
@@ -1042,7 +1072,7 @@ impl CommandRouter {
     ) -> ArbitrageResult<String> {
         Ok(format!(
             "📊 <b>AI Market Analysis</b>\n\n\
-            👤 <b>User:</b> {}\n\
+            �� <b>User:</b> {}\n\
             💱 <b>Pair:</b> BTC/USDT\n\n\
             🚧 <b>AI Analysis Feature Coming Soon!</b>\n\n\
             This feature will provide:\n\

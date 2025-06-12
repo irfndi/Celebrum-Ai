@@ -1,3 +1,5 @@
+use once_cell::sync::OnceCell;
+use std::sync::Arc;
 use worker::*;
 
 // Time constants for improved readability
@@ -46,7 +48,6 @@ pub mod utils;
 #[cfg(test)]
 pub mod test_utils;
 
-use once_cell::sync::OnceCell;
 use services::core::infrastructure::database_repositories::DatabaseManager;
 use services::core::infrastructure::database_repositories::DatabaseManagerConfig;
 use services::core::infrastructure::service_container::ServiceContainer;
@@ -60,7 +61,6 @@ use services::core::user::user_profile::UserProfileService;
 // Import new modular components
 use handlers::*;
 
-use std::sync::Arc;
 use types::ExchangeIdEnum;
 use utils::{ArbitrageError, ArbitrageResult};
 use worker::kv::KvStore;
@@ -440,6 +440,43 @@ async fn route_opportunities_request(
     }
 }
 
+// Static cache for ModularTelegramService to avoid re-initialization on every webhook request
+static MODULAR_TELEGRAM_SERVICE: OnceCell<
+    Arc<crate::services::interfaces::telegram::ModularTelegramService>,
+> = OnceCell::new();
+
+/// Lazily initialize and retrieve the global ModularTelegramService instance.
+///
+/// * Avoids expensive re-initialization on each request.
+/// * Ensures shared state is reused across concurrent webhook invocations.
+async fn get_modular_telegram_service(
+    env: &Env,
+    container: Arc<ServiceContainer>,
+) -> ArbitrageResult<Arc<crate::services::interfaces::telegram::ModularTelegramService>> {
+    if let Some(service) = MODULAR_TELEGRAM_SERVICE.get() {
+        return Ok(service.clone());
+    }
+
+    // Create a new instance if not already initialized
+    let service = Arc::new(
+        crate::services::interfaces::telegram::ModularTelegramService::new(env, container)
+            .await
+            .map_err(|e| {
+                ArbitrageError::configuration_error(format!(
+                    "Failed to initialize ModularTelegramService: {:?}",
+                    e
+                ))
+            })?,
+    );
+
+    // It is safe to ignore the error here because it only occurs if another
+    // concurrent request has already set the value between the previous check
+    // and this point.
+    let _ = MODULAR_TELEGRAM_SERVICE.set(service.clone());
+
+    Ok(service)
+}
+
 /// Route telegram requests to modular telegram service
 async fn route_telegram_request(
     req: Request,
@@ -456,28 +493,24 @@ async fn route_telegram_request(
             let webhook_data: serde_json::Value = req_clone.json().await?;
 
             // Process webhook using ModularTelegramService
-            match crate::services::interfaces::telegram::ModularTelegramService::new(
-                env,
-                container.clone(),
-            )
-            .await
-            {
-                Ok(modular_service) => {
-                    let response_text = modular_service
-                        .handle_webhook(webhook_data)
-                        .await
-                        .map_err(|e| {
-                            worker::Error::RustError(format!("Failed to process webhook: {:?}", e))
-                        })?;
-
-                    // Return plain text response for Telegram webhook
-                    Response::ok(&response_text)
-                }
+            let modular_service = match get_modular_telegram_service(env, container.clone()).await {
+                Ok(service) => service,
                 Err(e) => {
                     console_log!("⚠️ Failed to initialize ModularTelegramService: {:?}", e);
-                    Response::error("Telegram service not available", 503)
+                    return Response::error("Telegram service not available", 503);
                 }
-            }
+            };
+
+            let response_text =
+                modular_service
+                    .handle_webhook(webhook_data)
+                    .await
+                    .map_err(|e| {
+                        worker::Error::RustError(format!("Failed to process webhook: {:?}", e))
+                    })?;
+
+            // Return plain text response for Telegram webhook
+            Response::ok(&response_text)
         }
         "send" => {
             // Parse send message request
