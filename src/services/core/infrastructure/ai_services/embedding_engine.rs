@@ -1,7 +1,7 @@
 // Embedding Engine - Vector Generation and Similarity Search Component
 // Extracts and modularizes vector functionality from vectorize_service.rs
 
-use crate::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
+use crate::types::{ArbitrageOpportunity, ExchangeIdEnum};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::{Datelike, Timelike};
 use serde::{Deserialize, Serialize};
@@ -604,27 +604,28 @@ impl EmbeddingEngine {
 
         let response_data: VectorizeQueryResponse = response.json().await?;
 
-        let mut results = Vec::new();
+        let results: Vec<SimilarityResult> = Vec::new();
         for match_result in response_data.result.matches {
             if match_result.score >= self.config.similarity_threshold {
                 if let Some(metadata) = match_result.metadata {
-                    if let Ok(opportunity_metadata) =
-                        serde_json::from_value::<OpportunityMetadata>(metadata)
+                    if let Ok(_opportunity_metadata) =
+                        serde_json::from_value::<OpportunityMetadata>(metadata.clone())
                     {
-                        // Create a placeholder opportunity (in real implementation, fetch from database)
-                        let opportunity = self.create_placeholder_opportunity(&match_result.id);
-
-                        results.push(SimilarityResult {
-                            opportunity_id: match_result.id,
-                            similarity_score: match_result.score,
-                            opportunity,
-                            metadata: opportunity_metadata,
-                        });
+                        // TODO: In production, fetch real opportunity from database using match_result.id
+                        // For now, skip this result to avoid mock data
+                        self.logger.warn(&format!(
+                            "Skipping similarity result {} - real opportunity fetching not implemented",
+                            match_result.id
+                        ));
                     }
                 }
             }
         }
 
+        // Return empty results for now to avoid mock data
+        // TODO: Implement real opportunity database lookup
+        self.logger
+            .info("Vectorize search completed - real opportunity lookup not implemented");
         Ok(results)
     }
 
@@ -644,40 +645,6 @@ impl EmbeddingEngine {
             limit
         ));
         Ok(Vec::new())
-    }
-
-    /// Create placeholder opportunity for demo purposes
-    fn create_placeholder_opportunity(&self, _opportunity_id: &str) -> ArbitrageOpportunity {
-        // Create test opportunity with correct field names
-        ArbitrageOpportunity {
-            id: "test_123".to_string(),
-            trading_pair: "BTCUSDT".to_string(),
-            exchanges: vec!["binance".to_string(), "bybit".to_string()],
-            profit_percentage: 0.02,
-            confidence_score: 0.8,
-            risk_level: "low".to_string(),
-            buy_exchange: "binance".to_string(),
-            sell_exchange: "bybit".to_string(),
-            buy_price: 50000.0,
-            sell_price: 51000.0,
-            volume: 1000.0,
-            created_at: chrono::Utc::now().timestamp_millis() as u64,
-            expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + 300_000),
-            pair: "BTCUSDT".to_string(),
-            long_exchange: ExchangeIdEnum::Binance,
-            short_exchange: ExchangeIdEnum::Bybit,
-            long_rate: Some(0.01),
-            short_rate: Some(-0.01),
-            rate_difference: 0.02,
-            net_rate_difference: Some(0.02),
-            potential_profit_value: Some(20.0),
-            confidence: 0.8,
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            detected_at: chrono::Utc::now().timestamp_millis() as u64,
-            r#type: ArbitrageType::FundingRate,
-            details: Some("Test opportunity".to_string()),
-            min_exchanges_required: 2,
-        }
     }
 
     /// Cache embedding

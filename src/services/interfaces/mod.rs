@@ -6,4 +6,4 @@ pub mod telegram;
 
 // Re-export specific items from telegram module
 pub use telegram::telegram_keyboard::{InlineKeyboard, InlineKeyboardButton};
-pub use telegram::{ModularTelegramService, TelegramService, UserInfo, UserPermissions};
+pub use telegram::{ModularTelegramService, UserInfo, UserPermissions};

@@ -643,9 +643,9 @@ impl APIConnector {
             .unwrap_or_else(|| ArbitrageError::parse_error("Request failed after all retries")))
     }
 
-    /// Execute the actual HTTP request (placeholder implementation)
+    /// Execute the actual HTTP request (not implemented - requires HTTP client integration)
     async fn execute_request(&self, request: &APIRequest) -> ArbitrageResult<APIResponse> {
-        let start_time = chrono::Utc::now().timestamp_millis() as u64;
+        let _start_time = chrono::Utc::now().timestamp_millis() as u64;
 
         // Get exchange configuration
         let exchange_config = if let Ok(exchanges) = self.exchanges.lock() {
@@ -654,7 +654,7 @@ impl APIConnector {
             None
         };
 
-        let config = exchange_config.ok_or_else(|| {
+        let _config = exchange_config.ok_or_else(|| {
             ArbitrageError::configuration_error(format!(
                 "Exchange {} not configured",
                 request.exchange.as_str()
@@ -665,28 +665,22 @@ impl APIConnector {
         let _full_url = if request.endpoint.starts_with("http") {
             request.endpoint.clone()
         } else {
-            format!("{}{}", config.base_url, request.endpoint)
+            format!("{}{}", _config.base_url, request.endpoint)
         };
 
-        // In a real implementation, this would make an actual HTTP request
-        // For now, we'll simulate a response
-        let end_time = chrono::Utc::now().timestamp_millis() as u64;
-        let latency = end_time - start_time;
+        // TODO: Implement actual HTTP client integration
+        // This would require:
+        // 1. HTTP client library (reqwest, hyper, etc.)
+        // 2. Request signing for authenticated endpoints
+        // 3. Proper error handling and response parsing
+        // 4. SSL/TLS configuration
+        // 5. Connection pooling and keep-alive
 
-        // Simulate different response scenarios
-        let response = APIResponse {
-            status_code: 200,
-            headers: HashMap::new(),
-            body: r#"{"status":"success","data":{}}"#.to_string(),
-            latency_ms: latency,
-            exchange: request.exchange.clone(),
-            endpoint: request.endpoint.clone(),
-            timestamp: end_time,
-            rate_limit_remaining: Some(100),
-            rate_limit_reset: Some(end_time + 60000), // 1 minute from now
-        };
-
-        Ok(response)
+        Err(ArbitrageError::not_implemented(format!(
+            "HTTP request execution not implemented for exchange: {} endpoint: {}. Requires HTTP client integration (reqwest, hyper, etc.)",
+            request.exchange.as_str(),
+            request.endpoint
+        )))
     }
 
     /// Check if request should be retried based on error type

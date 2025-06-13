@@ -5,6 +5,7 @@ use crate::types::{
     SubscriptionTier,
 };
 use crate::utils::ArbitrageResult;
+use crate::ArbitrageError;
 use std::sync::Arc;
 use worker::console_log;
 
@@ -70,19 +71,19 @@ impl GroupManagementService {
             ) VALUES (?, ?, ?, ?, ?, ?)
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    worker::wasm_bindgen::JsValue::from(&registration.group_id),
-                    worker::wasm_bindgen::JsValue::from(&registration.group_name),
-                    worker::wasm_bindgen::JsValue::from(&registration.registered_by),
-                    worker::wasm_bindgen::JsValue::from(registration.registration_date.to_string()),
-                    worker::wasm_bindgen::JsValue::from(registration.is_active.to_string()),
-                    worker::wasm_bindgen::JsValue::from(registration.subscription_tier.to_string()),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            worker::wasm_bindgen::JsValue::from(&registration.group_id),
+            worker::wasm_bindgen::JsValue::from(&registration.group_name),
+            worker::wasm_bindgen::JsValue::from(&registration.registered_by),
+            worker::wasm_bindgen::JsValue::from(registration.registration_date.to_string()),
+            worker::wasm_bindgen::JsValue::from(registration.is_active.to_string()),
+            worker::wasm_bindgen::JsValue::from(registration.subscription_tier.to_string()),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         // Create group configuration
         let config = match group_type {
@@ -127,10 +128,12 @@ impl GroupManagementService {
             SELECT * FROM group_configurations WHERE group_id = ?
         "#;
 
-        let result = self
-            .d1_service
-            .query(query, &[worker::wasm_bindgen::JsValue::from(group_id)])
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[worker::wasm_bindgen::JsValue::from(group_id)])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         let rows = result.results::<std::collections::HashMap<String, serde_json::Value>>()?;
         if let Some(row) = rows.first() {
@@ -162,21 +165,21 @@ impl GroupManagementService {
 
         let admins_json = serde_json::to_string(&config.managed_by_admins)?;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    worker::wasm_bindgen::JsValue::from(&config.group_id),
-                    worker::wasm_bindgen::JsValue::from(&config.group_type),
-                    worker::wasm_bindgen::JsValue::from(config.opportunities_enabled.to_string()),
-                    worker::wasm_bindgen::JsValue::from(config.manual_requests_enabled.to_string()),
-                    worker::wasm_bindgen::JsValue::from(config.trading_enabled.to_string()),
-                    worker::wasm_bindgen::JsValue::from(config.ai_enhancement_enabled.to_string()),
-                    worker::wasm_bindgen::JsValue::from(config.take_action_buttons.to_string()),
-                    worker::wasm_bindgen::JsValue::from(admins_json),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            worker::wasm_bindgen::JsValue::from(&config.group_id),
+            worker::wasm_bindgen::JsValue::from(&config.group_type),
+            worker::wasm_bindgen::JsValue::from(config.opportunities_enabled.to_string()),
+            worker::wasm_bindgen::JsValue::from(config.manual_requests_enabled.to_string()),
+            worker::wasm_bindgen::JsValue::from(config.trading_enabled.to_string()),
+            worker::wasm_bindgen::JsValue::from(config.ai_enhancement_enabled.to_string()),
+            worker::wasm_bindgen::JsValue::from(config.take_action_buttons.to_string()),
+            worker::wasm_bindgen::JsValue::from(admins_json),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         // Invalidate cache
         let cache_key = format!("group_config:{}", config.group_id);
@@ -204,10 +207,12 @@ impl GroupManagementService {
             SELECT * FROM group_ai_settings WHERE group_id = ?
         "#;
 
-        let result = self
-            .d1_service
-            .query(query, &[worker::wasm_bindgen::JsValue::from(group_id)])
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[worker::wasm_bindgen::JsValue::from(group_id)])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         let rows = result.results::<std::collections::HashMap<String, serde_json::Value>>()?;
         if let Some(row) = rows.first() {
@@ -238,27 +243,27 @@ impl GroupManagementService {
 
         let enhancement_mode_str = settings.enhancement_mode.to_string();
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    worker::wasm_bindgen::JsValue::from(&settings.group_id),
-                    worker::wasm_bindgen::JsValue::from(
-                        (settings.enhancement_mode != AIEnhancementMode::Disabled).to_string(),
-                    ),
-                    worker::wasm_bindgen::JsValue::from(&enhancement_mode_str),
-                    worker::wasm_bindgen::JsValue::from(&enhancement_mode_str), // Using enhancement_mode as model for now
-                    worker::wasm_bindgen::JsValue::from(&settings.admin_user_id),
-                    worker::wasm_bindgen::JsValue::from(settings.byok_enabled.to_string()),
-                    worker::wasm_bindgen::JsValue::from(
-                        settings.group_ai_key_id.clone().unwrap_or_default(),
-                    ),
-                    worker::wasm_bindgen::JsValue::from(settings.created_at.to_string()),
-                    worker::wasm_bindgen::JsValue::from(settings.updated_at.to_string()),
-                    worker::wasm_bindgen::JsValue::from(settings.settings_metadata.to_string()),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            worker::wasm_bindgen::JsValue::from(&settings.group_id),
+            worker::wasm_bindgen::JsValue::from(
+                (settings.enhancement_mode != AIEnhancementMode::Disabled).to_string(),
+            ),
+            worker::wasm_bindgen::JsValue::from(&enhancement_mode_str),
+            worker::wasm_bindgen::JsValue::from(&enhancement_mode_str), // Using enhancement_mode as model for now
+            worker::wasm_bindgen::JsValue::from(&settings.admin_user_id),
+            worker::wasm_bindgen::JsValue::from(settings.byok_enabled.to_string()),
+            worker::wasm_bindgen::JsValue::from(
+                settings.group_ai_key_id.clone().unwrap_or_default(),
+            ),
+            worker::wasm_bindgen::JsValue::from(settings.created_at.to_string()),
+            worker::wasm_bindgen::JsValue::from(settings.updated_at.to_string()),
+            worker::wasm_bindgen::JsValue::from(settings.settings_metadata.to_string()),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         // Invalidate cache
         let cache_key = format!("group_ai_settings:{}", settings.group_id);
@@ -323,42 +328,42 @@ impl GroupManagementService {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    worker::wasm_bindgen::JsValue::from(&settings.group_id),
-                    worker::wasm_bindgen::JsValue::from(settings.subscription_tier.to_string()),
-                    worker::wasm_bindgen::JsValue::from(&settings.admin_user_id),
-                    worker::wasm_bindgen::JsValue::from(
-                        settings
-                            .settings
-                            .get("expires_at")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0)
-                            .to_string(),
-                    ),
-                    worker::wasm_bindgen::JsValue::from(
-                        settings
-                            .settings
-                            .get("auto_renew")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false)
-                            .to_string(),
-                    ),
-                    worker::wasm_bindgen::JsValue::from(
-                        settings
-                            .settings
-                            .get("payment_method")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                    ),
-                    worker::wasm_bindgen::JsValue::from(settings.created_at.to_string()),
-                    worker::wasm_bindgen::JsValue::from(settings.updated_at.to_string()),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            worker::wasm_bindgen::JsValue::from(&settings.group_id),
+            worker::wasm_bindgen::JsValue::from(settings.subscription_tier.to_string()),
+            worker::wasm_bindgen::JsValue::from(&settings.admin_user_id),
+            worker::wasm_bindgen::JsValue::from(
+                settings
+                    .settings
+                    .get("expires_at")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0)
+                    .to_string(),
+            ),
+            worker::wasm_bindgen::JsValue::from(
+                settings
+                    .settings
+                    .get("auto_renew")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                    .to_string(),
+            ),
+            worker::wasm_bindgen::JsValue::from(
+                settings
+                    .settings
+                    .get("payment_method")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            ),
+            worker::wasm_bindgen::JsValue::from(settings.created_at.to_string()),
+            worker::wasm_bindgen::JsValue::from(settings.updated_at.to_string()),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(())
     }

@@ -49,8 +49,11 @@ pub mod enhanced_kv_cache;
 pub mod failover_service;
 pub mod infrastructure_engine;
 pub mod service_health;
+pub mod unified_circuit_breaker;
+pub mod unified_health_check;
+pub mod unified_retry;
 
-// ============= REMAINING LEGACY COMPONENTS (TO BE MODULARIZED) =============
+// ============= ADDITIONAL INFRASTRUCTURE COMPONENTS =============
 pub mod analytics_engine;
 pub mod durable_objects;
 pub mod service_container;
@@ -72,7 +75,7 @@ pub use monitoring_module::{
     MonitoringModuleHealth, MonitoringModuleMetrics, ObservabilityCoordinator, TraceCollector,
 };
 
-// Legacy compatibility exports
+// Convenience exports
 pub use monitoring_module::metrics_collector;
 pub use notification_module as notification_engine;
 
@@ -151,8 +154,14 @@ pub use infrastructure_engine::{
 pub use service_health::{
     HealthStatus, ServiceHealthCheck, ServiceHealthManager, SystemHealthReport,
 };
+pub use unified_circuit_breaker::{
+    UnifiedCircuitBreaker, UnifiedCircuitBreakerConfig, UnifiedCircuitBreakerManager,
+    UnifiedCircuitBreakerState, UnifiedCircuitBreakerStateInfo, UnifiedCircuitBreakerType,
+};
+pub use unified_health_check::{HealthCheckMethod, UnifiedHealthCheckConfig};
+pub use unified_retry::{UnifiedRetryConfig, UnifiedRetryExecutor};
 
-// ============= LEGACY EXPORTS (REMAINING) =============
+// ============= ADDITIONAL COMPONENT EXPORTS =============
 pub use analytics_engine::{
     AnalyticsEngineConfig, AnalyticsEngineService, RealTimeMetrics, UserAnalytics,
 };
@@ -170,8 +179,7 @@ pub mod financial_module;
 // 9. Persistence Layer - D1/R2 Unified Data Persistence Architecture (NEW)
 pub mod persistence_layer;
 
-// 10. Legacy System Integration - Migration and Compatibility Framework (NEW)
-pub mod legacy_system_integration;
+// All system integration functionality moved to modular services
 
 pub use analytics_module::{
     AnalyticsCoordinator, AnalyticsModuleConfig, DataProcessor, MetricsAggregator, ReportGenerator,
@@ -189,11 +197,7 @@ pub use persistence_layer::{
     PoolConfig, R2Config, SchemaHealth, SchemaManager, SchemaMetrics, ServiceHealth,
 };
 
-pub use legacy_system_integration::{
-    FeatureFlagMigrationManager, LegacySystemIntegrationConfig, LegacySystemIntegrationHealth,
-    LegacySystemIntegrationMetrics, MigrationFeatureConfig, MigrationFeatureFlags, MigrationPhase,
-    RolloutConfig, RolloutProgress, RolloutStrategy, SafetyThreshold,
-};
+// All system integration functionality moved to modular services
 
 /// Revolutionary Infrastructure Configuration for High-Concurrency Trading
 #[derive(Debug, Clone)]
@@ -220,10 +224,9 @@ pub struct InfrastructureConfig {
     pub service_health_config: ServiceHealthConfig,
     pub infrastructure_engine_config: InfrastructureEngineConfig,
 
-    // Legacy component configurations (to be migrated)
+    // Analytics and financial module configurations
     pub analytics_config: AnalyticsEngineConfig,
     pub financial_module_config: FinancialModuleConfig,
-    pub legacy_system_integration_config: legacy_system_integration::LegacySystemIntegrationConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -291,8 +294,6 @@ impl Default for InfrastructureConfig {
 
             analytics_config: AnalyticsEngineConfig::default(),
             financial_module_config: FinancialModuleConfig::default(),
-            legacy_system_integration_config:
-                legacy_system_integration::LegacySystemIntegrationConfig::default(),
         }
     }
 }
@@ -404,8 +405,6 @@ impl InfrastructureConfig {
                 enable_batching: true,
             },
             financial_module_config: FinancialModuleConfig::high_performance(),
-            legacy_system_integration_config:
-                legacy_system_integration::LegacySystemIntegrationConfig::default(),
         }
     }
 
@@ -466,8 +465,6 @@ impl InfrastructureConfig {
                 enable_batching: true,
             },
             financial_module_config: FinancialModuleConfig::high_reliability(),
-            legacy_system_integration_config:
-                legacy_system_integration::LegacySystemIntegrationConfig::default(),
         }
     }
 
@@ -513,10 +510,9 @@ pub struct InfrastructureManager {
     service_health: Option<ServiceHealthManager>,
     infrastructure_engine: Option<InfrastructureEngine>,
 
-    // Legacy components (to be migrated)
+    // Analytics and financial components
     analytics_engine: Option<AnalyticsEngineService>,
     financial_module: Option<FinancialModule>,
-    legacy_system_integration: Option<legacy_system_integration::FeatureFlagMigrationManager>,
 
     // Runtime state
     is_initialized: bool,
@@ -542,7 +538,6 @@ impl InfrastructureManager {
             infrastructure_engine: None,
             analytics_engine: None,
             financial_module: None,
-            legacy_system_integration: None,
             is_initialized: false,
             startup_time: None,
         })
@@ -642,12 +637,7 @@ impl InfrastructureManager {
         self.financial_module = Some(financial_module);
 
         // Initialize legacy system integration
-        self.legacy_system_integration = Some(
-            legacy_system_integration::FeatureFlagMigrationManager::new(
-                legacy_system_integration::MigrationFeatureFlags::default(),
-            )
-            .await?,
-        );
+        // Legacy system integration removed - functionality moved to modular services
 
         self.is_initialized = true;
         self.startup_time = Some(start_time);
@@ -742,16 +732,7 @@ impl InfrastructureManager {
         })
     }
 
-    pub fn legacy_system_integration(
-        &self,
-    ) -> ArbitrageResult<&legacy_system_integration::FeatureFlagMigrationManager> {
-        self.legacy_system_integration.as_ref().ok_or_else(|| {
-            ArbitrageError::new(
-                ErrorKind::Internal,
-                "LegacySystemIntegration not initialized",
-            )
-        })
-    }
+    // Legacy system integration method removed - functionality moved to modular services
 
     pub fn is_initialized(&self) -> bool {
         self.is_initialized
@@ -819,14 +800,7 @@ impl InfrastructureManager {
             health_status.insert("cache_manager".to_string(), cache_health.is_healthy);
         }
 
-        // Check legacy system integration
-        if let Ok(legacy_integration) = self.legacy_system_integration() {
-            let legacy_health = legacy_integration.get_health().await;
-            health_status.insert(
-                "legacy_system_integration".to_string(),
-                legacy_health.is_healthy,
-            );
-        }
+        // Legacy system integration health check removed - functionality moved to modular services
 
         Ok(health_status)
     }

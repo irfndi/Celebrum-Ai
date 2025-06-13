@@ -672,7 +672,12 @@ impl SessionManagementService {
             ORDER BY last_activity DESC 
             LIMIT 500"#;
 
-        let result = self.d1_service.query(query, &[]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
         let rows = result.results::<std::collections::HashMap<String, serde_json::Value>>()?;
 
         let sessions: Vec<serde_json::Value> = rows

@@ -409,79 +409,7 @@ impl DatabaseManager {
         all_metrics
     }
 
-    /// Execute a query with parameters (legacy compatibility method)
-    pub async fn query(
-        &self,
-        query: &str,
-        params: &[worker::wasm_bindgen::JsValue],
-    ) -> ArbitrageResult<worker::D1Result> {
-        let start_time = current_timestamp_ms();
-
-        let stmt = self.db.prepare(query);
-
-        console_log!("Executing D1 query: {}", query);
-        let result = stmt.bind(params).map_err(|e| {
-            ArbitrageError::database_error(format!(
-                "Failed to bind parameters for query '{}': {}",
-                query, e
-            ))
-        });
-
-        let result = match result {
-            Ok(bound_stmt) => bound_stmt.all().await.map_err(|e| {
-                ArbitrageError::database_error(format!(
-                    "Failed to execute D1 query '{}': {}",
-                    query, e
-                ))
-            }),
-            Err(e) => Err(e),
-        };
-
-        if let Err(e) = &result {
-            console_log!("D1 query error: {:?}", e);
-        } else {
-            console_log!("D1 query executed successfully: {}", query);
-        }
-
-        self.update_metrics(start_time, result.is_ok()).await;
-        result
-    }
-
-    /// Execute a statement (legacy compatibility method)
-    pub async fn execute(
-        &self,
-        query: &str,
-        params: &[worker::wasm_bindgen::JsValue],
-    ) -> ArbitrageResult<worker::D1Result> {
-        let start_time = current_timestamp_ms();
-
-        let stmt = self.db.prepare(query);
-        let result = stmt.bind(params).map_err(|e| {
-            ArbitrageError::database_error(format!(
-                "Failed to bind parameters for statement '{}': {}",
-                query, e
-            ))
-        });
-
-        let result = match result {
-            Ok(bound_stmt) => bound_stmt.run().await.map_err(|e| {
-                ArbitrageError::database_error(format!(
-                    "Failed to execute D1 statement '{}': {}",
-                    query, e
-                ))
-            }),
-            Err(e) => Err(e),
-        };
-
-        if let Err(e) = &result {
-            console_log!("D1 statement error: {:?}", e);
-        } else {
-            console_log!("D1 statement executed successfully: {}", query);
-        }
-
-        self.update_metrics(start_time, result.is_ok()).await;
-        result
-    }
+    // Legacy compatibility methods removed - use proper repository pattern instead
 
     /// Execute a transactional query (simulated as batch execution)
     pub async fn execute_transactional_query<
@@ -1254,14 +1182,18 @@ impl DatabaseManager {
         let start_time = current_timestamp_ms();
 
         let query =
-            "INSERT INTO opportunity_analysis (id, analysis_data, timestamp) VALUES (?, ?, ?)";
+            "INSERT OR IGNORE INTO opportunity_analysis (id, analysis_data, timestamp) VALUES (?, ?, ?)";
         let params = vec![
             JsValue::from_str(&format!("analysis_{}", start_time)),
             JsValue::from_str(&analysis.to_string()),
             JsValue::from_f64(start_time as f64),
         ];
 
-        match self.execute(query, &params).await {
+        let stmt = self.db.prepare(query);
+        let bound_stmt = stmt.bind(&params).map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+        })?;
+        match bound_stmt.run().await {
             Ok(_) => {
                 self.update_metrics(start_time, true).await;
                 console_log!("✅ Opportunity analysis stored successfully");
@@ -1270,7 +1202,10 @@ impl DatabaseManager {
             Err(e) => {
                 self.update_metrics(start_time, false).await;
                 console_log!("❌ Failed to store opportunity analysis: {}", e);
-                Err(e)
+                Err(ArbitrageError::database_error(format!(
+                    "Failed to execute query: {}",
+                    e
+                )))
             }
         }
     }
@@ -1282,7 +1217,7 @@ impl DatabaseManager {
     ) -> ArbitrageResult<()> {
         let start_time = current_timestamp_ms();
 
-        let query = "INSERT INTO opportunities (
+        let query = "INSERT OR IGNORE INTO opportunities (
             id, pair, long_exchange, short_exchange, long_rate, short_rate, 
             rate_difference, net_rate_difference, potential_profit_value, 
             type, details, timestamp, detection_timestamp, expiry_timestamp,
@@ -1318,7 +1253,11 @@ impl DatabaseManager {
             JsValue::from_f64(start_time as f64), // created_at
         ];
 
-        match self.execute(query, &params).await {
+        let stmt = self.db.prepare(query);
+        let bound_stmt = stmt.bind(&params).map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+        })?;
+        match bound_stmt.run().await {
             Ok(_) => {
                 self.update_metrics(start_time, true).await;
                 log::info!("✅ Stored opportunity {} successfully", opportunity.id);
@@ -1327,7 +1266,10 @@ impl DatabaseManager {
             Err(e) => {
                 self.update_metrics(start_time, false).await;
                 log::error!("❌ Failed to store opportunity {}: {}", opportunity.id, e);
-                Err(e)
+                Err(ArbitrageError::database_error(format!(
+                    "Failed to execute query: {}",
+                    e
+                )))
             }
         }
     }
@@ -1350,7 +1292,11 @@ impl DatabaseManager {
             JsValue::from_f64(start_time as f64),
         ];
 
-        match self.execute(query, &params).await {
+        let stmt = self.db.prepare(query);
+        let bound_stmt = stmt.bind(&params).map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+        })?;
+        match bound_stmt.run().await {
             Ok(_) => {
                 self.update_metrics(start_time, true).await;
                 console_log!(
@@ -1367,7 +1313,10 @@ impl DatabaseManager {
                     opportunity_id,
                     e
                 );
-                Err(e)
+                Err(ArbitrageError::database_error(format!(
+                    "Failed to execute query: {}",
+                    e
+                )))
             }
         }
     }

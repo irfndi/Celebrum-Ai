@@ -208,5 +208,5 @@ impl EnhancedCacheStats {
     }
 }
 
-// Compatibility alias for legacy code
+// Type alias for convenience
 pub type CacheStats = EnhancedCacheStats;

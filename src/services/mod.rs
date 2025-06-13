@@ -13,7 +13,7 @@ pub use core::analysis::{
 };
 pub use core::infrastructure::CacheManager;
 pub use core::infrastructure::{
-    // Legacy services still in use
+    // All services now fully modularized
     AnalyticsEngineService,
     DataAccessLayer,
     DataIngestionModule,
@@ -47,7 +47,5 @@ pub use core::user::{
     DynamicConfigService, SessionManagementService, UserProfileService,
     UserTradingPreferencesService,
 };
-pub use interfaces::telegram::{
-    ModularTelegramService, TelegramService, UserInfo, UserPermissions,
-};
+pub use interfaces::telegram::{ModularTelegramService, UserInfo, UserPermissions};
 pub use interfaces::{InlineKeyboard, InlineKeyboardButton};

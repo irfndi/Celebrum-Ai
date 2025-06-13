@@ -1,6 +1,7 @@
 use crate::services::core::infrastructure::DatabaseManager;
 use crate::types::MessageAnalytics;
 use crate::utils::ArbitrageResult;
+use crate::ArbitrageError;
 use std::sync::Arc;
 use worker::console_log;
 
@@ -64,31 +65,27 @@ impl UserActivityService {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    worker::wasm_bindgen::JsValue::from_str(&analytics.message_id),
-                    worker::wasm_bindgen::JsValue::from_f64(analytics.chat_id as f64),
-                    worker::wasm_bindgen::JsValue::from_str(
-                        &analytics.user_id.clone().unwrap_or_default(),
-                    ),
-                    worker::wasm_bindgen::JsValue::from_str(&analytics.message_type),
-                    worker::wasm_bindgen::JsValue::from_str(
-                        &analytics.command.clone().unwrap_or_default(),
-                    ),
-                    worker::wasm_bindgen::JsValue::from_f64(analytics.timestamp as f64),
-                    worker::wasm_bindgen::JsValue::from_f64(analytics.response_time_ms as f64),
-                    worker::wasm_bindgen::JsValue::from_bool(analytics.success),
-                    worker::wasm_bindgen::JsValue::from_str(
-                        &analytics.error_message.clone().unwrap_or_default(),
-                    ),
-                    worker::wasm_bindgen::JsValue::from_str(
-                        &serde_json::to_string(&analytics.metadata).unwrap_or_default(),
-                    ),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            worker::wasm_bindgen::JsValue::from_str(&analytics.message_id),
+            worker::wasm_bindgen::JsValue::from_f64(analytics.chat_id as f64),
+            worker::wasm_bindgen::JsValue::from_str(&analytics.user_id.clone().unwrap_or_default()),
+            worker::wasm_bindgen::JsValue::from_str(&analytics.message_type),
+            worker::wasm_bindgen::JsValue::from_str(&analytics.command.clone().unwrap_or_default()),
+            worker::wasm_bindgen::JsValue::from_f64(analytics.timestamp as f64),
+            worker::wasm_bindgen::JsValue::from_f64(analytics.response_time_ms as f64),
+            worker::wasm_bindgen::JsValue::from_bool(analytics.success),
+            worker::wasm_bindgen::JsValue::from_str(
+                &analytics.error_message.clone().unwrap_or_default(),
+            ),
+            worker::wasm_bindgen::JsValue::from_str(
+                &serde_json::to_string(&analytics.metadata).unwrap_or_default(),
+            ),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(())
     }
@@ -124,16 +121,15 @@ impl UserActivityService {
             ORDER BY count DESC
         "#;
 
-        let result = self
-            .d1_service
-            .query(
-                query,
-                &[
-                    worker::wasm_bindgen::JsValue::from_str(user_id),
-                    worker::wasm_bindgen::JsValue::from_f64(start_timestamp as f64),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            worker::wasm_bindgen::JsValue::from_str(user_id),
+            worker::wasm_bindgen::JsValue::from_f64(start_timestamp as f64),
+        ])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         let rows = result.results::<std::collections::HashMap<String, serde_json::Value>>()?;
 

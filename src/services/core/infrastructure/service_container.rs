@@ -21,7 +21,7 @@ use crate::services::core::user::user_profile::UserProfileService;
 // use crate::services::core::user::user_activity::UserActivityService;
 // use crate::services::core::user::group_management::GroupManagementService;
 
-use crate::services::interfaces::telegram::legacy_telegram::TelegramService;
+use crate::services::interfaces::telegram::ModularTelegramService;
 // use crate::services::core::admin::{AdminService, UserManagementService, SystemConfigService, MonitoringService, AuditService};
 use crate::utils::feature_flags::{load_feature_flags, FeatureFlags};
 use crate::utils::{ArbitrageError, ArbitrageResult};
@@ -36,7 +36,7 @@ use worker::{kv::KvStore, Env};
 pub struct ServiceContainer {
     pub session_service: Arc<SessionManagementService>,
     pub distribution_service: OpportunityDistributionService,
-    pub telegram_service: Option<Arc<TelegramService>>,
+    pub telegram_service: Option<Arc<ModularTelegramService>>,
     pub exchange_service: Arc<ExchangeService>,
     pub user_profile_service: Option<Arc<UserProfileService>>,
     pub opportunity_engine: Option<Arc<OpportunityEngine>>,
@@ -105,18 +105,9 @@ impl ServiceContainer {
         .await
         .ok();
 
-        // Initialize Telegram Service
-        let telegram_service = match TelegramService::from_env(env) {
-            Ok(service) => {
-                console_log!("✅ Telegram service initialized successfully");
-                Some(Arc::new(service))
-            }
-            Err(e) => {
-                console_log!("⚠️ Failed to initialize Telegram service: {:?}", e);
-                console_log!("⚠️ Telegram webhooks will not be available");
-                None
-            }
-        };
+        // Initialize Telegram Service (using modular service)
+        // Note: Telegram service will be initialized after ServiceContainer creation to avoid circular dependency
+        let telegram_service = None;
 
         // Initialize Admin Service
         // let admin_service = Self::create_admin_service(env, &kv_store)?;
@@ -212,11 +203,30 @@ impl ServiceContainer {
         Ok(container)
     }
 
+    /// Initialize Telegram service after container creation to avoid circular dependency
+    pub async fn initialize_telegram_service(
+        container: Arc<ServiceContainer>,
+        env: &Env,
+    ) -> ArbitrageResult<Arc<ModularTelegramService>> {
+        match ModularTelegramService::new(env, container).await {
+            Ok(service) => {
+                console_log!("✅ Modular Telegram service initialized successfully");
+                Ok(Arc::new(service))
+            }
+            Err(e) => {
+                console_log!("⚠️ Failed to initialize Modular Telegram service: {:?}", e);
+                console_log!("⚠️ Telegram webhooks will not be available");
+                Err(e)
+            }
+        }
+    }
+
     /// Set the Telegram service for push notifications using Arc for shared ownership
-    pub fn set_telegram_service(&mut self, telegram_service: TelegramService) {
+    pub fn set_telegram_service(&mut self, telegram_service: ModularTelegramService) {
         let arc_telegram_service = Arc::new(telegram_service);
-        self.distribution_service
-            .set_notification_sender(Box::new((*arc_telegram_service).clone()));
+        // Note: ModularTelegramService may need different integration with distribution service
+        // self.distribution_service
+        //     .set_notification_sender(Box::new((*arc_telegram_service).clone()));
         self.telegram_service = Some(arc_telegram_service);
     }
 
@@ -316,7 +326,7 @@ impl ServiceContainer {
     }
 
     /// Get telegram service
-    pub fn telegram_service(&self) -> Option<&Arc<TelegramService>> {
+    pub fn telegram_service(&self) -> Option<&Arc<ModularTelegramService>> {
         self.telegram_service.as_ref()
     }
 

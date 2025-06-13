@@ -1,6 +1,7 @@
 // Service Health Module - Unified Health Checks and Service Monitoring
 // Consolidates health check patterns from multiple services with comprehensive monitoring
 
+use crate::services::core::infrastructure::UnifiedHealthCheckConfig;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 
 use serde::{Deserialize, Serialize};
@@ -59,37 +60,8 @@ pub struct SystemHealthReport {
     pub uptime_seconds: u64,
 }
 
-/// Health check configuration
-#[derive(Debug, Clone)]
-pub struct HealthCheckConfig {
-    pub check_interval_seconds: u64,
-    pub timeout_seconds: u64,
-    pub max_retries: u32,
-    pub critical_services: Vec<String>,
-    pub degraded_threshold_ms: f64,
-    pub unhealthy_threshold_ms: f64,
-    pub enable_dependency_checks: bool,
-    pub enable_detailed_metrics: bool,
-}
-
-impl Default for HealthCheckConfig {
-    fn default() -> Self {
-        Self {
-            check_interval_seconds: 30, // Check every 30 seconds
-            timeout_seconds: 10,        // 10 second timeout per check
-            max_retries: 2,             // 2 retry attempts
-            critical_services: vec![
-                "database".to_string(),
-                "cache".to_string(),
-                "notifications".to_string(),
-            ],
-            degraded_threshold_ms: 1000.0,  // 1 second for degraded
-            unhealthy_threshold_ms: 5000.0, // 5 seconds for unhealthy
-            enable_dependency_checks: true,
-            enable_detailed_metrics: true,
-        }
-    }
-}
+// Use unified health check configuration
+pub type HealthCheckConfig = UnifiedHealthCheckConfig;
 
 /// Health check function trait for services
 #[async_trait::async_trait]
@@ -131,7 +103,7 @@ impl ServiceHealthManager {
     /// Create new ServiceHealthManager with default configuration
     pub fn new() -> Self {
         Self {
-            config: HealthCheckConfig::default(),
+            config: UnifiedHealthCheckConfig::service_optimized(),
             services: HashMap::new(),
             metrics: Arc::new(std::sync::Mutex::new(HashMap::new())),
             last_health_report: Arc::new(std::sync::Mutex::new(None)),
@@ -574,7 +546,7 @@ mod tests {
     #[test]
     fn test_health_check_config_default() {
         let config = HealthCheckConfig::default();
-        assert_eq!(config.check_interval_seconds, 30);
+        assert_eq!(config.interval_seconds, 30);
         assert_eq!(config.timeout_seconds, 10);
         assert_eq!(config.max_retries, 2);
         assert_eq!(config.degraded_threshold_ms, 1000.0);
@@ -643,6 +615,6 @@ mod tests {
     fn test_service_health_manager_creation() {
         let manager = ServiceHealthManager::new();
         assert_eq!(manager.services.len(), 0);
-        assert_eq!(manager.config.check_interval_seconds, 30);
+        assert_eq!(manager.config.interval_seconds, 30);
     }
 }

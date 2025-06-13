@@ -132,7 +132,12 @@ impl ReferralService {
             WHERE user_id = ?
         "#;
 
-        let result = self.d1_service.query(query, &[user_id.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[user_id.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         if let Some(row) = result
             .results::<HashMap<String, serde_json::Value>>()?
@@ -237,16 +242,16 @@ impl ReferralService {
             WHERE user_id = ?
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    new_code.into(),
-                    Utc::now().to_rfc3339().into(),
-                    user_id.into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            new_code.into(),
+            Utc::now().to_rfc3339().into(),
+            user_id.into(),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         // Return updated referral code
         self.get_user_referral_code(user_id).await
@@ -270,10 +275,12 @@ impl ReferralService {
         let existing_usage_check = r#"
             SELECT COUNT(*) as count FROM referral_usage WHERE referred_user_id = ?
         "#;
-        let existing_result = self
-            .d1_service
-            .query(existing_usage_check, &[new_user_id.into()])
-            .await?;
+        let stmt = self.d1_service.prepare(existing_usage_check);
+        let bound_stmt = stmt.bind(&[new_user_id.into()])?;
+        let existing_result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
         if let Some(row) = existing_result
             .results::<HashMap<String, serde_json::Value>>()?
             .first()
@@ -373,10 +380,12 @@ impl ReferralService {
             LIMIT ?
         "#;
 
-        let result = self
-            .d1_service
-            .query(query, &[limit.to_string().into()])
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[limit.to_string().into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         let mut leaderboard = Vec::new();
         for (index, row) in result
@@ -437,18 +446,18 @@ impl ReferralService {
             WHERE referrer_user_id = ? AND referred_user_id = ?
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    bonus_amount.into(),
-                    bonus_type.as_str().to_string().into(),
-                    conversion_status.as_str().to_string().into(),
-                    referrer_user_id.into(),
-                    referred_user_id.into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            bonus_amount.into(),
+            bonus_type.as_str().to_string().into(),
+            conversion_status.as_str().to_string().into(),
+            referrer_user_id.into(),
+            referred_user_id.into(),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         // Update referrer's total bonuses
         self.update_referrer_statistics(referrer_user_id).await?;
@@ -486,7 +495,12 @@ impl ReferralService {
 
     async fn referral_code_exists(&self, code: &str) -> Result<bool> {
         let query = "SELECT COUNT(*) as count FROM user_referral_codes WHERE referral_code = ?";
-        let result = self.d1_service.query(query, &[code.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[code.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         if let Some(row) = result
             .results::<HashMap<String, serde_json::Value>>()?
@@ -515,21 +529,21 @@ impl ReferralService {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    referral_code.id.clone().into(),
-                    referral_code.user_id.clone().into(),
-                    referral_code.referral_code.clone().into(),
-                    referral_code.is_active.into(),
-                    referral_code.created_at.to_rfc3339().into(),
-                    referral_code.updated_at.to_rfc3339().into(),
-                    referral_code.total_uses.into(),
-                    referral_code.total_bonuses_earned.into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            referral_code.id.clone().into(),
+            referral_code.user_id.clone().into(),
+            referral_code.referral_code.clone().into(),
+            referral_code.is_active.into(),
+            referral_code.created_at.to_rfc3339().into(),
+            referral_code.updated_at.to_rfc3339().into(),
+            referral_code.total_uses.into(),
+            referral_code.total_bonuses_earned.into(),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         Ok(())
     }
@@ -542,10 +556,12 @@ impl ReferralService {
             WHERE referral_code = ? AND is_active = true
         "#;
 
-        let result = self
-            .d1_service
-            .query(query, &[referral_code.into()])
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[referral_code.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         if let Some(row) = result
             .results::<HashMap<String, serde_json::Value>>()?
@@ -638,21 +654,21 @@ impl ReferralService {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    usage.id.clone().into(),
-                    usage.referrer_user_id.clone().into(),
-                    usage.referred_user_id.clone().into(),
-                    usage.referral_code.clone().into(),
-                    usage.used_at.to_rfc3339().into(),
-                    usage.bonus_awarded.into(),
-                    usage.bonus_type.as_str().to_string().into(),
-                    usage.conversion_status.as_str().to_string().into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            usage.id.clone().into(),
+            usage.referrer_user_id.clone().into(),
+            usage.referred_user_id.clone().into(),
+            usage.referral_code.clone().into(),
+            usage.used_at.to_rfc3339().into(),
+            usage.bonus_awarded.into(),
+            usage.bonus_type.as_str().to_string().into(),
+            usage.conversion_status.as_str().to_string().into(),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         Ok(())
     }
@@ -673,18 +689,18 @@ impl ReferralService {
             WHERE user_id = ?
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    user_id.into(),
-                    user_id.into(),
-                    user_id.into(),
-                    Utc::now().to_rfc3339().into(),
-                    user_id.into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            user_id.into(),
+            user_id.into(),
+            user_id.into(),
+            Utc::now().to_rfc3339().into(),
+            user_id.into(),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         Ok(())
     }
@@ -692,7 +708,12 @@ impl ReferralService {
     // Placeholder methods for statistics calculation
     async fn count_user_referrals(&self, user_id: &str) -> Result<u32> {
         let query = "SELECT COUNT(*) as count FROM referral_usage WHERE referrer_user_id = ?";
-        let result = self.d1_service.query(query, &[user_id.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[user_id.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         if let Some(row) = result
             .results::<HashMap<String, serde_json::Value>>()?
@@ -714,17 +735,16 @@ impl ReferralService {
             SELECT COUNT(*) as count FROM referral_usage 
             WHERE referrer_user_id = ? AND conversion_status IN (?, ?)
         "#;
-        let result = self
-            .d1_service
-            .query(
-                query,
-                &[
-                    user_id.into(),
-                    subscribed_status.into(),
-                    active_user_status.into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            user_id.into(),
+            subscribed_status.into(),
+            active_user_status.into(),
+        ])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         if let Some(row) = result
             .results::<HashMap<String, serde_json::Value>>()?
@@ -748,7 +768,12 @@ impl ReferralService {
 
     async fn calculate_total_bonuses_earned(&self, user_id: &str) -> Result<f64> {
         let query = "SELECT COALESCE(SUM(bonus_awarded), 0) as total FROM referral_usage WHERE referrer_user_id = ?";
-        let result = self.d1_service.query(query, &[user_id.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[user_id.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         if let Some(row) = result
             .results::<HashMap<String, serde_json::Value>>()?
@@ -773,7 +798,12 @@ impl ReferralService {
             SELECT COUNT(*) as count FROM referral_usage 
             WHERE referrer_user_id = ? AND used_at >= datetime('now', '-1 month')
         "#;
-        let result = self.d1_service.query(query, &[user_id.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[user_id.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         if let Some(row) = result
             .results::<HashMap<String, serde_json::Value>>()?
@@ -792,7 +822,12 @@ impl ReferralService {
             SELECT COALESCE(SUM(bonus_awarded), 0) as total FROM referral_usage 
             WHERE referrer_user_id = ? AND used_at >= datetime('now', '-1 month')
         "#;
-        let result = self.d1_service.query(query, &[user_id.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[user_id.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| anyhow!("Database error: {}", e))?;
 
         if let Some(row) = result
             .results::<HashMap<String, serde_json::Value>>()?

@@ -28,11 +28,7 @@ binding = "ArbEdgeKV"
 id = "1018c576bf664c15afe0c53d85df8ed0"
 preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
 
-# Add ARBITRAGE_KV binding for legacy compatibility
-[[kv_namespaces]]
-binding = "ARBITRAGE_KV"
-id = "1018c576bf664c15afe0c53d85df8ed0"
-preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
+
 
 [[kv_namespaces]]
 binding = "PROD_BOT_MARKET_CACHE"
@@ -112,7 +108,7 @@ dataset = "arbitrage_analytics"
 
 # Cron Triggers
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/2 * * * *"]
 
 
 

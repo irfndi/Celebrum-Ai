@@ -9,7 +9,7 @@ use crate::services::core::user::user_exchange_api::RateLimitInfo;
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::{
     CommandPermission, ExchangeCredentials, ExchangeIdEnum, Market, Order, OrderBook, Position,
-    Ticker, TradingFeeRates, TradingFees,
+    Ticker, TradingFees,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 
@@ -584,26 +584,23 @@ impl ExchangeInterface for ExchangeService {
         }
     }
 
-    async fn get_markets(&self, _exchange_id: &str) -> ArbitrageResult<Vec<Market>> {
-        // Placeholder implementation
-        Ok(vec![])
+    async fn get_markets(&self, exchange_id: &str) -> ArbitrageResult<Vec<Market>> {
+        Err(ArbitrageError::not_implemented(format!(
+            "Market listing not implemented for exchange: {}. Use exchange-specific APIs for market data.",
+            exchange_id
+        )))
     }
 
     async fn get_orderbook(
         &self,
-        _exchange_id: &str,
+        exchange_id: &str,
         symbol: &str,
         _limit: Option<u32>,
     ) -> ArbitrageResult<OrderBook> {
-        // Placeholder implementation
-        Ok(OrderBook {
-            symbol: symbol.to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            datetime: chrono::Utc::now().to_rfc3339(),
-            nonce: None,
-            bids: vec![],
-            asks: vec![],
-        })
+        Err(ArbitrageError::not_implemented(format!(
+            "Orderbook fetching not implemented for exchange: {} and symbol: {}. Use real-time market data APIs.",
+            exchange_id, symbol
+        )))
     }
 
     async fn get_balance(
@@ -621,142 +618,105 @@ impl ExchangeInterface for ExchangeService {
 
     async fn create_order(
         &self,
-        _exchange_id: &str,
+        exchange_id: &str,
         _credentials: &ExchangeCredentials,
         symbol: &str,
         side: &str,
         amount: f64,
         price: Option<f64>,
     ) -> ArbitrageResult<Order> {
-        // Placeholder implementation
-        Ok(Order {
-            id: "placeholder".to_string(),
-            client_order_id: None,
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            datetime: chrono::Utc::now().to_rfc3339(),
-            last_trade_timestamp: None,
-            symbol: symbol.to_string(),
-            type_: "limit".to_string(),
-            time_in_force: None,
-            side: side.to_string(),
-            amount,
-            price,
-            average: None,
-            filled: 0.0,
-            remaining: amount,
-            status: "open".to_string(),
-            fee: None,
-            cost: 0.0,
-            trades: vec![],
-            info: serde_json::Value::Object(serde_json::Map::new()),
-        })
+        Err(ArbitrageError::not_implemented(format!(
+            "Order creation not implemented for exchange: {} (symbol: {}, side: {}, amount: {}, price: {:?}). Use UserExchangeApiService for trading operations.",
+            exchange_id, symbol, side, amount, price
+        )))
     }
 
     async fn cancel_order(
         &self,
-        _exchange_id: &str,
+        exchange_id: &str,
         _credentials: &ExchangeCredentials,
         order_id: &str,
         symbol: &str,
     ) -> ArbitrageResult<Order> {
-        // Placeholder implementation
-        Ok(Order {
-            id: order_id.to_string(),
-            client_order_id: None,
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            datetime: chrono::Utc::now().to_rfc3339(),
-            last_trade_timestamp: None,
-            symbol: symbol.to_string(),
-            type_: "limit".to_string(),
-            time_in_force: None,
-            side: "buy".to_string(),
-            amount: 0.0,
-            price: None,
-            average: None,
-            filled: 0.0,
-            remaining: 0.0,
-            status: "cancelled".to_string(),
-            fee: None,
-            cost: 0.0,
-            trades: vec![],
-            info: serde_json::Value::Object(serde_json::Map::new()),
-        })
+        Err(ArbitrageError::not_implemented(format!(
+            "Order cancellation not implemented for exchange: {} (order_id: {}, symbol: {}). Use UserExchangeApiService for trading operations.",
+            exchange_id, order_id, symbol
+        )))
     }
 
     async fn get_open_orders(
         &self,
-        _exchange_id: &str,
+        exchange_id: &str,
         _credentials: &ExchangeCredentials,
-        _symbol: Option<&str>,
+        symbol: Option<&str>,
     ) -> ArbitrageResult<Vec<Order>> {
-        // Placeholder implementation
-        Ok(vec![])
+        Err(ArbitrageError::not_implemented(format!(
+            "Open orders fetching not implemented for exchange: {} (symbol: {:?}). Use UserExchangeApiService for account data.",
+            exchange_id, symbol
+        )))
     }
 
     async fn get_open_positions(
         &self,
-        _exchange_id: &str,
+        exchange_id: &str,
         _credentials: &ExchangeCredentials,
-        _symbol: Option<&str>,
+        symbol: Option<&str>,
     ) -> ArbitrageResult<Vec<Position>> {
-        // Placeholder implementation
-        Ok(vec![])
+        Err(ArbitrageError::not_implemented(format!(
+            "Position fetching not implemented for exchange: {} (symbol: {:?}). Use UserExchangeApiService for account data.",
+            exchange_id, symbol
+        )))
     }
 
     async fn set_leverage(
         &self,
-        _exchange_id: &str,
+        exchange_id: &str,
         _credentials: &ExchangeCredentials,
-        _symbol: &str,
-        _leverage: u32,
+        symbol: &str,
+        leverage: u32,
     ) -> ArbitrageResult<()> {
-        // Placeholder implementation
-        Ok(())
+        Err(ArbitrageError::not_implemented(format!(
+            "Leverage setting not implemented for exchange: {} (symbol: {}, leverage: {}). Use UserExchangeApiService for account management.",
+            exchange_id, symbol, leverage
+        )))
     }
 
     async fn get_trading_fees(
         &self,
-        _exchange_id: &str,
+        exchange_id: &str,
         _credentials: &ExchangeCredentials,
-        _symbol: &str,
+        symbol: &str,
     ) -> ArbitrageResult<TradingFees> {
-        // Placeholder implementation
-        Ok(TradingFees {
-            trading: TradingFeeRates {
-                maker: 0.001,
-                taker: 0.001,
-                percentage: true,
-                tier_based: false,
-            },
-            funding: Some(TradingFeeRates {
-                maker: 0.0,
-                taker: 0.0,
-                percentage: true,
-                tier_based: false,
-            }),
-        })
+        Err(ArbitrageError::not_implemented(format!(
+            "Trading fees fetching not implemented for exchange: {} (symbol: {}). Use exchange-specific APIs for fee information.",
+            exchange_id, symbol
+        )))
     }
 
     async fn test_api_connection(
         &self,
-        _exchange_id: &str,
+        exchange_id: &str,
         _api_key: &str,
         _secret: &str,
     ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
-        // Placeholder implementation: (can_read, can_trade, rate_limit_info)
-        Ok((true, true, None))
+        Err(ArbitrageError::not_implemented(format!(
+            "API connection testing not implemented for exchange: {}. Use UserExchangeApiService for credential validation.",
+            exchange_id
+        )))
     }
 
     async fn test_api_connection_with_options(
         &self,
-        _exchange_id: &str,
+        exchange_id: &str,
         _api_key: &str,
         _secret: &str,
         _leverage: Option<i32>,
         _exchange_type: Option<&str>,
     ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
-        // Placeholder implementation: (can_read, can_trade, rate_limit_info)
-        Ok((true, true, None))
+        Err(ArbitrageError::not_implemented(format!(
+            "API connection testing with options not implemented for exchange: {}. Use UserExchangeApiService for credential validation.",
+            exchange_id
+        )))
     }
 }
 

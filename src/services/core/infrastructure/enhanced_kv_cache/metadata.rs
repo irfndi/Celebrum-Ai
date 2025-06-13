@@ -860,8 +860,31 @@ impl MetadataTracker {
     }
 
     fn calculate_distribution_efficiency(&self) -> f64 {
-        // Analyze how well data is distributed across tiers
-        0.75 // Placeholder
+        // Calculate actual distribution efficiency based on service stats
+        if self.service_stats.is_empty() {
+            return 0.0;
+        }
+
+        let total_entries: u64 = self.service_stats.values().map(|s| s.entry_count).sum();
+        if total_entries == 0 {
+            return 0.0;
+        }
+
+        // Calculate variance in distribution
+        let avg_entries = total_entries as f64 / self.service_stats.len() as f64;
+        let variance: f64 = self
+            .service_stats
+            .values()
+            .map(|s| {
+                let diff = s.entry_count as f64 - avg_entries;
+                diff * diff
+            })
+            .sum::<f64>()
+            / self.service_stats.len() as f64;
+
+        // Lower variance means better distribution
+        let normalized_variance = (variance / (avg_entries * avg_entries)).min(1.0);
+        1.0 - normalized_variance
     }
 
     fn calculate_cleanup_health(&self) -> f64 {
@@ -881,8 +904,21 @@ impl MetadataTracker {
     }
 
     fn calculate_resource_efficiency(&self) -> f64 {
-        // Calculate overall resource utilization efficiency
-        0.8 // Placeholder
+        // Calculate actual resource efficiency based on hit rates and compression
+        if self.service_stats.is_empty() {
+            return 0.0;
+        }
+
+        let avg_hit_rate = self.calculate_average_hit_rate();
+        let avg_compression = self
+            .data_type_stats
+            .values()
+            .map(|s| s.compression_ratio)
+            .sum::<f64>()
+            / self.data_type_stats.len().max(1) as f64;
+
+        // Combine hit rate and compression efficiency
+        (avg_hit_rate * 0.7 + avg_compression * 0.3).min(1.0)
     }
 
     fn identify_underperforming_types(&self) -> Vec<String> {
@@ -901,10 +937,28 @@ impl MetadataTracker {
     }
 
     fn generate_hot_path_metrics(&self) -> HotPathMetrics {
+        // Calculate actual hot path metrics from service stats
+        let avg_response_time = self.calculate_average_response_time();
+
+        let mut bottlenecks = Vec::new();
+        let mut optimizations = Vec::new();
+
+        // Identify bottlenecks based on actual data
+        if avg_response_time > 20.0 {
+            bottlenecks.push("High average response time".to_string());
+            optimizations.push("Optimize cache tier allocation".to_string());
+        }
+
+        let avg_hit_rate = self.calculate_average_hit_rate();
+        if avg_hit_rate < 0.8 {
+            bottlenecks.push("Low cache hit rate".to_string());
+            optimizations.push("Improve cache warming strategies".to_string());
+        }
+
         HotPathMetrics {
-            critical_path_response_ms: 5.2,
-            bottlenecks: vec!["Tier promotion latency".to_string()],
-            optimization_opportunities: vec!["Batch tier promotions".to_string()],
+            critical_path_response_ms: avg_response_time,
+            bottlenecks,
+            optimization_opportunities: optimizations,
         }
     }
 
@@ -933,21 +987,15 @@ impl MetadataTracker {
     }
 
     fn calculate_current_tier_distribution(&self) -> HashMap<String, f64> {
-        // Placeholder implementation
-        let mut distribution = HashMap::new();
-        distribution.insert("hot".to_string(), 0.2);
-        distribution.insert("warm".to_string(), 0.5);
-        distribution.insert("cold".to_string(), 0.3);
-        distribution
+        // TODO: Implement real tier distribution calculation based on actual cache data
+        // For now, return empty to avoid mock data
+        HashMap::new()
     }
 
     fn calculate_optimal_tier_distribution(&self) -> HashMap<String, f64> {
-        // Placeholder implementation
-        let mut distribution = HashMap::new();
-        distribution.insert("hot".to_string(), 0.15);
-        distribution.insert("warm".to_string(), 0.6);
-        distribution.insert("cold".to_string(), 0.25);
-        distribution
+        // TODO: Implement optimal tier distribution calculation based on access patterns
+        // For now, return empty to avoid mock data
+        HashMap::new()
     }
 
     fn identify_tier_migration_candidates(&self) -> Vec<TierMigrationCandidate> {
@@ -956,11 +1004,9 @@ impl MetadataTracker {
     }
 
     fn calculate_tier_efficiency_scores(&self) -> HashMap<String, f64> {
-        let mut scores = HashMap::new();
-        scores.insert("hot".to_string(), 0.85);
-        scores.insert("warm".to_string(), 0.78);
-        scores.insert("cold".to_string(), 0.65);
-        scores
+        // TODO: Implement real tier efficiency calculation
+        // For now, return empty to avoid mock data
+        HashMap::new()
     }
 
     fn calculate_access_trends(&self) -> Vec<TrendDataPoint> {
@@ -1038,31 +1084,47 @@ impl MetadataTracker {
     }
 
     fn calculate_hit_rate_trend(&self) -> String {
-        "stable".to_string() // Placeholder
+        // TODO: Implement trend analysis based on historical data
+        // For now, return "unknown" to avoid mock data
+        "unknown".to_string()
     }
 
     fn calculate_response_time_percentiles(&self) -> HashMap<String, f64> {
-        let mut percentiles = HashMap::new();
-        percentiles.insert("p50".to_string(), 5.0);
-        percentiles.insert("p95".to_string(), 15.0);
-        percentiles.insert("p99".to_string(), 30.0);
-        percentiles
+        // TODO: Implement real percentile calculation from historical data
+        // For now, return empty to avoid mock data
+        HashMap::new()
     }
 
     fn calculate_response_time_trend(&self) -> String {
-        "improving".to_string() // Placeholder
+        // TODO: Implement trend analysis based on historical data
+        // For now, return "unknown" to avoid mock data
+        "unknown".to_string()
     }
 
     fn calculate_memory_utilization(&self) -> f64 {
-        0.65 // Placeholder - 65% utilization
+        // Calculate actual memory utilization based on total size
+        let total_size: u64 = self.service_stats.values().map(|s| s.total_size).sum();
+
+        // Assume 1GB total capacity for calculation (should be configurable)
+        let total_capacity = 1024 * 1024 * 1024; // 1GB
+
+        if total_capacity > 0 {
+            (total_size as f64 / total_capacity as f64).min(1.0)
+        } else {
+            0.0
+        }
     }
 
     fn calculate_memory_growth_rate(&self) -> f64 {
-        0.05 // Placeholder - 5% growth rate
+        // TODO: Implement growth rate calculation based on historical data
+        // For now, return 0.0 to avoid mock data
+        0.0
     }
 
     fn calculate_projected_full_days(&self) -> u64 {
-        180 // Placeholder - projected full in 180 days
+        // TODO: Implement projection based on actual growth patterns
+        // For now, return 0 to indicate unknown
+        0
     }
 
     fn count_hot_spots(&self) -> usize {

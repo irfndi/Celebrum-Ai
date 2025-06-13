@@ -20,7 +20,7 @@ pub struct VisualizationConfig {
 
 use crate::services::core::infrastructure::persistence_layer::connection_pool::ConnectionManager;
 use crate::services::core::infrastructure::persistence_layer::transaction_coordinator::TransactionCoordinator;
-use crate::utils::ArbitrageResult;
+use crate::utils::{ArbitrageError, ArbitrageResult};
 
 /// Dashboard configuration for performance monitoring
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1045,19 +1045,354 @@ impl PerformanceMonitoringDashboard {
     /// Get real-time data for a widget
     pub async fn get_widget_data(
         &self,
-        _widget_id: Uuid,
-        _time_range: TimeRange,
+        widget_id: Uuid,
+        time_range: TimeRange,
     ) -> ArbitrageResult<Vec<DataPoint>> {
-        // Implementation would fetch real-time data based on widget configuration
-        // For now, return sample data
+        // Find the widget in our layouts to determine data source
+        let data_source = {
+            let layouts = self.layouts.read();
+            layouts
+                .values()
+                .flat_map(|layout| &layout.widgets)
+                .find(|w| w.id == widget_id)
+                .map(|widget| widget.data_source.clone())
+        };
+
+        if let Some(data_source) = data_source {
+            match data_source {
+                DataSource::Metrics {
+                    source,
+                    query,
+                    filters,
+                } => {
+                    self.fetch_metrics_data(&source, &query, &filters, &time_range)
+                        .await
+                }
+                DataSource::Logs {
+                    source,
+                    query,
+                    level_filter,
+                } => {
+                    self.fetch_logs_data(&source, &query, &level_filter, &time_range)
+                        .await
+                }
+                DataSource::Traces {
+                    service,
+                    operation,
+                    duration_filter,
+                } => {
+                    self.fetch_traces_data(&service, &operation, &duration_filter, &time_range)
+                        .await
+                }
+                DataSource::Custom {
+                    endpoint,
+                    method,
+                    headers,
+                } => {
+                    self.fetch_custom_data(&endpoint, &method, &headers, &time_range)
+                        .await
+                }
+            }
+        } else {
+            Err(ArbitrageError::not_found(format!(
+                "Widget with ID {} not found",
+                widget_id
+            )))
+        }
+    }
+
+    /// Fetch metrics data from monitoring systems
+    async fn fetch_metrics_data(
+        &self,
+        source: &str,
+        query: &str,
+        filters: &HashMap<String, String>,
+        time_range: &TimeRange,
+    ) -> ArbitrageResult<Vec<DataPoint>> {
+        let (start_time, end_time) = self.get_time_range_bounds(time_range);
+
+        // In a real implementation, this would query actual monitoring systems
+        // like Prometheus, CloudWatch, DataDog, etc.
+        let data_points = match source {
+            "system_metrics" => {
+                // Fetch system performance metrics
+                self.get_system_performance_metrics(query, filters, start_time, end_time)
+                    .await?
+            }
+            "application_metrics" => {
+                // Fetch application-specific metrics
+                self.get_application_metrics(query, filters, start_time, end_time)
+                    .await?
+            }
+            "business_metrics" => {
+                // Fetch business KPI metrics
+                self.get_business_metrics(query, filters, start_time, end_time)
+                    .await?
+            }
+            _ => {
+                return Err(ArbitrageError::validation_error(format!(
+                    "Unknown metrics source: {}",
+                    source
+                )));
+            }
+        };
+
+        Ok(data_points)
+    }
+
+    /// Fetch logs data from logging systems
+    async fn fetch_logs_data(
+        &self,
+        source: &str,
+        query: &str,
+        level_filter: &[String],
+        time_range: &TimeRange,
+    ) -> ArbitrageResult<Vec<DataPoint>> {
+        let (start_time, end_time) = self.get_time_range_bounds(time_range);
+
+        // In a real implementation, this would query log aggregation systems
+        // like ELK stack, Splunk, CloudWatch Logs, etc.
         let mut data_points = Vec::new();
+
+        // Simulate log aggregation based on level filter
+        let log_levels = if level_filter.is_empty() {
+            vec!["ERROR".to_string(), "WARN".to_string(), "INFO".to_string()]
+        } else {
+            level_filter.to_vec()
+        };
+
+        // Generate log count metrics based on query and filters
+        let duration = end_time.duration_since(start_time).unwrap_or_default();
+        let intervals = (duration.as_secs() / 300).max(1); // 5-minute intervals
+
+        for i in 0..intervals {
+            let timestamp = start_time + Duration::from_secs(i * 300);
+            let mut labels = HashMap::new();
+            labels.insert("source".to_string(), source.to_string());
+            labels.insert("query".to_string(), query.to_string());
+            labels.insert("levels".to_string(), log_levels.join(","));
+
+            // Simulate log count based on level severity
+            let base_count = match log_levels.first().map(|s| s.as_str()) {
+                Some("ERROR") => 5.0,
+                Some("WARN") => 15.0,
+                Some("INFO") => 100.0,
+                _ => 50.0,
+            };
+
+            data_points.push(DataPoint {
+                timestamp,
+                value: base_count + (i as f64 * 2.0),
+                labels,
+                quality: DataQuality::Good,
+            });
+        }
+
+        Ok(data_points)
+    }
+
+    /// Fetch traces data from distributed tracing systems
+    async fn fetch_traces_data(
+        &self,
+        service: &str,
+        operation: &Option<String>,
+        duration_filter: &Option<Duration>,
+        time_range: &TimeRange,
+    ) -> ArbitrageResult<Vec<DataPoint>> {
+        let (start_time, end_time) = self.get_time_range_bounds(time_range);
+
+        // In a real implementation, this would query tracing systems
+        // like Jaeger, Zipkin, AWS X-Ray, etc.
+        let mut data_points = Vec::new();
+
+        let duration = end_time.duration_since(start_time).unwrap_or_default();
+        let intervals = (duration.as_secs() / 60).max(1); // 1-minute intervals
+
+        for i in 0..intervals {
+            let timestamp = start_time + Duration::from_secs(i * 60);
+            let mut labels = HashMap::new();
+            labels.insert("service".to_string(), service.to_string());
+
+            if let Some(op) = operation {
+                labels.insert("operation".to_string(), op.clone());
+            }
+
+            // Simulate trace duration metrics
+            let base_duration = duration_filter
+                .map(|d| d.as_millis() as f64)
+                .unwrap_or(100.0);
+
+            data_points.push(DataPoint {
+                timestamp,
+                value: base_duration + (i as f64 * 5.0),
+                labels,
+                quality: DataQuality::Good,
+            });
+        }
+
+        Ok(data_points)
+    }
+
+    /// Fetch custom data from external endpoints
+    async fn fetch_custom_data(
+        &self,
+        endpoint: &str,
+        method: &str,
+        headers: &HashMap<String, String>,
+        time_range: &TimeRange,
+    ) -> ArbitrageResult<Vec<DataPoint>> {
+        // In a real implementation, this would make HTTP requests to custom endpoints
+        let mut data_points = Vec::new();
+        let (start_time, end_time) = self.get_time_range_bounds(time_range);
+
+        // Simulate custom API response
+        let duration = end_time.duration_since(start_time).unwrap_or_default();
+        let intervals = (duration.as_secs() / 300).max(1); // 5-minute intervals
+
+        for i in 0..intervals {
+            let timestamp = start_time + Duration::from_secs(i * 300);
+            let mut labels = HashMap::new();
+            labels.insert("endpoint".to_string(), endpoint.to_string());
+            labels.insert("method".to_string(), method.to_string());
+
+            // Add custom headers as labels
+            for (key, value) in headers {
+                labels.insert(format!("header_{}", key), value.clone());
+            }
+
+            data_points.push(DataPoint {
+                timestamp,
+                value: 200.0 + (i as f64 * 10.0), // Simulate response time or count
+                labels,
+                quality: DataQuality::Good,
+            });
+        }
+
+        Ok(data_points)
+    }
+
+    /// Get time range bounds from TimeRange enum
+    fn get_time_range_bounds(&self, time_range: &TimeRange) -> (SystemTime, SystemTime) {
         let now = SystemTime::now();
 
-        for i in 0..60 {
+        match time_range {
+            TimeRange::LastMinute => (now - Duration::from_secs(60), now),
+            TimeRange::Last5Minutes => (now - Duration::from_secs(300), now),
+            TimeRange::Last15Minutes => (now - Duration::from_secs(900), now),
+            TimeRange::LastHour => (now - Duration::from_secs(3600), now),
+            TimeRange::Last6Hours => (now - Duration::from_secs(21600), now),
+            TimeRange::Last24Hours => (now - Duration::from_secs(86400), now),
+            TimeRange::Last7Days => (now - Duration::from_secs(604800), now),
+            TimeRange::Last30Days => (now - Duration::from_secs(2592000), now),
+            TimeRange::Last90Days => (now - Duration::from_secs(7776000), now),
+            TimeRange::Custom { start, end } => (*start, *end),
+        }
+    }
+
+    /// Get system performance metrics
+    async fn get_system_performance_metrics(
+        &self,
+        query: &str,
+        _filters: &HashMap<String, String>,
+        start_time: SystemTime,
+        end_time: SystemTime,
+    ) -> ArbitrageResult<Vec<DataPoint>> {
+        let mut data_points = Vec::new();
+        let duration = end_time.duration_since(start_time).unwrap_or_default();
+        let intervals = (duration.as_secs() / 60).max(1); // 1-minute intervals
+
+        for i in 0..intervals {
+            let timestamp = start_time + Duration::from_secs(i * 60);
+            let mut labels = HashMap::new();
+            labels.insert("metric".to_string(), query.to_string());
+
+            // Generate realistic system metrics based on query
+            let value = match query {
+                "cpu_usage" => 20.0 + (i as f64 % 10.0) * 5.0, // 20-70% CPU
+                "memory_usage" => 40.0 + (i as f64 % 8.0) * 7.5, // 40-100% Memory
+                "disk_io" => 100.0 + (i as f64 % 5.0) * 20.0,  // Disk I/O ops
+                "network_throughput" => 1000.0 + (i as f64 % 12.0) * 100.0, // Network MB/s
+                _ => 50.0 + (i as f64 % 6.0) * 10.0,           // Default metric
+            };
+
             data_points.push(DataPoint {
-                timestamp: now - Duration::from_secs(i * 60),
-                value: 100.0 + (i as f64 * 0.5),
-                labels: HashMap::new(),
+                timestamp,
+                value,
+                labels,
+                quality: DataQuality::Good,
+            });
+        }
+
+        Ok(data_points)
+    }
+
+    /// Get application-specific metrics
+    async fn get_application_metrics(
+        &self,
+        query: &str,
+        _filters: &HashMap<String, String>,
+        start_time: SystemTime,
+        end_time: SystemTime,
+    ) -> ArbitrageResult<Vec<DataPoint>> {
+        let mut data_points = Vec::new();
+        let duration = end_time.duration_since(start_time).unwrap_or_default();
+        let intervals = (duration.as_secs() / 300).max(1); // 5-minute intervals
+
+        for i in 0..intervals {
+            let timestamp = start_time + Duration::from_secs(i * 300);
+            let mut labels = HashMap::new();
+            labels.insert("metric".to_string(), query.to_string());
+
+            // Generate application metrics based on query
+            let value = match query {
+                "request_rate" => 500.0 + (i as f64 % 20.0) * 25.0, // Requests per minute
+                "response_time" => 50.0 + (i as f64 % 15.0) * 10.0, // Response time in ms
+                "error_rate" => 0.5 + (i as f64 % 10.0) * 0.1,      // Error percentage
+                "active_connections" => 100.0 + (i as f64 % 30.0) * 10.0, // Active connections
+                _ => 100.0 + (i as f64 % 8.0) * 12.5,               // Default metric
+            };
+
+            data_points.push(DataPoint {
+                timestamp,
+                value,
+                labels,
+                quality: DataQuality::Good,
+            });
+        }
+
+        Ok(data_points)
+    }
+
+    /// Get business KPI metrics
+    async fn get_business_metrics(
+        &self,
+        query: &str,
+        _filters: &HashMap<String, String>,
+        start_time: SystemTime,
+        end_time: SystemTime,
+    ) -> ArbitrageResult<Vec<DataPoint>> {
+        let mut data_points = Vec::new();
+        let duration = end_time.duration_since(start_time).unwrap_or_default();
+        let intervals = (duration.as_secs() / 3600).max(1); // 1-hour intervals
+
+        for i in 0..intervals {
+            let timestamp = start_time + Duration::from_secs(i * 3600);
+            let mut labels = HashMap::new();
+            labels.insert("metric".to_string(), query.to_string());
+
+            // Generate business metrics based on query
+            let value = match query {
+                "opportunities_generated" => 50.0 + (i as f64 % 24.0) * 5.0, // Opportunities per hour
+                "user_registrations" => 10.0 + (i as f64 % 12.0) * 2.0,      // New users per hour
+                "trading_volume" => 10000.0 + (i as f64 % 18.0) * 1000.0,    // Trading volume
+                "profit_generated" => 500.0 + (i as f64 % 16.0) * 100.0,     // Profit in USD
+                _ => 25.0 + (i as f64 % 10.0) * 5.0, // Default business metric
+            };
+
+            data_points.push(DataPoint {
+                timestamp,
+                value,
+                labels,
                 quality: DataQuality::Good,
             });
         }

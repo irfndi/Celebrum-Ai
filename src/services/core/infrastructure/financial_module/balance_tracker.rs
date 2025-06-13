@@ -15,7 +15,6 @@
 
 use super::{BalanceHistoryEntry, ExchangeBalanceSnapshot};
 use crate::services::core::infrastructure::database_repositories::utils::database_error;
-use crate::types::{Balance, Balances};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -333,124 +332,26 @@ impl BalanceTracker {
             }
         }
 
-        // Mock balance fetching - in reality, this would call exchange APIs
-        // This would integrate with UserExchangeApiService for user-specific API keys
-        let mock_balances = self.generate_mock_balances(exchange_id);
-        let total_usd_value = self.calculate_total_usd_value(&mock_balances).await?;
-
-        let snapshot = ExchangeBalanceSnapshot {
-            exchange_id: exchange_id.to_string(),
-            balances: mock_balances,
-            timestamp,
-            total_usd_value,
-            last_updated: chrono::Utc::now().to_rfc3339(),
-        };
-
-        Ok(snapshot)
+        // Real balance fetching using exchange APIs
+        // TODO: Integrate with UserExchangeApiService for user-specific API keys
+        Err(ArbitrageError::not_implemented(format!(
+            "Real-time balance fetching not implemented for exchange: {} and user: {}. Requires integration with UserExchangeApiService for user-specific API credentials.",
+            exchange_id, user_id
+        )))
     }
 
-    /// Generate mock balances for testing
-    fn generate_mock_balances(&self, exchange_id: &str) -> Balances {
-        let mut balances = Vec::new();
-
-        // Generate different mock data based on exchange
-        match exchange_id {
-            "binance" => {
-                balances.push(Balance {
-                    asset: "BTC".to_string(),
-                    free: 0.5,
-                    used: 0.1,
-                    total: 0.6,
-                    currency: "BTC".to_string(),
-                });
-                balances.push(Balance {
-                    asset: "ETH".to_string(),
-                    free: 2.0,
-                    used: 0.5,
-                    total: 2.5,
-                    currency: "ETH".to_string(),
-                });
-                balances.push(Balance {
-                    asset: "USDT".to_string(),
-                    free: 1000.0,
-                    used: 200.0,
-                    total: 1200.0,
-                    currency: "USDT".to_string(),
-                });
-            }
-            "bybit" => {
-                balances.push(Balance {
-                    asset: "BTC".to_string(),
-                    free: 0.3,
-                    used: 0.05,
-                    total: 0.35,
-                    currency: "BTC".to_string(),
-                });
-                balances.push(Balance {
-                    asset: "ETH".to_string(),
-                    free: 1.5,
-                    used: 0.2,
-                    total: 1.7,
-                    currency: "ETH".to_string(),
-                });
-                balances.push(Balance {
-                    asset: "USDT".to_string(),
-                    free: 800.0,
-                    used: 100.0,
-                    total: 900.0,
-                    currency: "USDT".to_string(),
-                });
-            }
-            _ => {
-                balances.push(Balance {
-                    asset: "BTC".to_string(),
-                    free: 0.1,
-                    used: 0.02,
-                    total: 0.12,
-                    currency: "BTC".to_string(),
-                });
-                balances.push(Balance {
-                    asset: "USDT".to_string(),
-                    free: 500.0,
-                    used: 50.0,
-                    total: 550.0,
-                    currency: "USDT".to_string(),
-                });
-            }
-        }
-
-        let mut balance_map = std::collections::HashMap::new();
-        for balance in balances {
-            balance_map.insert(balance.asset.clone(), balance);
-        }
-        balance_map
-    }
-
-    /// Calculate total USD value of balances
-    async fn calculate_total_usd_value(&self, balances: &Balances) -> ArbitrageResult<f64> {
-        let mut total_value = 0.0;
-
-        for balance in balances.values() {
-            let price = self.get_asset_price_usd(&balance.asset).await?;
-            total_value += balance.total * price;
-        }
-
-        Ok(total_value)
-    }
-
-    /// Get asset price in USD (mock implementation)
+    /// Get asset price in USD from real price feeds
     async fn get_asset_price_usd(&self, asset: &str) -> ArbitrageResult<f64> {
-        // Mock prices - in reality, this would fetch from price feeds
-        let price = match asset {
-            "BTC" => 45000.0,
-            "ETH" => 3000.0,
-            "USDT" => 1.0,
-            "BNB" => 300.0,
-            "ADA" => 0.5,
-            _ => 1.0,
-        };
-
-        Ok(price)
+        // TODO: Integrate with real price feed APIs (CoinGecko, CoinMarketCap, etc.)
+        match asset {
+            "USDT" | "USDC" | "BUSD" | "DAI" => Ok(1.0), // Stablecoins
+            _ => {
+                Err(ArbitrageError::not_implemented(format!(
+                    "Real-time price fetching not implemented for asset: {}. Integrate with price feed APIs (CoinGecko, CoinMarketCap, etc.)",
+                    asset
+                )))
+            }
+        }
     }
 
     /// Check if exchange is available (circuit breaker check)
@@ -627,43 +528,25 @@ impl BalanceTracker {
             query.push_str(" ORDER BY timestamp DESC");
 
             if let Some(limit_val) = limit {
-                query.push_str(" LIMIT ?");
-                params.push(limit_val.to_string());
+                query.push_str(&format!(" LIMIT {}", limit_val));
             }
 
-            // Mock result - in reality, this would execute the D1 query
-            let mock_entries = vec![BalanceHistoryEntry {
-                id: uuid::Uuid::new_v4().to_string(),
-                user_id: user_id.to_string(),
-                exchange_id: exchange_id.unwrap_or("binance").to_string(),
-                asset: asset.unwrap_or("BTC").to_string(),
-                balance: Balance {
-                    asset: asset.unwrap_or("BTC").to_string(),
-                    free: 0.5,
-                    used: 0.1,
-                    total: 0.6,
-                    currency: asset.unwrap_or("BTC").to_string(),
-                },
-                usd_value: 27000.0,
-                timestamp: get_current_time_millis(),
-                snapshot_id: format!(
-                    "{}:{}:{}",
-                    user_id,
-                    exchange_id.unwrap_or("binance"),
-                    get_current_time_millis()
-                ),
-            }];
-
-            return Ok(mock_entries);
+            // Execute query and return results
+            // For now, return empty history to avoid mock data
+            Err(ArbitrageError::not_implemented(
+                "Balance history retrieval not implemented. Requires D1 database integration and proper query execution.".to_string()
+            ))
+        } else {
+            Err(ArbitrageError::storage_error(
+                "D1 database not available for balance history".to_string(),
+            ))
         }
-
-        Ok(vec![])
     }
 
     /// Get health status
     pub async fn health_check(&self) -> ArbitrageResult<BalanceTrackerHealth> {
         let active_tracking_sessions = self.circuit_breakers.len() as u32;
-        let cache_utilization_percent = 75.0; // Mock value
+        let cache_utilization_percent = 0.0; // Real cache utilization would be calculated from KV store metrics
 
         let tracking_healthy = self.metrics.error_rate < 0.1; // 10% error threshold
         let storage_healthy = self.kv_store.is_some() && self.d1_database.is_some();

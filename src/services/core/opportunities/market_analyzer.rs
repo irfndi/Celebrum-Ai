@@ -967,7 +967,7 @@ impl MarketAnalyzer {
                     exchange_b
                 );
 
-                // Get tickers for both exchanges (mock implementation)
+                // Get tickers for both exchanges
                 let ticker_a_result = self.get_ticker_for_exchange(pair, &exchange_a).await;
                 let ticker_b_result = self.get_ticker_for_exchange(pair, &exchange_b).await;
 
@@ -992,13 +992,43 @@ impl MarketAnalyzer {
                             config.min_rate_difference
                         );
                         if analysis.price_difference_percent >= config.min_rate_difference {
+                            // Create deterministic ID to prevent duplicates
+                            let deterministic_id = format!(
+                                "{}_{}_{}_{:.4}",
+                                pair.replace("/", ""),
+                                exchange_a.to_string().to_lowercase(),
+                                exchange_b.to_string().to_lowercase(),
+                                (analysis.price_difference_percent * 10000.0).round() / 10000.0
+                            );
+
+                            // Calculate dynamic confidence score based on multiple factors
+                            let volume_confidence = (ticker_a.base_volume.unwrap_or(0.0)
+                                + ticker_b.base_volume.unwrap_or(0.0))
+                                / 2000000.0; // Normalize by 2M volume
+                            let price_confidence = (analysis.price_difference_percent
+                                / config.min_rate_difference)
+                                .min(2.0)
+                                / 2.0; // Higher diff = higher confidence
+                            let liquidity_confidence =
+                                self.calculate_liquidity_score(&ticker_a, &ticker_b);
+                            let dynamic_confidence =
+                                ((volume_confidence + price_confidence + liquidity_confidence)
+                                    / 3.0)
+                                    .clamp(0.1, 0.95);
+
                             let opportunity = ArbitrageOpportunity {
-                                id: uuid::Uuid::new_v4().to_string(),
+                                id: deterministic_id,
                                 trading_pair: pair.to_string(),
                                 exchanges: vec![exchange_a.to_string(), exchange_b.to_string()],
                                 profit_percentage: analysis.price_difference_percent,
-                                confidence_score: 0.8, // High confidence for market analyzer
-                                risk_level: "medium".to_string(),
+                                confidence_score: dynamic_confidence,
+                                risk_level: if analysis.price_difference_percent > 1.0 {
+                                    "high".to_string()
+                                } else if analysis.price_difference_percent > 0.5 {
+                                    "medium".to_string()
+                                } else {
+                                    "low".to_string()
+                                },
                                 buy_exchange: exchange_a.to_string(),
                                 sell_exchange: exchange_b.to_string(),
                                 buy_price: ticker_a.last.unwrap_or(0.0),
@@ -1017,7 +1047,7 @@ impl MarketAnalyzer {
                                 rate_difference: analysis.price_difference_percent,
                                 net_rate_difference: Some(analysis.price_difference_percent),
                                 potential_profit_value: Some(analysis.price_difference * 1000.0),
-                                confidence: 0.8,
+
                                 timestamp: chrono::Utc::now().timestamp_millis() as u64,
                                 detected_at: chrono::Utc::now().timestamp_millis() as u64,
                                 r#type: ArbitrageType::CrossExchange,
@@ -1078,92 +1108,10 @@ impl MarketAnalyzer {
                     pair,
                     e
                 );
-
-                // Fallback to mock data only if real data fails
-                log::warn!(
-                    "🔄 FALLBACK - Using mock data for {} on {}",
-                    pair,
-                    exchange_id
-                );
-                self.get_mock_ticker_for_exchange(pair, exchange).await
+                // In production mode, propagate error instead of returning mock data
+                Err(e)
             }
         }
-    }
-
-    /// Fallback mock ticker implementation (only used when real data fails)
-    async fn get_mock_ticker_for_exchange(
-        &self,
-        pair: &str,
-        exchange: &ExchangeIdEnum,
-    ) -> ArbitrageResult<Ticker> {
-        // Generate realistic market data with price differences between exchanges for opportunity detection
-        let base_price = match pair {
-            "BTCUSDT" => 45000.0,
-            "ETHUSDT" => 3000.0,
-            "ADAUSDT" => 0.5,
-            "SOLUSDT" => 100.0,
-            "DOTUSDT" => 8.0,
-            _ => 100.0,
-        };
-
-        // Create realistic price variance between exchanges to generate arbitrage opportunities
-        let (price_variance, volume_variance) = match exchange {
-            ExchangeIdEnum::Binance => (0.0, 1.0), // Reference exchange
-            ExchangeIdEnum::Bybit => (0.003, 0.8), // 0.3% higher prices, 80% volume
-            ExchangeIdEnum::OKX => (0.005, 0.9),   // 0.5% higher prices, 90% volume
-            ExchangeIdEnum::Coinbase => (-0.002, 1.2), // 0.2% lower prices, 120% volume
-            ExchangeIdEnum::Kraken => (0.004, 0.7), // 0.4% higher prices, 70% volume
-            _ => (0.006, 0.6),                     // 0.6% higher prices, 60% volume for others
-        };
-
-        let adjusted_price = base_price * (1.0 + price_variance);
-        let base_volume = 1000.0 * volume_variance;
-
-        // Add tiny random variations to make opportunities realistic (much smaller than exchange spreads)
-        let time_seed = (chrono::Utc::now().timestamp_millis() % 10000) as f64 / 10000.0;
-        let micro_variance = (time_seed - 0.5) * 0.0001; // ±0.005% micro variance (10x smaller)
-        let final_price = adjusted_price * (1.0 + micro_variance);
-
-        // Log price calculation for debugging
-        log::warn!(
-            "⚠️ MOCK DATA - Exchange: {:?}, Pair: {}, Base: ${:.2}, Variance: {:.4}%, Final: ${:.2}",
-            exchange,
-            pair,
-            base_price,
-            price_variance * 100.0,
-            final_price
-        );
-
-        // Calculate derived prices with realistic spreads
-        let spread_percent = 0.001; // 0.1% spread
-        let bid_price = final_price * (1.0 - spread_percent);
-        let ask_price = final_price * (1.0 + spread_percent);
-        let high_price = final_price * 1.02;
-        let low_price = final_price * 0.98;
-
-        Ok(Ticker {
-            symbol: pair.to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            datetime: chrono::Utc::now().to_rfc3339(),
-            high: Some(high_price),
-            low: Some(low_price),
-            bid: Some(bid_price),
-            bid_volume: Some(base_volume * 0.5),
-            ask: Some(ask_price),
-            ask_volume: Some(base_volume * 0.5),
-            vwap: Some(final_price),
-            open: Some(final_price * 0.999),
-            close: Some(final_price),
-            last: Some(final_price), // This is the key field for arbitrage detection
-            previous_close: Some(final_price * 0.995),
-            change: Some(final_price * 0.004),
-            percentage: Some(0.4),
-            average: Some(final_price),
-            base_volume: Some(base_volume),
-            quote_volume: Some(base_volume * final_price),
-            volume: Some(base_volume),
-            info: serde_json::json!({}),
-        })
     }
 
     /// Analyze technical signals for a specific pair and exchange
@@ -1219,140 +1167,4 @@ pub struct TechnicalSignalData {
     pub timeframe: String,
     pub expected_return_percentage: f64,
     pub market_conditions: String,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::*;
-    use chrono::Utc;
-
-    /// Create a test MarketAnalyzer with a mock ExchangeService for testing
-    fn create_test_market_analyzer() -> MarketAnalyzer {
-        // Create a mock exchange service for testing
-        // In tests, we'll use a simple approach that doesn't require a real exchange
-        let mock_exchange =
-            Arc::new(ExchangeService::new_mock().expect("Failed to create mock exchange service"));
-        MarketAnalyzer::new_production(mock_exchange)
-    }
-
-    fn create_test_ticker(symbol: &str, price: f64, volume: f64, change_percent: f64) -> Ticker {
-        let now = Utc::now();
-        let open_price = price * (1.0 - change_percent / 200.0);
-        let close_price = price;
-        Ticker {
-            symbol: symbol.to_string(),
-            timestamp: now.timestamp_millis() as u64,
-            datetime: now.to_rfc3339(),
-            high: Some(price * (1.0 + change_percent / 100.0)),
-            low: Some(price * (1.0 - change_percent / 100.0)),
-            bid: Some(price - 0.01 * price), // e.g. 1% less than price
-            bid_volume: Some(volume / 2.0),
-            ask: Some(price + 0.01 * price), // e.g. 1% more than price
-            ask_volume: Some(volume / 2.0),
-            vwap: Some(price), // Simplified VWAP for test
-            open: Some(open_price),
-            close: Some(close_price),
-            last: Some(price),
-            previous_close: Some(open_price * 0.99), // Simplified previous close
-            change: Some(close_price - open_price),
-            percentage: Some(change_percent),
-            average: Some((open_price + close_price) / 2.0),
-            base_volume: Some(volume),
-            quote_volume: Some(volume * price), // Estimated quote volume
-            volume: Some(volume),
-            info: serde_json::json!({}), // Default empty JSON object
-        }
-    }
-
-    fn create_test_funding_rate(symbol: &str, rate: f64) -> FundingRateInfo {
-        FundingRateInfo {
-            symbol: symbol.to_string(),
-            funding_rate: rate,
-            timestamp: Utc::now().timestamp_millis() as u64,
-            datetime: Utc::now().to_rfc3339(),
-            info: serde_json::json!({}), // Default empty JSON object
-            next_funding_time: Some(Utc::now().timestamp_millis() as u64 + 8 * 60 * 60 * 1000), // e.g., 8 hours later
-            estimated_rate: Some(rate),
-            estimated_settle_price: Some(rate * 1.0001), // Default test value
-            exchange: ExchangeIdEnum::Binance,           // Default test value
-            funding_interval_hours: 8,                   // Default test value
-            mark_price: Some(rate * 1.0002),             // Default test value
-            index_price: Some(rate * 1.0000),            // Default test value
-            funding_countdown: Some(3600), // Default test value (e.g., 1 hour in seconds)
-        }
-    }
-
-    #[allow(dead_code)] // #[test]
-    fn test_technical_signal_determination() {
-        let analyzer = create_test_market_analyzer();
-
-        // Test bullish signal with positive momentum
-        let bullish_ticker = create_test_ticker("BTCUSDT", 50000.0, 1000000.0, 3.0);
-        let analysis = analyzer.analyze_technical_signal(&bullish_ticker, &None);
-        assert_eq!(analysis.signal, "LONG");
-
-        // Test bearish signal with negative momentum
-        let bearish_ticker = create_test_ticker("ETHUSDT", 3000.0, 1000000.0, -3.0);
-        let analysis = analyzer.analyze_technical_signal(&bearish_ticker, &None);
-        assert_eq!(analysis.signal, "SHORT");
-
-        // Test funding rate override
-        let high_funding = Some(create_test_funding_rate("BTCUSDT", 0.02));
-        let analysis = analyzer.analyze_technical_signal(&bullish_ticker, &high_funding);
-        assert_eq!(analysis.signal, "SHORT");
-    }
-
-    #[allow(dead_code)] // #[test]
-    fn test_arbitrage_analysis() {
-        let analyzer = create_test_market_analyzer();
-
-        let ticker_a = create_test_ticker("BTCUSDT", 50000.0, 1000000.0, 1.0);
-        let ticker_b = create_test_ticker("BTCUSDT", 50200.0, 1000000.0, 1.0);
-
-        let result = analyzer.analyze_arbitrage_opportunity(
-            "BTCUSDT",
-            &ticker_a,
-            &ticker_b,
-            &ExchangeIdEnum::Binance,
-            &ExchangeIdEnum::Bybit,
-        );
-
-        assert!(result.is_ok());
-        let analysis = result.unwrap();
-        assert_eq!(analysis.buy_exchange, ExchangeIdEnum::Binance);
-        assert_eq!(analysis.sell_exchange, ExchangeIdEnum::Bybit);
-        assert!(analysis.price_difference_percent > 0.0);
-    }
-
-    #[allow(dead_code)] // #[test]
-    fn test_risk_assessment() {
-        let analyzer = create_test_market_analyzer();
-
-        // High risk due to high volatility
-        let high_vol_ticker = create_test_ticker("VOLATILE", 100.0, 1000000.0, 10.0);
-        let analysis = analyzer.analyze_technical_signal(&high_vol_ticker, &None);
-        assert_eq!(analysis.risk_level, "HIGH");
-
-        // Low risk due to stable conditions
-        let stable_ticker = create_test_ticker("STABLE", 100.0, 1000000.0, 0.5);
-        let analysis = analyzer.analyze_technical_signal(&stable_ticker, &None);
-        assert_eq!(analysis.risk_level, "LOW");
-    }
-
-    #[allow(dead_code)] // #[test]
-    fn test_confidence_calculation() {
-        let analyzer = create_test_market_analyzer();
-
-        // High confidence with high volume and significant funding rate
-        let high_vol_ticker = create_test_ticker("BTCUSDT", 50000.0, 2000000.0, 2.5);
-        let high_funding = Some(create_test_funding_rate("BTCUSDT", 0.02));
-        let analysis = analyzer.analyze_technical_signal(&high_vol_ticker, &high_funding);
-        assert!(analysis.confidence > 0.8);
-
-        // Low confidence with low volume
-        let low_vol_ticker = create_test_ticker("ALTCOIN", 1.0, 50000.0, 0.5);
-        let analysis = analyzer.analyze_technical_signal(&low_vol_ticker, &None);
-        assert!(analysis.confidence < 0.7);
-    }
 }

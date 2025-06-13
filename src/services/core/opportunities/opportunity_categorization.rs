@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 // ============= OPPORTUNITY CATEGORY TYPES =============
 
 /// Enhanced opportunity categories for better user experience
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OpportunityCategory {
     #[serde(rename = "low_risk_arbitrage")]
     LowRiskArbitrage, // Conservative arbitrage opportunities
@@ -657,11 +657,20 @@ impl OpportunityCategorizationService {
     /// Get category statistics for a user
     pub async fn get_user_category_statistics(
         &self,
-        _user_id: &str,
-        _days: u32,
+        user_id: &str,
+        days: u32,
     ) -> ArbitrageResult<HashMap<OpportunityCategory, CategoryStatistics>> {
-        // TODO: In real implementation, query D1 for historical data
-        // For now, return empty statistics
+        let cutoff_timestamp = chrono::Utc::now().timestamp() as u64 - (days as u64 * 24 * 60 * 60);
+
+        self.logger.info(&format!(
+            "Getting category statistics for user {} over {} days (cutoff: {})",
+            user_id, days, cutoff_timestamp
+        ));
+
+        // TODO: Implement real D1 database query for user interaction statistics
+        // This requires creating a user_opportunity_interactions table to track:
+        // - user_id, opportunity_id, category, action (accepted/declined), pnl, created_at
+        // For now, return empty statistics until the tracking infrastructure is built
         Ok(HashMap::new())
     }
 
@@ -1039,21 +1048,9 @@ pub struct CategoryStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::logger::{LogLevel, Logger};
 
-    #[allow(dead_code)]
-    fn create_test_service() -> OpportunityCategorizationService {
-        let _logger = Logger::new(LogLevel::Info);
-        // Note: In real tests, we'd use mock D1Service and UserTradingPreferencesService
-        // For unit testing, we focus on testing individual methods that don't require DB
-        // OpportunityCategorizationService::new(mock_d1_service, mock_preferences_service, logger)
-
-        // For now, we test the methods that don't require service instantiation
-        // This avoids the need for complex mock setup in unit tests
-        panic!(
-            "This helper is for integration tests only - use direct method testing for unit tests"
-        )
-    }
+    // Note: For unit testing, we focus on testing individual methods that don't require DB
+    // Integration tests would use actual D1Service and UserTradingPreferencesService instances
 
     #[test]
     fn test_opportunity_category_display_names() {
@@ -1137,4 +1134,7 @@ mod tests {
         assert!(settings.max_simultaneous_opportunities > 0);
         assert!(settings.diversity_preference >= 0.0 && settings.diversity_preference <= 1.0);
     }
+
+    // In real tests, we'd use actual D1Service and UserTradingPreferencesService
+    // This test focuses on the categorization logic
 }

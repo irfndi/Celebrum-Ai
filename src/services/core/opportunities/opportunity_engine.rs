@@ -139,12 +139,13 @@ impl OpportunityEngine {
                 .await?;
 
             for market_opp in pair_opportunities {
-                let opportunity = self.opportunity_builder.build_funding_rate_arbitrage(
+                // Use PRICE ARBITRAGE instead of funding rate arbitrage for market analyzer results
+                let opportunity = self.opportunity_builder.build_price_arbitrage(
                     market_opp.pair,
                     market_opp.long_exchange,
                     market_opp.short_exchange,
-                    market_opp.long_rate.unwrap_or(0.0),
-                    market_opp.short_rate.unwrap_or(0.0),
+                    market_opp.buy_price,
+                    market_opp.sell_price,
                     &OpportunityContext::Personal {
                         user_id: user_id.to_string(),
                     },
@@ -366,12 +367,13 @@ impl OpportunityEngine {
                 .await?;
 
             for market_opp in pair_opportunities {
-                let mut opportunity = self.opportunity_builder.build_funding_rate_arbitrage(
+                // Use PRICE ARBITRAGE instead of funding rate arbitrage for market analyzer results
+                let mut opportunity = self.opportunity_builder.build_price_arbitrage(
                     market_opp.pair,
                     market_opp.long_exchange,
                     market_opp.short_exchange,
-                    market_opp.long_rate.unwrap_or(0.0),
-                    market_opp.short_rate.unwrap_or(0.0),
+                    market_opp.buy_price,
+                    market_opp.sell_price,
                     &OpportunityContext::Group {
                         admin_id: group_admin_id.to_string(),
                         chat_context: chat_context.clone(),
@@ -420,26 +422,52 @@ impl OpportunityEngine {
         &self,
         pairs: Option<Vec<String>>,
     ) -> ArbitrageResult<Vec<GlobalOpportunity>> {
-        // Check cache first (temporarily disabled for debugging)
-        log::warn!("🔍 CACHE DEBUG - Checking cache for global_opportunities");
+        // DISABLED: Force fresh data generation for real-time opportunities
+        // Check cache first - but with shorter TTL for real-time data
+        log::debug!("🔍 CACHE CHECK - Checking cache for global_opportunities");
         if let Ok(Some(cached_opportunities)) = self
             .cache_manager
             .get::<Vec<GlobalOpportunity>>("global_opportunities")
             .await
         {
-            log::warn!(
-                "📦 CACHE DEBUG - Found {} cached opportunities, returning",
-                cached_opportunities.len()
-            );
-            return Ok(cached_opportunities);
+            // Only use cache if it's non-empty and recent (cache TTL handles staleness)
+            if !cached_opportunities.is_empty() {
+                log::debug!(
+                    "📦 CACHE HIT - Found {} cached opportunities, returning",
+                    cached_opportunities.len()
+                );
+                // DISABLED: Force fresh data generation
+                // return Ok(cached_opportunities);
+            }
+            log::debug!("📦 CACHE MISS - Cached vector empty, regenerating opportunities");
         }
-        log::warn!("📦 CACHE DEBUG - No cached opportunities found, generating new ones");
 
         let trading_pairs = pairs.unwrap_or_else(|| self.config.default_pairs.clone());
-        let monitored_exchanges = self.config.monitored_exchanges.clone();
 
-        // CRITICAL DEBUG: Log what we're processing
-        log::warn!(
+        // Prioritize main exchanges first (Coinbase, OKX, Binance) as requested by user
+        let mut monitored_exchanges = self.config.monitored_exchanges.clone();
+        monitored_exchanges.sort_by(|a, b| {
+            let priority_a = match a.to_string().to_lowercase().as_str() {
+                "coinbase" => 0,
+                "okx" => 1,
+                "binance" => 2,
+                "bybit" => 3,
+                "bitget" => 4,
+                _ => 999,
+            };
+            let priority_b = match b.to_string().to_lowercase().as_str() {
+                "coinbase" => 0,
+                "okx" => 1,
+                "binance" => 2,
+                "bybit" => 3,
+                "bitget" => 4,
+                _ => 999,
+            };
+            priority_a.cmp(&priority_b)
+        });
+
+        // Log what we're processing
+        log::info!(
             "🏁 ENGINE START - Pairs: {:?}, Exchanges: {:?}",
             trading_pairs,
             monitored_exchanges
@@ -448,7 +476,7 @@ impl OpportunityEngine {
         // Generate arbitrage opportunities across all monitored exchanges
         let mut global_opportunities = Vec::new();
         for pair in &trading_pairs {
-            log::warn!(
+            log::debug!(
                 "🔍 ENGINE DEBUG - Processing pair: {}, exchanges: {:?}",
                 pair,
                 monitored_exchanges
@@ -457,13 +485,17 @@ impl OpportunityEngine {
                 .market_analyzer
                 .detect_arbitrage_opportunities(pair, &monitored_exchanges, &self.config)
                 .await?;
-            log::warn!(
+            log::info!(
                 "📊 ENGINE DEBUG - Found {} arbitrage opportunities for {}",
                 arbitrage_opportunities.len(),
                 pair
             );
 
-            for arb_opp in arbitrage_opportunities {
+            // Limit opportunities per pair to prevent duplicates (max 5 per pair)
+            let limited_opportunities: Vec<_> =
+                arbitrage_opportunities.into_iter().take(5).collect();
+
+            for arb_opp in limited_opportunities {
                 // Use PRICE ARBITRAGE instead of funding rate arbitrage for market analyzer results
                 let opportunity = self.opportunity_builder.build_price_arbitrage(
                     arb_opp.pair.clone(),
@@ -489,6 +521,37 @@ impl OpportunityEngine {
 
                 global_opportunities.push(global_opp);
             }
+        }
+
+        // ------------------------------------------------------------------
+        // Deduplicate opportunities (same pair + exchanges + type)
+        // ------------------------------------------------------------------
+        {
+            use crate::types::{ExchangeIdEnum, OpportunityData};
+            use std::collections::HashSet;
+
+            let mut seen: HashSet<(String, ExchangeIdEnum, ExchangeIdEnum, String)> =
+                HashSet::new();
+
+            global_opportunities.retain(|opp| {
+                if let OpportunityData::Arbitrage(arb) = &opp.opportunity_data {
+                    let (ex1, ex2) = if arb.long_exchange.as_str() < arb.short_exchange.as_str() {
+                        (arb.long_exchange, arb.short_exchange)
+                    } else {
+                        (arb.short_exchange, arb.long_exchange)
+                    };
+                    let key = (arb.pair.clone(), ex1, ex2, format!("{:?}", arb.r#type));
+                    if seen.contains(&key) {
+                        false
+                    } else {
+                        seen.insert(key);
+                        true
+                    }
+                } else {
+                    // Keep non-arbitrage opportunities untouched
+                    true
+                }
+            });
         }
 
         // Enhance with system-level AI
@@ -518,14 +581,13 @@ impl OpportunityEngine {
             global_opp.opportunity_data =
                 crate::types::OpportunityData::Arbitrage(enhanced_arb.clone());
             global_opp.ai_enhanced = true;
-            global_opp.ai_confidence_score =
-                enhanced_arb.potential_profit_value.map(|p| p / 1000.0);
+            global_opp.ai_confidence_score = Some(enhanced_arb.confidence_score);
         }
 
-        // Cache the results
+        // Cache the results with very short TTL for real-time data (30 seconds)
         let _ = self
             .cache_manager
-            .set("global_opportunities", &global_opportunities, Some(300))
+            .set("global_opportunities", &global_opportunities, Some(30))
             .await;
 
         log_info!(
@@ -541,10 +603,10 @@ impl OpportunityEngine {
         Ok(global_opportunities)
     }
 
-    // Legacy Compatibility (replaces OpportunityService)
+    // Unified Opportunity Generation
 
-    /// Generate opportunities with legacy compatibility
-    pub async fn generate_legacy_opportunities(
+    /// Generate opportunities of specified type
+    pub async fn generate_opportunities_by_type(
         &self,
         user_id: &str,
         chat_context: &ChatContext,
@@ -580,7 +642,7 @@ impl OpportunityEngine {
         };
 
         log_info!(
-            "Generated legacy opportunities",
+            "Generated opportunities by type",
             serde_json::json!({
                 "user_id": user_id,
                 "type": opp_type,

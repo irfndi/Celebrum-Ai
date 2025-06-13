@@ -672,192 +672,24 @@ impl TechnicalAnalysisService {
             })
         }
 
-        // For unsupported exchanges, return mock data immediately (only in non-test mode)
+        // For production, only support specific exchanges
         #[cfg(not(test))]
         {
             if !matches!(
                 exchange,
                 ExchangeIdEnum::Binance | ExchangeIdEnum::Bybit | ExchangeIdEnum::OKX
             ) {
-                return Ok(TechnicalAnalysisMarketData {
-                    timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                    exchange: exchange.to_string(),
-                    symbol: pair.to_string(),
-                    price: self.get_mock_current_price(pair),
-                    volume: 1000.0,
-                    rsi: Some(65.0),
-                    sma_20: Some(self.get_mock_current_price(pair) * 0.98),
-                    bollinger_upper: Some(self.get_mock_current_price(pair) * 1.02),
-                    bollinger_lower: Some(self.get_mock_current_price(pair) * 0.98),
-                    data_type: "fallback_mock_data".to_string(),
-                });
+                return Err(ArbitrageError::validation_error(format!(
+                    "Exchange {:?} is not supported for technical analysis",
+                    exchange
+                )));
             }
-        }
 
-        #[cfg(not(test))]
-        let client = reqwest::Client::new();
-
-        // Try to fetch real data, but fall back to mock data if it fails
-        #[cfg(not(test))]
-        let result = match exchange {
-            ExchangeIdEnum::Binance => {
-                let interval = match timeframe {
-                    Timeframe::M1 => "1m",
-                    Timeframe::M5 => "5m",
-                    Timeframe::M15 => "15m",
-                    Timeframe::M30 => "30m",
-                    Timeframe::H1 => "1h",
-                    Timeframe::H4 => "4h",
-                    Timeframe::H12 => "12h",
-                    Timeframe::D1 => "1d",
-                    Timeframe::W1 => "1w",
-                };
-
-                let url = format!(
-                    "https://api.binance.com/api/v3/klines?symbol={}&interval={}&limit=100",
-                    pair, interval
-                );
-
-                async {
-                    let response = client
-                        .get(&url)
-                        .timeout(std::time::Duration::from_secs(10))
-                        .send()
-                        .await
-                        .map_err(|e| {
-                            ArbitrageError::network_error(format!("Binance API error: {}", e))
-                        })?;
-
-                    let klines: Vec<serde_json::Value> = response.json().await.map_err(|e| {
-                        ArbitrageError::parse_error(format!(
-                            "Failed to parse Binance response: {}",
-                            e
-                        ))
-                    })?;
-
-                    if let Some(latest_kline) = klines.last() {
-                        let price = latest_kline[4]
-                            .as_str()
-                            .and_then(|s| s.parse::<f64>().ok())
-                            .unwrap_or(0.0);
-                        let volume = latest_kline[5]
-                            .as_str()
-                            .and_then(|s| s.parse::<f64>().ok())
-                            .unwrap_or(0.0);
-
-                        Ok(TechnicalAnalysisMarketData {
-                            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                            exchange: exchange.to_string(),
-                            symbol: pair.to_string(),
-                            price,
-                            volume,
-                            rsi: None,             // Will be calculated
-                            sma_20: None,          // Will be calculated
-                            bollinger_upper: None, // Will be calculated
-                            bollinger_lower: None, // Will be calculated
-                            data_type: "real_market_data".to_string(),
-                        })
-                    } else {
-                        Err(ArbitrageError::not_found("No market data available"))
-                    }
-                }
-                .await
-            }
-            ExchangeIdEnum::Bybit => {
-                let interval = match timeframe {
-                    Timeframe::M1 => "1",
-                    Timeframe::M5 => "5",
-                    Timeframe::M15 => "15",
-                    Timeframe::M30 => "30",
-                    Timeframe::H1 => "60",
-                    Timeframe::H4 => "240",
-                    Timeframe::H12 => "720",
-                    Timeframe::D1 => "D",
-                    Timeframe::W1 => "W",
-                };
-
-                let url = format!(
-                    "https://api.bybit.com/v5/market/kline?category=spot&symbol={}&interval={}&limit=100",
-                    pair, interval
-                );
-
-                let response = client
-                    .get(&url)
-                    .timeout(std::time::Duration::from_secs(10))
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        ArbitrageError::network_error(format!("Bybit API error: {}", e))
-                    })?;
-
-                let data: serde_json::Value = response.json().await.map_err(|e| {
-                    ArbitrageError::parse_error(format!("Failed to parse Bybit response: {}", e))
-                })?;
-
-                if let Some(klines) = data["result"]["list"].as_array() {
-                    if let Some(latest_kline) = klines.first() {
-                        let price = latest_kline[4]
-                            .as_str()
-                            .and_then(|s| s.parse::<f64>().ok())
-                            .unwrap_or(0.0);
-                        let volume = latest_kline[5]
-                            .as_str()
-                            .and_then(|s| s.parse::<f64>().ok())
-                            .unwrap_or(0.0);
-
-                        Ok(TechnicalAnalysisMarketData {
-                            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                            exchange: exchange.to_string(),
-                            symbol: pair.to_string(),
-                            price,
-                            volume,
-                            rsi: None,             // Will be calculated
-                            sma_20: None,          // Will be calculated
-                            bollinger_upper: None, // Will be calculated
-                            bollinger_lower: None, // Will be calculated
-                            data_type: "real_market_data".to_string(),
-                        })
-                    } else {
-                        Err(ArbitrageError::not_found("No market data available"))
-                    }
-                } else {
-                    Err(ArbitrageError::parse_error("Invalid Bybit response format"))
-                }
-            }
-            _ => {
-                // Fallback to mock data for unsupported exchanges
-                Ok(TechnicalAnalysisMarketData {
-                    timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                    exchange: exchange.to_string(),
-                    symbol: pair.to_string(),
-                    price: self.get_mock_current_price(pair),
-                    volume: 1000.0,
-                    rsi: None,
-                    sma_20: None,
-                    bollinger_upper: None,
-                    bollinger_lower: None,
-                    data_type: "fallback_mock_data".to_string(),
-                })
-            }
-        };
-
-        // Return the result or fallback to mock data on error
-        #[cfg(not(test))]
-        {
-            result.or_else(|_| {
-                Ok(TechnicalAnalysisMarketData {
-                    timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                    exchange: exchange.to_string(),
-                    symbol: pair.to_string(),
-                    price: self.get_mock_current_price(pair),
-                    volume: 1000.0,
-                    rsi: None,
-                    sma_20: None,
-                    bollinger_upper: None,
-                    bollinger_lower: None,
-                    data_type: "error_fallback_mock_data".to_string(),
-                })
-            })
+            // TODO: Implement real API calls to supported exchanges
+            // For now, return error to avoid mock data in production
+            Err(ArbitrageError::not_implemented(
+                "Real exchange API integration not yet implemented".to_string(),
+            ))
         }
     }
 

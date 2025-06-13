@@ -60,8 +60,14 @@ impl Default for OpportunityConfig {
             min_confidence_threshold: 0.7,
             max_risk_level: 0.8,
             default_pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
-            min_rate_difference: 0.001, // 0.1%
-            monitored_exchanges: vec![ExchangeIdEnum::Binance, ExchangeIdEnum::Bybit],
+            min_rate_difference: 0.1, // 0.1% (in percentage scale to match calculate_price_difference_percent)
+            monitored_exchanges: vec![
+                ExchangeIdEnum::Binance,
+                ExchangeIdEnum::Bybit,
+                ExchangeIdEnum::OKX,
+                ExchangeIdEnum::Coinbase,
+                ExchangeIdEnum::Kraken,
+            ],
             opportunity_ttl_minutes: 15,
             max_participants_per_opportunity: 10,
         }
@@ -271,8 +277,8 @@ impl OpportunityUtils {
     #[allow(clippy::ptr_arg)]
     pub fn sort_technical_by_confidence(opportunities: &mut Vec<TechnicalOpportunity>) {
         opportunities.sort_by(|a, b| {
-            b.confidence_score
-                .partial_cmp(&a.confidence_score)
+            b.confidence
+                .partial_cmp(&a.confidence)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
     }
@@ -316,11 +322,11 @@ impl OpportunityUtils {
 
         // Remove duplicates based on symbol and exchange
         merged.sort_by(|a, b| {
-            let a_key = format!("{}_{:?}", a.pair, a.exchange);
-            let b_key = format!("{}_{:?}", b.pair, b.exchange);
+            let a_key = format!("{}_{:?}", a.pair, a.exchanges);
+            let b_key = format!("{}_{:?}", b.pair, b.exchanges);
             a_key.cmp(&b_key)
         });
-        merged.dedup_by(|a, b| a.pair == b.pair && a.exchange == b.exchange);
+        merged.dedup_by(|a, b| a.pair == b.pair && a.exchanges == b.exchanges);
 
         // Sort by confidence and limit
         Self::sort_technical_by_confidence(&mut merged);

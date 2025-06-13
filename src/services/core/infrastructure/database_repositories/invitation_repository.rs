@@ -729,13 +729,10 @@ impl InvitationRepository {
         let accepted_at = get_optional_i64_field(&row, "accepted_at").map(|v| v as u64);
         let created_at_timestamp = get_i64_field(&row, "created_at", 0) as u64;
 
-        // Legacy fields for backward compatibility
-        let invitation_code =
-            get_string_field(&row, "invitation_code").unwrap_or_else(|_| invitation_id.clone());
-        let invited_user_id = get_string_field(&row, "invited_user_id")
-            .unwrap_or_else(|_| invitee_identifier.clone());
-        let invited_by =
-            get_optional_string_field(&row, "invited_by").unwrap_or_else(|| "system".to_string());
+        // Unified modular fields (legacy compatibility removed)
+        let invitation_code = invitation_id.clone(); // Use unified invitation_id
+        let invited_user_id = invitee_identifier.clone(); // Use unified invitee_identifier
+        let invited_by = inviter_user_id.clone(); // Use unified inviter_user_id
         let used_at = accepted_at;
         let invitation_metadata = invitation_data.as_str().map(|s| s.to_string());
 

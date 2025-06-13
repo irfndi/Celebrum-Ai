@@ -792,23 +792,28 @@ pub struct AutomaticFailoverCoordinator {
     logger: crate::utils::logger::Logger,
 
     // Integration with existing services
+    #[allow(dead_code)] // Will be used in future failover integration
     failover_service: Arc<FailoverService>,
     #[allow(dead_code)] // Will be used in future monitoring enhancements
     health_monitor: Arc<RealTimeHealthMonitor>,
     #[allow(dead_code)] // Will be used in circuit breaker integration
     circuit_breaker_service: Arc<CircuitBreakerService>,
+    #[allow(dead_code)] // Will be used in future alerting integration
     alert_manager: Arc<AlertManager>,
     #[allow(dead_code)] // Will be used in degradation alerting integration
     service_degradation_alerting: Arc<ServiceDegradationAlerting>,
 
     // Decision and coordination engines
+    #[allow(dead_code)] // Will be used in future decision processing
     decision_engine: Mutex<FailoverDecisionEngine>,
+    #[allow(dead_code)] // Will be used in future recovery automation
     recovery_engine: RecoveryAutomationEngine,
     #[allow(dead_code)] // Will be used in coordination features
     coordination_manager: CoordinatedFailoverManager,
 
     // State management
     active_monitors: Arc<Mutex<HashMap<String, ActiveMonitor>>>,
+    #[allow(dead_code)] // Will be used in future failover history tracking
     failover_history: Arc<Mutex<Vec<FailoverEvent>>>,
     recovery_operations: Arc<Mutex<HashMap<String, RecoveryOperation>>>,
 
@@ -819,6 +824,7 @@ pub struct AutomaticFailoverCoordinator {
     #[cfg(not(target_arch = "wasm32"))]
     health_signal_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<HealthSignalEvent>>>,
 
+    #[allow(dead_code)] // Will be used in event processing enhancements
     #[cfg(target_arch = "wasm32")]
     health_signal_tx: futures::channel::mpsc::UnboundedSender<HealthSignalEvent>,
     #[cfg(target_arch = "wasm32")]

@@ -27,15 +27,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::kv::KvStore;
 
-// Configuration for mock base prices
-const MOCK_BASE_PRICES: &[(&str, f64)] = &[
-    ("BTC", 45000.0),
-    ("ETH", 2500.0),
-    ("SOL", 100.0),
-    ("ADA", 0.5),
-    // Add more common symbols and their typical base prices if needed
-];
-
 // ============= AI INTELLIGENCE DATA STRUCTURES =============
 
 /// AI-enhanced opportunity analysis result
@@ -1239,13 +1230,11 @@ impl AiIntelligenceService {
                 }
             }
 
-            // 4. Last resort: Generate mock data for development
-            let mock_price_series = self.create_mock_price_series(symbol);
-            self.logger.info(&format!(
-                "Using mock exchange data for development: exchange={}, symbol={}",
+            // 4. Last resort: Log warning and skip this exchange
+            self.logger.warn(&format!(
+                "No real market data available for exchange={}, symbol={} - skipping to avoid mock data",
                 exchange_key, symbol
             ));
-            exchange_data.insert(exchange_key, mock_price_series);
         }
 
         if exchange_data.is_empty() {
@@ -1332,7 +1321,7 @@ impl AiIntelligenceService {
     fn parse_pipeline_data_to_price_series(
         &self,
         data: &serde_json::Value,
-        symbol: &str,
+        _symbol: &str,
     ) -> ArbitrageResult<crate::services::core::analysis::market_analysis::PriceSeries> {
         // Try to parse as PriceSeries directly
         match serde_json::from_value::<crate::services::core::analysis::market_analysis::PriceSeries>(
@@ -1353,68 +1342,12 @@ impl AiIntelligenceService {
                         ))),
                     }
                 } else {
-                    // Create basic PriceSeries from available data
-                    Ok(self.create_mock_price_series(symbol))
+                    // No valid price data available
+                    Err(ArbitrageError::parse_error(
+                        "No valid price data found in pipeline data".to_string(),
+                    ))
                 }
             }
-        }
-    }
-
-    /// Create mock price series for development/fallback
-    fn create_mock_price_series(
-        &self,
-        symbol: &str,
-    ) -> crate::services::core::analysis::market_analysis::PriceSeries {
-        use crate::services::core::analysis::market_analysis::PriceSeries;
-        use chrono::Utc;
-
-        // Generate realistic mock data based on symbol
-        let base_price = MOCK_BASE_PRICES
-            .iter()
-            .find(|(token, _)| symbol.to_uppercase().contains(token))
-            .map(|(_, price)| *price)
-            .unwrap_or(1.0); // Default to 1.0 if symbol is not in our mock list
-
-        let now = Utc::now().timestamp() as u64;
-
-        // Generate 24 hours of mock data points (hourly)
-        let mut prices = Vec::new();
-        let mut volumes = Vec::new();
-        let mut timestamps = Vec::new();
-
-        for i in 0..24 {
-            let timestamp = now - (24 - i) * 3600; // 24 hours ago to now
-            let price_variation = (i as f64 * 0.1).sin() * 0.02; // 2% variation
-            let price = base_price * (1.0 + price_variation);
-            let volume = 1000000.0 + (i as f64 * 100000.0); // Varying volume
-
-            timestamps.push(timestamp);
-            prices.push(price);
-            volumes.push(volume);
-        }
-
-        // Convert to PricePoint format
-        let mut data_points = Vec::new();
-        for (i, &timestamp) in timestamps.iter().enumerate() {
-            if let (Some(&price), Some(&volume)) = (prices.get(i), volumes.get(i)) {
-                data_points.push(
-                    crate::services::core::analysis::market_analysis::PricePoint {
-                        timestamp: timestamp * 1000, // Convert to milliseconds
-                        price,
-                        volume: Some(volume),
-                        exchange_id: "mock".to_string(),
-                        trading_pair: symbol.to_string(),
-                    },
-                );
-            }
-        }
-
-        PriceSeries {
-            trading_pair: symbol.to_string(),
-            exchange_id: "mock".to_string(),
-            timeframe: crate::services::core::analysis::market_analysis::TimeFrame::OneHour,
-            data_points,
-            last_updated: now * 1000, // Convert to milliseconds
         }
     }
 

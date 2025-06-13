@@ -14,8 +14,6 @@ pub mod core;
 pub mod features;
 pub mod utils;
 
-// Legacy telegram service (will be gradually replaced)
-pub mod legacy_telegram;
 pub mod telegram_keyboard;
 
 // Export commands module publicly
@@ -23,9 +21,6 @@ pub use commands::CommandRouter;
 
 // Export the new modular service and types - defined below in this file
 // Note: These are defined later in this file
-
-// Re-export legacy TelegramService
-pub use legacy_telegram::TelegramService;
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
 // Imports removed as they are now used directly from ServiceContainer
@@ -55,6 +50,7 @@ pub struct ModularTelegramService {
     service_container: Arc<ServiceContainer>,
 
     // Configuration
+    chat_id: String,
     is_test_mode: bool,
 }
 
@@ -84,7 +80,7 @@ impl ModularTelegramService {
         // Create telegram config
         let config = self::core::TelegramConfig {
             bot_token,
-            chat_id,
+            chat_id: chat_id.clone(),
             is_test_mode,
         };
 
@@ -100,8 +96,17 @@ impl ModularTelegramService {
             webhook_handler,
             message_handler,
             service_container,
+            chat_id,
             is_test_mode,
         })
+    }
+
+    /// Send message to default chat
+    pub async fn send_message(&self, message: &str) -> ArbitrageResult<()> {
+        self.bot_client
+            .send_message(&self.chat_id, message, None, None)
+            .await
+            .map(|_| ())
     }
 
     /// Handle incoming webhook update

@@ -611,7 +611,6 @@ mod tests {
             rate_difference: 0.0001,
             net_rate_difference: Some(0.0001),
             potential_profit_value: Some(10.0),
-            confidence: 0.85,
             timestamp: 1234567890,
             detected_at: 1234567890,
             r#type: ArbitrageType::CrossExchange,
@@ -638,11 +637,7 @@ mod tests {
             details: Some("Strong buy signal".to_string()),
             timestamp: 1234567890,
             metadata: serde_json::json!({"signal_strength": "strong"}),
-            // Legacy compatibility fields / Aliases
-            symbol: "ETHUSDT".to_string(),
-            exchange: ExchangeIdEnum::Binance.as_str().to_string(), // Converted from ExchangeIdEnum
-            signal_strength: 0.85, // Set to confidence value, was TechnicalSignalStrength::Strong
-            confidence_score: 0.85, // Alias for confidence
+            // Unified modular fields (legacy aliases removed)
             timeframe: "1h".to_string(),
             indicators: serde_json::json!({"RSI": 70, "MACD": "bullish"}),
         }
@@ -694,8 +689,8 @@ mod tests {
         assert!(matches!(arb_opp.r#type, ArbitrageType::CrossExchange));
 
         // Test technical opportunity
-        assert_eq!(tech_opp.symbol, "ETHUSDT");
-        assert_eq!(tech_opp.confidence_score, 0.85);
+        assert_eq!(tech_opp.trading_pair, "ETHUSDT");
+        assert_eq!(tech_opp.confidence, 0.85);
         assert!(matches!(tech_opp.signal_type, TechnicalSignalType::Buy));
         assert_eq!(tech_opp.risk_level, TechnicalRiskLevel::Medium.as_str());
     }

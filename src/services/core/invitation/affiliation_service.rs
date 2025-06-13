@@ -175,18 +175,21 @@ impl AffiliationService {
             WHERE id = ?
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    format!("{:?}", decision).into(),
-                    Utc::now().to_rfc3339().into(),
-                    reviewer_id.into(),
-                    notes.unwrap_or_default().into(),
-                    application_id.into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt
+            .bind(&[
+                format!("{:?}", decision).into(),
+                Utc::now().to_rfc3339().into(),
+                reviewer_id.into(),
+                notes.unwrap_or_default().into(),
+                application_id.into(),
+            ])
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+            })?;
+        bound_stmt.run().await.map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to execute query: {}", e))
+        })?;
 
         // If approved, create affiliation program
         if matches!(decision, VerificationStatus::Approved) {
@@ -210,7 +213,13 @@ impl AffiliationService {
             WHERE user_id = ? AND verification_status = 'Approved'
         "#;
 
-        let result = self.d1_service.query(query, &[user_id.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[user_id.into()]).map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+        })?;
+        let result = bound_stmt.all().await.map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to execute query: {}", e))
+        })?;
 
         let results_vec = result.results::<HashMap<String, serde_json::Value>>()?;
         if let Some(row) = results_vec.first() {
@@ -286,7 +295,12 @@ impl AffiliationService {
             ORDER BY created_at ASC
         "#;
 
-        let result = self.d1_service.query(query, &[]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         let mut applications = Vec::new();
         let results_vec = result.results::<HashMap<String, serde_json::Value>>()?;
@@ -340,7 +354,12 @@ impl AffiliationService {
             updates.join(", ")
         );
 
-        self.d1_service.execute(&query, &params).await?;
+        let stmt = self.d1_service.prepare(&query);
+        let bound_stmt = stmt.bind(&params)?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         // Return updated program
         self.get_user_affiliation(user_id)
@@ -359,10 +378,12 @@ impl AffiliationService {
             LIMIT ?
         "#;
 
-        let result = self
-            .d1_service
-            .query(query, &[limit.to_string().into()])
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[limit.to_string().into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         // Collect user IDs for concurrent processing
         let user_ids: Vec<String> = result
@@ -444,7 +465,12 @@ impl AffiliationService {
             WHERE user_id = ? AND status IN ('Pending', 'UnderReview')
         "#;
 
-        let result = self.d1_service.query(query, &[user_id.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[user_id.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         let results_vec = result.results::<HashMap<String, serde_json::Value>>()?;
         if let Some(row) = results_vec.first() {
@@ -459,7 +485,12 @@ impl AffiliationService {
         // Query user profile to check if they have super admin role
         let query =
             "SELECT profile_metadata, subscription_tier FROM user_profiles WHERE user_id = ?";
-        let result = self.d1_service.query(query, &[user_id.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[user_id.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         let results_vec = result.results::<HashMap<String, serde_json::Value>>()?;
         if let Some(row) = results_vec.first() {
@@ -493,30 +524,30 @@ impl AffiliationService {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    application.id.clone().into(),
-                    application.user_id.clone().into(),
-                    format!("{:?}", application.program_type).into(),
-                    application.platform.clone().into(),
-                    application.follower_count.into(),
-                    serde_json::to_string(&application.content_examples)
-                        .map_err(|e| {
-                            ArbitrageError::parse_error(format!(
-                                "Failed to serialize content_examples: {}",
-                                e
-                            ))
-                        })?
-                        .into(),
-                    application.trading_experience.clone().into(),
-                    application.motivation.clone().into(),
-                    format!("{:?}", application.status).into(),
-                    application.created_at.to_rfc3339().into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            application.id.clone().into(),
+            application.user_id.clone().into(),
+            format!("{:?}", application.program_type).into(),
+            application.platform.clone().into(),
+            application.follower_count.into(),
+            serde_json::to_string(&application.content_examples)
+                .map_err(|e| {
+                    ArbitrageError::parse_error(format!(
+                        "Failed to serialize content_examples: {}",
+                        e
+                    ))
+                })?
+                .into(),
+            application.trading_experience.clone().into(),
+            application.motivation.clone().into(),
+            format!("{:?}", application.status).into(),
+            application.created_at.to_rfc3339().into(),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(())
     }
@@ -612,39 +643,39 @@ impl AffiliationService {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    program.id.clone().into(),
-                    program.user_id.clone().into(),
-                    format!("{:?}", program.program_type).into(),
-                    format!("{:?}", program.verification_status).into(),
-                    program
-                        .follower_count
-                        .map(worker::wasm_bindgen::JsValue::from)
-                        .unwrap_or_else(|| worker::wasm_bindgen::JsValue::NULL),
-                    program.platform.clone().unwrap_or_default().into(),
-                    program.kickback_rate.into(),
-                    serde_json::to_string(&program.special_features)
-                        .map_err(|e| {
-                            ArbitrageError::parse_error(format!(
-                                "Failed to serialize special_features: {}",
-                                e
-                            ))
-                        })?
-                        .into(),
-                    program.created_at.to_rfc3339().into(),
-                    program.updated_at.to_rfc3339().into(),
-                    program
-                        .verified_at
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                        .into(),
-                    program.verified_by.clone().unwrap_or_default().into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            program.id.clone().into(),
+            program.user_id.clone().into(),
+            format!("{:?}", program.program_type).into(),
+            format!("{:?}", program.verification_status).into(),
+            program
+                .follower_count
+                .map(worker::wasm_bindgen::JsValue::from)
+                .unwrap_or_else(|| worker::wasm_bindgen::JsValue::NULL),
+            program.platform.clone().unwrap_or_default().into(),
+            program.kickback_rate.into(),
+            serde_json::to_string(&program.special_features)
+                .map_err(|e| {
+                    ArbitrageError::parse_error(format!(
+                        "Failed to serialize special_features: {}",
+                        e
+                    ))
+                })?
+                .into(),
+            program.created_at.to_rfc3339().into(),
+            program.updated_at.to_rfc3339().into(),
+            program
+                .verified_at
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default()
+                .into(),
+            program.verified_by.clone().unwrap_or_default().into(),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(())
     }
@@ -660,10 +691,12 @@ impl AffiliationService {
             WHERE id = ?
         "#;
 
-        let result = self
-            .d1_service
-            .query(query, &[application_id.into()])
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[application_id.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         if let Some(row) = result
             .results::<HashMap<String, serde_json::Value>>()?
@@ -870,17 +903,16 @@ impl AffiliationService {
             WHERE urc.user_id = ? AND ru.used_at >= ? AND ru.used_at <= ?
         "#;
 
-        let result = self
-            .d1_service
-            .query(
-                query,
-                &[
-                    user_id.into(),
-                    start.to_rfc3339().into(),
-                    end.to_rfc3339().into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            user_id.into(),
+            start.to_rfc3339().into(),
+            end.to_rfc3339().into(),
+        ])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         if let Some(row) = result
             .results::<HashMap<String, serde_json::Value>>()?
@@ -909,17 +941,16 @@ impl AffiliationService {
             AND utp.created_at >= ru.used_at
         "#;
 
-        let result = self
-            .d1_service
-            .query(
-                query,
-                &[
-                    user_id.into(),
-                    start.to_rfc3339().into(),
-                    end.to_rfc3339().into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            user_id.into(),
+            start.to_rfc3339().into(),
+            end.to_rfc3339().into(),
+        ])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         if let Some(row) = result
             .results::<HashMap<String, serde_json::Value>>()?
@@ -946,17 +977,16 @@ impl AffiliationService {
             AND ru.used_at >= ? AND ru.used_at <= ?
         "#;
 
-        let bonus_result = self
-            .d1_service
-            .query(
-                bonus_query,
-                &[
-                    user_id.into(),
-                    start.to_rfc3339().into(),
-                    end.to_rfc3339().into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(bonus_query);
+        let bound_stmt = stmt.bind(&[
+            user_id.into(),
+            start.to_rfc3339().into(),
+            end.to_rfc3339().into(),
+        ])?;
+        let bonus_result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         let total_bonuses = if let Some(row) = bonus_result
             .results::<HashMap<String, serde_json::Value>>()?

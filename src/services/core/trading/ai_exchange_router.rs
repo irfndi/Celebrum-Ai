@@ -1132,39 +1132,34 @@ mod tests {
                 provider: &AiProvider,
                 _request: &AiAnalysisRequest,
             ) -> ArbitrageResult<AiAnalysisResponse> {
-                match provider {
-                    AiProvider::OpenAI { .. } => Ok(self
-                        .responses
-                        .get("openai")
-                        .unwrap_or(&create_mock_ai_response())
-                        .clone()),
-                    AiProvider::Anthropic { .. } => Ok(self
-                        .responses
-                        .get("anthropic")
-                        .unwrap_or(&create_mock_ai_response())
-                        .clone()),
-                    AiProvider::Custom { .. } => Ok(self
-                        .responses
-                        .get("custom")
-                        .unwrap_or(&create_mock_ai_response())
-                        .clone()),
-                }
+                let provider_key = match provider {
+                    AiProvider::OpenAI { .. } => "openai",
+                    AiProvider::Anthropic { .. } => "anthropic",
+                    AiProvider::Custom { .. } => "custom",
+                };
+
+                self.responses.get(provider_key).cloned().ok_or_else(|| {
+                    ArbitrageError::api_error(format!(
+                        "No AI response configured for provider: {}",
+                        provider_key
+                    ))
+                })
             }
         }
 
-        #[allow(dead_code)]
         struct MockD1Service;
 
-        #[allow(dead_code)]
         impl MockD1Service {
             fn new() -> Self {
                 Self
             }
 
+            #[allow(dead_code)]
             async fn store_ai_analysis_audit(&self, _audit_data: &str) -> ArbitrageResult<()> {
                 Ok(())
             }
 
+            #[allow(dead_code)]
             async fn store_opportunity_analysis(
                 &self,
                 _analysis: &AiOpportunityAnalysis,
@@ -1173,66 +1168,8 @@ mod tests {
             }
         }
 
-        fn create_mock_ai_response() -> AiAnalysisResponse {
-            AiAnalysisResponse {
-                analysis: "Market analysis shows moderate volatility. Risk score: 7.5/10. Recommended position size: 3%. Hold current positions.".to_string(),
-                confidence: Some(0.85),
-                recommendations: vec![
-                    "Monitor price movement closely".to_string(),
-                    "Maintain current position size".to_string(),
-                ],
-                metadata: {
-                    let mut meta = std::collections::HashMap::new();
-                    meta.insert("tokens_used".to_string(), serde_json::json!(150));
-                    meta.insert("model_used".to_string(), serde_json::json!("gpt-4"));
-                    meta.insert("finish_reason".to_string(), serde_json::json!("stop"));
-                    meta
-                },
-            }
-        }
-
         fn create_test_user_profile() -> UserProfile {
             UserProfile::new(Some(123456789), Some("testuser_invite".to_string()))
-        }
-
-        fn create_test_global_opportunity() -> GlobalOpportunity {
-            use crate::types::{
-                ArbitrageOpportunity, // ArbitrageType, DistributionStrategy, ExchangeIdEnum,
-                OpportunitySource,
-            };
-
-            let arbitrage_opp = ArbitrageOpportunity::new(
-                "BTCUSDT".to_string(),
-                ExchangeIdEnum::Binance,
-                ExchangeIdEnum::Bybit,
-                0.0001, // rate_difference as f64
-                0.0008, // volume as f64
-                0.0007, // confidence as f64
-            );
-
-            let now = chrono::Utc::now().timestamp_millis() as u64;
-            GlobalOpportunity {
-                id: uuid::Uuid::new_v4().to_string(),
-                source: OpportunitySource::SystemGenerated, // Added missing field
-                opportunity_type: OpportunitySource::SystemGenerated,
-                opportunity_data: OpportunityData::Arbitrage(arbitrage_opp.clone()),
-                priority: 8,
-                priority_score: 8.5,
-                target_users: vec!["user1".to_string()],
-                distribution_strategy: DistributionStrategy::FirstComeFirstServe,
-                created_at: now,
-                detection_timestamp: now,
-                expires_at: now + 3_600_000, // 1 hour in milliseconds
-                ai_enhanced: false,
-                ai_confidence_score: None,
-                ai_insights: None,
-                // Fields like distributed_to, max_participants, current_participants can be added if needed for tests
-                // For now, relying on Default::default() for them if not explicitly set in GlobalOpportunity::default()
-                // and if the test logic doesn't specifically require them.
-                distributed_to: Vec::new(),
-                max_participants: Some(100),
-                current_participants: 0,
-            }
         }
 
         #[tokio::test]
@@ -1305,8 +1242,42 @@ mod tests {
         #[allow(clippy::result_large_err)]
         async fn test_opportunity_analysis_parsing() -> ArbitrageResult<()> {
             let user_id = "test_user_123";
-            let opportunity = create_test_global_opportunity();
-            let _ai_response = create_mock_ai_response();
+
+            // Create test opportunity directly
+            use crate::types::{
+                ArbitrageOpportunity, DistributionStrategy, ExchangeIdEnum, GlobalOpportunity,
+                OpportunityData, OpportunitySource,
+            };
+
+            let arbitrage_opp = ArbitrageOpportunity::new(
+                "BTCUSDT".to_string(),
+                ExchangeIdEnum::Binance,
+                ExchangeIdEnum::Bybit,
+                0.0001, // rate_difference as f64
+                0.0008, // volume as f64
+                0.0007, // confidence as f64
+            );
+
+            let now = chrono::Utc::now().timestamp_millis() as u64;
+            let opportunity = GlobalOpportunity {
+                id: uuid::Uuid::new_v4().to_string(),
+                source: OpportunitySource::SystemGenerated,
+                opportunity_type: OpportunitySource::SystemGenerated,
+                opportunity_data: OpportunityData::Arbitrage(arbitrage_opp.clone()),
+                priority: 8,
+                priority_score: 8.5,
+                target_users: vec!["user1".to_string()],
+                distribution_strategy: DistributionStrategy::FirstComeFirstServe,
+                created_at: now,
+                detection_timestamp: now,
+                expires_at: now + 3_600_000, // 1 hour in milliseconds
+                ai_enhanced: false,
+                ai_confidence_score: None,
+                ai_insights: None,
+                distributed_to: Vec::new(),
+                max_participants: Some(100),
+                current_participants: 0,
+            };
 
             // Test AI opportunity analysis structure
             let analysis = AiOpportunityAnalysis {

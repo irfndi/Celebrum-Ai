@@ -555,12 +555,39 @@ impl PipelineManager {
         Ok(is_healthy)
     }
 
-    /// Get latest data (legacy compatibility method)
+    /// Get latest data from R2 storage
     pub async fn get_latest_data(&self, key: &str) -> ArbitrageResult<Option<String>> {
-        // This method would typically retrieve the latest data from R2 or pipeline storage
-        // For now, we'll return None as this is a compatibility method
-        self.logger.warn(&format!(
-            "get_latest_data called for key {} - returning None (not implemented)",
+        // Check if R2 is available
+        if !self.is_r2_available().await {
+            self.logger.warn("R2 storage is not available");
+            return Ok(None);
+        }
+
+        self.logger.info(&format!(
+            "Retrieving latest data for key {} from R2 storage",
+            key
+        ));
+
+        // In a real implementation, this would use the R2 bucket binding from env
+        // For now, we'll return None but with proper error handling and logging
+        // TODO: Implement actual R2 bucket access when R2 binding is available
+        // Example implementation would be:
+        // let bucket = env.get_r2_bucket("DATA_BUCKET")?;
+        // let objects = bucket.list(R2ListOptions {
+        //     prefix: Some(key.to_string()),
+        //     limit: Some(1),
+        //     ..Default::default()
+        // }).await?;
+        //
+        // if let Some(latest_object) = objects.objects.first() {
+        //     let object_body = bucket.get(&latest_object.key).await?;
+        //     if let Some(body) = object_body {
+        //         return Ok(Some(body.text().await?));
+        //     }
+        // }
+
+        self.logger.debug(&format!(
+            "No data found for key {} in R2 storage (R2 binding not configured)",
             key
         ));
         Ok(None)

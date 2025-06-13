@@ -638,12 +638,17 @@ impl ChaosMetricsCollector {
     #[allow(unused_variables)]
     async fn measure_availability(&self, service_name: &str, env: &Env) -> ArbitrageResult<f64> {
         // Implementation would integrate with monitoring systems
-        // For now, return a placeholder that would be replaced with actual monitoring integration
-        Ok(99.9) // Placeholder
+        Err(ArbitrageError::not_implemented(format!(
+            "Availability monitoring not implemented for service: {}. Integrate with Cloudflare Analytics or external monitoring.",
+            service_name
+        )))
     }
 
     async fn measure_error_rate(&self, service_name: &str, env: &Env) -> ArbitrageResult<f64> {
-        Ok(0.1) // Placeholder
+        Err(ArbitrageError::not_implemented(format!(
+            "Error rate monitoring not implemented for service: {}. Integrate with logging and metrics systems.",
+            service_name
+        )))
     }
 
     async fn measure_latency_percentile(
@@ -652,15 +657,24 @@ impl ChaosMetricsCollector {
         percentile: f64,
         env: &Env,
     ) -> ArbitrageResult<u64> {
-        Ok(100) // Placeholder
+        Err(ArbitrageError::not_implemented(format!(
+            "Latency monitoring not implemented for service: {} (percentile: {}). Integrate with performance monitoring.",
+            service_name, percentile
+        )))
     }
 
     async fn measure_throughput(&self, service_name: &str, env: &Env) -> ArbitrageResult<f64> {
-        Ok(1000.0) // Placeholder
+        Err(ArbitrageError::not_implemented(format!(
+            "Throughput monitoring not implemented for service: {}. Integrate with metrics collection.",
+            service_name
+        )))
     }
 
     async fn measure_cpu_utilization(&self, service_name: &str, env: &Env) -> ArbitrageResult<f64> {
-        Ok(45.0) // Placeholder
+        Err(ArbitrageError::not_implemented(format!(
+            "CPU monitoring not implemented for service: {}. Cloudflare Workers don't expose CPU metrics.",
+            service_name
+        )))
     }
 
     async fn measure_memory_utilization(
@@ -668,15 +682,24 @@ impl ChaosMetricsCollector {
         service_name: &str,
         env: &Env,
     ) -> ArbitrageResult<f64> {
-        Ok(60.0) // Placeholder
+        Err(ArbitrageError::not_implemented(format!(
+            "Memory monitoring not implemented for service: {}. Cloudflare Workers have limited memory visibility.",
+            service_name
+        )))
     }
 
     async fn measure_disk_io(&self, service_name: &str, env: &Env) -> ArbitrageResult<f64> {
-        Ok(500.0) // Placeholder
+        Err(ArbitrageError::not_implemented(format!(
+            "Disk I/O monitoring not implemented for service: {}. Cloudflare Workers are stateless.",
+            service_name
+        )))
     }
 
     async fn measure_network_io(&self, service_name: &str, env: &Env) -> ArbitrageResult<f64> {
-        Ok(100.0) // Placeholder
+        Err(ArbitrageError::not_implemented(format!(
+            "Network I/O monitoring not implemented for service: {}. Use Cloudflare Analytics for network metrics.",
+            service_name
+        )))
     }
 
     async fn start_real_time_monitoring(
@@ -705,75 +728,48 @@ impl ChaosMetricsCollector {
     ) -> ArbitrageResult<bool> {
         // Implementation would check for data consistency and loss
         // This is critical for zero data loss validation
-        Ok(false) // Placeholder
+        Err(ArbitrageError::not_implemented(format!(
+            "Data loss detection not implemented for experiment: {}. Implement data integrity checks.",
+            metrics.campaign_id
+        )))
     }
 
     async fn generate_dashboard_overview(&self) -> ArbitrageResult<DashboardOverview> {
-        Ok(DashboardOverview {
-            total_services: self.baseline_metrics.len() as u32,
-            services_with_experiments: self.experiment_metrics.len() as u32,
-            average_resilience_score: 85.0, // Placeholder
-            total_experiments_run: 100,
-            experiments_passed: 85,
-            experiments_failed: 15,
-            total_incidents_prevented: 25,
-            estimated_cost_savings: 50000.0,
-        })
+        Err(ArbitrageError::not_implemented(
+            "Dashboard overview generation not implemented. Integrate with real metrics collection.".to_string()
+        ))
     }
 
     async fn generate_service_health_status(&self) -> ArbitrageResult<Vec<ServiceHealthStatus>> {
-        let mut health_status = Vec::new();
-
-        for (service_name, baseline) in &self.baseline_metrics {
-            health_status.push(ServiceHealthStatus {
-                service_name: service_name.clone(),
-                health_score: 95.0, // Would be calculated from actual metrics
-                availability: baseline.availability_percentage,
-                current_error_rate: baseline.error_rate_percentage,
-                current_latency_p99: baseline.latency_p99_ms,
-                last_experiment: Some(Utc::now()), // Placeholder
-                trend: HealthTrend::Healthy,
-            });
-        }
-
-        Ok(health_status)
+        Err(ArbitrageError::not_implemented(
+            "Service health status generation not implemented. Integrate with monitoring systems."
+                .to_string(),
+        ))
     }
 
     async fn generate_active_experiment_status(
         &self,
     ) -> ArbitrageResult<Vec<ActiveExperimentStatus>> {
-        let mut active_experiments = Vec::new();
-
-        for (campaign_id, metrics) in &self.experiment_metrics {
-            if metrics.end_time.is_none() {
-                active_experiments.push(ActiveExperimentStatus {
-                    campaign_id: campaign_id.clone(),
-                    experiment_type: metrics.experiment_type.clone(),
-                    status: CampaignStatus::Running,
-                    started_at: metrics.start_time,
-                    progress_percentage: 50.0, // Would be calculated
-                    affected_services: metrics.affected_services.clone(),
-                    current_impact: ExperimentImpact {
-                        availability_impact: 0.1,
-                        error_rate_impact: 0.05,
-                        latency_impact: 5.0,
-                        user_impact_estimate: 10,
-                    },
-                });
-            }
-        }
-
-        Ok(active_experiments)
+        Err(ArbitrageError::not_implemented(
+            "Active experiment status generation not implemented. Implement experiment tracking."
+                .to_string(),
+        ))
     }
 
     async fn generate_resilience_trends(&self) -> ArbitrageResult<Vec<ResilienceTrend>> {
         // Generate resilience trend data for dashboard charts
-        Ok(Vec::new()) // Placeholder
+        Err(ArbitrageError::not_implemented(
+            "Resilience trends generation not implemented. Implement historical data analysis."
+                .to_string(),
+        ))
     }
 
     async fn generate_system_recommendations(&self) -> ArbitrageResult<Vec<SystemRecommendation>> {
         // Generate intelligent recommendations based on metrics analysis
-        Ok(Vec::new()) // Placeholder
+        Err(ArbitrageError::not_implemented(
+            "System recommendations generation not implemented. Implement AI-based analysis."
+                .to_string(),
+        ))
     }
 }
 

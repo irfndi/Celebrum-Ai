@@ -14,6 +14,7 @@ use crate::services::core::infrastructure::monitoring_module::alert_manager::Ale
 use crate::services::core::infrastructure::monitoring_module::health_monitor::{
     ComponentHealth, HealthMonitor,
 };
+use crate::services::core::infrastructure::UnifiedHealthCheckConfig;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -188,7 +189,7 @@ impl FailoverStrategy {
             primary_config,
             backup_configs: Vec::new(),
             degraded_config: None,
-            health_check: HealthCheckConfig::default(),
+            health_check: UnifiedHealthCheckConfig::failover_optimized(),
             recovery_config: RecoveryConfig::default(),
             priority: 1,
             auto_failover_enabled: true,
@@ -310,55 +311,10 @@ impl ServiceConfig {
     }
 }
 
-/// Health check configuration for failover
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthCheckConfig {
-    /// Health check interval (seconds)
-    pub interval_seconds: u64,
-    /// Health check timeout (seconds)
-    pub timeout_seconds: u64,
-    /// Consecutive failures before failover
-    pub failure_threshold: u32,
-    /// Consecutive successes for recovery
-    pub success_threshold: u32,
-    /// Health check method
-    pub check_method: HealthCheckMethod,
-    /// Expected status codes (for HTTP checks)
-    pub expected_status_codes: Vec<u16>,
-    /// Custom validation expression
-    pub custom_validation: Option<String>,
-}
+// Use unified health check configuration
+pub type HealthCheckConfig = UnifiedHealthCheckConfig;
 
-impl Default for HealthCheckConfig {
-    fn default() -> Self {
-        Self {
-            interval_seconds: 30,
-            timeout_seconds: 10,
-            failure_threshold: 3,
-            success_threshold: 2,
-            check_method: HealthCheckMethod::Ping,
-            expected_status_codes: vec![200],
-            custom_validation: None,
-        }
-    }
-}
-
-/// Health check method
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum HealthCheckMethod {
-    /// Simple ping/connectivity check
-    Ping,
-    /// HTTP GET request
-    HttpGet,
-    /// HTTP POST request
-    HttpPost,
-    /// Database query
-    DatabaseQuery,
-    /// KV store operation
-    KvOperation,
-    /// Custom check method
-    Custom(String),
-}
+// Health check method is now imported from unified_health_check
 
 /// Recovery configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

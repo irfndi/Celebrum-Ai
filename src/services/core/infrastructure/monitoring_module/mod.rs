@@ -12,11 +12,18 @@ pub mod real_time_alerting_system;
 pub mod real_time_health_monitor;
 pub mod service_degradation_alerting;
 pub mod trace_collector;
+pub mod unified_alert;
 
 // Re-export main types for easy access
-pub use alert_manager::{
-    AlertHealth, AlertManager, AlertManagerConfig, AlertRule, AlertSeverity, AlertStatus,
+// UNIFIED ALERT SYSTEM - Primary alert types (eliminates duplication)
+pub use unified_alert::{
+    AlertCondition, AlertRule, AlertSeverity, AlertStatus, CorrelationKey, EscalationLevel,
+    EscalationPolicy, NotificationChannel, SuppressionRule, UnifiedAlert,
 };
+
+// Alert manager for comprehensive alerting
+pub use alert_manager::{AlertHealth, AlertManager, AlertManagerConfig};
+
 pub use cost_tracking_analysis_engine::{
     AllocationEngine, AllocationResult, AllocationRule, AllocationScope, AnalyticsPerformance,
     AnomalyDetector, AnomalyScope, AnomalySeverity, AnomalyStatus, AnomalyType as CostAnomalyType,
@@ -47,17 +54,18 @@ pub use observability_coordinator::{
     ObservabilityMetrics,
 };
 pub use performance_monitoring_dashboard::{
-    AggregationType, AlertCondition, AlertSeverity as DashboardAlertSeverity, AnomalyDetection,
-    AnomalyType, ChartConfig, ChartType, ComparisonOperator, DashboardConfig, DashboardLayout,
-    DashboardReport, DashboardTheme, DataPoint, DataQuality, DataSource, DrillDownConfig,
-    PerformanceMonitoringDashboard, Recommendation, ReportType, ResourceType, SloTracker,
-    TimeRange, TrendDirection, WidgetType,
+    AggregationType, AlertCondition as DashboardAlertCondition,
+    AlertSeverity as DashboardAlertSeverity, AnomalyDetection, AnomalyType, ChartConfig, ChartType,
+    ComparisonOperator, DashboardConfig, DashboardLayout, DashboardReport, DashboardTheme,
+    DataPoint, DataQuality, DataSource, DrillDownConfig, PerformanceMonitoringDashboard,
+    Recommendation, ReportType, ResourceType, SloTracker, TimeRange, TrendDirection, WidgetType,
 };
+// Real-time alerting system for immediate response
 pub use real_time_alerting_system::{
     Alert, AlertCorrelationGroup, AlertSeverity as RtaAlertSeverity, AlertState, AlertingCommand,
-    AlertingSystemConfig, AnomalyDetectionAlgorithm, AnomalyDetectionConfig, CorrelationKey,
-    EscalationLevel, EscalationPolicy, MetricStatistics, NotificationChannel, NotificationStatus,
-    NotificationTemplate, RealTimeAlertingSystem, SuppressionRule,
+    AlertingSystemConfig, AnomalyDetectionAlgorithm, AnomalyDetectionConfig, MetricStatistics,
+    NotificationChannel as RtaNotificationChannel, NotificationStatus, NotificationTemplate,
+    RealTimeAlertingSystem,
 };
 pub use real_time_health_monitor::{
     HealthCheckOperation, HealthDashboardData, HealthSummary, PerformanceOverview,

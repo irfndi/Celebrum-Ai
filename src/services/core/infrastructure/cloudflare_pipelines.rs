@@ -3,6 +3,7 @@
 //! Provides pipeline orchestration and workflow management for the ArbEdge platform.
 //! Integrates with Cloudflare Workers and other pipeline services.
 
+use crate::services::core::infrastructure::UnifiedRetryConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
@@ -82,15 +83,8 @@ pub struct ResourceConfig {
     pub max_retries: u32,
 }
 
-/// Retry configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RetryConfig {
-    pub max_attempts: u32,
-    pub initial_delay: Duration,
-    pub max_delay: Duration,
-    pub backoff_multiplier: f64,
-    pub retry_on_errors: Vec<String>,
-}
+// Use unified retry configuration
+pub type RetryConfig = UnifiedRetryConfig;
 
 /// Pipeline execution state
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,21 +193,7 @@ impl Default for PipelineConfig {
     }
 }
 
-impl Default for RetryConfig {
-    fn default() -> Self {
-        Self {
-            max_attempts: 3,
-            initial_delay: Duration::from_secs(1),
-            max_delay: Duration::from_secs(60),
-            backoff_multiplier: 2.0,
-            retry_on_errors: vec![
-                "NetworkError".to_string(),
-                "TimeoutError".to_string(),
-                "ServiceUnavailable".to_string(),
-            ],
-        }
-    }
-}
+// Default implementation provided by UnifiedRetryConfig
 
 impl Default for ResourceConfig {
     fn default() -> Self {

@@ -3,9 +3,32 @@
 
 use super::ai_cache::AICache;
 use crate::services::core::analysis::market_analysis::TimeHorizon; // Keep this import
-use crate::services::interfaces::telegram::legacy_telegram::{
-    AlertSettings, DashboardLayout, DisplaySettings, NotificationSettings, UserPreferences,
-};
+                                                                   // Legacy telegram types removed - using local types for personalization
+                                                                   // Note: These types are now defined locally in the personalization engine
+
+/// Local UserPreferences type for personalization engine
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserPreferences {
+    pub notification_enabled: bool,
+    pub risk_tolerance: f64,
+    pub min_profit_threshold: f64,
+    pub max_position_size: f64,
+    pub preferred_trading_pairs: Vec<String>,
+    pub preferred_exchanges: Vec<String>,
+}
+
+impl Default for UserPreferences {
+    fn default() -> Self {
+        Self {
+            notification_enabled: true,
+            risk_tolerance: 0.5,
+            min_profit_threshold: 0.1,
+            max_position_size: 1000.0,
+            preferred_trading_pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
+            preferred_exchanges: vec!["binance".to_string(), "bybit".to_string()],
+        }
+    }
+}
 use crate::types::ArbitrageOpportunity;
 use crate::utils::logger::Logger;
 use crate::{ArbitrageError, ArbitrageResult}; // UserInteraction is local
@@ -977,26 +1000,18 @@ impl PersonalizationEngine {
     #[allow(dead_code)]
     async fn analyze_user_preferences(
         &self,
-        user_id: &str,
+        _user_id: &str,
         opportunities: &[ArbitrageOpportunity],
     ) -> ArbitrageResult<UserPreferences> {
-        // TODO: Actually fetch and use user preferences. For now, we use a default.
-        // let _user_prefs = self.get_user_preferences(user_id).await?;
-        // For now, we are creating default preferences. The actual user preferences fetching might be different.
-        // Ensure that if get_user_preferences is re-enabled, its return type matches telegram::UserPreferences
-        // or that the mapping is handled correctly.
-
         // Analyze user preferences based on historical interactions
-        // Ensure UserPreferences here refers to the one from telegram::telegram
+        // Using the local UserPreferences structure
         let preferences = UserPreferences {
-            user_id: user_id.to_string(),
-            notification_settings: NotificationSettings::default(),
-            display_settings: DisplaySettings::default(),
-            alert_settings: AlertSettings::default(),
-            command_aliases: std::collections::HashMap::new(),
-            dashboard_layout: DashboardLayout::default(),
-            created_at: chrono::Utc::now().to_rfc3339(),
-            updated_at: chrono::Utc::now().to_rfc3339(),
+            notification_enabled: true,
+            risk_tolerance: 0.5,
+            min_profit_threshold: 0.1,
+            max_position_size: 1000.0,
+            preferred_trading_pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
+            preferred_exchanges: vec!["binance".to_string(), "bybit".to_string()],
         };
 
         // Note: In a full implementation, we would analyze opportunities to refine preferences

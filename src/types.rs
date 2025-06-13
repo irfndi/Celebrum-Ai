@@ -1840,16 +1840,15 @@ pub struct ArbitrageOpportunity {
     pub volume: f64,
     pub created_at: u64,
     pub expires_at: Option<u64>,
-    // Additional fields used throughout the codebase
-    pub pair: String,                   // Alias for trading_pair
-    pub long_exchange: ExchangeIdEnum,  // Long position exchange (as ExchangeIdEnum)
-    pub short_exchange: ExchangeIdEnum, // Short position exchange (as ExchangeIdEnum)
+    // Unified modular fields (legacy aliases removed)
+    pub pair: String,                   // Unified pair field
+    pub long_exchange: ExchangeIdEnum,  // Long position exchange
+    pub short_exchange: ExchangeIdEnum, // Short position exchange
     pub long_rate: Option<f64>,
     pub short_rate: Option<f64>,
     pub rate_difference: f64,
     pub net_rate_difference: Option<f64>,
     pub potential_profit_value: Option<f64>,
-    pub confidence: f64,  // Alias for confidence_score
     pub timestamp: u64,   // Unix timestamp in milliseconds
     pub detected_at: u64, // Detection timestamp
     pub r#type: ArbitrageType,
@@ -1888,7 +1887,7 @@ impl Default for ArbitrageOpportunity {
             rate_difference: 0.0,
             net_rate_difference: None,
             potential_profit_value: None,
-            confidence: 0.0,
+
             timestamp,
             detected_at: timestamp,
             r#type: ArbitrageType::CrossExchange,
@@ -1939,7 +1938,7 @@ impl ArbitrageOpportunity {
             rate_difference,
             net_rate_difference: Some(rate_difference),
             potential_profit_value: None,
-            confidence,
+
             timestamp,
             detected_at: timestamp,
             r#type: ArbitrageType::CrossExchange,
@@ -2303,11 +2302,7 @@ pub struct TechnicalOpportunity {
     pub details: Option<String>,
     pub timestamp: u64,
     pub metadata: serde_json::Value,
-    // Legacy compatibility fields
-    pub symbol: String,        // Alias for trading_pair
-    pub exchange: String,      // Single exchange (first from exchanges)
-    pub signal_strength: f64,  // Alias for confidence
-    pub confidence_score: f64, // Alias for confidence
+    // Unified fields (legacy aliases removed for clean modular architecture)
     pub timeframe: String,
     pub indicators: serde_json::Value,
 }
@@ -2332,10 +2327,7 @@ impl Default for TechnicalOpportunity {
             details: None,
             timestamp: now,
             metadata: serde_json::Value::Null,
-            symbol: "BTC/USDT".to_string(),
-            exchange: "binance".to_string(),
-            signal_strength: 0.5,
-            confidence_score: 0.5,
+
             timeframe: "1h".to_string(),
             indicators: serde_json::Value::Null,
         }
@@ -2420,9 +2412,9 @@ impl GlobalOpportunity {
             detection_timestamp: now,
             expires_at,
             priority: 1,
-            priority_score: arb_opp.confidence,
+            priority_score: arb_opp.confidence_score,
             ai_enhanced: false,
-            ai_confidence_score: Some(arb_opp.confidence),
+            ai_confidence_score: Some(arb_opp.confidence_score),
             ai_insights: None,
             distributed_to: Vec::new(),
             max_participants: Some(100),

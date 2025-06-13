@@ -168,7 +168,6 @@ pub fn create_test_arbitrage_opportunity(
         detected_at: now,
 
         confidence_score: rate_diff.abs().min(1.0), // Example: use rate_diff (0-1) as confidence
-        confidence: rate_diff.abs().min(1.0),       // Alias for confidence_score
 
         // Let other fields take values from Default implementation
         ..ArbitrageOpportunity::default()

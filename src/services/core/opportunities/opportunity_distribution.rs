@@ -226,7 +226,12 @@ impl OpportunityDistributionService {
 
         // Query database for active sessions
         let query = "SELECT telegram_id FROM user_sessions WHERE expires_at > strftime('%s', 'now') * 1000 AND session_state = 'active' LIMIT 1000";
-        let result = self.database_repositories.query(query, &[]).await?;
+        let stmt = self.database_repositories.prepare(query);
+        let bound_stmt = stmt.bind(&[])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
         let rows = result.results::<HashMap<String, serde_json::Value>>()?;
 
         for row in rows {
@@ -706,7 +711,7 @@ impl OpportunityDistributionService {
             arb.long_exchange.as_str(),
             arb.short_exchange.as_str(),
             arb.potential_profit_value.unwrap_or(0.0),
-            arb.confidence * 100.0,
+            arb.confidence_score * 100.0,
             arb.expires_at.unwrap_or(0) / 1000
         );
 
@@ -970,10 +975,12 @@ impl OpportunityDistributionService {
             worker::wasm_bindgen::JsValue::from(chrono::Utc::now().timestamp_millis() as f64),
         ];
 
-        match self
-            .database_repositories
-            .execute(insert_query, &params)
+        let stmt = self.database_repositories.prepare(insert_query);
+        let bound_stmt = stmt.bind(&params)?;
+        match bound_stmt
+            .run()
             .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))
         {
             Ok(_) => {
                 // Record analytics via data ingestion module if available
@@ -1028,10 +1035,13 @@ impl OpportunityDistributionService {
         let params: Vec<worker::wasm_bindgen::JsValue> =
             vec![worker::wasm_bindgen::JsValue::from(seven_days_ago as f64)];
 
-        let rows = self
-            .database_repositories
-            .query(success_query, &params)
-            .await?;
+        let stmt = self.database_repositories.prepare(success_query);
+        let bound_stmt = stmt.bind(&params)?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
+        let rows = result;
 
         if let Some(row) = rows
             .results::<std::collections::HashMap<String, serde_json::Value>>()?
@@ -1138,17 +1148,33 @@ impl OpportunityDistributionService {
         row: HashMap<String, serde_json::Value>,
     ) -> Option<ArbitrageOpportunity> {
         // Parse opportunity from database row
-        let id = row.get("id")?.as_str()?.to_string();
+        let id = row
+            .get("opportunity_id")
+            .or_else(|| row.get("id"))?
+            .as_str()?
+            .to_string();
         let pair = row.get("pair")?.as_str()?.to_string();
         let long_exchange = row.get("long_exchange")?.as_str()?.to_string();
         let short_exchange = row.get("short_exchange")?.as_str()?.to_string();
         let long_rate = row.get("long_rate")?.as_f64()?;
         let short_rate = row.get("short_rate")?.as_f64()?;
-        let spread = row.get("spread")?.as_f64()?;
-        let _confidence = row.get("confidence")?.as_f64()?;
-        let _volume = row.get("volume")?.as_f64()?;
-        let _detected_at = row.get("detected_at")?.as_u64()?;
-        let _expires_at = row.get("expires_at")?.as_u64()?;
+        let spread = row
+            .get("spread")
+            .and_then(|v| v.as_f64())
+            .or_else(|| row.get("rate_difference").and_then(|v| v.as_f64()))?;
+        let _confidence = row
+            .get("confidence")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.5);
+        let _volume = row.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let _detected_at = row
+            .get("detected_at")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
+        let _expires_at = row
+            .get("expires_at")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(_detected_at + 300_000);
 
         // Parse exchange enums from strings
         let long_exchange_enum = long_exchange.parse::<crate::types::ExchangeIdEnum>().ok()?;
@@ -1207,7 +1233,7 @@ impl OpportunityDistributionService {
             rate_difference: spread, // Assuming `spread` is rate_difference
             net_rate_difference,
             potential_profit_value,
-            confidence: confidence_from_row,
+
             timestamp, // Keep original timestamp as well if distinct from created_at
             detected_at: created_at_from_row, // Use same value as created_at for now
             r#type: ArbitrageType::CrossExchange,
@@ -1258,7 +1284,12 @@ impl OpportunityDistributionService {
                 _ => worker::wasm_bindgen::JsValue::from(v.to_string().as_str()),
             })
             .collect();
-        let rows = self.database_repositories.query(query, &params).await?;
+        let stmt = self.database_repositories.prepare(query);
+        let bound_stmt = stmt.bind(&params)?;
+        let rows = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         let opportunities: Vec<ArbitrageOpportunity> = rows
             .results::<HashMap<String, serde_json::Value>>()?
@@ -1401,7 +1432,12 @@ impl OpportunityDistributionService {
         let params: Vec<worker::wasm_bindgen::JsValue> =
             vec![worker::wasm_bindgen::JsValue::from(user_id)];
 
-        let result = self.database_repositories.query(query, &params).await?;
+        let stmt = self.database_repositories.prepare(query);
+        let bound_stmt = stmt.bind(&params)?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
         let rows = result.results::<HashMap<String, serde_json::Value>>()?;
 
         if let Some(row) = rows.first() {
@@ -1452,7 +1488,7 @@ impl OpportunityDistributionService {
             score += arbitrage_opp.rate_difference * 0.1;
 
             // Higher score for higher confidence
-            score += arbitrage_opp.confidence * 0.2;
+            score += arbitrage_opp.confidence_score * 0.2;
 
             // Adjust for user's preferred pairs (simplified)
             if arbitrage_opp.pair.contains("BTC") || arbitrage_opp.pair.contains("ETH") {

@@ -352,7 +352,12 @@ impl InvitationService {
     async fn verify_admin_permission(&self, user_id: &str) -> ArbitrageResult<bool> {
         // Use subscription_tier as the authoritative source for admin status
         let query = "SELECT subscription_tier FROM user_profiles WHERE user_id = ?";
-        let result = self.d1_service.query(query, &[user_id.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[user_id.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         if let Ok(results) = result.results::<serde_json::Value>() {
             if let Some(row) = results.first() {
@@ -367,7 +372,12 @@ impl InvitationService {
 
     async fn code_exists(&self, code: &str) -> ArbitrageResult<bool> {
         let query = "SELECT COUNT(*) as count FROM invitation_codes WHERE code = ?";
-        let result = self.d1_service.query(query, &[code.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[code.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         if let Ok(results) = result.results::<serde_json::Value>() {
             if let Some(row) = results.first() {
@@ -394,19 +404,19 @@ impl InvitationService {
             VALUES (?, ?, ?, ?, ?, ?)
         "#;
 
-        self.d1_service
-            .execute(
-                query,
-                &[
-                    invitation.id.clone().into(),
-                    invitation.code.clone().into(),
-                    invitation.created_by_admin_id.clone().into(),
-                    invitation.expires_at.to_rfc3339().into(),
-                    invitation.created_at.to_rfc3339().into(),
-                    invitation.is_active.into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[
+            invitation.id.clone().into(),
+            invitation.code.clone().into(),
+            invitation.created_by_admin_id.clone().into(),
+            invitation.expires_at.to_rfc3339().into(),
+            invitation.created_at.to_rfc3339().into(),
+            invitation.is_active.into(),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(())
     }
@@ -415,9 +425,12 @@ impl InvitationService {
     async fn delete_invitation_code(&self, invitation_id: &str) -> ArbitrageResult<()> {
         let query = "DELETE FROM invitation_codes WHERE id = ?";
 
-        self.d1_service
-            .execute(query, &[invitation_id.into()])
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[invitation_id.into()])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(())
     }
@@ -507,7 +520,12 @@ impl InvitationService {
             WHERE code = ?
         "#;
 
-        let result = self.d1_service.query(query, &[code.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[code.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         if let Ok(results) = result.results::<serde_json::Value>() {
             if let Some(row) = results.first() {
@@ -551,7 +569,12 @@ impl InvitationService {
                 _ => worker::wasm_bindgen::JsValue::from(v.to_string().as_str()),
             })
             .collect();
-        let result = self.d1_service.query(query, &params).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&params)?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         if let Ok(results) = result.results::<serde_json::Value>() {
             if let Some(row) = results.first() {
@@ -594,16 +617,16 @@ impl InvitationService {
             WHERE id = ?
         "#;
 
-        self.d1_service
-            .execute(
-                mark_used_query,
-                &[
-                    user_id.into(),
-                    Utc::now().to_rfc3339().into(),
-                    invitation_id.into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(mark_used_query);
+        let bound_stmt = stmt.bind(&[
+            user_id.into(),
+            Utc::now().to_rfc3339().into(),
+            invitation_id.into(),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         // Store usage record
         let store_usage_query = r#"
@@ -612,18 +635,18 @@ impl InvitationService {
             VALUES (?, ?, ?, ?, ?)
         "#;
 
-        self.d1_service
-            .execute(
-                store_usage_query,
-                &[
-                    usage.invitation_id.clone().into(),
-                    usage.user_id.clone().into(),
-                    usage.telegram_id.into(),
-                    usage.used_at.to_rfc3339().into(),
-                    usage.beta_expires_at.to_rfc3339().into(),
-                ],
-            )
-            .await?;
+        let stmt = self.d1_service.prepare(store_usage_query);
+        let bound_stmt = stmt.bind(&[
+            usage.invitation_id.clone().into(),
+            usage.user_id.clone().into(),
+            usage.telegram_id.into(),
+            usage.used_at.to_rfc3339().into(),
+            usage.beta_expires_at.to_rfc3339().into(),
+        ])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(())
     }
@@ -662,10 +685,12 @@ impl InvitationService {
             LIMIT ?
         "#;
 
-        let result = self
-            .d1_service
-            .query(query, &[admin_user_id.into(), limit.to_string().into()])
-            .await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[admin_user_id.into(), limit.to_string().into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         let mut invitations = Vec::new();
         let results_vec = result.results::<HashMap<String, serde_json::Value>>()?;
@@ -732,7 +757,12 @@ impl InvitationService {
         code: &str,
     ) -> ArbitrageResult<Option<InvitationCode>> {
         let query = "SELECT * FROM invitation_codes WHERE code = ?";
-        let result = self.d1_service.query(query, &[code.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[code.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         if let Ok(results) = result.results::<serde_json::Value>() {
             if let Some(first_result) = results.first() {
@@ -834,13 +864,23 @@ impl InvitationService {
             updated_at.to_string().into(),
             code.into(),
         ];
-        self.d1_service.execute(query, &params).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&params)?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
         Ok(())
     }
 
     pub async fn delete_invitation(&self, code: &str) -> ArbitrageResult<()> {
         let query = "DELETE FROM invitations WHERE code = ?";
-        self.d1_service.execute(query, &[code.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[code.into()])?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
         Ok(())
     }
 
@@ -849,7 +889,12 @@ impl InvitationService {
         inviter_id: &str,
     ) -> ArbitrageResult<Vec<InvitationCode>> {
         let query = "SELECT * FROM invitation_codes WHERE created_by_admin_id = ?";
-        let result = self.d1_service.query(query, &[inviter_id.into()]).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&[inviter_id.into()])?;
+        let result = bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         let mut invitations = Vec::new();
         if let Ok(results) = result.results::<serde_json::Value>() {

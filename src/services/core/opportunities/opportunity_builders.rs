@@ -40,11 +40,11 @@ impl OpportunityBuilder {
         let rate_difference = (short_rate - long_rate).abs();
 
         // Validate rate difference meets minimum threshold
-        if rate_difference < self.config.min_rate_difference {
+        let rate_difference_percent = rate_difference * 100.0;
+        if rate_difference_percent < self.config.min_rate_difference {
             return Err(ArbitrageError::validation_error(format!(
                 "Rate difference {:.4}% below minimum threshold {:.4}%",
-                rate_difference * 100.0,
-                self.config.min_rate_difference * 100.0
+                rate_difference_percent, self.config.min_rate_difference
             )));
         }
 
@@ -73,8 +73,7 @@ impl OpportunityBuilder {
             short_rate: None,
             rate_difference,
             net_rate_difference: Some(rate_difference),
-            potential_profit_value: None,
-            confidence: 0.8,
+            potential_profit_value: Some(potential_profit_value),
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             detected_at: chrono::Utc::now().timestamp_millis() as u64,
             r#type: ArbitrageType::FundingRate,
@@ -114,11 +113,11 @@ impl OpportunityBuilder {
         let price_difference = ((short_price - long_price) / long_price).abs();
 
         // Validate price difference meets minimum threshold
-        if price_difference < self.config.min_rate_difference {
+        let price_difference_percent = price_difference * 100.0;
+        if price_difference_percent < self.config.min_rate_difference {
             return Err(ArbitrageError::validation_error(format!(
                 "Price difference {:.4}% below minimum threshold {:.4}%",
-                price_difference * 100.0,
-                self.config.min_rate_difference * 100.0
+                price_difference_percent, self.config.min_rate_difference
             )));
         }
 
@@ -146,8 +145,7 @@ impl OpportunityBuilder {
             short_rate: None,
             rate_difference: price_difference,
             net_rate_difference: Some(price_difference),
-            potential_profit_value: None,
-            confidence: 0.8,
+            potential_profit_value: Some(potential_profit_value),
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             detected_at: chrono::Utc::now().timestamp_millis() as u64,
             r#type: ArbitrageType::Price,
@@ -200,11 +198,11 @@ impl OpportunityBuilder {
 
         let difference = (max_value - min_value) / min_value;
 
-        if difference < self.config.min_rate_difference {
+        let difference_percent = difference * 100.0;
+        if difference_percent < self.config.min_rate_difference {
             return Err(ArbitrageError::validation_error(format!(
                 "Cross-exchange difference {:.4}% below minimum threshold {:.4}%",
-                difference * 100.0,
-                self.config.min_rate_difference * 100.0
+                difference_percent, self.config.min_rate_difference
             )));
         }
 
@@ -231,8 +229,7 @@ impl OpportunityBuilder {
             short_rate: Some(*max_value),
             rate_difference: difference,
             net_rate_difference: Some(difference),
-            potential_profit_value: None,
-            confidence: 0.8,
+            potential_profit_value: Some(potential_profit_value),
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             detected_at: chrono::Utc::now().timestamp_millis() as u64,
             r#type: arbitrage_type,
@@ -266,7 +263,7 @@ impl OpportunityBuilder {
         pair: String,
         exchange: ExchangeIdEnum,
         signal_type: TechnicalSignalType,
-        signal_strength: TechnicalSignalStrength,
+        _signal_strength: TechnicalSignalStrength,
         confidence_score: f64,
         entry_price: f64,
         target_price: Option<f64>,
@@ -333,16 +330,8 @@ impl OpportunityBuilder {
             trading_pair: pair.clone(),
             exchanges: vec![exchange.to_string()],
             pair: pair.clone(),
-            symbol: pair.clone(),
-            exchange: exchange.to_string(),
             signal_type,
-            signal_strength: match signal_strength {
-                TechnicalSignalStrength::VeryStrong => 0.9,
-                TechnicalSignalStrength::Strong => 0.7,
-                TechnicalSignalStrength::Moderate => 0.5,
-                TechnicalSignalStrength::Weak => 0.3,
-                TechnicalSignalStrength::VeryWeak => 0.1,
-            },
+            confidence: confidence_score,
             risk_level: match risk_level {
                 TechnicalRiskLevel::VeryLow => "very_low".to_string(),
                 TechnicalRiskLevel::Low => "low".to_string(),
@@ -353,7 +342,6 @@ impl OpportunityBuilder {
             entry_price,
             target_price: target_price.unwrap_or(entry_price * 1.02),
             stop_loss: stop_loss_price.unwrap_or(entry_price * 0.98),
-            confidence: confidence_score,
             timeframe: timeframe.to_string(),
             indicators: serde_json::to_value(&technical_indicators).unwrap_or_default(),
             created_at: chrono::Utc::now().timestamp_millis() as u64,
@@ -367,7 +355,6 @@ impl OpportunityBuilder {
             }),
             expected_return_percentage,
             details: None,
-            confidence_score,
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
         };
 
@@ -641,11 +628,11 @@ impl OpportunityBuilder {
             .abs()
             * 100.0;
         let confidence_multiplier = opportunity.confidence;
-        let strength_multiplier = if opportunity.signal_strength >= 0.8 {
+        let strength_multiplier = if opportunity.confidence >= 0.8 {
             2.0 // VeryStrong
-        } else if opportunity.signal_strength >= 0.6 {
+        } else if opportunity.confidence >= 0.6 {
             1.5 // Strong
-        } else if opportunity.signal_strength >= 0.4 {
+        } else if opportunity.confidence >= 0.4 {
             1.2 // Moderate
         } else {
             0.8 // Weak
@@ -714,8 +701,8 @@ mod tests {
 
         assert!(result.is_ok());
         let opportunity = result.unwrap();
-        assert_eq!(opportunity.symbol, "ETHUSDT");
-        assert_eq!(opportunity.exchange, ExchangeIdEnum::Binance);
+        assert_eq!(opportunity.trading_pair, "ETHUSDT");
+        assert_eq!(opportunity.exchanges, vec!["binance".to_string()]);
         assert_eq!(opportunity.signal_type, TechnicalSignalType::Buy);
         assert_eq!(opportunity.confidence, 0.85);
         assert_eq!(opportunity.entry_price, 3000.0);
@@ -745,8 +732,8 @@ mod tests {
 
         assert!(result.is_ok());
         let opportunity = result.unwrap();
-        assert_eq!(opportunity.symbol, "ADAUSDT");
-        assert_eq!(opportunity.exchange, ExchangeIdEnum::Bybit);
+        assert_eq!(opportunity.trading_pair, "ADAUSDT");
+        assert_eq!(opportunity.exchanges, vec!["bybit".to_string()]);
         assert_eq!(opportunity.signal_type, TechnicalSignalType::Buy);
         assert_eq!(opportunity.confidence, 0.605); // Calculated confidence: (0.75*0.5)+(0.5*0.3)+(0.4*0.2) = 0.605
         assert_eq!(opportunity.entry_price, 0.5);
@@ -783,7 +770,6 @@ mod tests {
             rate_difference: 0.015,
             net_rate_difference: Some(0.015),
             potential_profit_value: Some(150.0),
-            confidence: 0.85,
             timestamp: Utc::now().timestamp_millis() as u64,
             detected_at: Utc::now().timestamp_millis() as u64,
             r#type: ArbitrageType::FundingRate,

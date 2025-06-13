@@ -327,7 +327,7 @@ impl FundAnalyzer {
             .sum::<f64>();
 
         // Calculate asset distribution
-        let asset_distribution = self.calculate_asset_distribution(balance_snapshots)?;
+        let asset_distribution = self.calculate_asset_distribution(balance_snapshots).await?;
 
         // Calculate exchange distribution
         let exchange_distribution = self.calculate_exchange_distribution(balance_snapshots)?;
@@ -341,8 +341,10 @@ impl FundAnalyzer {
         };
 
         // Find best and worst performing assets
-        let (best_performing_asset, worst_performing_asset) =
-            self.find_performance_extremes(&asset_distribution).await?;
+        let (best_performing_asset, worst_performing_asset) = self
+            .find_performance_extremes(&asset_distribution)
+            .await
+            .unwrap_or((None, None));
 
         // Calculate portfolio metrics
         let portfolio_diversity_score = self.calculate_diversity_score(&asset_distribution);
@@ -354,8 +356,8 @@ impl FundAnalyzer {
             total_value_usd,
             total_value_change_24h,
             total_value_change_percentage,
-            best_performing_asset,
-            worst_performing_asset,
+            best_performing_asset: best_performing_asset.unwrap_or_else(|| "N/A".to_string()),
+            worst_performing_asset: worst_performing_asset.unwrap_or_else(|| "N/A".to_string()),
             portfolio_diversity_score,
             risk_score,
             sharpe_ratio,
@@ -400,7 +402,7 @@ impl FundAnalyzer {
         }
 
         // Calculate current allocation
-        let current_allocation = self.calculate_current_allocation(balance_snapshots)?;
+        let current_allocation = self.calculate_current_allocation(balance_snapshots).await?;
 
         // Generate optimization recommendations
         let allocations = self.generate_allocation_recommendations(
@@ -443,7 +445,7 @@ impl FundAnalyzer {
     }
 
     /// Calculate asset distribution across portfolio
-    fn calculate_asset_distribution(
+    async fn calculate_asset_distribution(
         &self,
         balance_snapshots: &HashMap<String, ExchangeBalanceSnapshot>,
     ) -> ArbitrageResult<HashMap<String, f64>> {
@@ -453,7 +455,7 @@ impl FundAnalyzer {
         // Sum up all assets across exchanges
         for snapshot in balance_snapshots.values() {
             for balance in snapshot.balances.values() {
-                let asset_value = balance.total * self.get_mock_price(&balance.asset);
+                let asset_value = balance.total * self.get_asset_price(&balance.asset).await?;
                 *asset_totals.entry(balance.asset.clone()).or_insert(0.0) += asset_value;
                 total_portfolio_value += asset_value;
             }
@@ -495,52 +497,27 @@ impl FundAnalyzer {
     /// Calculate 24-hour portfolio value change
     async fn calculate_24h_change(
         &self,
-        balance_snapshots: &HashMap<String, ExchangeBalanceSnapshot>,
+        _balance_snapshots: &HashMap<String, ExchangeBalanceSnapshot>,
     ) -> ArbitrageResult<f64> {
-        // Mock calculation - in reality, this would compare with historical data
-        let current_value: f64 = balance_snapshots
-            .values()
-            .map(|snapshot| snapshot.total_usd_value)
-            .sum();
-
-        // Simulate 2% daily change
-        let change = current_value * 0.02;
-        Ok(change)
+        // For now, return 0.0 to avoid mock data
+        Err(ArbitrageError::not_implemented(
+            "24-hour change calculation not implemented. Requires historical price data integration.".to_string()
+        ))
     }
 
     /// Find best and worst performing assets
     async fn find_performance_extremes(
         &self,
         asset_distribution: &HashMap<String, f64>,
-    ) -> ArbitrageResult<(String, String)> {
-        // Mock performance data - in reality, this would use historical price data
-        let performance_data = HashMap::from([
-            ("BTC".to_string(), 5.2),
-            ("ETH".to_string(), 3.8),
-            ("USDT".to_string(), 0.1),
-            ("BNB".to_string(), 2.1),
-            ("ADA".to_string(), -1.5),
-        ]);
-
-        let mut best_asset = "BTC".to_string();
-        let mut worst_asset = "ADA".to_string();
-        let mut best_performance = -100.0;
-        let mut worst_performance = 100.0;
-
-        for asset in asset_distribution.keys() {
-            if let Some(&performance) = performance_data.get(asset) {
-                if performance > best_performance {
-                    best_performance = performance;
-                    best_asset = asset.clone();
-                }
-                if performance < worst_performance {
-                    worst_performance = performance;
-                    worst_asset = asset.clone();
-                }
-            }
+    ) -> ArbitrageResult<(Option<String>, Option<String>)> {
+        // For now, return first two assets to avoid mock data
+        if asset_distribution.is_empty() {
+            return Ok((None, None));
         }
 
-        Ok((best_asset, worst_asset))
+        Err(ArbitrageError::not_implemented(
+            "Performance extremes calculation not implemented. Requires historical performance data.".to_string()
+        ))
     }
 
     /// Calculate portfolio diversity score using Herfindahl-Hirschman Index
@@ -562,24 +539,15 @@ impl FundAnalyzer {
         &self,
         asset_distribution: &HashMap<String, f64>,
     ) -> ArbitrageResult<f64> {
-        // Mock volatility data
-        let volatility_data = HashMap::from([
-            ("BTC".to_string(), 0.8),
-            ("ETH".to_string(), 0.9),
-            ("USDT".to_string(), 0.05),
-            ("BNB".to_string(), 0.7),
-            ("ADA".to_string(), 1.2),
-        ]);
-
-        let weighted_volatility: f64 = asset_distribution
-            .iter()
-            .map(|(asset, &percentage)| {
-                let volatility = volatility_data.get(asset).unwrap_or(&0.5);
-                (percentage / 100.0) * volatility
-            })
-            .sum();
-
-        Ok((weighted_volatility * 100.0).clamp(0.0, 100.0))
+        // For now, return a conservative risk score based on asset count
+        let asset_count = asset_distribution.len() as f64;
+        if asset_count <= 2.0 {
+            Ok(70.0) // High risk - low diversification
+        } else if asset_count <= 5.0 {
+            Ok(50.0) // Medium risk
+        } else {
+            Ok(30.0) // Lower risk - more diversified
+        }
     }
 
     /// Calculate Sharpe ratio for portfolio
@@ -587,13 +555,10 @@ impl FundAnalyzer {
         &self,
         _asset_distribution: &HashMap<String, f64>,
     ) -> ArbitrageResult<f64> {
-        // Mock calculation - in reality, this would use historical returns and risk-free rate
-        let portfolio_return = 0.12; // 12% annual return
-        let risk_free_rate = 0.02; // 2% risk-free rate
-        let portfolio_volatility = 0.15; // 15% volatility
-
-        let sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_volatility;
-        Ok(sharpe_ratio)
+        // Real implementation would use historical returns and risk-free rate
+        Err(ArbitrageError::not_implemented(
+            "Sharpe ratio calculation not implemented. Requires historical returns data and risk-free rate integration.".to_string()
+        ))
     }
 
     /// Calculate maximum drawdown
@@ -601,8 +566,10 @@ impl FundAnalyzer {
         &self,
         _asset_distribution: &HashMap<String, f64>,
     ) -> ArbitrageResult<f64> {
-        // Mock calculation - in reality, this would analyze historical portfolio values
-        Ok(0.08) // 8% max drawdown
+        // Real implementation would analyze historical portfolio values
+        Err(ArbitrageError::not_implemented(
+            "Maximum drawdown calculation not implemented. Requires historical portfolio value analysis.".to_string()
+        ))
     }
 
     /// Generate allocation recommendations
@@ -692,11 +659,11 @@ impl FundAnalyzer {
     }
 
     /// Calculate current allocation percentages
-    fn calculate_current_allocation(
+    async fn calculate_current_allocation(
         &self,
         balance_snapshots: &HashMap<String, ExchangeBalanceSnapshot>,
     ) -> ArbitrageResult<HashMap<String, f64>> {
-        self.calculate_asset_distribution(balance_snapshots)
+        self.calculate_asset_distribution(balance_snapshots).await
     }
 
     /// Calculate optimization score
@@ -792,15 +759,16 @@ impl FundAnalyzer {
         }
     }
 
-    /// Get mock price for asset
-    fn get_mock_price(&self, asset: &str) -> f64 {
+    /// Get real asset price from price feeds
+    async fn get_asset_price(&self, asset: &str) -> ArbitrageResult<f64> {
+        // TODO: Integrate with real price feed APIs (CoinGecko, CoinMarketCap, etc.)
+        // For now, return error to avoid mock data
         match asset {
-            "BTC" => 45000.0,
-            "ETH" => 3000.0,
-            "USDT" => 1.0,
-            "BNB" => 300.0,
-            "ADA" => 0.5,
-            _ => 1.0,
+            "USDT" | "USDC" | "BUSD" | "DAI" => Ok(1.0), // Stablecoins
+            _ => Err(ArbitrageError::not_implemented(format!(
+                "Real-time price fetching not implemented for asset: {}",
+                asset
+            ))),
         }
     }
 

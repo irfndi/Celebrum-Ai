@@ -789,7 +789,13 @@ impl DynamicConfigService {
         let params: Vec<worker::wasm_bindgen::JsValue> =
             params.into_iter().map(|s| s.into()).collect();
 
-        match self.database_manager.query(query, &params).await {
+        let stmt = self.database_manager.prepare(query);
+        let bound_stmt = stmt.bind(&params)?;
+        match bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))
+        {
             Ok(rows) => {
                 if let Some(row) = rows
                     .results::<std::collections::HashMap<String, serde_json::Value>>()?

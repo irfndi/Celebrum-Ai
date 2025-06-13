@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
-use uuid;
 use worker::Env; // Removed kv::KvStore
 
 /// Configuration for AICoordinator
@@ -339,10 +338,10 @@ impl AICoordinator {
         }
     }
 
-    /// Find similar opportunities with caching
+    /// Find similar opportunities using AI embeddings
     pub async fn find_similar_opportunities(
         &self,
-        _target_embedding: Vec<f32>,
+        reference_opportunity: &ArbitrageOpportunity,
         limit: usize,
     ) -> ArbitrageResult<Vec<SimilarityResult>> {
         if !self.config.enable_embedding {
@@ -361,40 +360,8 @@ impl AICoordinator {
 
         match &self.embedding_engine {
             Some(engine) => {
-                // Create a placeholder opportunity for similarity search
-                let placeholder_opportunity = crate::types::ArbitrageOpportunity {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    trading_pair: "BTC/USDT".to_string(),
-                    exchanges: vec!["binance".to_string(), "bybit".to_string()],
-                    profit_percentage: 0.5,
-                    confidence_score: 0.7,
-                    risk_level: "medium".to_string(),
-                    buy_exchange: "binance".to_string(),
-                    sell_exchange: "bybit".to_string(),
-                    buy_price: 50000.0,
-                    sell_price: 50250.0,
-                    volume: 1000.0,
-                    created_at: chrono::Utc::now().timestamp_millis() as u64,
-                    expires_at: Some(chrono::Utc::now().timestamp_millis() as u64 + 300_000),
-                    // Additional fields
-                    pair: "BTC/USDT".to_string(),
-                    long_exchange: crate::types::ExchangeIdEnum::Binance,
-                    short_exchange: crate::types::ExchangeIdEnum::Bybit,
-                    long_rate: Some(0.1),
-                    short_rate: Some(-0.1),
-                    rate_difference: 0.5,
-                    net_rate_difference: Some(0.5),
-                    potential_profit_value: Some(250.0),
-                    confidence: 0.7,
-                    timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                    detected_at: chrono::Utc::now().timestamp_millis() as u64,
-                    r#type: crate::types::ArbitrageType::CrossExchange,
-                    details: Some("AI-generated placeholder opportunity".to_string()),
-                    min_exchanges_required: 2,
-                };
-
                 match engine
-                    .find_similar_opportunities(&placeholder_opportunity, Some(limit as u32))
+                    .find_similar_opportunities(reference_opportunity, Some(limit as u32))
                     .await
                 {
                     Ok(results) => {

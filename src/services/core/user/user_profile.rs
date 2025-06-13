@@ -271,63 +271,12 @@ impl UserProfileService {
             })
             .collect();
 
-        self.d1_service.execute(query, &params).await?;
-        Ok(())
-    }
-
-    /// Execute a write operation (INSERT, UPDATE, DELETE) on the D1 database
-    /// SECURITY: This method is restricted to crate-level access and should only be used
-    /// for trusted operations with validated inputs
-    pub(crate) async fn execute_write_operation(
-        &self,
-        query: &str,
-        params: &[serde_json::Value],
-    ) -> ArbitrageResult<()> {
-        // Validate that the query is a write operation
-        let trimmed_query = query.trim().to_lowercase();
-        let allowed_write_operations = ["insert", "update", "delete"];
-
-        let is_valid_write = allowed_write_operations
-            .iter()
-            .any(|op| trimmed_query.starts_with(op));
-
-        if !is_valid_write {
-            return Err(ArbitrageError::validation_error(
-                "Only INSERT, UPDATE, DELETE operations are allowed for write operations",
-            ));
-        }
-
-        // Additional validation: ensure no dangerous keywords for write operations
-        let dangerous_keywords = ["drop", "create", "alter", "exec", "execute"];
-        for keyword in dangerous_keywords {
-            if trimmed_query.contains(keyword) {
-                return Err(ArbitrageError::validation_error(format!(
-                    "Query contains forbidden keyword: {}",
-                    keyword
-                )));
-            }
-        }
-
-        let params: Vec<worker::wasm_bindgen::JsValue> = params
-            .iter()
-            .map(|v| match v {
-                serde_json::Value::String(s) => worker::wasm_bindgen::JsValue::from(s.as_str()),
-                serde_json::Value::Number(n) => {
-                    if let Some(i) = n.as_i64() {
-                        worker::wasm_bindgen::JsValue::from(i as f64)
-                    } else if let Some(f) = n.as_f64() {
-                        worker::wasm_bindgen::JsValue::from(f)
-                    } else {
-                        worker::wasm_bindgen::JsValue::from(0.0)
-                    }
-                }
-                serde_json::Value::Bool(b) => worker::wasm_bindgen::JsValue::from(*b),
-                serde_json::Value::Null => worker::wasm_bindgen::JsValue::NULL,
-                _ => worker::wasm_bindgen::JsValue::from(v.to_string().as_str()),
-            })
-            .collect();
-
-        self.d1_service.execute(query, &params).await?;
+        let stmt = self.d1_service.prepare(query);
+        let bound_stmt = stmt.bind(&params)?;
+        bound_stmt
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
         Ok(())
     }
 

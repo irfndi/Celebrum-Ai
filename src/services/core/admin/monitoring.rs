@@ -134,7 +134,7 @@ impl MonitoringService {
         let now = chrono::Utc::now().timestamp_millis() as u64;
         let hour_ms = 60 * 60 * 1000;
 
-        // Get historical metrics (simplified - in production, use time-series database)
+        // Get historical metrics from KV store
         for i in 0..hours {
             let timestamp = now - (i as u64 * hour_ms);
             let metrics_key = format!("metrics_snapshot:{}", timestamp / hour_ms);
@@ -143,18 +143,8 @@ impl MonitoringService {
                 if let Ok(snapshot) = serde_json::from_str::<MetricsSnapshot>(&metrics_data) {
                     snapshots.push(snapshot);
                 }
-            } else {
-                // Generate mock data for demonstration
-                snapshots.push(MetricsSnapshot {
-                    timestamp,
-                    cpu_usage: 20.0 + (i as f64 * 2.0),
-                    memory_usage: 40.0 + (i as f64 * 1.5),
-                    active_users: 100 + (i * 10),
-                    requests_per_minute: 1000 + (i * 50),
-                    error_rate: 0.1,
-                    response_time_ms: 80.0 + (i as f64 * 2.0),
-                });
             }
+            // Note: No mock data generation - only return actual stored metrics
         }
 
         snapshots.reverse(); // Most recent first

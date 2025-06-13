@@ -416,9 +416,9 @@ impl DataIngestionModule {
         self.coordinator.ingest_batch(events).await
     }
 
-    // ============= LEGACY COMPATIBILITY METHODS =============
+    // ============= DATA STORAGE METHODS =============
 
-    /// Store market data (legacy compatibility method)
+    /// Store market data using the ingestion pipeline
     pub async fn store_market_data(
         &self,
         exchange: &str,
@@ -441,7 +441,7 @@ impl DataIngestionModule {
         self.ingest_event(event).await
     }
 
-    /// Store analysis results (legacy compatibility method)
+    /// Store analysis results using the ingestion pipeline
     pub async fn store_analysis_results(
         &self,
         analysis_type: &str,
@@ -462,15 +462,19 @@ impl DataIngestionModule {
         self.ingest_event(event).await
     }
 
-    /// Get latest data (legacy compatibility method)
+    /// Get latest data from storage
     pub async fn get_latest_data(&self, key: &str) -> ArbitrageResult<Option<String>> {
-        // This method would typically retrieve the latest data from storage
-        // For now, we'll return None as this is a compatibility method
-        self.logger.warn(&format!(
-            "get_latest_data called for key {} - returning None (not implemented)",
-            key
-        ));
-        Ok(None)
+        // Retrieve the latest data from the pipeline manager's storage
+        match self.pipeline_manager.get_latest_data(key).await {
+            Ok(data) => Ok(data),
+            Err(e) => {
+                self.logger.warn(&format!(
+                    "Failed to retrieve latest data for key {}: {}",
+                    key, e
+                ));
+                Ok(None)
+            }
+        }
     }
 
     // ============= HEALTH AND METRICS METHODS =============

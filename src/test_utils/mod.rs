@@ -99,7 +99,6 @@ pub fn create_mock_arbitrage_opportunity() -> crate::types::ArbitrageOpportunity
         rate_difference: 2.5,
         net_rate_difference: Some(2.3),
         potential_profit_value: Some(1250.0),
-        confidence: 85.0,
         timestamp: chrono::Utc::now().timestamp_millis() as u64,
         detected_at: chrono::Utc::now().timestamp_millis() as u64,
         r#type: ArbitrageType::CrossExchange,

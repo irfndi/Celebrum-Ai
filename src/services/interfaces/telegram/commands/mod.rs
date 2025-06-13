@@ -1087,7 +1087,7 @@ impl CommandRouter {
                             ));
                             message.push_str(&format!(
                                 "   • Confidence: {:.1}%\n\n",
-                                opportunity.confidence * 100.0
+                                opportunity.confidence_score * 100.0
                             ));
                         }
 
