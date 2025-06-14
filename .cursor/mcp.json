@@ -4,10 +4,9 @@
         "command": "npx",
         "args": ["-y", "--package=task-master-ai", "task-master-ai"],
         "env": {
-          "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
-          "OPENROUTER_API_KEY": "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",
-          "MODEL": "google/gemini-2.5-flash-preview-05-20",
-          "MAX_TOKENS": 64000,
+          "OPENROUTER_API_KEY": "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",
+          "MODEL": "gemini-2.5-flash-preview-05-20",
+          "MAX_TOKENS": 1000000,
           "TEMPERATURE": 0.2,
           "DEFAULT_SUBTASKS": 5,
           "DEFAULT_PRIORITY": "medium"

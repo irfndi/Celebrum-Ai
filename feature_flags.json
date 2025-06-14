@@ -122,5 +122,9 @@
     "secret_management": true,
     "secure_headers": true,
     "csrf_protection": true
+  },
+  "funding_rate_integration": {
+    "enabled": true,
+    "cache_ttl_seconds": 7200
   }
 }

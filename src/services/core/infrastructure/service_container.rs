@@ -21,13 +21,13 @@ use crate::services::core::user::user_profile::UserProfileService;
 // use crate::services::core::user::user_activity::UserActivityService;
 // use crate::services::core::user::group_management::GroupManagementService;
 
+use crate::services::core::admin::AdminService;
+use crate::services::core::ai::ai_analysis_service::AiAnalysisService;
 use crate::services::interfaces::telegram::ModularTelegramService;
-// use crate::services::core::admin::{AdminService, UserManagementService, SystemConfigService, MonitoringService, AuditService};
 use crate::utils::feature_flags::{load_feature_flags, FeatureFlags};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;
 use worker::console_log;
-// use worker::console_log;
 use worker::{kv::KvStore, Env};
 
 /// Comprehensive service container for managing all application services
@@ -40,9 +40,8 @@ pub struct ServiceContainer {
     pub exchange_service: Arc<ExchangeService>,
     pub user_profile_service: Option<Arc<UserProfileService>>,
     pub opportunity_engine: Option<Arc<OpportunityEngine>>,
-    // pub admin_service: Option<Arc<AdminService>>, // Temporarily commented out
-    // pub auth_service: Option<Arc<AuthService>>, // Commented out until AuthService is implemented
-    // pub ai_coordinator: Option<Arc<AICoordinator>>, // Commented out until AICoordinator is implemented
+    pub admin_service: Option<Arc<AdminService>>,
+    pub ai_analysis_service: Option<Arc<AiAnalysisService>>,
     pub data_ingestion_module: Option<Arc<DataIngestionModule>>,
     pub database_manager: DatabaseManager,
     pub data_access_layer: DataAccessLayer,
@@ -109,8 +108,16 @@ impl ServiceContainer {
         // Note: Telegram service will be initialized after ServiceContainer creation to avoid circular dependency
         let telegram_service = None;
 
-        // Initialize Admin Service
-        // let admin_service = Self::create_admin_service(env, &kv_store)?;
+        // Initialize AI Analysis Service
+        let ai_analysis_service = Some(Arc::new(AiAnalysisService::new(
+            kv_store.clone(),
+            Arc::new(env.d1("ArbEdgeD1").map_err(|e| {
+                ArbitrageError::configuration_error(format!("Failed to get D1 database: {:?}", e))
+            })?),
+        )));
+
+        // Initialize Admin Service (will be created when needed)
+        let admin_service = None;
 
         Ok(Self {
             session_service: session_service_instance,
@@ -118,7 +125,8 @@ impl ServiceContainer {
             telegram_service,
             exchange_service,
             user_profile_service: Some(user_profile_service_instance),
-            // admin_service: Some(Arc::new(admin_service)),
+            admin_service,
+            ai_analysis_service,
             data_ingestion_module: None,
             database_manager,
             data_access_layer,
@@ -187,9 +195,13 @@ impl ServiceContainer {
     /// Create AdminService with all sub-services
     /// TODO: Implement AdminService when ready
     /// Get admin service for super admin operations
-    pub fn get_admin_service(&self) -> Option<()> {
-        // self.admin_service.as_ref().map(|arc| arc.as_ref())
-        None
+    pub fn get_admin_service(&self) -> Option<Arc<AdminService>> {
+        self.admin_service.clone()
+    }
+
+    /// Get AI analysis service for API endpoints
+    pub fn get_ai_service(&self) -> Option<Arc<AiAnalysisService>> {
+        self.ai_analysis_service.clone()
     }
 
     /// Create with custom distribution configuration

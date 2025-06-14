@@ -52,12 +52,15 @@ impl OpportunityBuilder {
         let potential_profit_value =
             self.calculate_arbitrage_profit_value(rate_difference, context);
 
+        let confidence_score =
+            self.calculate_funding_rate_confidence(rate_difference, long_rate, short_rate);
+
         let opportunity = ArbitrageOpportunity {
             id: Uuid::new_v4().to_string(),
             trading_pair: pair.clone(),
             exchanges: vec![long_exchange.to_string(), short_exchange.to_string()],
             profit_percentage: rate_difference,
-            confidence_score: 0.8, // Default confidence for funding rate arbitrage
+            confidence_score,
             risk_level: "medium".to_string(),
             buy_exchange: long_exchange.to_string(),
             sell_exchange: short_exchange.to_string(),
@@ -69,8 +72,8 @@ impl OpportunityBuilder {
             pair: pair.clone(),
             long_exchange,
             short_exchange,
-            long_rate: None,
-            short_rate: None,
+            long_rate: Some(long_rate),
+            short_rate: Some(short_rate),
             rate_difference,
             net_rate_difference: Some(rate_difference),
             potential_profit_value: Some(potential_profit_value),
@@ -124,12 +127,15 @@ impl OpportunityBuilder {
         let potential_profit_value =
             self.calculate_arbitrage_profit_value(price_difference, context);
 
+        let confidence_score =
+            self.calculate_price_arbitrage_confidence(price_difference, long_price, short_price);
+
         let opportunity = ArbitrageOpportunity {
             id: Uuid::new_v4().to_string(),
             trading_pair: pair.clone(),
             exchanges: vec![long_exchange.to_string(), short_exchange.to_string()],
             profit_percentage: price_difference,
-            confidence_score: 0.8, // Default confidence score
+            confidence_score,
             risk_level: "medium".to_string(),
             buy_exchange: long_exchange.to_string(),
             sell_exchange: short_exchange.to_string(),
@@ -208,12 +214,15 @@ impl OpportunityBuilder {
 
         let potential_profit_value = self.calculate_arbitrage_profit_value(difference, context);
 
+        let confidence_score =
+            self.calculate_cross_exchange_confidence(difference, exchanges.len());
+
         let opportunity = ArbitrageOpportunity {
             id: Uuid::new_v4().to_string(),
             trading_pair: pair.clone(),
             exchanges: vec![min_exchange.to_string(), max_exchange.to_string()],
             profit_percentage: difference,
-            confidence_score: 0.8, // Default confidence score
+            confidence_score,
             risk_level: "medium".to_string(),
             buy_exchange: min_exchange.to_string(),
             sell_exchange: max_exchange.to_string(),
@@ -639,6 +648,87 @@ impl OpportunityBuilder {
         };
 
         return_score * confidence_multiplier * strength_multiplier
+    }
+
+    /// Calculate funding rate confidence score
+    fn calculate_funding_rate_confidence(
+        &self,
+        rate_difference: f64,
+        long_rate: f64,
+        short_rate: f64,
+    ) -> f64 {
+        // Base confidence from rate difference magnitude
+        let base_confidence = (rate_difference * 100.0).min(10.0) / 10.0; // 0-1 scale
+
+        // Rate stability factor - prefer rates closer to typical funding ranges
+        let typical_funding_range = 0.01; // 1% is typical max funding rate
+        let rate_stability =
+            1.0 - ((long_rate.abs() + short_rate.abs()) / (2.0 * typical_funding_range)).min(1.0);
+
+        // Rate spread factor - higher spread = higher confidence
+        let spread_factor = (rate_difference / 0.005).min(1.0); // 0.5% is good spread
+
+        // Combine factors with weights
+        (base_confidence * 0.4 + rate_stability * 0.3 + spread_factor * 0.3).clamp(0.1, 0.95)
+        // 10% to 95% confidence range
+    }
+
+    /// Calculate price arbitrage confidence score
+    fn calculate_price_arbitrage_confidence(
+        &self,
+        price_difference: f64,
+        long_price: f64,
+        short_price: f64,
+    ) -> f64 {
+        // Base confidence from price difference magnitude
+        let base_confidence = (price_difference * 100.0).min(5.0) / 5.0; // 0-1 scale, 5% max
+
+        // Price level factor - prefer higher absolute prices (more liquid)
+        let avg_price = (long_price + short_price) / 2.0;
+        let price_level_factor = if avg_price > 1000.0 {
+            0.9
+        } else if avg_price > 100.0 {
+            0.8
+        } else if avg_price > 10.0 {
+            0.7
+        } else {
+            0.5
+        };
+
+        // Spread magnitude factor
+        let spread_factor = (price_difference / 0.02).min(1.0); // 2% is good spread
+
+        // Combine factors
+        (base_confidence * 0.5 + price_level_factor * 0.3 + spread_factor * 0.2).clamp(0.1, 0.95)
+    }
+
+    /// Calculate cross-exchange confidence score
+    fn calculate_cross_exchange_confidence(&self, difference: f64, exchanges_count: usize) -> f64 {
+        // Base confidence from difference magnitude
+        let base_confidence = (difference * 100.0).min(8.0) / 8.0; // 0-1 scale, 8% max
+
+        // Exchange count factor - more exchanges = higher confidence
+        let exchange_factor = match exchanges_count {
+            2 => 0.6,
+            3 => 0.75,
+            4 => 0.85,
+            5..=10 => 0.9,
+            _ => 0.95,
+        };
+
+        // Difference magnitude factor
+        let magnitude_factor = if difference > 0.05 {
+            0.95 // Very high difference
+        } else if difference > 0.02 {
+            0.85 // Good difference
+        } else if difference > 0.01 {
+            0.7 // Moderate difference
+        } else {
+            0.5 // Low difference
+        };
+
+        // Combine factors
+        (base_confidence * 0.4 + exchange_factor * 0.3 + magnitude_factor * 0.3).clamp(0.1, 0.95)
     }
 }
 

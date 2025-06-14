@@ -10,10 +10,12 @@
 //! - `TechnicalAnalysisService`: Technical indicator analysis and signals
 //! - `CorrelationAnalysisService`: Cross-market correlation analysis
 
+pub mod analytics_service;
 pub mod correlation_analysis;
 pub mod market_analysis;
 pub mod technical_analysis;
 
+pub use analytics_service::AnalyticsService;
 pub use correlation_analysis::CorrelationAnalysisService;
 pub use market_analysis::MarketAnalysisService;
 pub use technical_analysis::TechnicalAnalysisService;

@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod monitoring;
+pub mod simple_admin_service;
 pub mod system_config;
 pub mod user_management;
 
@@ -15,6 +16,7 @@ use worker::Env;
 // Re-export all admin services
 pub use audit::AuditService;
 pub use monitoring::MonitoringService;
+pub use simple_admin_service::SimpleAdminService;
 pub use system_config::SystemConfigService;
 pub use user_management::UserManagementService;
 

@@ -9,6 +9,7 @@ use crate::services::core::user::user_trading_preferences::UserTradingPreference
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 use worker::{console_log, kv::KvStore, wasm_bindgen::JsValue, D1Database};
 
@@ -1217,7 +1218,59 @@ impl DatabaseManager {
     ) -> ArbitrageResult<()> {
         let start_time = current_timestamp_ms();
 
-        let query = "INSERT OR IGNORE INTO opportunities (
+        // First check if an active (non-expired) opportunity with same key already exists
+        let select_query = "SELECT id FROM opportunities WHERE pair = ? AND long_exchange = ? AND short_exchange = ? AND type = ? AND expiry_timestamp > ? LIMIT 1";
+
+        let select_params = vec![
+            JsValue::from_str(&opportunity.trading_pair),
+            JsValue::from_str(opportunity.long_exchange.as_str()),
+            JsValue::from_str(opportunity.short_exchange.as_str()),
+            JsValue::from_str("price_arbitrage"),
+            JsValue::from_f64(start_time as f64),
+        ];
+
+        let existing_row_id: Option<String> = self
+            .db
+            .prepare(select_query)
+            .bind(&select_params)
+            .map_err(|e| ArbitrageError::database_error(format!("Failed to bind: {}", e)))?
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Query err: {}", e)))?
+            .and_then(|row| {
+                row.get("id")
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+            });
+
+        if let Some(existing_id) = existing_row_id {
+            // Update in-place (rate diff, profit, timestamps)
+            let update_query = "UPDATE opportunities SET rate_difference = ?, net_rate_difference = ?, potential_profit_value = ?, profit_percentage = ?, long_rate = ?, short_rate = ?, timestamp = ?, detection_timestamp = ? WHERE id = ?";
+            let update_params = vec![
+                JsValue::from_f64(opportunity.rate_difference),
+                JsValue::from_f64(opportunity.net_rate_difference.unwrap_or(0.0)),
+                JsValue::from_f64(opportunity.potential_profit_value.unwrap_or(0.0)),
+                JsValue::from_f64(opportunity.profit_percentage),
+                JsValue::from_f64(opportunity.long_rate.unwrap_or(0.0)),
+                JsValue::from_f64(opportunity.short_rate.unwrap_or(0.0)),
+                JsValue::from_f64(start_time as f64),
+                JsValue::from_f64(start_time as f64),
+                JsValue::from_str(&existing_id),
+            ];
+            self.db
+                .prepare(update_query)
+                .bind(&update_params)
+                .map_err(|e| ArbitrageError::database_error(format!("Bind err: {}", e)))?
+                .run()
+                .await
+                .map_err(|e| ArbitrageError::database_error(format!("Update err: {}", e)))?;
+
+            self.update_metrics(start_time, true).await;
+            log::info!("🔄 Refreshed existing opportunity {}", existing_id);
+            return Ok(());
+        }
+
+        // Insert new opportunity
+        let insert_query = "INSERT INTO opportunities (
             id, pair, long_exchange, short_exchange, long_rate, short_rate, 
             rate_difference, net_rate_difference, potential_profit_value, 
             type, details, timestamp, detection_timestamp, expiry_timestamp,
@@ -1225,7 +1278,7 @@ impl DatabaseManager {
             distribution_strategy, source, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-        let params = vec![
+        let insert_params = vec![
             JsValue::from_str(&opportunity.id),
             JsValue::from_str(&opportunity.trading_pair),
             JsValue::from_str(opportunity.long_exchange.as_str()),
@@ -1244,34 +1297,26 @@ impl DatabaseManager {
             )),
             JsValue::from_f64(start_time as f64),
             JsValue::from_f64(start_time as f64), // detection_timestamp
-            JsValue::from_f64((start_time + 300000) as f64), // expiry_timestamp (5 min from now)
-            JsValue::from_f64(opportunity.profit_percentage * 10.0), // priority_score
-            JsValue::from_f64(1000.0),            // max_participants
-            JsValue::from_f64(0.0),               // current_participants
-            JsValue::from_str("immediate"),       // distribution_strategy
-            JsValue::from_str("SystemGenerated"), // source
-            JsValue::from_f64(start_time as f64), // created_at
+            JsValue::from_f64((start_time + 300000) as f64), // expiry_timestamp (5 min)
+            JsValue::from_f64(opportunity.profit_percentage * 10.0), // priority
+            JsValue::from_f64(1000.0),
+            JsValue::from_f64(0.0),
+            JsValue::from_str("immediate"),
+            JsValue::from_str("SystemGenerated"),
+            JsValue::from_f64(start_time as f64),
         ];
 
-        let stmt = self.db.prepare(query);
-        let bound_stmt = stmt.bind(&params).map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
-        })?;
-        match bound_stmt.run().await {
-            Ok(_) => {
-                self.update_metrics(start_time, true).await;
-                log::info!("✅ Stored opportunity {} successfully", opportunity.id);
-                Ok(())
-            }
-            Err(e) => {
-                self.update_metrics(start_time, false).await;
-                log::error!("❌ Failed to store opportunity {}: {}", opportunity.id, e);
-                Err(ArbitrageError::database_error(format!(
-                    "Failed to execute query: {}",
-                    e
-                )))
-            }
-        }
+        self.db
+            .prepare(insert_query)
+            .bind(&insert_params)
+            .map_err(|e| ArbitrageError::database_error(format!("Bind err: {}", e)))?
+            .run()
+            .await
+            .map_err(|e| ArbitrageError::database_error(format!("Insert err: {}", e)))?;
+
+        self.update_metrics(start_time, true).await;
+        log::info!("✅ Stored new opportunity {}", opportunity.id);
+        Ok(())
     }
 
     /// Store opportunity distribution relationship (CRITICAL MISSING METHOD)
@@ -1346,6 +1391,94 @@ impl DatabaseManager {
         } else {
             Ok(None)
         }
+    }
+
+    /// Get all active opportunities from database
+    pub async fn get_all_opportunities(
+        &self,
+    ) -> ArbitrageResult<Vec<crate::types::ArbitrageOpportunity>> {
+        let query = "SELECT id, pair, long_exchange, short_exchange, long_rate, short_rate, rate_difference, net_rate_difference, potential_profit_value, type, details, timestamp, detection_timestamp, expiry_timestamp FROM opportunities WHERE expiry_timestamp > ? ORDER BY timestamp DESC LIMIT 100";
+
+        let current_time = chrono::Utc::now().timestamp_millis() as f64;
+        let params = vec![JsValue::from_f64(current_time)];
+
+        let stmt = self.db.prepare(query);
+        let bound_stmt = stmt.bind(&params).map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to bind parameters: {}", e))
+        })?;
+
+        let result = bound_stmt.run().await.map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to execute query: {}", e))
+        })?;
+
+        let rows = result
+            .results::<HashMap<String, serde_json::Value>>()
+            .map_err(|e| {
+                ArbitrageError::database_error(format!("Failed to parse results: {}", e))
+            })?;
+
+        let mut opportunities = Vec::new();
+        for row in rows {
+            if let Some(opportunity) = self.parse_opportunity_row(row) {
+                opportunities.push(opportunity);
+            }
+        }
+
+        Ok(opportunities)
+    }
+
+    /// Parse opportunity row from database into ArbitrageOpportunity
+    fn parse_opportunity_row(
+        &self,
+        row: HashMap<String, serde_json::Value>,
+    ) -> Option<crate::types::ArbitrageOpportunity> {
+        let id = row.get("id")?.as_str()?.to_string();
+        let pair = row.get("pair")?.as_str()?.to_string();
+        let long_exchange_str = row.get("long_exchange")?.as_str()?;
+        let short_exchange_str = row.get("short_exchange")?.as_str()?;
+
+        let long_exchange = crate::types::ExchangeIdEnum::from_str(long_exchange_str).ok()?;
+        let short_exchange = crate::types::ExchangeIdEnum::from_str(short_exchange_str).ok()?;
+
+        let rate_difference = row.get("rate_difference")?.as_f64().unwrap_or(0.0);
+        let long_rate = row.get("long_rate")?.as_f64();
+        let short_rate = row.get("short_rate")?.as_f64();
+        let potential_profit_value = row.get("potential_profit_value")?.as_f64();
+        let timestamp = row.get("timestamp")?.as_f64().unwrap_or(0.0) as u64;
+        let expires_at = row.get("expiry_timestamp")?.as_f64().map(|t| t as u64);
+
+        Some(crate::types::ArbitrageOpportunity {
+            id,
+            trading_pair: pair.clone(),
+            long_exchange,
+            short_exchange,
+            profit_percentage: rate_difference,
+            rate_difference,
+            long_rate,
+            short_rate,
+            net_rate_difference: row.get("net_rate_difference")?.as_f64(),
+            potential_profit_value,
+            timestamp,
+            expires_at,
+            // Default values for missing fields
+            exchanges: vec![long_exchange.to_string(), short_exchange.to_string()],
+            risk_level: crate::types::RiskLevel::Medium.to_string(),
+            buy_exchange: long_exchange.to_string(),
+            sell_exchange: short_exchange.to_string(),
+            volume: 1000.0,
+            created_at: timestamp,
+            pair,
+            detected_at: timestamp,
+            r#type: crate::types::ArbitrageType::CrossExchange,
+            min_exchanges_required: 2,
+            confidence_score: 0.8, // Default confidence
+            buy_price: 0.0,        // Default
+            sell_price: 0.0,       // Default
+            details: row
+                .get("details")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+        })
     }
 
     /// Store user opportunity preferences (Opportunity Categorization compatibility)
