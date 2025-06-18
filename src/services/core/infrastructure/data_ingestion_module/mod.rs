@@ -1,38 +1,42 @@
 // Data Ingestion Module - Modular Data Ingestion with Enhanced Streaming Capabilities
 // Replaces cloudflare_pipelines.rs (948 lines) with 4 specialized components
 
-// NEW: Simplified ingestion service (recommended for new code)
+// NEW: Unified ingestion engine (consolidated from multiple files)
+pub mod unified_ingestion_engine;
+
+// Simplified ingestion service
 pub mod simple_ingestion;
 
-// Legacy components (to be deprecated)
-pub mod data_transformer;
-pub mod ingestion_coordinator;
-pub mod pipeline_manager;
-pub mod queue_manager;
+// NOTE: The following modules have been consolidated into unified_ingestion_engine.rs:
+// - data_transformer, ingestion_coordinator, pipeline_manager, queue_manager
 
 // Re-export main types for easy access
 
-// NEW: Simplified ingestion components (recommended for new code)
-pub use simple_ingestion::{
-    IngestionDataType, IngestionPriority, IngestionRequest as SimpleIngestionRequest,
-    IngestionResult as SimpleIngestionResult, SimpleIngestionBuilder, SimpleIngestionConfig,
-    SimpleIngestionMetrics, SimpleIngestionService,
+// NEW: Unified ingestion engine components (all functionality consolidated)
+pub use unified_ingestion_engine::{
+    UnifiedIngestionEngine, UnifiedIngestionEngineBuilder, UnifiedIngestionConfig,
+    UnifiedIngestionMetrics, UnifiedIngestionRequest, UnifiedIngestionResponse,
+    IngestionSourceType, IngestionPriority,
 };
 
-// Legacy components (to be deprecated)
-pub use data_transformer::{
-    DataFormat, DataTransformer, DataTransformerConfig, TransformationMetrics, TransformationRule,
+// Simplified ingestion components
+pub use simple_ingestion::{
+    IngestionDataType, IngestionPriority as SimpleIngestionPriority, 
+    IngestionRequest as SimpleIngestionRequest, IngestionResult as SimpleIngestionResult, 
+    SimpleIngestionBuilder, SimpleIngestionConfig, SimpleIngestionMetrics, SimpleIngestionService,
 };
-pub use ingestion_coordinator::{
-    IngestionCoordinator, IngestionCoordinatorConfig, IngestionMetrics, IngestionRequest,
-    IngestionResponse,
-};
-pub use pipeline_manager::{
-    PipelineHealth, PipelineManager, PipelineManagerConfig, PipelineMetrics, PipelineType,
-};
-pub use queue_manager::{
-    MessagePriority, QueueHealth, QueueManager, QueueManagerConfig, QueueMetrics, QueueType,
-};
+
+// Legacy compatibility exports (for backward compatibility)
+pub type DataTransformer = UnifiedIngestionEngine;
+pub type IngestionCoordinator = UnifiedIngestionEngine;
+pub type PipelineManager = UnifiedIngestionEngine;
+pub type QueueManager = UnifiedIngestionEngine;
+
+// Configuration type aliases for compatibility
+pub type DataTransformerConfig = UnifiedIngestionConfig;
+pub type IngestionCoordinatorConfig = UnifiedIngestionConfig;
+pub type PipelineManagerConfig = UnifiedIngestionConfig;
+pub type QueueManagerConfig = UnifiedIngestionConfig;
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};

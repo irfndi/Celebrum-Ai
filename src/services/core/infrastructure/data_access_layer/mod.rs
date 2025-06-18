@@ -3,66 +3,40 @@
 //! Multi-tier hierarchical caching with compression, warming, and metadata tracking
 //! Provides production-ready caching infrastructure for ArbEdge platform
 
-// NEW: Unified data access service (replaces complex multi-file structure)
-pub mod unified_data_access;
+// NEW: Unified data access service (consolidated from multiple files)
+pub mod unified_data_access_engine;
 
-// Original data access layer modules (to be deprecated)
-pub mod api_connector;
-pub mod cache_layer;
-pub mod data_coordinator;
-pub mod data_source_manager;
-pub mod data_validator;
-
-// Enhanced KV cache modules
-pub mod cache_manager;
-pub mod compression;
-pub mod config;
-pub mod metadata;
-pub mod warming;
-
-// Simple data access module
-pub mod simple_data_access;
+// NOTE: The following modules have been consolidated into unified_data_access_engine.rs:
+// - api_connector, cache_layer, data_coordinator, data_source_manager, data_validator
+// - cache_manager, compression, config, metadata, warming, simple_data_access
 
 // Re-export main components for easy access
 
-// NEW: Unified data access components (recommended for new code)
-pub use unified_data_access::{
-    DataAccessResult, DataSource, UnifiedDataAccessBuilder, UnifiedDataAccessConfig,
-    UnifiedDataAccessMetrics, UnifiedDataAccessService,
+// NEW: Unified data access components (all functionality consolidated)
+pub use unified_data_access_engine::{
+    UnifiedDataAccessEngine, UnifiedDataAccessEngineBuilder, UnifiedDataAccessConfig,
+    UnifiedDataAccessMetrics, UnifiedDataRequest, UnifiedDataResponse, DataSourceType,
+    DataPriority, DataMetadata,
 };
 
-// Original data access layer components (legacy, will be deprecated)
-pub use api_connector::{APIConnector, APIConnectorConfig};
-pub use cache_layer::{CacheLayer, CacheLayerConfig};
-pub use data_coordinator::{DataCoordinator as DataAccessDataCoordinator, DataCoordinatorConfig};
-pub use data_source_manager::{DataSourceManager, DataSourceManagerConfig};
-pub use data_validator::{DataValidator, DataValidatorConfig};
+// Legacy compatibility exports (for backward compatibility)
+// Note: These are now provided by the unified engine but maintained for compatibility
+pub type APIConnector = UnifiedDataAccessEngine;
+pub type CacheLayer = UnifiedDataAccessEngine;
+pub type DataAccessDataCoordinator = UnifiedDataAccessEngine;
+pub type DataSourceManager = UnifiedDataAccessEngine;
+pub type DataValidator = UnifiedDataAccessEngine;
+pub type SimpleDataAccessService = UnifiedDataAccessEngine;
+pub type KvCacheManager = UnifiedDataAccessEngine;
 
-// Simple data access components
-pub use simple_data_access::{
-    DataType as SimpleDataType, SimpleDataAccessConfig, SimpleDataAccessService, SimpleDataRequest,
-    SimpleDataResponse,
-};
-
-// Enhanced KV cache components
-pub use cache_manager::{
-    BatchOperation, BatchResult, CacheManagerMetrics, CompressionStats, KvCacheManager, TierStats,
-    WarmingStats,
-};
-pub use compression::{
-    CompressionEngine, CompressionEnvelope, CompressionMetrics, CompressionMiddleware,
-    CompressionResult, ContentAnalyzer, ContentType, StorageData,
-};
-pub use config::{
-    CacheConfig as EnhancedCacheConfig, CleanupConfig, CompressionConfig, GeneralConfig,
-    TierConfig, WarmingConfig,
-};
-pub use metadata::{
-    AccessPattern, AlertSeverity, CacheAnalyticsReport, CacheMetadata, CleanupCandidate,
-    CleanupRecommendations, DataType, HotPathMetrics, MetadataTracker, PerformanceAlert,
-    PerformanceAnalysis, Priority, TierInsights, TopEntriesAnalysis, TrendAnalysis,
-};
-pub use warming::{CacheWarmingService, WarmingRequest, WarmingStats as WarmingServiceStats};
+// Configuration type aliases for compatibility
+pub type APIConnectorConfig = UnifiedDataAccessConfig;
+pub type CacheLayerConfig = UnifiedDataAccessConfig;
+pub type DataCoordinatorConfig = UnifiedDataAccessConfig;
+pub type DataSourceManagerConfig = UnifiedDataAccessConfig;
+pub type DataValidatorConfig = UnifiedDataAccessConfig;
+pub type SimpleDataAccessConfig = UnifiedDataAccessConfig;
+pub type EnhancedCacheConfig = UnifiedDataAccessConfig;
 
 use crate::utils::ArbitrageResult;
 use serde::{Deserialize, Serialize};
@@ -113,44 +87,33 @@ impl DataAccessLayer {
         &self.kv_store
     }
 
-    // Access methods for compatibility
+    // Access methods for compatibility - all return unified engine
     pub async fn api_connector(&self) -> ArbitrageResult<APIConnector> {
-        APIConnector::new(self.config.api_connector_config.clone())
+        UnifiedDataAccessEngine::new(self.config.api_connector_config.clone())
     }
 
     pub async fn cache_layer(&self) -> ArbitrageResult<CacheLayer> {
-        CacheLayer::new(self.config.cache_layer_config.clone())
+        UnifiedDataAccessEngine::new(self.config.cache_layer_config.clone())
     }
 
     pub async fn data_coordinator(&self) -> ArbitrageResult<DataAccessDataCoordinator> {
-        DataAccessDataCoordinator::new(
-            self.config.data_coordinator_config.clone(),
-            self.config.data_source_manager_config.clone(),
-            self.config.cache_layer_config.clone(),
-            self.config.api_connector_config.clone(),
-            self.config.data_validator_config.clone(),
-            self.kv_store.clone(),
-        )
-        .await
+        UnifiedDataAccessEngine::new(self.config.data_coordinator_config.clone())
     }
 
     pub async fn data_source_manager(&self) -> ArbitrageResult<DataSourceManager> {
-        DataSourceManager::new(self.config.data_source_manager_config.clone())
+        UnifiedDataAccessEngine::new(self.config.data_source_manager_config.clone())
     }
 
     pub async fn data_validator(&self) -> ArbitrageResult<DataValidator> {
-        DataValidator::new(self.config.data_validator_config.clone())
+        UnifiedDataAccessEngine::new(self.config.data_validator_config.clone())
     }
 
     pub async fn simple_data_access(&self) -> ArbitrageResult<SimpleDataAccessService> {
-        SimpleDataAccessService::new(
-            self.config.simple_data_access_config.clone(),
-            self.kv_store.clone(),
-        )
+        UnifiedDataAccessEngine::new(self.config.simple_data_access_config.clone())
     }
 
     pub async fn kv_cache_manager(&self) -> ArbitrageResult<KvCacheManager> {
-        KvCacheManager::new(self.config.enhanced_cache_config.clone())
+        UnifiedDataAccessEngine::new(self.config.enhanced_cache_config.clone())
     }
 }
 

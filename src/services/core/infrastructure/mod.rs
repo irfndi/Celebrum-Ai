@@ -53,32 +53,20 @@ pub mod persistence_layer;
   pub mod unified_notification_services;
   pub mod unified_financial_services;
   
-  // ============= REMAINING LEGACY MODULES (TO BE CONSOLIDATED) =============
-  pub mod automated_cleanup;
-  pub mod financial_module;
-  pub mod notification_module;
+  // ============= REMAINING ESSENTIAL MODULES =============
 
 // ============= SHARED COMPONENTS =============
 pub mod shared_types;
 
 // ============= LEGACY CORE COMPONENTS (CONSOLIDATED INTO unified_core_services) =============
-// NOTE: These are now provided by unified_core_services but kept for backward compatibility
-pub mod cache_manager;
-pub mod circuit_breaker_service;
-pub mod cloudflare_health_service;
-pub mod failover_service;
+// NOTE: These modules have been consolidated into unified_core_services.rs
+// Removed: cache_manager, circuit_breaker_service, cloudflare_health_service, failover_service
+// Removed: service_health, simple_retry_service, unified_circuit_breaker, unified_health_check, unified_retry
 pub mod infrastructure_engine;
-pub mod service_health;
-pub mod simple_retry_service;
-pub mod unified_circuit_breaker;
-pub mod unified_health_check;
-pub mod unified_retry;
 
-// ============= CLOUDFLARE INTEGRATION (CONSOLIDATED INTO unified_cloudflare_services) =============
-// NOTE: These are now provided by unified_cloudflare_services but kept for backward compatibility
-pub mod cloudflare_pipelines;
-pub mod d1;
-pub mod kv;
+// ============= CLOUDFLARE INTEGRATION (CONSOLIDATED INTO unified_cloudflare_services) =============  
+// NOTE: These modules have been consolidated into unified_cloudflare_services.rs
+// Removed: cloudflare_pipelines, d1, kv
 
 // ============= ADDITIONAL INFRASTRUCTURE COMPONENTS =============
 pub mod durable_objects;
@@ -231,21 +219,11 @@ pub use data_ingestion_module::{
 // };
 
 // ============= LEGACY CORE INFRASTRUCTURE EXPORTS (BACKWARD COMPATIBILITY) =============
-pub use cache_manager::{CacheConfig, CacheHealth, CacheManager, CacheResult};
-pub use circuit_breaker_service::{
-    CircuitBreakerConfig, CircuitBreakerMetrics, CircuitBreakerService, CircuitBreakerStateInfo,
-    CircuitBreakerType, EnhancedCircuitBreaker,
-};
-pub use cloudflare_health_service::{
-    CloudflareHealthConfig, CloudflareHealthService,
-    HealthCheckResult as CloudflareHealthCheckResult, HealthStatus as CloudflareHealthStatus,
-    SimpleHealthCheck,
-};
-
-pub use failover_service::{
-    FailoverConfig, FailoverMetrics, FailoverService, FailoverState, FailoverStatus,
-    FailoverStrategy, FailoverType, ServiceConfig,
-};
+// NOTE: These exports have been moved to unified modules:
+// - cache_manager -> unified_core_services
+// - circuit_breaker_service -> unified_core_services  
+// - cloudflare_health_service -> unified_cloudflare_services
+// - failover_service -> unified_core_services
 pub use infrastructure_engine::{
     InfrastructureEngine, InfrastructureHealth, ServiceInfo, ServiceRegistration, ServiceStatus,
     ServiceType,
