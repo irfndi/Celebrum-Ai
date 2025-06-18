@@ -1,15 +1,5 @@
 {
-  "chaos_engineering": {
-    "enabled": false,
-    "storage_fault_injection": false,
-    "network_chaos_simulation": false,
-    "resource_exhaustion_testing": false,
-    "automated_orchestration": false,
-    "realtime_recovery_verification": false,
-    "chaos_metrics_dashboard": false,
-    "max_concurrent_experiments": 1,
-    "max_fault_intensity": 0.2
-  },
+
   "automated_cleanup": {
     "enabled": false,
     "policy_management": false,

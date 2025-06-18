@@ -70,7 +70,6 @@ pub struct DataAccessLayerConfig {
     pub enable_comprehensive_monitoring: bool,
     pub health_check_interval_seconds: u64,
     pub enable_performance_optimization: bool,
-    pub enable_chaos_engineering: bool,
 }
 
 impl Default for DataAccessLayerConfig {
@@ -84,7 +83,6 @@ impl Default for DataAccessLayerConfig {
             enable_comprehensive_monitoring: true,
             health_check_interval_seconds: 300, // 5 minutes
             enable_performance_optimization: true,
-            enable_chaos_engineering: true,
         }
     }
 }
@@ -101,7 +99,7 @@ impl DataAccessLayerConfig {
             health_check_interval_seconds: 180,    // 3 minutes
             enable_comprehensive_monitoring: true, // Default for high concurrency
             enable_performance_optimization: true, // Default for high concurrency
-            enable_chaos_engineering: false, // Typically disabled for high concurrency focus unless testing resilience
+
         }
     }
 
@@ -116,7 +114,7 @@ impl DataAccessLayerConfig {
             health_check_interval_seconds: 600,    // 10 minutes
             enable_comprehensive_monitoring: true, // Essential for reliability
             enable_performance_optimization: true, // Can coexist with reliability
-            enable_chaos_engineering: true,        // Important for testing reliability
+
         }
     }
 
@@ -187,10 +185,9 @@ impl DataAccessLayer {
         };
 
         layer.logger.info(&format!(
-            "DataAccessLayer initialized: monitoring={}, performance_optimization={}, chaos_engineering={}",
+            "DataAccessLayer initialized: monitoring={}, performance_optimization={}",
             layer.config.enable_comprehensive_monitoring,
-            layer.config.enable_performance_optimization,
-            layer.config.enable_chaos_engineering
+            layer.config.enable_performance_optimization
         ));
 
         Ok(layer)
@@ -415,7 +412,7 @@ impl DataAccessLayer {
             "configuration": {
                 "monitoring_enabled": self.config.enable_comprehensive_monitoring,
                 "performance_optimization": self.config.enable_performance_optimization,
-                "chaos_engineering": self.config.enable_chaos_engineering,
+
                 "health_check_interval": self.config.health_check_interval_seconds
             },
             "last_updated": chrono::Utc::now().timestamp_millis()
@@ -473,7 +470,6 @@ mod tests {
     #[test]
     fn test_high_reliability_config() {
         let config = DataAccessLayerConfig::high_reliability();
-        assert!(config.enable_chaos_engineering);
         assert_eq!(config.health_check_interval_seconds, 600);
     }
 }

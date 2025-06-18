@@ -249,7 +249,6 @@ pub struct DataIngestionModuleConfig {
     pub transformer_config: DataTransformerConfig,
     pub coordinator_config: IngestionCoordinatorConfig,
     pub enable_comprehensive_monitoring: bool,
-    pub enable_chaos_engineering: bool,
     pub enable_performance_optimization: bool,
     pub health_check_interval_seconds: u64,
     pub r2_bucket_name: String,
@@ -266,7 +265,6 @@ impl Default for DataIngestionModuleConfig {
             transformer_config: DataTransformerConfig::default(),
             coordinator_config: IngestionCoordinatorConfig::default(),
             enable_comprehensive_monitoring: true,
-            enable_chaos_engineering: true,
             enable_performance_optimization: true,
             health_check_interval_seconds: 30,
             r2_bucket_name: "prod-arb-edge".to_string(),
@@ -298,7 +296,6 @@ impl DataIngestionModuleConfig {
             queue_config: QueueManagerConfig::high_reliability(),
             transformer_config: DataTransformerConfig::high_reliability(),
             coordinator_config: IngestionCoordinatorConfig::high_reliability(),
-            enable_chaos_engineering: true,
             enable_kv_fallback: true,
             health_check_interval_seconds: 15, // More frequent health checks
             ..Default::default()
@@ -731,7 +728,6 @@ mod tests {
     #[test]
     fn test_high_reliability_config() {
         let config = DataIngestionModuleConfig::high_reliability();
-        assert!(config.enable_chaos_engineering);
         assert!(config.enable_kv_fallback);
         assert_eq!(config.health_check_interval_seconds, 15);
     }

@@ -40,15 +40,16 @@ pub mod notification_module;
 pub mod shared_types;
 
 // ============= CORE INFRASTRUCTURE COMPONENTS =============
-pub mod automatic_failover_coordinator;
 pub mod cache_manager;
-pub mod chaos_engineering;
 pub mod circuit_breaker_service;
+pub mod cloudflare_health_service;
 pub mod database_core;
 pub mod enhanced_kv_cache;
 pub mod failover_service;
 pub mod infrastructure_engine;
 pub mod service_health;
+pub mod simple_data_access;
+pub mod simple_retry_service;
 pub mod unified_circuit_breaker;
 pub mod unified_health_check;
 pub mod unified_retry;
@@ -109,23 +110,15 @@ pub use database_repositories::{
 };
 
 // ============= CORE INFRASTRUCTURE EXPORTS =============
-pub use automatic_failover_coordinator::{
-    AutomaticFailoverConfig, AutomaticFailoverCoordinator, AutomaticFailoverFeatureFlags,
-    CoordinatedFailoverManager, CoordinatorMetrics, FailoverDecision, FailoverDecisionEngine,
-    FailoverEvent, FailoverEventType, HealthSignalEvent, RecoveryAutomationEngine,
-    RecoveryDecision, RecoveryMethod, RecoveryOperation, RecoveryStatus, RecoveryStep,
-};
 pub use cache_manager::{CacheConfig, CacheHealth, CacheManager, CacheResult};
-pub use chaos_engineering::{
-    ChaosCoordinator, ChaosCoordinatorConfig, ChaosCoordinatorMetrics, ChaosEngineeringConfig,
-    ChaosEngineeringFramework, ChaosFeatureFlags, ExperimentEngine, ExperimentState,
-    ExperimentType, FaultInjector, FaultType, InjectionTarget,
-    RecoveryStatus as ChaosRecoveryStatus, RecoveryVerificationResult, RecoveryVerifier,
-    SafetyController, SafetyRule, SafetyViolation, ViolationSeverity,
-};
 pub use circuit_breaker_service::{
     CircuitBreakerConfig, CircuitBreakerMetrics, CircuitBreakerService, CircuitBreakerStateInfo,
     CircuitBreakerType, EnhancedCircuitBreaker,
+};
+pub use cloudflare_health_service::{
+    CloudflareHealthConfig, CloudflareHealthService,
+    HealthCheckResult as CloudflareHealthCheckResult, HealthStatus as CloudflareHealthStatus,
+    SimpleHealthCheck,
 };
 pub use database_core::{
     BatchOperation as DatabaseBatchOperation, DatabaseCore, DatabaseHealth, DatabaseResult,
@@ -147,6 +140,12 @@ pub use infrastructure_engine::{
 };
 pub use service_health::{
     HealthStatus, ServiceHealthCheck, ServiceHealthManager, SystemHealthReport,
+};
+pub use simple_data_access::{
+    DataType as SimpleDataType, SimpleDataAccessConfig, SimpleDataAccessService, SimpleDataRequest, SimpleDataResponse,
+};
+pub use simple_retry_service::{
+    SimpleRetryConfig, SimpleRetryService, RetryStats, FailureTracker,
 };
 pub use unified_circuit_breaker::{
     UnifiedCircuitBreaker, UnifiedCircuitBreakerConfig, UnifiedCircuitBreakerManager,
@@ -199,7 +198,7 @@ pub struct InfrastructureConfig {
     // Core infrastructure settings optimized for 1000-2500 concurrent users
     pub max_concurrent_users: u32,
     pub enable_high_performance_mode: bool,
-    pub enable_chaos_engineering: bool,
+
     pub enable_comprehensive_monitoring: bool,
     pub enable_intelligent_caching: bool,
 
@@ -214,7 +213,7 @@ pub struct InfrastructureConfig {
     // Core infrastructure configurations
     pub database_core_config: DatabaseCoreConfig,
     pub cache_manager_config: CacheManagerConfig,
-    pub chaos_engineering_config: chaos_engineering::ChaosEngineeringConfig,
+
     pub service_health_config: ServiceHealthConfig,
     pub infrastructure_engine_config: InfrastructureEngineConfig,
 
@@ -267,7 +266,6 @@ impl Default for InfrastructureConfig {
         Self {
             max_concurrent_users: 1000,
             enable_high_performance_mode: false,
-            enable_chaos_engineering: true,
             enable_comprehensive_monitoring: true,
             enable_intelligent_caching: true,
 
@@ -280,7 +278,6 @@ impl Default for InfrastructureConfig {
 
             database_core_config: DatabaseCoreConfig::default(),
             cache_manager_config: CacheManagerConfig::default(),
-            chaos_engineering_config: chaos_engineering::ChaosEngineeringConfig::default(),
             service_health_config: ServiceHealthConfig::default(),
             infrastructure_engine_config: InfrastructureEngineConfig::default(),
 
@@ -345,7 +342,6 @@ impl InfrastructureConfig {
         Self {
             max_concurrent_users: 2500,
             enable_high_performance_mode: true,
-            enable_chaos_engineering: true,
             enable_comprehensive_monitoring: true,
             enable_intelligent_caching: true,
 
@@ -373,7 +369,6 @@ impl InfrastructureConfig {
                 batch_size: 200,
                 retry_attempts: 5,
             },
-            chaos_engineering_config: chaos_engineering::ChaosEngineeringConfig::default(),
             service_health_config: ServiceHealthConfig {
                 health_check_interval_seconds: 15,
                 enable_dependency_tracking: true,
@@ -405,7 +400,6 @@ impl InfrastructureConfig {
         Self {
             max_concurrent_users: 1000,
             enable_high_performance_mode: false,
-            enable_chaos_engineering: true,
             enable_comprehensive_monitoring: true,
             enable_intelligent_caching: true,
 
@@ -433,7 +427,6 @@ impl InfrastructureConfig {
                 batch_size: 50,
                 retry_attempts: 10,
             },
-            chaos_engineering_config: chaos_engineering::ChaosEngineeringConfig::default(),
             service_health_config: ServiceHealthConfig {
                 health_check_interval_seconds: 10,
                 enable_dependency_tracking: true,
@@ -498,7 +491,6 @@ pub struct InfrastructureManager {
     // Core infrastructure
     database_core: Option<DatabaseCore>,
     cache_manager: Option<CacheManager>,
-    chaos_engineering: Option<chaos_engineering::ChaosEngineeringFramework>,
     service_health: Option<ServiceHealthManager>,
     infrastructure_engine: Option<InfrastructureEngine>,
 
@@ -525,7 +517,6 @@ impl InfrastructureManager {
             database_repositories: None,
             database_core: None,
             cache_manager: None,
-            chaos_engineering: None,
             service_health: None,
             infrastructure_engine: None,
             analytics_engine: None,
@@ -556,12 +547,7 @@ impl InfrastructureManager {
             infrastructure_engine::InfrastructureConfig::default(),
         ));
 
-        // Initialize chaos engineering framework
-        let mut chaos_framework = chaos_engineering::ChaosEngineeringFramework::new(
-            self.config.chaos_engineering_config.clone(),
-        )?;
-        chaos_framework.initialize(env).await?;
-        self.chaos_engineering = Some(chaos_framework);
+
 
         // Initialize modular components
         self.notification_module = Some(
@@ -674,13 +660,7 @@ impl InfrastructureManager {
             .ok_or_else(|| ArbitrageError::new(ErrorKind::Internal, "CacheManager not initialized"))
     }
 
-    pub fn chaos_engineering(
-        &self,
-    ) -> ArbitrageResult<&chaos_engineering::ChaosEngineeringFramework> {
-        self.chaos_engineering.as_ref().ok_or_else(|| {
-            ArbitrageError::new(ErrorKind::Internal, "ChaosEngineering not initialized")
-        })
-    }
+
 
     pub fn service_health(&self) -> ArbitrageResult<&ServiceHealthManager> {
         self.service_health.as_ref().ok_or_else(|| {
@@ -763,9 +743,7 @@ impl InfrastructureManager {
             health_status.insert("cache_manager".to_string(), true);
         }
 
-        if let Ok(_chaos) = self.chaos_engineering() {
-            health_status.insert("chaos_engineering".to_string(), true);
-        }
+
 
         if let Ok(_service_health) = self.service_health() {
             health_status.insert("service_health".to_string(), true);
