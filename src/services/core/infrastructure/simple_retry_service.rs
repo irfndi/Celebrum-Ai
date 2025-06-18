@@ -1,4 +1,3 @@
-
 //! Simple Retry Service - Basic retry logic for Cloudflare Workers
 //!
 //! This service provides simple retry functionality without complex circuit breaker patterns:
@@ -236,7 +235,7 @@ impl SimpleRetryService {
         if !self.config.enabled {
             return operation()
                 .await
-                .map_err(|e| ArbitrageError::api_error(&format!("Operation failed: {}", e)));
+                .map_err(|e| ArbitrageError::api_error(format!("Operation failed: {}", e)));
         }
 
         let mut attempt = 1;
@@ -252,7 +251,7 @@ impl SimpleRetryService {
                 Err(e) => {
                     if attempt >= self.config.max_attempts {
                         self.record_failure(service_id, attempt).await;
-                        return Err(ArbitrageError::api_error(&format!(
+                        return Err(ArbitrageError::api_error(format!(
                             "Operation failed after {} attempts: {}",
                             attempt, e
                         )));
@@ -289,14 +288,18 @@ impl SimpleRetryService {
     }
 
     /// Execute an operation with simple retry (non-async version)
-    pub fn execute_sync<F, T, E>(&self, service_id: &str, operation: F) -> Result<T, ArbitrageError>
+    pub fn execute_sync<F, T, E>(
+        &self,
+        service_id: &str,
+        mut operation: F,
+    ) -> Result<T, ArbitrageError>
     where
-        F: Fn() -> Result<T, E>,
+        F: FnMut() -> Result<T, E>,
         E: std::fmt::Display,
     {
         if !self.config.enabled {
             return operation()
-                .map_err(|e| ArbitrageError::api_error(&format!("Operation failed: {}", e)));
+                .map_err(|e| ArbitrageError::api_error(format!("Operation failed: {}", e)));
         }
 
         let mut attempt = 1;
@@ -309,7 +312,7 @@ impl SimpleRetryService {
                 }
                 Err(e) => {
                     if attempt >= self.config.max_attempts {
-                        return Err(ArbitrageError::api_error(&format!(
+                        return Err(ArbitrageError::api_error(format!(
                             "Operation failed after {} attempts: {}",
                             attempt, e
                         )));
@@ -481,21 +484,38 @@ mod tests {
 
     #[test]
     fn test_simple_retry_config_validation() {
-        let mut config = SimpleRetryConfig::default();
-
-        config.max_attempts = 0;
+        // Test invalid max_attempts
+        let config = SimpleRetryConfig {
+            max_attempts: 0,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
 
-        config.max_attempts = 3;
-        config.initial_delay_ms = 0;
+        // Test invalid initial_delay_ms
+        let config = SimpleRetryConfig {
+            max_attempts: 3,
+            initial_delay_ms: 0,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
 
-        config.initial_delay_ms = 1000;
-        config.max_delay_ms = 500;
+        // Test invalid max_delay_ms (less than initial)
+        let config = SimpleRetryConfig {
+            max_attempts: 3,
+            initial_delay_ms: 1000,
+            max_delay_ms: 500,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
 
-        config.max_delay_ms = 2000;
-        config.backoff_multiplier = 0.5;
+        // Test invalid backoff_multiplier
+        let config = SimpleRetryConfig {
+            max_attempts: 3,
+            initial_delay_ms: 1000,
+            max_delay_ms: 2000,
+            backoff_multiplier: 0.5,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 

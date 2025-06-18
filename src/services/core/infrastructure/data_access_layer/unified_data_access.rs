@@ -15,13 +15,13 @@ pub struct UnifiedDataAccessConfig {
     pub max_concurrent_operations: u32,
     pub enable_caching: bool,
     pub cache_ttl_seconds: u64,
-    
+
     // Performance settings
     pub enable_compression: bool,
     pub enable_warming: bool,
     pub enable_validation: bool,
     pub enable_metrics: bool,
-    
+
     // Batch operations
     pub batch_size: usize,
     pub max_retry_attempts: u32,
@@ -119,13 +119,15 @@ impl UnifiedDataAccessService {
     /// Create new unified data access service
     pub fn new(config: UnifiedDataAccessConfig, kv_store: KvStore) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-        
+
         logger.info("Initializing UnifiedDataAccessService for Cloudflare Workers");
-        
+
         Ok(Self {
             config,
             kv_store,
-            metrics: std::sync::Arc::new(std::sync::Mutex::new(UnifiedDataAccessMetrics::default())),
+            metrics: std::sync::Arc::new(
+                std::sync::Mutex::new(UnifiedDataAccessMetrics::default()),
+            ),
             cache: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
             logger,
         })
@@ -137,7 +139,7 @@ impl UnifiedDataAccessService {
         T: serde::de::DeserializeOwned + Clone,
     {
         let start_time = crate::utils::time::get_current_timestamp();
-        
+
         // Check cache first if enabled
         if self.config.enable_caching {
             if let Some(cached_data) = self.get_from_cache(key).await? {
@@ -153,7 +155,7 @@ impl UnifiedDataAccessService {
 
         // Get from KV store
         let kv_result = self.kv_store.get(key).text().await;
-        
+
         match kv_result {
             Ok(Some(data)) => {
                 // Validate if enabled
@@ -169,9 +171,9 @@ impl UnifiedDataAccessService {
                 }
 
                 let parsed_data: T = serde_json::from_str(&data)?;
-                
+
                 self.record_metrics(true, start_time, false).await;
-                
+
                 Ok(DataAccessResult {
                     data: Some(parsed_data),
                     cached: false,
@@ -192,7 +194,10 @@ impl UnifiedDataAccessService {
             }
             Err(e) => {
                 self.record_metrics(false, start_time, true).await;
-                Err(ArbitrageError::database_error(format!("KV get error: {}", e)))
+                Err(ArbitrageError::database_error(format!(
+                    "KV get error: {}",
+                    e
+                )))
             }
         }
     }
@@ -203,9 +208,9 @@ impl UnifiedDataAccessService {
         T: serde::Serialize,
     {
         let start_time = crate::utils::time::get_current_timestamp();
-        
+
         let serialized = serde_json::to_string(value)?;
-        
+
         // Validate if enabled
         if self.config.enable_validation && !self.validate_data(&serialized).await {
             self.record_metrics(false, start_time, false).await;
@@ -226,13 +231,16 @@ impl UnifiedDataAccessService {
                 if self.config.enable_caching {
                     self.set_cache(key, &serialized).await?;
                 }
-                
+
                 self.record_metrics(true, start_time, false).await;
                 Ok(())
             }
             Err(e) => {
                 self.record_metrics(false, start_time, false).await;
-                Err(ArbitrageError::database_error(format!("KV set error: {}", e)))
+                Err(ArbitrageError::database_error(format!(
+                    "KV set error: {}",
+                    e
+                )))
             }
         }
     }
@@ -240,7 +248,7 @@ impl UnifiedDataAccessService {
     /// Delete data and clear from cache
     pub async fn delete(&self, key: &str) -> ArbitrageResult<()> {
         let start_time = crate::utils::time::get_current_timestamp();
-        
+
         // Delete from KV store
         match self.kv_store.delete(key).await {
             Ok(_) => {
@@ -248,13 +256,16 @@ impl UnifiedDataAccessService {
                 if self.config.enable_caching {
                     self.clear_cache(key).await;
                 }
-                
+
                 self.record_metrics(true, start_time, false).await;
                 Ok(())
             }
             Err(e) => {
                 self.record_metrics(false, start_time, false).await;
-                Err(ArbitrageError::database_error(format!("KV delete error: {}", e)))
+                Err(ArbitrageError::database_error(format!(
+                    "KV delete error: {}",
+                    e
+                )))
             }
         }
     }
@@ -265,14 +276,15 @@ impl UnifiedDataAccessService {
         T: serde::de::DeserializeOwned + Clone,
     {
         let mut results = Vec::new();
-        
+
         // Process in batches to avoid overwhelming the system
         for chunk in keys.chunks(self.config.batch_size) {
             for key in chunk {
                 match self.get(key).await {
                     Ok(result) => results.push(result),
                     Err(e) => {
-                        self.logger.error(&format!("Batch get error for key {}: {}", key, e));
+                        self.logger
+                            .error(&format!("Batch get error for key {}: {}", key, e));
                         results.push(DataAccessResult {
                             data: None,
                             cached: false,
@@ -284,7 +296,7 @@ impl UnifiedDataAccessService {
                 }
             }
         }
-        
+
         Ok(results)
     }
 
@@ -293,7 +305,7 @@ impl UnifiedDataAccessService {
         // Test KV store with a simple operation
         let test_key = "health_check_test";
         let test_data = "test";
-        
+
         match self.kv_store.put(test_key, test_data)?.execute().await {
             Ok(_) => {
                 // Clean up test data
@@ -363,21 +375,23 @@ impl UnifiedDataAccessService {
     async fn record_metrics(&self, success: bool, start_time: u64, cache_miss: bool) {
         if let Ok(mut metrics) = self.metrics.lock() {
             metrics.total_operations += 1;
-            
+
             if success {
                 metrics.successful_operations += 1;
             } else {
                 metrics.failed_operations += 1;
             }
-            
+
             if cache_miss {
                 metrics.cache_misses += 1;
             } else {
                 metrics.cache_hits += 1;
             }
-            
+
             let latency = crate::utils::time::get_current_timestamp() - start_time;
-            metrics.avg_latency_ms = ((metrics.avg_latency_ms * (metrics.total_operations - 1) as f64) + latency as f64) / metrics.total_operations as f64;
+            metrics.avg_latency_ms =
+                ((metrics.avg_latency_ms * (metrics.total_operations - 1) as f64) + latency as f64)
+                    / metrics.total_operations as f64;
             metrics.last_updated = crate::utils::time::get_current_timestamp();
         }
     }
@@ -394,28 +408,28 @@ impl UnifiedDataAccessBuilder {
             config: UnifiedDataAccessConfig::default(),
         }
     }
-    
+
     pub fn with_caching(mut self, enabled: bool, ttl_seconds: u64) -> Self {
         self.config.enable_caching = enabled;
         self.config.cache_ttl_seconds = ttl_seconds;
         self
     }
-    
+
     pub fn with_compression(mut self, enabled: bool) -> Self {
         self.config.enable_compression = enabled;
         self
     }
-    
+
     pub fn with_validation(mut self, enabled: bool) -> Self {
         self.config.enable_validation = enabled;
         self
     }
-    
+
     pub fn with_batch_size(mut self, size: usize) -> Self {
         self.config.batch_size = size;
         self
     }
-    
+
     pub fn build(self, kv_store: KvStore) -> ArbitrageResult<UnifiedDataAccessService> {
         UnifiedDataAccessService::new(self.config, kv_store)
     }
@@ -425,4 +439,4 @@ impl Default for UnifiedDataAccessBuilder {
     fn default() -> Self {
         Self::new()
     }
-} 
+}

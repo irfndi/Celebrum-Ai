@@ -14,7 +14,7 @@ You are an advanced, autonomous multi-agent system coordinator. Your primary dir
 These principles are non-negotiable and guide all planning and execution.
 
 *   **Production-Ready by Default:** All code must be of production quality. No placeholders, stubs, or mock implementations (except for testing). Always consult the latest documentation for any libraries or tools used.
-*   **Modularity & Decoupling:** Design for independent, reusable components. Aggressively avoid circular dependencies, code duplication and redundance to ensure a clean, scalable architecture.
+*   **Unified & Decoupling:** Design for independent, reusable components. Aggressively avoid circular dependencies, code duplication and redundance to ensure a clean, scalable architecture.
 *   **Maintainability & Resilience:**
     *   **Clean Code:** Write clear, readable, and well-documented code. Proactively fix/delete warning/unused/dead code. If legacy code might be needed, comment it out with a clear `TODO` or `FIXME` explaining why.
     *   **Fault Tolerance & feature flags:** Build robust systems that can gracefully handle errors and unexpected states. Consider principles of chaos engineering & add feature flags where applicable.

@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::services::core::config::ServiceConfig;
@@ -98,7 +98,7 @@ pub struct DataDependency {
     pub is_critical: bool,
     pub last_accessed: Option<SystemTime>,
     pub access_frequency: f32, // accesses per day
-    pub data_size: u64, // bytes
+    pub data_size: u64,        // bytes
     pub business_critical: bool,
     pub metadata: HashMap<String, String>,
 }
@@ -266,13 +266,16 @@ impl CircuitBreaker {
         F: std::future::Future<Output = Result<T, E>>,
     {
         let state = self.state.read().await;
-        
+
         match *state {
             CircuitBreakerState::Open => {
                 let last_failure = self.last_failure_time.read().await;
                 if let Some(last_fail_time) = *last_failure {
-                    if SystemTime::now().duration_since(last_fail_time).unwrap_or_default() 
-                        > self.config.retry_timeout {
+                    if SystemTime::now()
+                        .duration_since(last_fail_time)
+                        .unwrap_or_default()
+                        > self.config.retry_timeout
+                    {
                         drop(last_failure);
                         drop(state);
                         *self.state.write().await = CircuitBreakerState::HalfOpen;
@@ -283,9 +286,9 @@ impl CircuitBreaker {
             }
             _ => {}
         }
-        
+
         drop(state);
-        
+
         match operation.await {
             Ok(result) => {
                 *self.failure_count.write().await = 0;
@@ -295,12 +298,12 @@ impl CircuitBreaker {
             Err(error) => {
                 let mut failure_count = self.failure_count.write().await;
                 *failure_count += 1;
-                
+
                 if *failure_count >= self.config.failure_threshold {
                     *self.state.write().await = CircuitBreakerState::Open;
                     *self.last_failure_time.write().await = Some(SystemTime::now());
                 }
-                
+
                 Err(error)
             }
         }
@@ -325,7 +328,7 @@ impl CleanupImpactAnalysisEngine {
         transaction_coordinator: Arc<TransactionCoordinator>,
     ) -> Self {
         let circuit_breaker = CircuitBreaker::new(config.circuit_breaker.clone());
-        
+
         Self {
             config,
             connection_manager,
@@ -344,7 +347,7 @@ impl CleanupImpactAnalysisEngine {
     ) -> Result<ImpactAnalysisResult, Box<dyn std::error::Error + Send + Sync>> {
         let request_id = Uuid::new_v4();
         let start_time = SystemTime::now();
-        
+
         // Check if analysis is already running for this cleanup
         {
             let mut running = self.running_analyses.write().await;
@@ -355,9 +358,13 @@ impl CleanupImpactAnalysisEngine {
         }
 
         // Use circuit breaker to protect the analysis service
-        let result = self.circuit_breaker.call_with_breaker(async {
-            self.perform_analysis_internal(request_id, &request, start_time).await
-        }).await;
+        let result = self
+            .circuit_breaker
+            .call_with_breaker(async {
+                self.perform_analysis_internal(request_id, &request, start_time)
+                    .await
+            })
+            .await;
 
         // Remove from running analyses
         {
@@ -376,20 +383,25 @@ impl CleanupImpactAnalysisEngine {
     ) -> Result<ImpactAnalysisResult, Box<dyn std::error::Error + Send + Sync>> {
         // Build dependency graph
         let dependency_graph = self.build_dependency_graph(&request.target_data).await?;
-        
+
         // Perform risk assessment
         let risk_assessment = self.assess_risk(&dependency_graph, request).await?;
-        
+
         // Run safety checks
         let safety_checks = self.run_safety_checks(&dependency_graph, request).await?;
-        
+
         // Generate recommendations
-        let recommended_actions = self.generate_recommendations(&risk_assessment, &safety_checks).await?;
-        
+        let recommended_actions = self
+            .generate_recommendations(&risk_assessment, &safety_checks)
+            .await?;
+
         // Determine if safe to proceed
-        let safe_to_proceed = self.determine_safety(&risk_assessment, &safety_checks, request).await;
-        
-        let analysis_time = SystemTime::now().duration_since(start_time)
+        let safe_to_proceed = self
+            .determine_safety(&risk_assessment, &safety_checks, request)
+            .await;
+
+        let analysis_time = SystemTime::now()
+            .duration_since(start_time)
             .unwrap_or_default();
 
         let result = ImpactAnalysisResult {
@@ -401,7 +413,9 @@ impl CleanupImpactAnalysisEngine {
             safety_checks,
             analysis_time,
             safe_to_proceed,
-            required_approvals: self.get_required_approvals(&risk_assessment.overall_risk).await,
+            required_approvals: self
+                .get_required_approvals(&risk_assessment.overall_risk)
+                .await,
             recommended_actions,
             created_at: SystemTime::now(),
         };
@@ -428,24 +442,21 @@ impl CleanupImpactAnalysisEngine {
 
         // Build graph through recursive dependency traversal
         for data_id in target_data {
-            self.traverse_dependencies(
-                data_id,
-                &mut nodes,
-                &mut edges,
-                &mut visited,
-                0,
-            ).await?;
+            self.traverse_dependencies(data_id, &mut nodes, &mut edges, &mut visited, 0)
+                .await?;
         }
 
         // Identify critical paths and orphaned data
         for (node_id, node) in &nodes {
             if node.business_critical {
-                let path = self.find_critical_path_to_node(node_id, &nodes, &edges).await;
+                let path = self
+                    .find_critical_path_to_node(node_id, &nodes, &edges)
+                    .await;
                 if !path.is_empty() {
                     critical_paths.push(path);
                 }
             }
-            
+
             // Check for orphaned data (no incoming dependencies)
             let has_incoming = edges.iter().any(|edge| edge.to == *node_id);
             if !has_incoming && target_data.contains(node_id) {
@@ -483,7 +494,7 @@ impl CleanupImpactAnalysisEngine {
 
         // Get dependencies from cache or database
         let dependencies = self.get_dependencies(data_id).await?;
-        
+
         for dependency in dependencies {
             // Create edge
             edges.push(DependencyEdge {
@@ -495,13 +506,8 @@ impl CleanupImpactAnalysisEngine {
             });
 
             // Recursively traverse
-            self.traverse_dependencies(
-                &dependency.target_id,
-                nodes,
-                edges,
-                visited,
-                depth + 1,
-            ).await?;
+            self.traverse_dependencies(&dependency.target_id, nodes, edges, visited, depth + 1)
+                .await?;
         }
 
         Ok(())
@@ -513,12 +519,12 @@ impl CleanupImpactAnalysisEngine {
     ) -> Result<DependencyNode, Box<dyn std::error::Error + Send + Sync>> {
         // TODO: Implement actual data retrieval logic
         // This would query the actual data systems to get node information
-        
+
         Ok(DependencyNode {
             id: data_id.to_string(),
             node_type: "table".to_string(), // Would be determined from actual data
             impact_level: ImpactLevel::Medium, // Would be calculated based on usage
-            size: 1024 * 1024, // Would be actual size
+            size: 1024 * 1024,              // Would be actual size
             last_accessed: Some(SystemTime::now() - Duration::from_days(7)),
             business_critical: false, // Would be determined from metadata
             metadata: HashMap::new(),
@@ -543,7 +549,7 @@ impl CleanupImpactAnalysisEngine {
         // - Application references
         // - External system dependencies
         // - Backup/replication dependencies
-        
+
         let dependencies = vec![
             // Placeholder dependency
             DataDependency {
@@ -558,7 +564,7 @@ impl CleanupImpactAnalysisEngine {
                 data_size: 1024,
                 business_critical: false,
                 metadata: HashMap::new(),
-            }
+            },
         ];
 
         // Cache the result
@@ -603,11 +609,13 @@ impl CleanupImpactAnalysisEngine {
         // Simple path finding - in production this would be more sophisticated
         let mut path = Vec::new();
         path.push(target_node.to_string());
-        
+
         // Find strongest incoming edge
-        if let Some(edge) = edges.iter()
-            .filter(|e| e.to == target_node)
-            .max_by(|a, b| a.strength.partial_cmp(&b.strength).unwrap_or(std::cmp::Ordering::Equal)) {
+        if let Some(edge) = edges.iter().filter(|e| e.to == target_node).max_by(|a, b| {
+            a.strength
+                .partial_cmp(&b.strength)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }) {
             path.insert(0, edge.from.clone());
         }
 
@@ -641,11 +649,15 @@ impl CleanupImpactAnalysisEngine {
                 let days_since_access = SystemTime::now()
                     .duration_since(last_accessed)
                     .unwrap_or_default()
-                    .as_secs() / 86400;
-                
+                    .as_secs()
+                    / 86400;
+
                 if days_since_access < 7 {
                     overall_risk = overall_risk.max(ImpactLevel::Medium);
-                    warnings.push(format!("Recently accessed data: {} ({}d ago)", node_id, days_since_access));
+                    warnings.push(format!(
+                        "Recently accessed data: {} ({}d ago)",
+                        node_id, days_since_access
+                    ));
                 }
             }
 
@@ -656,7 +668,10 @@ impl CleanupImpactAnalysisEngine {
         for critical_path in &dependency_graph.critical_paths {
             if critical_path.len() > 3 {
                 overall_risk = overall_risk.max(ImpactLevel::High);
-                warnings.push(format!("Complex critical path detected: {:?}", critical_path));
+                warnings.push(format!(
+                    "Complex critical path detected: {:?}",
+                    critical_path
+                ));
                 confidence_score *= 0.8;
             }
         }
@@ -735,22 +750,22 @@ impl CleanupImpactAnalysisEngine {
 
         // Dependency validation check
         checks.push(self.check_dependency_validation(dependency_graph).await);
-        
+
         // Business critical data check
         checks.push(self.check_business_critical_data(dependency_graph).await);
-        
+
         // Recent activity check
         checks.push(self.check_recent_activity(dependency_graph).await);
-        
+
         // Backup availability check
         checks.push(self.check_backup_availability(request).await);
-        
+
         // Rollback plan check
         checks.push(self.check_rollback_plan(request).await);
-        
+
         // External system impact check
         checks.push(self.check_external_system_impact(dependency_graph).await);
-        
+
         // Compliance check
         checks.push(self.check_compliance(request).await);
 
@@ -759,7 +774,7 @@ impl CleanupImpactAnalysisEngine {
 
     async fn check_dependency_validation(&self, dependency_graph: &DependencyGraph) -> SafetyCheck {
         let has_circular_deps = self.detect_circular_dependencies(dependency_graph).await;
-        
+
         if has_circular_deps {
             SafetyCheck {
                 check_type: SafetyCheckType::DependencyValidation,
@@ -786,7 +801,15 @@ impl CleanupImpactAnalysisEngine {
 
         for node_id in dependency_graph.nodes.keys() {
             if !visited.contains(node_id) {
-                if self.has_cycle_dfs(node_id, &dependency_graph.edges, &mut visited, &mut rec_stack).await {
+                if self
+                    .has_cycle_dfs(
+                        node_id,
+                        &dependency_graph.edges,
+                        &mut visited,
+                        &mut rec_stack,
+                    )
+                    .await
+                {
                     return true;
                 }
             }
@@ -808,7 +831,10 @@ impl CleanupImpactAnalysisEngine {
         // Find all outgoing edges from this node
         for edge in edges.iter().filter(|e| e.from == node) {
             if !visited.contains(&edge.to) {
-                if self.has_cycle_dfs(&edge.to, edges, visited, rec_stack).await {
+                if self
+                    .has_cycle_dfs(&edge.to, edges, visited, rec_stack)
+                    .await
+                {
                     return true;
                 }
             } else if rec_stack.contains(&edge.to) {
@@ -820,8 +846,13 @@ impl CleanupImpactAnalysisEngine {
         false
     }
 
-    async fn check_business_critical_data(&self, dependency_graph: &DependencyGraph) -> SafetyCheck {
-        let critical_count = dependency_graph.nodes.values()
+    async fn check_business_critical_data(
+        &self,
+        dependency_graph: &DependencyGraph,
+    ) -> SafetyCheck {
+        let critical_count = dependency_graph
+            .nodes
+            .values()
             .filter(|node| node.business_critical)
             .count();
 
@@ -846,7 +877,9 @@ impl CleanupImpactAnalysisEngine {
 
     async fn check_recent_activity(&self, dependency_graph: &DependencyGraph) -> SafetyCheck {
         let recent_threshold = SystemTime::now() - Duration::from_days(7);
-        let recent_count = dependency_graph.nodes.values()
+        let recent_count = dependency_graph
+            .nodes
+            .values()
             .filter(|node| {
                 node.last_accessed
                     .map(|t| t > recent_threshold)
@@ -895,8 +928,13 @@ impl CleanupImpactAnalysisEngine {
         }
     }
 
-    async fn check_external_system_impact(&self, dependency_graph: &DependencyGraph) -> SafetyCheck {
-        let external_deps = dependency_graph.edges.iter()
+    async fn check_external_system_impact(
+        &self,
+        dependency_graph: &DependencyGraph,
+    ) -> SafetyCheck {
+        let external_deps = dependency_graph
+            .edges
+            .iter()
             .filter(|edge| edge.dependency_type == DependencyType::External)
             .count();
 
@@ -943,7 +981,8 @@ impl CleanupImpactAnalysisEngine {
                 actions.extend(vec![
                     RecommendedAction {
                         action_type: ActionType::CreateBackup,
-                        description: "Create comprehensive backup of all affected systems".to_string(),
+                        description: "Create comprehensive backup of all affected systems"
+                            .to_string(),
                         priority: ImpactLevel::Critical,
                         estimated_duration: Some(Duration::from_hours(2)),
                         prerequisites: vec!["Backup system availability".to_string()],
@@ -951,7 +990,8 @@ impl CleanupImpactAnalysisEngine {
                     },
                     RecommendedAction {
                         action_type: ActionType::NotifyStakeholders,
-                        description: "Notify all stakeholders and obtain executive approval".to_string(),
+                        description: "Notify all stakeholders and obtain executive approval"
+                            .to_string(),
                         priority: ImpactLevel::Critical,
                         estimated_duration: Some(Duration::from_hours(4)),
                         prerequisites: vec!["Stakeholder contact list".to_string()],
@@ -1016,9 +1056,10 @@ impl CleanupImpactAnalysisEngine {
         }
 
         // Check for failed safety checks
-        let has_failed_checks = safety_checks.iter()
+        let has_failed_checks = safety_checks
+            .iter()
             .any(|check| check.status == SafetyCheckStatus::Failed);
-        
+
         if has_failed_checks {
             return false;
         }
@@ -1047,18 +1088,13 @@ impl CleanupImpactAnalysisEngine {
                 "Senior Management".to_string(),
                 "Data Governance Team".to_string(),
             ],
-            ImpactLevel::Medium => vec![
-                "Team Lead".to_string(),
-            ],
+            ImpactLevel::Medium => vec!["Team Lead".to_string()],
             _ => vec![],
         }
     }
 
     /// Get cached analysis result
-    pub async fn get_analysis_result(
-        &self,
-        request_id: Uuid,
-    ) -> Option<ImpactAnalysisResult> {
+    pub async fn get_analysis_result(&self, request_id: Uuid) -> Option<ImpactAnalysisResult> {
         let cache = self.analysis_cache.read().await;
         cache.get(&request_id).cloned()
     }
@@ -1067,10 +1103,8 @@ impl CleanupImpactAnalysisEngine {
     pub async fn cleanup_cache(&self, max_age: Duration) {
         let mut cache = self.analysis_cache.write().await;
         let cutoff_time = SystemTime::now() - max_age;
-        
-        cache.retain(|_, result| {
-            result.created_at > cutoff_time
-        });
+
+        cache.retain(|_, result| result.created_at > cutoff_time);
     }
 }
 
@@ -1131,15 +1165,17 @@ mod tests {
             timeout: Duration::from_secs(1),
             retry_timeout: Duration::from_secs(2),
         };
-        
+
         let circuit_breaker = CircuitBreaker::new(config);
-        
+
         // Test normal operation
         let result: Result<i32, &str> = circuit_breaker.call_with_breaker(async { Ok(42) }).await;
         assert!(result.is_ok());
-        
+
         // Test failure handling
-        let result: Result<i32, &str> = circuit_breaker.call_with_breaker(async { Err("failure") }).await;
+        let result: Result<i32, &str> = circuit_breaker
+            .call_with_breaker(async { Err("failure") })
+            .await;
         assert!(result.is_err());
     }
 
@@ -1151,12 +1187,9 @@ mod tests {
             connection_manager.clone(),
             Default::default(),
         ));
-        
-        let engine = CleanupImpactAnalysisEngine::new(
-            config,
-            connection_manager,
-            transaction_coordinator,
-        );
+
+        let engine =
+            CleanupImpactAnalysisEngine::new(config, connection_manager, transaction_coordinator);
 
         // Create a dependency graph with a cycle
         let mut edges = vec![
@@ -1202,12 +1235,9 @@ mod tests {
             connection_manager.clone(),
             Default::default(),
         ));
-        
-        let engine = CleanupImpactAnalysisEngine::new(
-            config,
-            connection_manager,
-            transaction_coordinator,
-        );
+
+        let engine =
+            CleanupImpactAnalysisEngine::new(config, connection_manager, transaction_coordinator);
 
         let request = ImpactAnalysisRequest {
             cleanup_id: Uuid::new_v4(),
@@ -1220,15 +1250,18 @@ mod tests {
         };
 
         let mut nodes = HashMap::new();
-        nodes.insert("test_table".to_string(), DependencyNode {
-            id: "test_table".to_string(),
-            node_type: "table".to_string(),
-            impact_level: ImpactLevel::High,
-            size: 1024 * 1024,
-            last_accessed: Some(SystemTime::now() - Duration::from_days(1)),
-            business_critical: true,
-            metadata: HashMap::new(),
-        });
+        nodes.insert(
+            "test_table".to_string(),
+            DependencyNode {
+                id: "test_table".to_string(),
+                node_type: "table".to_string(),
+                impact_level: ImpactLevel::High,
+                size: 1024 * 1024,
+                last_accessed: Some(SystemTime::now() - Duration::from_days(1)),
+                business_critical: true,
+                metadata: HashMap::new(),
+            },
+        );
 
         let dependency_graph = DependencyGraph {
             nodes,
@@ -1237,8 +1270,11 @@ mod tests {
             orphaned_data: Vec::new(),
         };
 
-        let risk_assessment = engine.assess_risk(&dependency_graph, &request).await.unwrap();
+        let risk_assessment = engine
+            .assess_risk(&dependency_graph, &request)
+            .await
+            .unwrap();
         assert_eq!(risk_assessment.overall_risk, ImpactLevel::High);
         assert!(!risk_assessment.warnings.is_empty());
     }
-} 
+}

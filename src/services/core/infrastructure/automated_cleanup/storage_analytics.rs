@@ -1,5 +1,5 @@
 //! Storage Usage Analytics & Monitoring
-//! 
+//!
 //! Provides comprehensive storage analytics, usage tracking, growth predictions,
 //! and real-time monitoring across all storage types (KV, D1, R2).
 
@@ -13,7 +13,9 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::time::interval;
 use worker::Env;
 
-use crate::services::core::infrastructure::persistence::{ConnectionManager, StorageType, TransactionCoordinator};
+use crate::services::core::infrastructure::persistence::{
+    ConnectionManager, StorageType, TransactionCoordinator,
+};
 use crate::utils::error::{ArbitrageError, ArbitrageResult, ErrorKind};
 
 /// Storage usage metrics for a specific storage type
@@ -228,13 +230,13 @@ impl Default for StorageAnalyticsConfig {
         Self {
             enabled: false,
             collection_interval_seconds: 300, // 5 minutes
-            dashboard_refresh_seconds: 60, // 1 minute
+            dashboard_refresh_seconds: 60,    // 1 minute
             history_retention_days: 90,
             alert_thresholds: AlertThresholds {
-                high_usage_threshold: 80.0, // 80%
+                high_usage_threshold: 80.0,            // 80%
                 rapid_growth_threshold: 1_000_000_000, // 1GB per day
-                stale_data_threshold: 30, // 30 days
-                monthly_cost_threshold: 100.0, // $100 per month
+                stale_data_threshold: 30,              // 30 days
+                monthly_cost_threshold: 100.0,         // $100 per month
             },
             cost_settings: CostSettings {
                 kv_cost_per_gb_month: 0.50,
@@ -329,17 +331,20 @@ impl StorageAnalyticsService {
     }
 
     /// Get storage metrics for a specific type
-    pub async fn get_storage_metrics(&self, storage_type: &StorageType) -> Option<StorageUsageMetrics> {
+    pub async fn get_storage_metrics(
+        &self,
+        storage_type: &StorageType,
+    ) -> Option<StorageUsageMetrics> {
         self.current_metrics.read().await.get(storage_type).cloned()
     }
 
     /// Data collection loop
     async fn collection_loop(&self, env: &Env) {
         let mut interval = interval(Duration::from_secs(self.config.collection_interval_seconds));
-        
+
         while *self.is_running.read().await {
             interval.tick().await;
-            
+
             if let Err(e) = self.collect_storage_metrics(env).await {
                 eprintln!("Storage metrics collection error: {:?}", e);
             }
@@ -350,16 +355,18 @@ impl StorageAnalyticsService {
     async fn collect_storage_metrics(&self, _env: &Env) -> ArbitrageResult<()> {
         let now = Utc::now();
         let storage_types = vec![StorageType::KV, StorageType::D1, StorageType::R2];
-        
+
         for storage_type in storage_types {
-            let metrics = self.collect_storage_type_metrics(&storage_type, _env).await?;
-            
+            let metrics = self
+                .collect_storage_type_metrics(&storage_type, _env)
+                .await?;
+
             // Update current metrics
             {
                 let mut current_metrics = self.current_metrics.write().await;
                 current_metrics.insert(storage_type.clone(), metrics.clone());
             }
-            
+
             // Update usage trends
             self.update_usage_trend(&storage_type, &metrics).await;
         }
@@ -368,10 +375,11 @@ impl StorageAnalyticsService {
         {
             let mut history = self.collection_history.lock().await;
             history.push_back(now);
-            
+
             // Limit history size
-            let max_history = (self.config.history_retention_days * 24 * 60 / 
-                (self.config.collection_interval_seconds / 60)) as usize;
+            let max_history = (self.config.history_retention_days * 24 * 60
+                / (self.config.collection_interval_seconds / 60))
+                as usize;
             while history.len() > max_history {
                 history.pop_front();
             }
@@ -387,7 +395,7 @@ impl StorageAnalyticsService {
         _env: &Env,
     ) -> ArbitrageResult<StorageUsageMetrics> {
         let now = Utc::now();
-        
+
         // Mock data for demonstration - in production this would query actual storage systems
         let (total_size, item_count, read_ops, write_ops, delete_ops) = match storage_type {
             StorageType::KV => (1_024_000, 1000, 5000, 1000, 100),
@@ -399,7 +407,11 @@ impl StorageAnalyticsService {
             storage_type: storage_type.clone(),
             total_size_bytes: total_size,
             item_count,
-            avg_item_size: if item_count > 0 { total_size as f64 / item_count as f64 } else { 0.0 },
+            avg_item_size: if item_count > 0 {
+                total_size as f64 / item_count as f64
+            } else {
+                0.0
+            },
             read_operations: read_ops,
             write_operations: write_ops,
             delete_operations: delete_ops,
@@ -413,15 +425,17 @@ impl StorageAnalyticsService {
     /// Update usage trend for a storage type
     async fn update_usage_trend(&self, storage_type: &StorageType, metrics: &StorageUsageMetrics) {
         let mut trends = self.usage_trends.write().await;
-        
-        let trend = trends.entry(storage_type.clone()).or_insert_with(|| StorageUsageTrend {
-            storage_type: storage_type.clone(),
-            data_points: VecDeque::new(),
-            trend_direction: TrendDirection::Unknown,
-            growth_velocity: 0.0,
-            projected_size_30_days: metrics.total_size_bytes,
-            capacity_utilization: 0.0,
-        });
+
+        let trend = trends
+            .entry(storage_type.clone())
+            .or_insert_with(|| StorageUsageTrend {
+                storage_type: storage_type.clone(),
+                data_points: VecDeque::new(),
+                trend_direction: TrendDirection::Unknown,
+                growth_velocity: 0.0,
+                projected_size_30_days: metrics.total_size_bytes,
+                capacity_utilization: 0.0,
+            });
 
         // Add new data point
         trend.data_points.push_back(StorageDataPoint {
@@ -432,8 +446,8 @@ impl StorageAnalyticsService {
         });
 
         // Keep only recent data points
-        let max_points = (self.config.history_retention_days * 24 * 60 / 
-            (self.config.collection_interval_seconds / 60)) as usize;
+        let max_points = (self.config.history_retention_days * 24 * 60
+            / (self.config.collection_interval_seconds / 60)) as usize;
         while trend.data_points.len() > max_points {
             trend.data_points.pop_front();
         }
@@ -452,14 +466,17 @@ impl StorageAnalyticsService {
         let data_points: Vec<_> = trend.data_points.iter().collect();
         let first = data_points.first().unwrap();
         let last = data_points.last().unwrap();
-        
-        let time_diff = last.timestamp.signed_duration_since(first.timestamp).num_seconds() as f64;
+
+        let time_diff = last
+            .timestamp
+            .signed_duration_since(first.timestamp)
+            .num_seconds() as f64;
         let size_diff = last.size_bytes as i64 - first.size_bytes as i64;
-        
+
         if time_diff > 0.0 {
             // Calculate growth velocity (bytes per day)
             trend.growth_velocity = (size_diff as f64 / time_diff) * 86400.0;
-            
+
             // Determine trend direction
             trend.trend_direction = if trend.growth_velocity > 1000.0 {
                 TrendDirection::Growing
@@ -468,10 +485,11 @@ impl StorageAnalyticsService {
             } else {
                 TrendDirection::Stable
             };
-            
+
             // Project size in 30 days
             let projected_growth = trend.growth_velocity * 30.0;
-            trend.projected_size_30_days = (last.size_bytes as f64 + projected_growth).max(0.0) as u64;
+            trend.projected_size_30_days =
+                (last.size_bytes as f64 + projected_growth).max(0.0) as u64;
         }
     }
 
@@ -485,7 +503,8 @@ impl StorageAnalyticsService {
         let history = self.collection_history.lock().await;
         if let Some(last_collection) = history.back() {
             let elapsed = Utc::now().signed_duration_since(*last_collection);
-            let max_interval = chrono::Duration::seconds(self.config.collection_interval_seconds as i64 * 2);
+            let max_interval =
+                chrono::Duration::seconds(self.config.collection_interval_seconds as i64 * 2);
             if elapsed > max_interval {
                 return Ok(false);
             }
@@ -520,10 +539,11 @@ mod tests {
         let config = StorageAnalyticsConfig::default();
         let connection_manager = Arc::new(ConnectionManager::new().await.unwrap());
         let transaction_coordinator = Arc::new(TransactionCoordinator::new().await.unwrap());
-        
-        let service = StorageAnalyticsService::new(config, connection_manager, transaction_coordinator)
-            .await
-            .unwrap();
+
+        let service =
+            StorageAnalyticsService::new(config, connection_manager, transaction_coordinator)
+                .await
+                .unwrap();
 
         assert!(!*service.is_running.read().await);
         assert!(service.get_dashboard().await.is_none());
@@ -534,10 +554,11 @@ mod tests {
         let config = StorageAnalyticsConfig::default();
         let connection_manager = Arc::new(ConnectionManager::new().await.unwrap());
         let transaction_coordinator = Arc::new(TransactionCoordinator::new().await.unwrap());
-        
-        let service = StorageAnalyticsService::new(config, connection_manager, transaction_coordinator)
-            .await
-            .unwrap();
+
+        let service =
+            StorageAnalyticsService::new(config, connection_manager, transaction_coordinator)
+                .await
+                .unwrap();
 
         let mut trend = StorageUsageTrend {
             storage_type: StorageType::KV,
@@ -556,7 +577,7 @@ mod tests {
             item_count: 10,
             operations_per_minute: 5.0,
         });
-        
+
         trend.data_points.push_back(StorageDataPoint {
             timestamp: now,
             size_bytes: 2000,

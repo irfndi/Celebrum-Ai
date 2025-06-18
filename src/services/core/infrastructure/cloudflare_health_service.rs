@@ -16,17 +16,12 @@ use std::sync::{Arc, Mutex};
 use js_sys;
 
 /// Simple health status for a service component
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum HealthStatus {
+    #[default]
     Healthy,
     Degraded,
     Unhealthy,
-}
-
-impl Default for HealthStatus {
-    fn default() -> Self {
-        HealthStatus::Healthy
-    }
 }
 
 /// Basic health check result
@@ -87,6 +82,7 @@ impl Default for CloudflareHealthConfig {
 pub struct CloudflareHealthService {
     config: CloudflareHealthConfig,
     error_counters: Arc<Mutex<HashMap<String, u32>>>,
+    #[allow(dead_code)]
     logger: crate::utils::logger::Logger,
 }
 
@@ -148,5 +144,6 @@ impl CloudflareHealthService {
 
 /// Simple trait for services to implement basic health checks
 pub trait SimpleHealthCheck {
+    #[allow(async_fn_in_trait)]
     async fn health_check(&self) -> ArbitrageResult<bool>;
 }

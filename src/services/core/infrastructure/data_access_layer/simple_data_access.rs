@@ -230,7 +230,7 @@ impl SimpleDataAccessService {
             let mut headers_obj = worker::Headers::new();
             for (key, value) in request_headers {
                 headers_obj.set(&key, &value).map_err(|e| {
-                    ArbitrageError::api_error(&format!("Failed to set header: {:?}", e))
+                    ArbitrageError::api_error(format!("Failed to set header: {:?}", e))
                 })?;
             }
             request_init.headers = headers_obj;
@@ -240,7 +240,7 @@ impl SimpleDataAccessService {
         let mut response = Fetch::Request(request).send().await?;
 
         if response.status_code() >= 400 {
-            return Err(ArbitrageError::api_error(&format!(
+            return Err(ArbitrageError::api_error(format!(
                 "HTTP {} from {}",
                 response.status_code(),
                 url
@@ -279,10 +279,7 @@ impl SimpleDataAccessService {
         }
 
         let cache_key = self.build_cache_key(key, &data_type);
-        match self.kv_store.get(&cache_key).text().await {
-            Ok(Some(_)) => true,
-            _ => false,
-        }
+        matches!(self.kv_store.get(&cache_key).text().await, Ok(Some(_)))
     }
 
     /// Delete data from cache

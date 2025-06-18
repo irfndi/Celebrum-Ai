@@ -30,8 +30,8 @@ use worker::kv::KvStore;
 use super::{
     cache_manager::{CacheConfig, CacheManager},
     data_access_layer::{DataAccessLayer, DataAccessLayerConfig},
-    persistence_layer::database_core::DatabaseCore,
     notification_module::{NotificationCoordinator, NotificationCoordinatorConfig},
+    persistence_layer::database_core::DatabaseCore,
     service_health::{
         HealthCheckConfig, HealthStatus, ServiceHealthCheck, ServiceHealthManager,
         SystemHealthReport,

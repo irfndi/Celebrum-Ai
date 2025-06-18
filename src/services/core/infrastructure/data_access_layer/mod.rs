@@ -27,8 +27,8 @@ pub mod simple_data_access;
 
 // NEW: Unified data access components (recommended for new code)
 pub use unified_data_access::{
-    UnifiedDataAccessService, UnifiedDataAccessConfig, UnifiedDataAccessBuilder,
-    DataAccessResult, DataSource, UnifiedDataAccessMetrics,
+    DataAccessResult, DataSource, UnifiedDataAccessBuilder, UnifiedDataAccessConfig,
+    UnifiedDataAccessMetrics, UnifiedDataAccessService,
 };
 
 // Original data access layer components (legacy, will be deprecated)
@@ -69,7 +69,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 /// Unified Data Access Layer Configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DataAccessLayerConfig {
     pub api_connector_config: APIConnectorConfig,
     pub cache_layer_config: CacheLayerConfig,
@@ -78,20 +78,6 @@ pub struct DataAccessLayerConfig {
     pub data_validator_config: DataValidatorConfig,
     pub simple_data_access_config: SimpleDataAccessConfig,
     pub enhanced_cache_config: EnhancedCacheConfig,
-}
-
-impl Default for DataAccessLayerConfig {
-    fn default() -> Self {
-        Self {
-            api_connector_config: APIConnectorConfig::default(),
-            cache_layer_config: CacheLayerConfig::default(),
-            data_coordinator_config: DataCoordinatorConfig::default(),
-            data_source_manager_config: DataSourceManagerConfig::default(),
-            data_validator_config: DataValidatorConfig::default(),
-            simple_data_access_config: SimpleDataAccessConfig::default(),
-            enhanced_cache_config: EnhancedCacheConfig::default(),
-        }
-    }
 }
 
 impl DataAccessLayerConfig {
@@ -116,10 +102,7 @@ impl DataAccessLayer {
         config: DataAccessLayerConfig,
         kv_store: worker::kv::KvStore,
     ) -> ArbitrageResult<Self> {
-        Ok(Self {
-            config,
-            kv_store,
-        })
+        Ok(Self { config, kv_store })
     }
 
     pub fn config(&self) -> &DataAccessLayerConfig {
@@ -147,7 +130,8 @@ impl DataAccessLayer {
             self.config.api_connector_config.clone(),
             self.config.data_validator_config.clone(),
             self.kv_store.clone(),
-        ).await
+        )
+        .await
     }
 
     pub async fn data_source_manager(&self) -> ArbitrageResult<DataSourceManager> {

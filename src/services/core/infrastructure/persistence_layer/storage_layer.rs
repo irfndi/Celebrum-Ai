@@ -60,10 +60,12 @@ impl Default for StorageLayerMetrics {
 
 /// Main unified storage service - replaces all persistence_layer components
 pub struct StorageLayerService {
+    #[allow(dead_code)]
     config: StorageLayerConfig,
     d1_database: Option<D1Database>,
     kv_store: KvStore,
     metrics: std::sync::Arc<std::sync::Mutex<StorageLayerMetrics>>,
+    #[allow(dead_code)]
     logger: crate::utils::logger::Logger,
 }
 
@@ -75,9 +77,9 @@ impl StorageLayerService {
         kv_store: KvStore,
     ) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-        
+
         logger.info("Initializing StorageLayerService for Cloudflare Workers");
-        
+
         Ok(Self {
             config,
             d1_database,
@@ -93,20 +95,22 @@ impl StorageLayerService {
         T: serde::de::DeserializeOwned,
     {
         let start_time = crate::utils::time::get_current_timestamp();
-        
-        let d1_db = self.d1_database.as_ref()
+
+        let d1_db = self
+            .d1_database
+            .as_ref()
             .ok_or_else(|| ArbitrageError::database_error("D1 database not available"))?;
 
         let query = d1_db.prepare(sql);
 
         match query.all().await {
-            Ok(results) => {
-                // For D1, we need to handle the results differently 
+            Ok(_results) => {
+                // For D1, we need to handle the results differently
                 // This is a simplified approach for Workers environment
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
-                
+
                 self.record_metrics(true, execution_time).await;
-                
+
                 Ok(StorageResult {
                     data: Some(Vec::new()), // Simplified - in real implementation, parse results
                     success: true,
@@ -117,7 +121,10 @@ impl StorageLayerService {
             Err(e) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
                 self.record_metrics(false, execution_time).await;
-                Err(ArbitrageError::database_error(format!("D1 query error: {}", e)))
+                Err(ArbitrageError::database_error(format!(
+                    "D1 query error: {}",
+                    e
+                )))
             }
         }
     }
@@ -125,8 +132,10 @@ impl StorageLayerService {
     /// Execute a SQL statement (INSERT, UPDATE, DELETE)
     pub async fn execute(&self, sql: &str) -> ArbitrageResult<StorageResult<u64>> {
         let start_time = crate::utils::time::get_current_timestamp();
-        
-        let d1_db = self.d1_database.as_ref()
+
+        let d1_db = self
+            .d1_database
+            .as_ref()
             .ok_or_else(|| ArbitrageError::database_error("D1 database not available"))?;
 
         let query = d1_db.prepare(sql);
@@ -136,9 +145,9 @@ impl StorageLayerService {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
                 // Simplified approach - in real implementation, you'd extract actual changes
                 let rows_affected = 1;
-                
+
                 self.record_metrics(true, execution_time).await;
-                
+
                 Ok(StorageResult {
                     data: Some(rows_affected),
                     success: true,
@@ -149,7 +158,10 @@ impl StorageLayerService {
             Err(e) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
                 self.record_metrics(false, execution_time).await;
-                Err(ArbitrageError::database_error(format!("D1 execute error: {}", e)))
+                Err(ArbitrageError::database_error(format!(
+                    "D1 execute error: {}",
+                    e
+                )))
             }
         }
     }
@@ -157,12 +169,12 @@ impl StorageLayerService {
     /// Store data in KV store
     pub async fn kv_put(&self, key: &str, value: &str) -> ArbitrageResult<StorageResult<()>> {
         let start_time = crate::utils::time::get_current_timestamp();
-        
+
         match self.kv_store.put(key, value)?.execute().await {
             Ok(_) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
                 self.record_metrics(true, execution_time).await;
-                
+
                 Ok(StorageResult {
                     data: Some(()),
                     success: true,
@@ -173,7 +185,10 @@ impl StorageLayerService {
             Err(e) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
                 self.record_metrics(false, execution_time).await;
-                Err(ArbitrageError::database_error(format!("KV put error: {}", e)))
+                Err(ArbitrageError::database_error(format!(
+                    "KV put error: {}",
+                    e
+                )))
             }
         }
     }
@@ -181,12 +196,12 @@ impl StorageLayerService {
     /// Get data from KV store
     pub async fn kv_get(&self, key: &str) -> ArbitrageResult<StorageResult<String>> {
         let start_time = crate::utils::time::get_current_timestamp();
-        
+
         match self.kv_store.get(key).text().await {
             Ok(Some(value)) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
                 self.record_metrics(true, execution_time).await;
-                
+
                 Ok(StorageResult {
                     data: Some(value),
                     success: true,
@@ -197,7 +212,7 @@ impl StorageLayerService {
             Ok(None) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
                 self.record_metrics(true, execution_time).await;
-                
+
                 Ok(StorageResult {
                     data: None,
                     success: true,
@@ -208,7 +223,10 @@ impl StorageLayerService {
             Err(e) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
                 self.record_metrics(false, execution_time).await;
-                Err(ArbitrageError::database_error(format!("KV get error: {}", e)))
+                Err(ArbitrageError::database_error(format!(
+                    "KV get error: {}",
+                    e
+                )))
             }
         }
     }
@@ -216,12 +234,12 @@ impl StorageLayerService {
     /// Delete data from KV store
     pub async fn kv_delete(&self, key: &str) -> ArbitrageResult<StorageResult<()>> {
         let start_time = crate::utils::time::get_current_timestamp();
-        
+
         match self.kv_store.delete(key).await {
             Ok(_) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
                 self.record_metrics(true, execution_time).await;
-                
+
                 Ok(StorageResult {
                     data: Some(()),
                     success: true,
@@ -232,7 +250,10 @@ impl StorageLayerService {
             Err(e) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
                 self.record_metrics(false, execution_time).await;
-                Err(ArbitrageError::database_error(format!("KV delete error: {}", e)))
+                Err(ArbitrageError::database_error(format!(
+                    "KV delete error: {}",
+                    e
+                )))
             }
         }
     }
@@ -263,17 +284,19 @@ impl StorageLayerService {
     async fn record_metrics(&self, success: bool, execution_time_ms: u64) {
         if let Ok(mut metrics) = self.metrics.lock() {
             metrics.total_operations += 1;
-            
+
             if success {
                 metrics.successful_operations += 1;
             } else {
                 metrics.failed_operations += 1;
             }
-            
+
             // Update average execution time
             let total_ops = metrics.total_operations as f64;
-            metrics.avg_execution_time_ms = ((metrics.avg_execution_time_ms * (total_ops - 1.0)) + execution_time_ms as f64) / total_ops;
-            
+            metrics.avg_execution_time_ms = ((metrics.avg_execution_time_ms * (total_ops - 1.0))
+                + execution_time_ms as f64)
+                / total_ops;
+
             metrics.last_updated = crate::utils::time::get_current_timestamp();
         }
     }
@@ -292,18 +315,18 @@ impl StorageLayerBuilder {
             d1_database: None,
         }
     }
-    
+
     pub fn with_d1_database(mut self, database: D1Database) -> Self {
         self.d1_database = Some(database);
         self
     }
-    
+
     pub fn with_caching(mut self, enabled: bool, ttl_seconds: u64) -> Self {
         self.config.enable_caching = enabled;
         self.config.cache_ttl_seconds = ttl_seconds;
         self
     }
-    
+
     pub fn build(self, kv_store: KvStore) -> ArbitrageResult<StorageLayerService> {
         StorageLayerService::new(self.config, self.d1_database, kv_store)
     }

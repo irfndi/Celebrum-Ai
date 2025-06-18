@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::services::core::config::ServiceConfig;
@@ -786,11 +786,12 @@ impl PolicyManagementInterface {
         self.validate_policy(&request.policy).await?;
 
         // Check tenant policy count
-        self.check_tenant_policy_limit(&user_context.tenant_id).await?;
+        self.check_tenant_policy_limit(&user_context.tenant_id)
+            .await?;
 
         let policy_id = Uuid::new_v4();
         let now = SystemTime::now();
-        
+
         let mut policy = request.policy;
         policy.id = policy_id;
         policy.created_at = now;
@@ -819,7 +820,8 @@ impl PolicyManagementInterface {
                 context: HashMap::new(),
             },
             request.request_metadata,
-        ).await;
+        )
+        .await;
 
         Ok(policy)
     }
@@ -835,11 +837,12 @@ impl PolicyManagementInterface {
         self.check_rate_limit(&user_context.tenant_id).await?;
 
         let mut policies = self.policies.write().await;
-        let policy = policies.get_mut(&policy_id)
-            .ok_or_else(|| crate::utils::error::ArbitrageError::new(
+        let policy = policies.get_mut(&policy_id).ok_or_else(|| {
+            crate::utils::error::ArbitrageError::new(
                 crate::utils::error::ErrorKind::NotFound,
                 format!("Policy not found: {}", policy_id),
-            ))?;
+            )
+        })?;
 
         // Check ownership
         if policy.tenant_id != user_context.tenant_id {
@@ -893,7 +896,8 @@ impl PolicyManagementInterface {
                 context: HashMap::new(),
             },
             request.request_metadata,
-        ).await;
+        )
+        .await;
 
         Ok(updated_policy)
     }
@@ -909,11 +913,12 @@ impl PolicyManagementInterface {
         self.check_rate_limit(&user_context.tenant_id).await?;
 
         let mut policies = self.policies.write().await;
-        let policy = policies.get(&policy_id)
-            .ok_or_else(|| crate::utils::error::ArbitrageError::new(
+        let policy = policies.get(&policy_id).ok_or_else(|| {
+            crate::utils::error::ArbitrageError::new(
                 crate::utils::error::ErrorKind::NotFound,
                 format!("Policy not found: {}", policy_id),
-            ))?;
+            )
+        })?;
 
         // Check ownership
         if policy.tenant_id != user_context.tenant_id {
@@ -938,7 +943,8 @@ impl PolicyManagementInterface {
                 context: HashMap::new(),
             },
             request_metadata,
-        ).await;
+        )
+        .await;
 
         Ok(())
     }
@@ -950,7 +956,7 @@ impl PolicyManagementInterface {
         user_context: &UserContext,
     ) -> crate::utils::error::ArbitrageResult<ListPoliciesResponse> {
         let policies = self.policies.read().await;
-        
+
         let mut filtered_policies: Vec<CleanupPolicy> = policies
             .values()
             .filter(|p| p.tenant_id == user_context.tenant_id)
@@ -967,8 +973,13 @@ impl PolicyManagementInterface {
                     }
                 }
                 if let Some(search) = &request.filter.search {
-                    if !p.name.contains(search) && 
-                       !p.description.as_ref().unwrap_or(&String::new()).contains(search) {
+                    if !p.name.contains(search)
+                        && !p
+                            .description
+                            .as_ref()
+                            .unwrap_or(&String::new())
+                            .contains(search)
+                    {
                         return false;
                     }
                 }
@@ -993,7 +1004,7 @@ impl PolicyManagementInterface {
         let total = filtered_policies.len();
         let start = request.pagination.offset as usize;
         let end = std::cmp::min(start + request.pagination.limit as usize, total);
-        
+
         let page_policies = if start < total {
             filtered_policies[start..end].to_vec()
         } else {
@@ -1012,7 +1023,10 @@ impl PolicyManagementInterface {
     }
 
     /// Validate a policy configuration
-    async fn validate_policy(&self, policy: &CleanupPolicy) -> crate::utils::error::ArbitrageResult<()> {
+    async fn validate_policy(
+        &self,
+        policy: &CleanupPolicy,
+    ) -> crate::utils::error::ArbitrageResult<()> {
         // Basic validation
         if policy.name.is_empty() {
             return Err(crate::utils::error::ArbitrageError::new(
@@ -1058,7 +1072,10 @@ impl PolicyManagementInterface {
     }
 
     /// Validate a policy target
-    async fn validate_target(&self, _target: &PolicyTarget) -> crate::utils::error::ArbitrageResult<()> {
+    async fn validate_target(
+        &self,
+        _target: &PolicyTarget,
+    ) -> crate::utils::error::ArbitrageResult<()> {
         // TODO: Implement target validation
         // - Check target type exists
         // - Validate resource patterns
@@ -1074,20 +1091,25 @@ impl PolicyManagementInterface {
 
         let mut limiter = self.rate_limiter.write().await;
         let now = SystemTime::now();
-        
-        let state = limiter.entry(tenant_id.to_string()).or_insert(RateLimitState {
-            tokens: self.config.rate_limit.burst_capacity,
-            last_refill: now,
-            request_history: Vec::new(),
-        });
+
+        let state = limiter
+            .entry(tenant_id.to_string())
+            .or_insert(RateLimitState {
+                tokens: self.config.rate_limit.burst_capacity,
+                last_refill: now,
+                request_history: Vec::new(),
+            });
 
         // Token bucket implementation
-        let elapsed = now.duration_since(state.last_refill).unwrap_or(Duration::ZERO);
-        let tokens_to_add = (elapsed.as_secs() * self.config.rate_limit.requests_per_minute as u64 / 60) as u32;
-        
+        let elapsed = now
+            .duration_since(state.last_refill)
+            .unwrap_or(Duration::ZERO);
+        let tokens_to_add =
+            (elapsed.as_secs() * self.config.rate_limit.requests_per_minute as u64 / 60) as u32;
+
         state.tokens = std::cmp::min(
             self.config.rate_limit.burst_capacity,
-            state.tokens + tokens_to_add
+            state.tokens + tokens_to_add,
         );
         state.last_refill = now;
 
@@ -1103,16 +1125,23 @@ impl PolicyManagementInterface {
     }
 
     /// Check tenant policy limit
-    async fn check_tenant_policy_limit(&self, tenant_id: &str) -> crate::utils::error::ArbitrageResult<()> {
+    async fn check_tenant_policy_limit(
+        &self,
+        tenant_id: &str,
+    ) -> crate::utils::error::ArbitrageResult<()> {
         let policies = self.policies.read().await;
-        let tenant_policy_count = policies.values()
+        let tenant_policy_count = policies
+            .values()
             .filter(|p| p.tenant_id == tenant_id)
             .count();
 
         if tenant_policy_count >= self.config.max_policies_per_tenant {
             return Err(crate::utils::error::ArbitrageError::new(
                 crate::utils::error::ErrorKind::QuotaExceeded,
-                format!("Maximum policies per tenant exceeded: {}", self.config.max_policies_per_tenant),
+                format!(
+                    "Maximum policies per tenant exceeded: {}",
+                    self.config.max_policies_per_tenant
+                ),
             ));
         }
 
@@ -1167,7 +1196,7 @@ impl HealthCheck for PolicyManagementInterface {
     async fn health_check(&self) -> crate::utils::error::ArbitrageResult<()> {
         // Check connection to storage
         self.connection_manager.health_check().await?;
-        
+
         // Check if configuration is valid
         if !self.config.enabled {
             return Err(crate::utils::error::ArbitrageError::new(
@@ -1301,18 +1330,17 @@ mod tests {
     #[tokio::test]
     async fn test_policy_management_interface_creation() {
         let config = PolicyManagementConfig::default();
-        let connection_manager = Arc::new(
-            ConnectionManager::new(Default::default()).await.unwrap()
-        );
+        let connection_manager =
+            Arc::new(ConnectionManager::new(Default::default()).await.unwrap());
         let transaction_coordinator = Arc::new(
-            TransactionCoordinator::new(Default::default()).await.unwrap()
+            TransactionCoordinator::new(Default::default())
+                .await
+                .unwrap(),
         );
 
-        let interface = PolicyManagementInterface::new(
-            config,
-            connection_manager,
-            transaction_coordinator,
-        ).await;
+        let interface =
+            PolicyManagementInterface::new(config, connection_manager, transaction_coordinator)
+                .await;
 
         assert!(interface.is_ok());
     }
@@ -1323,18 +1351,18 @@ mod tests {
         config.rate_limit.requests_per_minute = 1;
         config.rate_limit.burst_capacity = 1;
 
-        let connection_manager = Arc::new(
-            ConnectionManager::new(Default::default()).await.unwrap()
-        );
+        let connection_manager =
+            Arc::new(ConnectionManager::new(Default::default()).await.unwrap());
         let transaction_coordinator = Arc::new(
-            TransactionCoordinator::new(Default::default()).await.unwrap()
+            TransactionCoordinator::new(Default::default())
+                .await
+                .unwrap(),
         );
 
-        let interface = PolicyManagementInterface::new(
-            config,
-            connection_manager,
-            transaction_coordinator,
-        ).await.unwrap();
+        let interface =
+            PolicyManagementInterface::new(config, connection_manager, transaction_coordinator)
+                .await
+                .unwrap();
 
         // First request should succeed
         assert!(interface.check_rate_limit("tenant1").await.is_ok());
@@ -1411,9 +1439,9 @@ mod tests {
 
         let serialized = serde_json::to_string(&policy).unwrap();
         let deserialized: CleanupPolicy = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(policy.id, deserialized.id);
         assert_eq!(policy.name, deserialized.name);
         assert_eq!(policy.status, deserialized.status);
     }
-} 
+}

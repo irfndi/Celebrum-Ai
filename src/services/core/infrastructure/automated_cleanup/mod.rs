@@ -1,5 +1,5 @@
 //! Automated Cleanup System
-//! 
+//!
 //! Comprehensive automated data cleanup system with TTL-based policies,
 //! manual controls, storage monitoring, and impact analysis.
 
@@ -7,53 +7,53 @@ use serde::{Deserialize, Serialize};
 
 // Core cleanup modules
 pub mod cleanup_scheduler;
-pub mod storage_analytics;
+pub mod cleanup_validation;
 pub mod impact_analysis;
 pub mod policy_management;
-pub mod cleanup_validation;
+pub mod storage_analytics;
 
 // Re-export main types for external use
 pub use cleanup_scheduler::{
-    CleanupPolicy, CleanupResult, CleanupScheduler, CleanupSchedulerConfig, 
-    CleanupScope, CleanupStatus, CleanupStrategy,
+    CleanupPolicy, CleanupResult, CleanupScheduler, CleanupSchedulerConfig, CleanupScope,
+    CleanupStatus, CleanupStrategy,
 };
 
 pub use storage_analytics::{
-    AlertSeverity, AlertType, AlertThresholds, CostSettings, OverallStorageMetrics,
-    StorageAlert, StorageAnalyticsDashboard, StorageAnalyticsConfig, StorageAnalyticsService,
-    StorageDataPoint, StorageUsageMetrics, StorageUsageTrend, TopConsumer, TrendDirection,
+    AlertSeverity, AlertThresholds, AlertType, CostSettings, OverallStorageMetrics, StorageAlert,
+    StorageAnalyticsConfig, StorageAnalyticsDashboard, StorageAnalyticsService, StorageDataPoint,
+    StorageUsageMetrics, StorageUsageTrend, TopConsumer, TrendDirection,
 };
 
 pub use impact_analysis::{
-    CleanupImpactAnalysisEngine, ImpactAnalysisConfig, ImpactAnalysisRequest, ImpactAnalysisResult,
-    ImpactLevel, RiskAssessment, SafetyCheck, AnalysisStatus, DependencyGraph, DependencyType,
-    DataDependency, RecommendedAction, ActionType, SafetyCheckType, SafetyCheckStatus,
+    ActionType, AnalysisStatus, CleanupImpactAnalysisEngine, DataDependency, DependencyGraph,
+    DependencyType, ImpactAnalysisConfig, ImpactAnalysisRequest, ImpactAnalysisResult, ImpactLevel,
+    RecommendedAction, RiskAssessment, SafetyCheck, SafetyCheckStatus, SafetyCheckType,
 };
 
 pub use policy_management::{
-    PolicyManagementInterface, PolicyManagementConfig, CleanupPolicy as PolicyCleanupPolicy,
-    PolicyTemplate, PolicyStatus, PolicyType, PolicyTarget, CleanupRule, RuleCondition,
-    CleanupAction, PolicyMetadata, PolicyConfiguration, PolicySchedule, ScheduleType,
-    PolicyRetryConfig, RetryDelay, PolicyNotifications, NotificationChannel, PolicyEvent,
-    PolicySafetyConfig, BackupRequirement, PolicyValidation, ValidationRule, ValidationRuleType,
-    TestingRequirements, TemplateParameter, ParameterType, ParameterValidation, TemplateMetadata,
-    PolicyExecutionResult, ExecutionStatus, ExecutionError, RetryInfo, ExecutionMetrics,
-    NetworkMetrics, StorageMetrics, PolicyAuditEntry, AuditEventType, AuditDetails,
-    RequestMetadata, RateLimitState, UserContext, CreatePolicyRequest, UpdatePolicyRequest,
-    ListPoliciesRequest, PolicyFilter, SortOptions, SortDirection, PaginationRequest,
-    ListPoliciesResponse, PaginationResponse,
+    AuditDetails, AuditEventType, BackupRequirement, CleanupAction,
+    CleanupPolicy as PolicyCleanupPolicy, CleanupRule, CreatePolicyRequest, ExecutionError,
+    ExecutionMetrics, ExecutionStatus, ListPoliciesRequest, ListPoliciesResponse, NetworkMetrics,
+    NotificationChannel, PaginationRequest, PaginationResponse, ParameterType, ParameterValidation,
+    PolicyAuditEntry, PolicyConfiguration, PolicyEvent, PolicyExecutionResult, PolicyFilter,
+    PolicyManagementConfig, PolicyManagementInterface, PolicyMetadata, PolicyNotifications,
+    PolicyRetryConfig, PolicySafetyConfig, PolicySchedule, PolicyStatus, PolicyTarget,
+    PolicyTemplate, PolicyType, PolicyValidation, RateLimitState, RequestMetadata, RetryDelay,
+    RetryInfo, RuleCondition, ScheduleType, SortDirection, SortOptions, StorageMetrics,
+    TemplateMetadata, TemplateParameter, TestingRequirements, UpdatePolicyRequest, UserContext,
+    ValidationRule, ValidationRuleType,
 };
 
 pub use cleanup_validation::{
-    CleanupValidator, CleanupValidationConfig, ValidationSuite, ValidationResult,
-    ValidationTestCase, ValidationTestType, TestResult, TestStatus, ValidationStatus,
-    ValidationMetrics, ValidationError, DriftDetectionConfig, DriftDetectionMethod,
-    SafetyCheckConfig, BackupVerificationConfig, BackupIntegrityMethod, RollbackTestingConfig,
-    RollbackScenario, PerformanceTestConfig, LoadTestingConfig, ChaosTestingConfig,
-    FailureScenario, PerformanceThresholds, ComplianceValidationConfig, PrivacyComplianceConfig,
-    AuditTrailConfig, AuditDetailLevel, ExpectedResult, ComparisonOperator, TestPriority,
-    ValidationSuiteConfig, FailureHandlingStrategy, ValidationRetryConfig,
-    TestPerformanceMetrics, NetworkIOMetrics, StorageIOMetrics,
+    AuditDetailLevel, AuditTrailConfig, BackupIntegrityMethod, BackupVerificationConfig,
+    ChaosTestingConfig, CleanupValidationConfig, CleanupValidator, ComparisonOperator,
+    ComplianceValidationConfig, DriftDetectionConfig, DriftDetectionMethod, ExpectedResult,
+    FailureHandlingStrategy, FailureScenario, LoadTestingConfig, NetworkIOMetrics,
+    PerformanceTestConfig, PerformanceThresholds, PrivacyComplianceConfig, RollbackScenario,
+    RollbackTestingConfig, SafetyCheckConfig, StorageIOMetrics, TestPerformanceMetrics,
+    TestPriority, TestResult, TestStatus, ValidationError, ValidationMetrics, ValidationResult,
+    ValidationRetryConfig, ValidationStatus, ValidationSuite, ValidationSuiteConfig,
+    ValidationTestCase, ValidationTestType,
 };
 
 /// Automated cleanup system configuration
@@ -115,8 +115,12 @@ impl AutomatedCleanupSystem {
     /// Initialize the automated cleanup system
     pub async fn initialize(
         &mut self,
-        connection_manager: std::sync::Arc<crate::services::core::infrastructure::persistence::ConnectionManager>,
-        transaction_coordinator: std::sync::Arc<crate::services::core::infrastructure::persistence::TransactionCoordinator>,
+        connection_manager: std::sync::Arc<
+            crate::services::core::infrastructure::persistence::ConnectionManager,
+        >,
+        transaction_coordinator: std::sync::Arc<
+            crate::services::core::infrastructure::persistence::TransactionCoordinator,
+        >,
     ) -> crate::utils::error::ArbitrageResult<()> {
         if !self.config.enabled {
             return Ok(());
@@ -128,7 +132,8 @@ impl AutomatedCleanupSystem {
                 self.config.scheduler_config.clone(),
                 connection_manager.clone(),
                 transaction_coordinator.clone(),
-            ).await?;
+            )
+            .await?;
             self.cleanup_scheduler = Some(scheduler);
         }
 
@@ -138,7 +143,8 @@ impl AutomatedCleanupSystem {
                 self.config.analytics_config.clone(),
                 connection_manager.clone(),
                 transaction_coordinator.clone(),
-            ).await?;
+            )
+            .await?;
             self.storage_analytics = Some(analytics);
         }
 
@@ -156,7 +162,8 @@ impl AutomatedCleanupSystem {
                 self.config.policy_management_config.clone(),
                 connection_manager.clone(),
                 transaction_coordinator.clone(),
-            ).await?;
+            )
+            .await?;
             self.policy_manager = Some(policy_manager);
         }
 
@@ -166,7 +173,8 @@ impl AutomatedCleanupSystem {
                 self.config.validation_config.clone(),
                 connection_manager.clone(),
                 transaction_coordinator.clone(),
-            ).await?;
+            )
+            .await?;
             self.cleanup_validator = Some(validator);
         }
 
@@ -303,7 +311,7 @@ mod tests {
     async fn test_automated_cleanup_system_creation() {
         let config = AutomatedCleanupConfig::default();
         let system = AutomatedCleanupSystem::new(config);
-        
+
         assert!(!system.is_initialized);
         assert!(system.cleanup_scheduler.is_none());
         assert!(system.storage_analytics.is_none());
@@ -311,4 +319,4 @@ mod tests {
         assert!(system.policy_manager.is_none());
         assert!(system.cleanup_validator.is_none());
     }
-} 
+}

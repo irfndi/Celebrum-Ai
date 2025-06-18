@@ -17,8 +17,8 @@ pub mod user_repository;
 
 // NEW: Simplified storage layer components (recommended for new code)
 pub use storage_layer::{
-    StorageLayerService, StorageLayerConfig, StorageLayerBuilder,
-    StorageResult, StorageLayerMetrics,
+    StorageLayerBuilder, StorageLayerConfig, StorageLayerMetrics, StorageLayerService,
+    StorageResult,
 };
 
 // Legacy components (to be deprecated)

@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::services::core::config::ServiceConfig;
@@ -757,7 +757,7 @@ impl CleanupValidator {
             }
 
             let test_result = self.execute_test_case(test_case).await?;
-            
+
             match test_result.status {
                 TestStatus::Passed => result.metrics.tests_passed += 1,
                 TestStatus::Failed => result.metrics.tests_failed += 1,
@@ -789,7 +789,8 @@ impl CleanupValidator {
 
         result.metrics.average_test_time = if result.test_results.len() > 0 {
             Duration::from_nanos(
-                result.metrics.total_execution_time.as_nanos() as u64 / result.test_results.len() as u64
+                result.metrics.total_execution_time.as_nanos() as u64
+                    / result.test_results.len() as u64,
             )
         } else {
             Duration::from_secs(0)
@@ -816,7 +817,7 @@ impl CleanupValidator {
         test_case: &ValidationTestCase,
     ) -> crate::utils::error::ArbitrageResult<TestResult> {
         let start_time = SystemTime::now();
-        
+
         let mut test_result = TestResult {
             test_case_id: test_case.id,
             status: TestStatus::Passed,
@@ -844,16 +845,20 @@ impl CleanupValidator {
         // Execute test based on type
         match test_case.test_type {
             ValidationTestType::DataIntegrity => {
-                self.execute_data_integrity_test(test_case, &mut test_result).await?;
+                self.execute_data_integrity_test(test_case, &mut test_result)
+                    .await?;
             }
             ValidationTestType::Performance => {
-                self.execute_performance_test(test_case, &mut test_result).await?;
+                self.execute_performance_test(test_case, &mut test_result)
+                    .await?;
             }
             ValidationTestType::Safety => {
-                self.execute_safety_test(test_case, &mut test_result).await?;
+                self.execute_safety_test(test_case, &mut test_result)
+                    .await?;
             }
             ValidationTestType::Compliance => {
-                self.execute_compliance_test(test_case, &mut test_result).await?;
+                self.execute_compliance_test(test_case, &mut test_result)
+                    .await?;
             }
             ValidationTestType::Chaos => {
                 self.execute_chaos_test(test_case, &mut test_result).await?;
@@ -862,10 +867,12 @@ impl CleanupValidator {
                 self.execute_load_test(test_case, &mut test_result).await?;
             }
             ValidationTestType::Backup => {
-                self.execute_backup_test(test_case, &mut test_result).await?;
+                self.execute_backup_test(test_case, &mut test_result)
+                    .await?;
             }
             ValidationTestType::Rollback => {
-                self.execute_rollback_test(test_case, &mut test_result).await?;
+                self.execute_rollback_test(test_case, &mut test_result)
+                    .await?;
             }
         }
 
@@ -884,10 +891,9 @@ impl CleanupValidator {
         test_result: &mut TestResult,
     ) -> crate::utils::error::ArbitrageResult<()> {
         // Implementation for data integrity testing
-        test_result.actual_results.insert(
-            "integrity_check".to_string(),
-            serde_json::Value::Bool(true),
-        );
+        test_result
+            .actual_results
+            .insert("integrity_check".to_string(), serde_json::Value::Bool(true));
         Ok(())
     }
 
@@ -1081,4 +1087,4 @@ mod tests {
         let _serialized = serde_json::to_string(&config).unwrap();
         assert!(true);
     }
-} 
+}

@@ -15,13 +15,13 @@ pub struct SimpleIngestionConfig {
     pub ingestion_timeout_ms: u64,
     pub enable_transformation: bool,
     pub enable_validation: bool,
-    
+
     // Queue and pipeline settings
     pub queue_max_size: usize,
     pub pipeline_buffer_size: usize,
     pub enable_retry: bool,
     pub max_retry_attempts: u32,
-    
+
     // Performance settings
     pub enable_compression: bool,
     pub enable_metrics: bool,
@@ -132,9 +132,9 @@ impl SimpleIngestionService {
     /// Create new simple ingestion service
     pub fn new(config: SimpleIngestionConfig, kv_store: KvStore) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-        
+
         logger.info("Initializing SimpleIngestionService for Cloudflare Workers");
-        
+
         Ok(Self {
             config,
             kv_store,
@@ -147,7 +147,7 @@ impl SimpleIngestionService {
     /// Ingest a single data item
     pub async fn ingest(&self, request: IngestionRequest) -> ArbitrageResult<IngestionResult> {
         let start_time = crate::utils::time::get_current_timestamp();
-        
+
         // Validate request if enabled
         if self.config.enable_validation && !self.validate_request(&request).await {
             return Ok(IngestionResult {
@@ -174,10 +174,10 @@ impl SimpleIngestionService {
         match self.store_data(&storage_key, &processed_data).await {
             Ok(_) => {
                 let processing_time = crate::utils::time::get_current_timestamp() - start_time;
-                
+
                 // Update metrics
                 self.update_metrics(&request, true, processing_time).await;
-                
+
                 Ok(IngestionResult {
                     request_id: request.id,
                     success: true,
@@ -191,10 +191,10 @@ impl SimpleIngestionService {
             }
             Err(e) => {
                 let processing_time = crate::utils::time::get_current_timestamp() - start_time;
-                
+
                 // Update metrics for failure
                 self.update_metrics(&request, false, processing_time).await;
-                
+
                 Ok(IngestionResult {
                     request_id: request.id,
                     success: false,
@@ -210,16 +210,22 @@ impl SimpleIngestionService {
     }
 
     /// Ingest multiple data items as a batch
-    pub async fn ingest_batch(&self, requests: Vec<IngestionRequest>) -> ArbitrageResult<Vec<IngestionResult>> {
+    pub async fn ingest_batch(
+        &self,
+        requests: Vec<IngestionRequest>,
+    ) -> ArbitrageResult<Vec<IngestionResult>> {
         let mut results = Vec::new();
-        
+
         // Process in chunks to respect batch size limits
         for chunk in requests.chunks(self.config.max_batch_size) {
             for request in chunk {
                 match self.ingest(request.clone()).await {
                     Ok(result) => results.push(result),
                     Err(e) => {
-                        self.logger.error(&format!("Batch ingestion error for request {}: {}", request.id, e));
+                        self.logger.error(&format!(
+                            "Batch ingestion error for request {}: {}",
+                            request.id, e
+                        ));
                         results.push(IngestionResult {
                             request_id: request.id.clone(),
                             success: false,
@@ -234,7 +240,7 @@ impl SimpleIngestionService {
                 }
             }
         }
-        
+
         Ok(results)
     }
 
@@ -244,12 +250,15 @@ impl SimpleIngestionService {
             if queue.len() >= self.config.queue_max_size {
                 return Err(ArbitrageError::rate_limit_error("Ingestion queue is full"));
             }
-            
+
             // Insert based on priority (higher priority first)
-            let insert_pos = queue.iter().position(|r| r.priority < request.priority).unwrap_or(queue.len());
+            let insert_pos = queue
+                .iter()
+                .position(|r| r.priority < request.priority)
+                .unwrap_or(queue.len());
             queue.insert(insert_pos, request);
         }
-        
+
         Ok(())
     }
 
@@ -261,11 +270,11 @@ impl SimpleIngestionService {
         } else {
             Vec::new()
         };
-        
+
         if requests.is_empty() {
             return Ok(Vec::new());
         }
-        
+
         self.ingest_batch(requests).await
     }
 
@@ -290,7 +299,7 @@ impl SimpleIngestionService {
             priority: IngestionPriority::Low,
             metadata: HashMap::new(),
         };
-        
+
         match self.ingest(test_request).await {
             Ok(result) => Ok(result.success),
             Err(_) => Ok(false),
@@ -310,65 +319,94 @@ impl SimpleIngestionService {
 
     async fn validate_request(&self, request: &IngestionRequest) -> bool {
         // Basic validation
-        !request.id.is_empty() && 
-        !request.source.is_empty() && 
-        request.timestamp > 0 &&
-        !request.payload.is_null()
+        !request.id.is_empty()
+            && !request.source.is_empty()
+            && request.timestamp > 0
+            && !request.payload.is_null()
     }
 
-    async fn transform_data(&self, request: &IngestionRequest) -> ArbitrageResult<serde_json::Value> {
+    async fn transform_data(
+        &self,
+        request: &IngestionRequest,
+    ) -> ArbitrageResult<serde_json::Value> {
         // Basic transformation - add metadata and normalize structure
         let mut transformed = request.payload.clone();
-        
+
         if let Some(obj) = transformed.as_object_mut() {
-            obj.insert("_ingestion_id".to_string(), serde_json::Value::String(request.id.clone()));
-            obj.insert("_ingestion_timestamp".to_string(), serde_json::Value::Number(request.timestamp.into()));
-            obj.insert("_ingestion_source".to_string(), serde_json::Value::String(request.source.clone()));
-            obj.insert("_data_type".to_string(), serde_json::Value::String(format!("{:?}", request.data_type)));
+            obj.insert(
+                "_ingestion_id".to_string(),
+                serde_json::Value::String(request.id.clone()),
+            );
+            obj.insert(
+                "_ingestion_timestamp".to_string(),
+                serde_json::Value::Number(request.timestamp.into()),
+            );
+            obj.insert(
+                "_ingestion_source".to_string(),
+                serde_json::Value::String(request.source.clone()),
+            );
+            obj.insert(
+                "_data_type".to_string(),
+                serde_json::Value::String(format!("{:?}", request.data_type)),
+            );
         }
-        
+
         Ok(transformed)
     }
 
     fn generate_storage_key(&self, request: &IngestionRequest) -> String {
-        format!("ingestion/{:?}/{}/{}", 
-            request.data_type, 
-            request.source, 
-            request.id
-        ).to_lowercase()
+        format!(
+            "ingestion/{:?}/{}/{}",
+            request.data_type, request.source, request.id
+        )
+        .to_lowercase()
     }
 
     async fn store_data(&self, key: &str, data: &serde_json::Value) -> ArbitrageResult<()> {
         let serialized = serde_json::to_string(data)?;
-        
+
         match self.kv_store.put(key, serialized)?.execute().await {
             Ok(_) => Ok(()),
-            Err(e) => Err(ArbitrageError::database_error(format!("Failed to store ingested data: {}", e))),
+            Err(e) => Err(ArbitrageError::database_error(format!(
+                "Failed to store ingested data: {}",
+                e
+            ))),
         }
     }
 
-    async fn update_metrics(&self, request: &IngestionRequest, success: bool, processing_time_ms: u64) {
+    async fn update_metrics(
+        &self,
+        request: &IngestionRequest,
+        success: bool,
+        processing_time_ms: u64,
+    ) {
         if let Ok(mut metrics) = self.metrics.lock() {
             metrics.total_requests += 1;
-            
+
             if success {
                 metrics.successful_requests += 1;
                 metrics.total_records_processed += 1;
             } else {
                 metrics.failed_requests += 1;
             }
-            
+
             // Update average processing time
             let total_requests = metrics.total_requests as f64;
-            metrics.avg_processing_time_ms = ((metrics.avg_processing_time_ms * (total_requests - 1.0)) + processing_time_ms as f64) / total_requests;
-            
+            metrics.avg_processing_time_ms = ((metrics.avg_processing_time_ms
+                * (total_requests - 1.0))
+                + processing_time_ms as f64)
+                / total_requests;
+
             // Update type and priority counters
             let data_type_key = format!("{:?}", request.data_type);
             *metrics.requests_by_type.entry(data_type_key).or_insert(0) += 1;
-            
+
             let priority_key = format!("{:?}", request.priority);
-            *metrics.requests_by_priority.entry(priority_key).or_insert(0) += 1;
-            
+            *metrics
+                .requests_by_priority
+                .entry(priority_key)
+                .or_insert(0) += 1;
+
             metrics.last_updated = crate::utils::time::get_current_timestamp();
         }
     }
@@ -385,33 +423,33 @@ impl SimpleIngestionBuilder {
             config: SimpleIngestionConfig::default(),
         }
     }
-    
+
     pub fn with_batch_size(mut self, size: usize) -> Self {
         self.config.max_batch_size = size;
         self
     }
-    
+
     pub fn with_transformation(mut self, enabled: bool) -> Self {
         self.config.enable_transformation = enabled;
         self
     }
-    
+
     pub fn with_validation(mut self, enabled: bool) -> Self {
         self.config.enable_validation = enabled;
         self
     }
-    
+
     pub fn with_queue_size(mut self, size: usize) -> Self {
         self.config.queue_max_size = size;
         self
     }
-    
+
     pub fn with_retry(mut self, enabled: bool, max_attempts: u32) -> Self {
         self.config.enable_retry = enabled;
         self.config.max_retry_attempts = max_attempts;
         self
     }
-    
+
     pub fn build(self, kv_store: KvStore) -> ArbitrageResult<SimpleIngestionService> {
         SimpleIngestionService::new(self.config, kv_store)
     }
@@ -421,4 +459,4 @@ impl Default for SimpleIngestionBuilder {
     fn default() -> Self {
         Self::new()
     }
-} 
+}

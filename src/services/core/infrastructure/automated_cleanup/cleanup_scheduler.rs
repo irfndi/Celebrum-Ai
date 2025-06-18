@@ -1,5 +1,5 @@
 //! Core Cleanup Scheduler Service
-//! 
+//!
 //! Orchestrates automated data cleanup across KV, D1, and R2 storage systems
 //! with multiple cleanup strategies and safety mechanisms.
 
@@ -13,8 +13,12 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::time::{interval, sleep, Instant};
 use worker::Env;
 
-use crate::services::core::infrastructure::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
-use crate::services::core::infrastructure::persistence::{ConnectionManager, StorageType, TransactionCoordinator};
+use crate::services::core::infrastructure::circuit_breaker::{
+    CircuitBreaker, CircuitBreakerConfig,
+};
+use crate::services::core::infrastructure::persistence::{
+    ConnectionManager, StorageType, TransactionCoordinator,
+};
 use crate::utils::error::{ArbitrageError, ArbitrageResult, ErrorKind};
 
 /// Cleanup strategies supported by the scheduler
@@ -203,7 +207,7 @@ impl CleanupScheduler {
         transaction_coordinator: Arc<TransactionCoordinator>,
     ) -> ArbitrageResult<Self> {
         let circuit_breaker = Arc::new(CircuitBreaker::new(config.circuit_breaker.clone()));
-        
+
         Ok(Self {
             config,
             policies: Arc::new(RwLock::new(HashMap::new())),
@@ -246,7 +250,7 @@ impl CleanupScheduler {
     pub async fn stop(&self) -> ArbitrageResult<()> {
         let mut is_running = self.is_running.write().await;
         *is_running = false;
-        
+
         // Wait for active operations to complete
         while *self.active_operations.read().await > 0 {
             sleep(Duration::from_millis(100)).await;
@@ -258,12 +262,12 @@ impl CleanupScheduler {
     /// Add a cleanup policy
     pub async fn add_policy(&self, policy: CleanupPolicy) -> ArbitrageResult<()> {
         let mut policies = self.policies.write().await;
-        
+
         // Validate policy
         self.validate_policy(&policy)?;
-        
+
         policies.insert(policy.id.clone(), policy);
-        
+
         Ok(())
     }
 
@@ -299,10 +303,10 @@ impl CleanupScheduler {
     /// Main execution loop
     async fn execution_loop(&self, env: &Env) {
         let mut interval = interval(Duration::from_secs(self.config.execution_interval_seconds));
-        
+
         while *self.is_running.read().await {
             interval.tick().await;
-            
+
             if let Err(e) = self.execute_scheduled_cleanup(env).await {
                 eprintln!("Cleanup execution error: {:?}", e);
             }
@@ -335,7 +339,7 @@ impl CleanupScheduler {
             let scheduler = self.clone();
             let policy_clone = policy.clone();
             let env_clone = env.clone();
-            
+
             tokio::spawn(async move {
                 if let Err(e) = scheduler.execute_policy(&policy_clone, &env_clone).await {
                     eprintln!("Policy execution error for '{}': {:?}", policy_clone.id, e);
@@ -347,7 +351,11 @@ impl CleanupScheduler {
     }
 
     /// Execute a specific cleanup policy
-    async fn execute_policy(&self, policy: &CleanupPolicy, _env: &Env) -> ArbitrageResult<CleanupResult> {
+    async fn execute_policy(
+        &self,
+        policy: &CleanupPolicy,
+        _env: &Env,
+    ) -> ArbitrageResult<CleanupResult> {
         let start_time = Instant::now();
         let execution_start = Utc::now();
 
@@ -374,14 +382,30 @@ impl CleanupScheduler {
 
         // Execute cleanup based on strategy
         let result = match &policy.strategy {
-            CleanupStrategy::TimeToLive { ttl_seconds, grace_period_seconds } => {
-                self.execute_ttl_cleanup(policy, *ttl_seconds, *grace_period_seconds).await
+            CleanupStrategy::TimeToLive {
+                ttl_seconds,
+                grace_period_seconds,
+            } => {
+                self.execute_ttl_cleanup(policy, *ttl_seconds, *grace_period_seconds)
+                    .await
             }
-            CleanupStrategy::UsageBased { inactive_threshold_seconds, min_access_count } => {
-                self.execute_usage_based_cleanup(policy, *inactive_threshold_seconds, *min_access_count).await
+            CleanupStrategy::UsageBased {
+                inactive_threshold_seconds,
+                min_access_count,
+            } => {
+                self.execute_usage_based_cleanup(
+                    policy,
+                    *inactive_threshold_seconds,
+                    *min_access_count,
+                )
+                .await
             }
-            CleanupStrategy::SizeBased { max_size_bytes, cleanup_percentage } => {
-                self.execute_size_based_cleanup(policy, *max_size_bytes, *cleanup_percentage).await
+            CleanupStrategy::SizeBased {
+                max_size_bytes,
+                cleanup_percentage,
+            } => {
+                self.execute_size_based_cleanup(policy, *max_size_bytes, *cleanup_percentage)
+                    .await
             }
             CleanupStrategy::Manual { scope, force } => {
                 self.execute_manual_cleanup(policy, scope, *force).await
@@ -548,7 +572,7 @@ mod tests {
         let config = CleanupSchedulerConfig::default();
         let connection_manager = Arc::new(ConnectionManager::new().await.unwrap());
         let transaction_coordinator = Arc::new(TransactionCoordinator::new().await.unwrap());
-        
+
         let scheduler = CleanupScheduler::new(config, connection_manager, transaction_coordinator)
             .await
             .unwrap();
@@ -573,4 +597,4 @@ mod tests {
 
         assert!(scheduler.validate_policy(&valid_policy).is_ok());
     }
-} 
+}

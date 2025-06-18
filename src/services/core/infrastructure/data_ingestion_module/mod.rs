@@ -14,9 +14,9 @@ pub mod queue_manager;
 
 // NEW: Simplified ingestion components (recommended for new code)
 pub use simple_ingestion::{
-    SimpleIngestionService, SimpleIngestionConfig, SimpleIngestionBuilder,
-    IngestionRequest as SimpleIngestionRequest, IngestionResult as SimpleIngestionResult,
-    IngestionDataType, IngestionPriority, SimpleIngestionMetrics,
+    IngestionDataType, IngestionPriority, IngestionRequest as SimpleIngestionRequest,
+    IngestionResult as SimpleIngestionResult, SimpleIngestionBuilder, SimpleIngestionConfig,
+    SimpleIngestionMetrics, SimpleIngestionService,
 };
 
 // Legacy components (to be deprecated)

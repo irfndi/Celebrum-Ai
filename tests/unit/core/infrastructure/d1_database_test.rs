@@ -9,9 +9,7 @@
 // D1Service Unit Tests
 // Comprehensive testing of database operations, migrations, and error handling
 
-use arb_edge::services::core::infrastructure::database_core::DatabaseCore;
-// TODO: Find correct location for D1Service and InvitationUsage
-// use arb_edge::services::core::infrastructure::database_core::{D1Service, InvitationUsage}; // Original problematic import // Corrected import path
+use arb_edge::services::core::infrastructure::persistence_layer::{DatabaseCore, DatabaseManager};
 use arb_edge::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::json;
 use std::collections::HashMap;
