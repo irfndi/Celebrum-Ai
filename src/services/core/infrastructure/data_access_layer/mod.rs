@@ -3,7 +3,10 @@
 //! Multi-tier hierarchical caching with compression, warming, and metadata tracking
 //! Provides production-ready caching infrastructure for ArbEdge platform
 
-// Original data access layer modules
+// NEW: Unified data access service (replaces complex multi-file structure)
+pub mod unified_data_access;
+
+// Original data access layer modules (to be deprecated)
 pub mod api_connector;
 pub mod cache_layer;
 pub mod data_coordinator;
@@ -22,7 +25,13 @@ pub mod simple_data_access;
 
 // Re-export main components for easy access
 
-// Original data access layer components
+// NEW: Unified data access components (recommended for new code)
+pub use unified_data_access::{
+    UnifiedDataAccessService, UnifiedDataAccessConfig, UnifiedDataAccessBuilder,
+    DataAccessResult, DataSource, UnifiedDataAccessMetrics,
+};
+
+// Original data access layer components (legacy, will be deprecated)
 pub use api_connector::{APIConnector, APIConnectorConfig};
 pub use cache_layer::{CacheLayer, CacheLayerConfig};
 pub use data_coordinator::{DataCoordinator as DataAccessDataCoordinator, DataCoordinatorConfig};

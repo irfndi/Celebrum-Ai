@@ -1,6 +1,10 @@
 // Database Repositories Module - Specialized Data Access Components
 // Replaces the massive d1_database.rs monolith with focused, modular repositories
 
+// NEW: Simplified storage layer service (recommended for new code)
+pub mod storage_layer;
+
+// Legacy persistence components (to be deprecated)
 pub mod ai_data_repository;
 pub mod analytics_repository;
 pub mod config_repository;
@@ -10,6 +14,14 @@ pub mod invitation_repository;
 pub mod user_repository;
 
 // Re-export main components for easy access
+
+// NEW: Simplified storage layer components (recommended for new code)
+pub use storage_layer::{
+    StorageLayerService, StorageLayerConfig, StorageLayerBuilder,
+    StorageResult, StorageLayerMetrics,
+};
+
+// Legacy components (to be deprecated)
 pub use ai_data_repository::{AIDataRepository, AIDataRepositoryConfig};
 pub use analytics_repository::{AnalyticsRepository, AnalyticsRepositoryConfig};
 pub use config_repository::{ConfigRepository, ConfigRepositoryConfig};

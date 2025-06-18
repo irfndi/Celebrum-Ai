@@ -1,12 +1,25 @@
 // Data Ingestion Module - Modular Data Ingestion with Enhanced Streaming Capabilities
 // Replaces cloudflare_pipelines.rs (948 lines) with 4 specialized components
 
+// NEW: Simplified ingestion service (recommended for new code)
+pub mod simple_ingestion;
+
+// Legacy components (to be deprecated)
 pub mod data_transformer;
 pub mod ingestion_coordinator;
 pub mod pipeline_manager;
 pub mod queue_manager;
 
 // Re-export main types for easy access
+
+// NEW: Simplified ingestion components (recommended for new code)
+pub use simple_ingestion::{
+    SimpleIngestionService, SimpleIngestionConfig, SimpleIngestionBuilder,
+    IngestionRequest as SimpleIngestionRequest, IngestionResult as SimpleIngestionResult,
+    IngestionDataType, IngestionPriority, SimpleIngestionMetrics,
+};
+
+// Legacy components (to be deprecated)
 pub use data_transformer::{
     DataFormat, DataTransformer, DataTransformerConfig, TransformationMetrics, TransformationRule,
 };
