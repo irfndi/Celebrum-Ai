@@ -1,4 +1,5 @@
- //! Simple Retry Service - Basic retry logic for Cloudflare Workers
+
+//! Simple Retry Service - Basic retry logic for Cloudflare Workers
 //!
 //! This service provides simple retry functionality without complex circuit breaker patterns:
 //! - Basic exponential backoff retry
@@ -6,7 +7,7 @@
 //! - Simple failure tracking
 //! - Lightweight and WASM-compatible
 
-use crate::utils::{ArbitrageError, ArbitrageResult, logger::LogLevel};
+use crate::utils::{logger::LogLevel, ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
@@ -155,7 +156,10 @@ impl FailureTracker {
 
         let now = Self::current_timestamp();
         let cutoff = now - (self.config.failure_window_seconds * 1000);
-        self.failures.iter().filter(|&&timestamp| timestamp > cutoff).count()
+        self.failures
+            .iter()
+            .filter(|&&timestamp| timestamp > cutoff)
+            .count()
     }
 
     fn is_healthy(&self) -> bool {
@@ -197,10 +201,10 @@ pub struct RetryStats {
 pub struct SimpleRetryService {
     config: SimpleRetryConfig,
     logger: crate::utils::logger::Logger,
-    
+
     // Failure tracking by service
     failure_trackers: Arc<Mutex<HashMap<String, FailureTracker>>>,
-    
+
     // Basic statistics
     stats: Arc<Mutex<HashMap<String, RetryStats>>>,
 }
@@ -209,7 +213,7 @@ impl SimpleRetryService {
     /// Create a new simple retry service
     pub fn new(config: SimpleRetryConfig) -> ArbitrageResult<Self> {
         config.validate()?;
-        
+
         Ok(Self {
             config,
             logger: crate::utils::logger::Logger::new(LogLevel::Info),
@@ -230,9 +234,9 @@ impl SimpleRetryService {
         E: std::fmt::Display,
     {
         if !self.config.enabled {
-            return operation().await.map_err(|e| {
-                ArbitrageError::api_error(&format!("Operation failed: {}", e))
-            });
+            return operation()
+                .await
+                .map_err(|e| ArbitrageError::api_error(&format!("Operation failed: {}", e)));
         }
 
         let mut attempt = 1;
@@ -273,7 +277,8 @@ impl SimpleRetryService {
                     if self.config.enable_jitter {
                         // Simple jitter using current timestamp
                         let timestamp = FailureTracker::current_timestamp();
-                        let jitter = (delay as f64 * 0.1 * ((timestamp % 100) as f64 / 100.0)) as u64;
+                        let jitter =
+                            (delay as f64 * 0.1 * ((timestamp % 100) as f64 / 100.0)) as u64;
                         delay = delay.saturating_add(jitter);
                     }
 
@@ -284,19 +289,14 @@ impl SimpleRetryService {
     }
 
     /// Execute an operation with simple retry (non-async version)
-    pub fn execute_sync<F, T, E>(
-        &self,
-        service_id: &str,
-        operation: F,
-    ) -> Result<T, ArbitrageError>
+    pub fn execute_sync<F, T, E>(&self, service_id: &str, operation: F) -> Result<T, ArbitrageError>
     where
         F: Fn() -> Result<T, E>,
         E: std::fmt::Display,
     {
         if !self.config.enabled {
-            return operation().map_err(|e| {
-                ArbitrageError::api_error(&format!("Operation failed: {}", e))
-            });
+            return operation()
+                .map_err(|e| ArbitrageError::api_error(&format!("Operation failed: {}", e)));
         }
 
         let mut attempt = 1;
@@ -357,13 +357,13 @@ impl SimpleRetryService {
     /// Get service health summary
     pub async fn get_health_summary(&self) -> HashMap<String, bool> {
         let mut health = HashMap::new();
-        
+
         if let Ok(trackers) = self.failure_trackers.lock() {
             for (service_id, tracker) in trackers.iter() {
                 health.insert(service_id.clone(), tracker.is_healthy());
             }
         }
-        
+
         health
     }
 
@@ -374,30 +374,35 @@ impl SimpleRetryService {
         if let Ok(mut trackers) = self.failure_trackers.lock() {
             // Success doesn't add failures, but we ensure tracker exists
             if !trackers.contains_key(service_id) {
-                trackers.insert(service_id.to_string(), FailureTracker::new(self.config.clone()));
+                trackers.insert(
+                    service_id.to_string(),
+                    FailureTracker::new(self.config.clone()),
+                );
             }
         }
 
         // Update statistics
         if let Ok(mut stats) = self.stats.lock() {
-            let stat = stats.entry(service_id.to_string()).or_insert_with(|| RetryStats {
-                service_id: service_id.to_string(),
-                total_attempts: 0,
-                successful_attempts: 0,
-                failed_attempts: 0,
-                retry_attempts: 0,
-                average_attempts_per_operation: 0.0,
-                recent_failure_count: 0,
-                is_healthy: true,
-                last_updated: FailureTracker::current_timestamp(),
-            });
+            let stat = stats
+                .entry(service_id.to_string())
+                .or_insert_with(|| RetryStats {
+                    service_id: service_id.to_string(),
+                    total_attempts: 0,
+                    successful_attempts: 0,
+                    failed_attempts: 0,
+                    retry_attempts: 0,
+                    average_attempts_per_operation: 0.0,
+                    recent_failure_count: 0,
+                    is_healthy: true,
+                    last_updated: FailureTracker::current_timestamp(),
+                });
 
             stat.total_attempts += attempts as u64;
             stat.successful_attempts += 1;
             if attempts > 1 {
                 stat.retry_attempts += (attempts - 1) as u64;
             }
-            stat.average_attempts_per_operation = 
+            stat.average_attempts_per_operation =
                 stat.total_attempts as f64 / stat.successful_attempts as f64;
             stat.last_updated = FailureTracker::current_timestamp();
         }
@@ -406,31 +411,34 @@ impl SimpleRetryService {
     async fn record_failure(&self, service_id: &str, attempts: u32) {
         // Update failure tracker
         if let Ok(mut trackers) = self.failure_trackers.lock() {
-            let tracker = trackers.entry(service_id.to_string())
+            let tracker = trackers
+                .entry(service_id.to_string())
                 .or_insert_with(|| FailureTracker::new(self.config.clone()));
             tracker.record_failure();
         }
 
         // Update statistics
         if let Ok(mut stats) = self.stats.lock() {
-            let stat = stats.entry(service_id.to_string()).or_insert_with(|| RetryStats {
-                service_id: service_id.to_string(),
-                total_attempts: 0,
-                successful_attempts: 0,
-                failed_attempts: 0,
-                retry_attempts: 0,
-                average_attempts_per_operation: 0.0,
-                recent_failure_count: 0,
-                is_healthy: true,
-                last_updated: FailureTracker::current_timestamp(),
-            });
+            let stat = stats
+                .entry(service_id.to_string())
+                .or_insert_with(|| RetryStats {
+                    service_id: service_id.to_string(),
+                    total_attempts: 0,
+                    successful_attempts: 0,
+                    failed_attempts: 0,
+                    retry_attempts: 0,
+                    average_attempts_per_operation: 0.0,
+                    recent_failure_count: 0,
+                    is_healthy: true,
+                    last_updated: FailureTracker::current_timestamp(),
+                });
 
             stat.total_attempts += attempts as u64;
             stat.failed_attempts += 1;
             if attempts > 1 {
                 stat.retry_attempts += (attempts - 1) as u64;
             }
-            
+
             // Update recent failure count and health status
             if let Ok(trackers) = self.failure_trackers.lock() {
                 if let Some(tracker) = trackers.get(service_id) {
@@ -438,7 +446,7 @@ impl SimpleRetryService {
                     stat.is_healthy = tracker.is_healthy();
                 }
             }
-            
+
             stat.last_updated = FailureTracker::current_timestamp();
         }
     }
@@ -474,18 +482,18 @@ mod tests {
     #[test]
     fn test_simple_retry_config_validation() {
         let mut config = SimpleRetryConfig::default();
-        
+
         config.max_attempts = 0;
         assert!(config.validate().is_err());
-        
+
         config.max_attempts = 3;
         config.initial_delay_ms = 0;
         assert!(config.validate().is_err());
-        
+
         config.initial_delay_ms = 1000;
         config.max_delay_ms = 500;
         assert!(config.validate().is_err());
-        
+
         config.max_delay_ms = 2000;
         config.backoff_multiplier = 0.5;
         assert!(config.validate().is_err());
@@ -495,15 +503,15 @@ mod tests {
     fn test_failure_tracker() {
         let config = SimpleRetryConfig::default();
         let mut tracker = FailureTracker::new(config);
-        
+
         assert!(tracker.is_healthy());
         assert_eq!(tracker.get_recent_failure_count(), 0);
-        
+
         // Record some failures
         for _ in 0..3 {
             tracker.record_failure();
         }
-        
+
         assert_eq!(tracker.get_recent_failure_count(), 3);
         assert!(tracker.is_healthy()); // Should still be healthy with 3 failures
     }
@@ -519,7 +527,7 @@ mod tests {
     fn test_sync_retry_execution() {
         let config = SimpleRetryConfig::fast();
         let service = SimpleRetryService::new(config).unwrap();
-        
+
         let mut attempt_count = 0;
         let result = service.execute_sync("test_service", || {
             attempt_count += 1;
@@ -529,7 +537,7 @@ mod tests {
                 Ok("Success")
             }
         });
-        
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "Success");
         assert_eq!(attempt_count, 2);

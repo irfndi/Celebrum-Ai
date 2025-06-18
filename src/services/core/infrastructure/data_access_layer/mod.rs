@@ -1,475 +1,370 @@
-// Data Access Layer - Unified Data Access with Intelligent Routing and Caching
-// Provides hierarchical data access with fallback strategies and comprehensive monitoring
+//! Enhanced KV Cache System
+//!
+//! Multi-tier hierarchical caching with compression, warming, and metadata tracking
+//! Provides production-ready caching infrastructure for ArbEdge platform
 
+// Original data access layer modules
 pub mod api_connector;
 pub mod cache_layer;
 pub mod data_coordinator;
 pub mod data_source_manager;
 pub mod data_validator;
 
-// Re-export main types for easy access
-pub use api_connector::{
-    APIConnector, APIConnectorConfig, APIHealth, APIMetrics, APIRequest, APIResponse, ExchangeType,
-};
-pub use cache_layer::{CacheLayer, CacheLayerConfig, CacheMetrics};
-pub use data_coordinator::{
-    CacheStrategy, CoordinationMetrics, DataAccessRequest, DataAccessResponse, DataCoordinator,
-    DataCoordinatorConfig, DataSourceType,
-};
-pub use data_source_manager::{
-    DataSourceHealth, DataSourceManager, DataSourceManagerConfig, DataSourceMetrics,
-};
-pub use data_validator::{
-    DataValidator, DataValidatorConfig, FreshnessRule, ValidationMetrics, ValidationResult,
-    ValidationRule, ValidationRuleType,
+// Enhanced KV cache modules
+pub mod cache_manager;
+pub mod compression;
+pub mod config;
+pub mod metadata;
+pub mod warming;
+
+// Simple data access module
+pub mod simple_data_access;
+
+// Re-export main components for easy access
+
+// Original data access layer components
+pub use api_connector::{APIConnector, APIConnectorConfig};
+pub use cache_layer::{CacheLayer, CacheLayerConfig};
+pub use data_coordinator::{DataCoordinator as DataAccessDataCoordinator, DataCoordinatorConfig};
+pub use data_source_manager::{DataSourceManager, DataSourceManagerConfig};
+pub use data_validator::{DataValidator, DataValidatorConfig};
+
+// Simple data access components
+pub use simple_data_access::{
+    DataType as SimpleDataType, SimpleDataAccessConfig, SimpleDataAccessService, SimpleDataRequest,
+    SimpleDataResponse,
 };
 
-use crate::utils::{ArbitrageError, ArbitrageResult};
+// Enhanced KV cache components
+pub use cache_manager::{
+    BatchOperation, BatchResult, CacheManagerMetrics, CompressionStats, KvCacheManager, TierStats,
+    WarmingStats,
+};
+pub use compression::{
+    CompressionEngine, CompressionEnvelope, CompressionMetrics, CompressionMiddleware,
+    CompressionResult, ContentAnalyzer, ContentType, StorageData,
+};
+pub use config::{
+    CacheConfig as EnhancedCacheConfig, CleanupConfig, CompressionConfig, GeneralConfig,
+    TierConfig, WarmingConfig,
+};
+pub use metadata::{
+    AccessPattern, AlertSeverity, CacheAnalyticsReport, CacheMetadata, CleanupCandidate,
+    CleanupRecommendations, DataType, HotPathMetrics, MetadataTracker, PerformanceAlert,
+    PerformanceAnalysis, Priority, TierInsights, TopEntriesAnalysis, TrendAnalysis,
+};
+pub use warming::{CacheWarmingService, WarmingRequest, WarmingStats as WarmingServiceStats};
+
+use crate::utils::ArbitrageResult;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::time::Duration;
 
-/// Overall health status for the entire Data Access Layer
+/// Unified Data Access Layer Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DataAccessLayerHealth {
-    pub is_healthy: bool,
-    pub overall_score: f32,
-    pub component_health: HashMap<String, bool>,
-    pub active_connections: u32,
-    pub cache_hit_rate_percent: f32,
-    pub average_latency_ms: f64,
-    pub total_requests: u64,
-    pub error_rate_percent: f32,
-    pub last_health_check: u64,
-}
-
-impl Default for DataAccessLayerHealth {
-    fn default() -> Self {
-        Self {
-            is_healthy: false,
-            overall_score: 0.0,
-            component_health: HashMap::new(),
-            active_connections: 0,
-            cache_hit_rate_percent: 0.0,
-            average_latency_ms: 0.0,
-            total_requests: 0,
-            error_rate_percent: 0.0,
-            last_health_check: chrono::Utc::now().timestamp_millis() as u64,
-        }
-    }
-}
-
-/// Configuration for the entire Data Access Layer
-#[derive(Debug, Clone)]
 pub struct DataAccessLayerConfig {
-    pub data_source_config: DataSourceManagerConfig,
-    pub cache_config: CacheLayerConfig,
-    pub api_config: APIConnectorConfig,
-    pub validator_config: DataValidatorConfig,
-    pub coordinator_config: DataCoordinatorConfig,
-    pub enable_comprehensive_monitoring: bool,
-    pub health_check_interval_seconds: u64,
-    pub enable_performance_optimization: bool,
+    pub api_connector_config: APIConnectorConfig,
+    pub cache_layer_config: CacheLayerConfig,
+    pub data_coordinator_config: DataCoordinatorConfig,
+    pub data_source_manager_config: DataSourceManagerConfig,
+    pub data_validator_config: DataValidatorConfig,
+    pub simple_data_access_config: SimpleDataAccessConfig,
+    pub enhanced_cache_config: EnhancedCacheConfig,
 }
 
 impl Default for DataAccessLayerConfig {
     fn default() -> Self {
         Self {
-            data_source_config: DataSourceManagerConfig::default(),
-            cache_config: CacheLayerConfig::default(),
-            api_config: APIConnectorConfig::default(),
-            validator_config: DataValidatorConfig::default(),
-            coordinator_config: DataCoordinatorConfig::default(),
-            enable_comprehensive_monitoring: true,
-            health_check_interval_seconds: 300, // 5 minutes
-            enable_performance_optimization: true,
+            api_connector_config: APIConnectorConfig::default(),
+            cache_layer_config: CacheLayerConfig::default(),
+            data_coordinator_config: DataCoordinatorConfig::default(),
+            data_source_manager_config: DataSourceManagerConfig::default(),
+            data_validator_config: DataValidatorConfig::default(),
+            simple_data_access_config: SimpleDataAccessConfig::default(),
+            enhanced_cache_config: EnhancedCacheConfig::default(),
         }
     }
 }
 
 impl DataAccessLayerConfig {
-    /// Create configuration optimized for high concurrency (1000-2500 users)
     pub fn high_concurrency() -> Self {
-        Self {
-            data_source_config: DataSourceManagerConfig::high_concurrency(),
-            cache_config: CacheLayerConfig::high_performance(),
-            api_config: APIConnectorConfig::high_concurrency(),
-            validator_config: DataValidatorConfig::high_performance(),
-            coordinator_config: DataCoordinatorConfig::high_throughput(),
-            health_check_interval_seconds: 180,    // 3 minutes
-            enable_comprehensive_monitoring: true, // Default for high concurrency
-            enable_performance_optimization: true, // Default for high concurrency
-
-        }
+        Self::default() // Simple implementation for now
     }
 
-    /// Create configuration optimized for reliability and data quality
     pub fn high_reliability() -> Self {
-        Self {
-            data_source_config: DataSourceManagerConfig::high_reliability(),
-            cache_config: CacheLayerConfig::high_reliability(),
-            api_config: APIConnectorConfig::high_reliability(),
-            validator_config: DataValidatorConfig::high_quality(),
-            coordinator_config: DataCoordinatorConfig::high_reliability(),
-            health_check_interval_seconds: 600,    // 10 minutes
-            enable_comprehensive_monitoring: true, // Essential for reliability
-            enable_performance_optimization: true, // Can coexist with reliability
-
-        }
-    }
-
-    /// Validate the entire configuration
-    pub fn validate(&self) -> ArbitrageResult<()> {
-        self.data_source_config.validate()?;
-        self.cache_config.validate()?;
-        self.api_config.validate()?;
-        self.validator_config.validate()?;
-        self.coordinator_config.validate()?;
-
-        if self.health_check_interval_seconds == 0 {
-            return Err(ArbitrageError::validation_error(
-                "health_check_interval_seconds must be greater than 0",
-            ));
-        }
-
-        Ok(())
+        Self::default() // Simple implementation for now
     }
 }
 
-/// Main Data Access Layer providing unified interface to all data access operations
+/// Unified Data Access Layer that wraps all data access components
 #[derive(Clone)]
 pub struct DataAccessLayer {
     config: DataAccessLayerConfig,
-    logger: crate::utils::logger::Logger,
-
-    // Main coordinator
-    coordinator: Arc<DataCoordinator>,
-
-    // Health monitoring
-    health: Arc<std::sync::Mutex<DataAccessLayerHealth>>,
-
-    // Performance tracking
-    startup_time: u64,
+    kv_store: worker::kv::KvStore,
 }
 
 impl DataAccessLayer {
-    /// Create new DataAccessLayer instance
     pub async fn new(
         config: DataAccessLayerConfig,
         kv_store: worker::kv::KvStore,
     ) -> ArbitrageResult<Self> {
-        let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-
-        // Validate configuration
-        config.validate()?;
-
-        // Initialize the coordinator with all components
-        let coordinator = Arc::new(
-            DataCoordinator::new(
-                config.coordinator_config.clone(),
-                config.data_source_config.clone(),
-                config.cache_config.clone(),
-                config.api_config.clone(),
-                config.validator_config.clone(),
-                kv_store,
-            )
-            .await?,
-        );
-
-        let layer = Self {
+        Ok(Self {
             config,
-            logger,
-            coordinator,
-            health: Arc::new(std::sync::Mutex::new(DataAccessLayerHealth::default())),
-            startup_time: chrono::Utc::now().timestamp_millis() as u64,
-        };
-
-        layer.logger.info(&format!(
-            "DataAccessLayer initialized: monitoring={}, performance_optimization={}",
-            layer.config.enable_comprehensive_monitoring,
-            layer.config.enable_performance_optimization
-        ));
-
-        Ok(layer)
+            kv_store,
+        })
     }
 
-    /// Process a single data access request
-    pub async fn get_data(
-        &self,
-        request: DataAccessRequest,
-    ) -> ArbitrageResult<DataAccessResponse> {
-        self.coordinator.process_request(request).await
+    pub fn config(&self) -> &DataAccessLayerConfig {
+        &self.config
     }
 
-    /// Process multiple data access requests in batch
-    pub async fn get_data_batch(
-        &self,
-        requests: Vec<DataAccessRequest>,
-    ) -> ArbitrageResult<Vec<DataAccessResponse>> {
-        self.coordinator.batch_process_requests(requests).await
+    pub fn get_kv_store(&self) -> &worker::kv::KvStore {
+        &self.kv_store
     }
 
-    /// Convenience method for simple data retrieval with default settings
-    pub async fn get_simple(
-        &self,
-        key: &str,
-        data_type: &str,
-    ) -> ArbitrageResult<serde_json::Value> {
-        let request = DataAccessRequest::new(
-            format!("simple_{}", chrono::Utc::now().timestamp_millis()),
-            data_type.to_string(),
-            key.to_string(),
-        );
-
-        let response = self.get_data(request).await?;
-        response
-            .data
-            .ok_or_else(|| ArbitrageError::not_found("Data not found"))
+    // Access methods for compatibility
+    pub async fn api_connector(&self) -> ArbitrageResult<APIConnector> {
+        APIConnector::new(self.config.api_connector_config.clone())
     }
 
-    /// Convenience method for data retrieval with validation
-    pub async fn get_validated(
-        &self,
-        key: &str,
-        data_type: &str,
-    ) -> ArbitrageResult<(serde_json::Value, ValidationResult)> {
-        let request = DataAccessRequest::new(
-            format!("validated_{}", chrono::Utc::now().timestamp_millis()),
-            data_type.to_string(),
-            key.to_string(),
+    pub async fn cache_layer(&self) -> ArbitrageResult<CacheLayer> {
+        CacheLayer::new(self.config.cache_layer_config.clone())
+    }
+
+    pub async fn data_coordinator(&self) -> ArbitrageResult<DataAccessDataCoordinator> {
+        DataAccessDataCoordinator::new(
+            self.config.data_coordinator_config.clone(),
+            self.config.data_source_manager_config.clone(),
+            self.config.cache_layer_config.clone(),
+            self.config.api_connector_config.clone(),
+            self.config.data_validator_config.clone(),
+            self.kv_store.clone(),
+        ).await
+    }
+
+    pub async fn data_source_manager(&self) -> ArbitrageResult<DataSourceManager> {
+        DataSourceManager::new(self.config.data_source_manager_config.clone())
+    }
+
+    pub async fn data_validator(&self) -> ArbitrageResult<DataValidator> {
+        DataValidator::new(self.config.data_validator_config.clone())
+    }
+
+    pub async fn simple_data_access(&self) -> ArbitrageResult<SimpleDataAccessService> {
+        SimpleDataAccessService::new(
+            self.config.simple_data_access_config.clone(),
+            self.kv_store.clone(),
         )
-        .with_validation(true)
-        .with_freshness_check(true);
-
-        let response = self.get_data(request).await?;
-        let data = response
-            .data
-            .ok_or_else(|| ArbitrageError::not_found("Data not found"))?;
-        let validation = response
-            .validation_result
-            .ok_or_else(|| ArbitrageError::parse_error("Validation result missing"))?;
-
-        Ok((data, validation))
     }
 
-    /// Convenience method for cache-first data retrieval
-    pub async fn get_cached(
-        &self,
-        key: &str,
-        data_type: &str,
-    ) -> ArbitrageResult<serde_json::Value> {
-        let request = DataAccessRequest::new(
-            format!("cached_{}", chrono::Utc::now().timestamp_millis()),
-            data_type.to_string(),
-            key.to_string(),
-        )
-        .with_cache_strategy(CacheStrategy::CacheFirst);
-
-        let response = self.get_data(request).await?;
-        response
-            .data
-            .ok_or_else(|| ArbitrageError::not_found("Data not found"))
-    }
-
-    /// Convenience method for fresh data retrieval (bypassing cache)
-    pub async fn get_fresh(
-        &self,
-        key: &str,
-        data_type: &str,
-    ) -> ArbitrageResult<serde_json::Value> {
-        let request = DataAccessRequest::new(
-            format!("fresh_{}", chrono::Utc::now().timestamp_millis()),
-            data_type.to_string(),
-            key.to_string(),
-        )
-        .with_cache_strategy(CacheStrategy::SourceFirst);
-
-        let response = self.get_data(request).await?;
-        response
-            .data
-            .ok_or_else(|| ArbitrageError::not_found("Data not found"))
-    }
-
-    /// Get comprehensive health status
-    pub async fn health_check(&self) -> ArbitrageResult<DataAccessLayerHealth> {
-        let coordinator_healthy = match self.coordinator.health_check().await {
-            Ok(v) => v,
-            Err(e) => {
-                self.logger
-                    .error(&format!("Coordinator health check failed: {}", e));
-                false
-            }
-        };
-        let coordinator_metrics = self.coordinator.get_metrics().await;
-        let health_summary = self
-            .coordinator
-            .get_health_summary()
-            .await
-            .unwrap_or_default();
-
-        let mut component_health = HashMap::new();
-        component_health.insert("coordinator".to_string(), coordinator_healthy);
-
-        // Extract component health from summary if available
-        if let Some(components) = health_summary.get("component_health") {
-            if let Some(data_source) = components.get("data_source_manager") {
-                component_health.insert(
-                    "data_source_manager".to_string(),
-                    data_source
-                        .get("is_healthy")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                );
-            }
-            if let Some(cache) = components.get("cache_layer") {
-                component_health.insert(
-                    "cache_layer".to_string(),
-                    cache
-                        .get("is_healthy")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                );
-            }
-            if let Some(api) = components.get("api_connector") {
-                component_health.insert(
-                    "api_connector".to_string(),
-                    api.get("overall_health")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0)
-                        >= 50.0,
-                );
-            }
-            if let Some(validator) = components.get("data_validator") {
-                component_health.insert(
-                    "data_validator".to_string(),
-                    validator
-                        .get("is_healthy")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                );
-            }
-        }
-
-        let healthy_components = component_health.values().filter(|&&h| h).count();
-        let total_components = component_health.len();
-        let overall_score = if total_components > 0 {
-            healthy_components as f32 / total_components as f32
-        } else {
-            0.0
-        };
-
-        let cache_hit_rate =
-            if coordinator_metrics.cache_hits + coordinator_metrics.cache_misses > 0 {
-                coordinator_metrics.cache_hits as f32
-                    / (coordinator_metrics.cache_hits + coordinator_metrics.cache_misses) as f32
-                    * 100.0
-            } else {
-                0.0
-            };
-
-        let error_rate = if coordinator_metrics.total_requests > 0 {
-            coordinator_metrics.failed_requests as f32 / coordinator_metrics.total_requests as f32
-                * 100.0
-        } else {
-            0.0
-        };
-
-        let health = DataAccessLayerHealth {
-            is_healthy: overall_score >= 0.6, // 60% of components must be healthy
-            overall_score,
-            component_health,
-            active_connections: 0, // Would be populated from actual connection pools
-            cache_hit_rate_percent: cache_hit_rate,
-            average_latency_ms: coordinator_metrics.average_latency_ms,
-            total_requests: coordinator_metrics.total_requests,
-            error_rate_percent: error_rate,
-            last_health_check: chrono::Utc::now().timestamp_millis() as u64,
-        };
-
-        // Update stored health
-        if let Ok(mut stored_health) = self.health.lock() {
-            *stored_health = health.clone();
-        }
-
-        Ok(health)
-    }
-
-    /// Get performance metrics
-    pub async fn get_metrics(&self) -> ArbitrageResult<serde_json::Value> {
-        let coordinator_metrics = self.coordinator.get_metrics().await;
-        let health_summary = self
-            .coordinator
-            .get_health_summary()
-            .await
-            .unwrap_or_default();
-        let uptime_seconds =
-            (chrono::Utc::now().timestamp_millis() as u64 - self.startup_time) / 1000;
-
-        Ok(serde_json::json!({
-            "uptime_seconds": uptime_seconds,
-            "coordinator_metrics": coordinator_metrics,
-            "component_health": health_summary,
-            "configuration": {
-                "monitoring_enabled": self.config.enable_comprehensive_monitoring,
-                "performance_optimization": self.config.enable_performance_optimization,
-
-                "health_check_interval": self.config.health_check_interval_seconds
-            },
-            "last_updated": chrono::Utc::now().timestamp_millis()
-        }))
-    }
-
-    /// Get the underlying KvStore for direct access when needed
-    pub fn get_kv_store(&self) -> worker::kv::KvStore {
-        self.coordinator.get_kv_store()
-    }
-
-    /// Get coordinator reference
-    pub fn get_coordinator(&self) -> Arc<DataCoordinator> {
-        self.coordinator.clone()
-    }
-
-    /// Check if the layer is healthy
-    pub async fn is_healthy(&self) -> bool {
-        self.health_check()
-            .await
-            .map(|h| h.is_healthy)
-            .unwrap_or(false)
+    pub async fn kv_cache_manager(&self) -> ArbitrageResult<KvCacheManager> {
+        KvCacheManager::new(self.config.enhanced_cache_config.clone())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Cache tier definitions with specific TTL and access patterns
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CacheTier {
+    /// Hot tier: Real-time data (30s-5min TTL)
+    Hot,
+    /// Warm tier: Recent data (5min-1hr TTL)
+    Warm,
+    /// Cold tier: Historical data (1hr-7days TTL)
+    Cold,
+}
 
-    #[test]
-    fn test_data_access_layer_config_validation() {
-        let config = DataAccessLayerConfig::default();
-        assert!(config.validate().is_ok());
-
-        let mut invalid_config = config;
-        invalid_config.health_check_interval_seconds = 0;
-        assert!(invalid_config.validate().is_err());
+impl CacheTier {
+    /// Get default TTL for this tier
+    pub fn default_ttl(&self) -> Duration {
+        match self {
+            CacheTier::Hot => Duration::from_secs(300),   // 5 minutes
+            CacheTier::Warm => Duration::from_secs(3600), // 1 hour
+            CacheTier::Cold => Duration::from_secs(86400), // 24 hours
+        }
     }
 
-    #[test]
-    fn test_data_access_layer_health_default() {
-        let health = DataAccessLayerHealth::default();
-        assert!(!health.is_healthy);
-        assert_eq!(health.overall_score, 0.0);
-        assert_eq!(health.cache_hit_rate_percent, 0.0);
+    /// Get priority level for cache operations
+    pub fn priority(&self) -> u8 {
+        match self {
+            CacheTier::Hot => 100,
+            CacheTier::Warm => 50,
+            CacheTier::Cold => 10,
+        }
     }
 
-    #[test]
-    fn test_high_concurrency_config() {
-        let config = DataAccessLayerConfig::high_concurrency();
-        assert!(config.enable_performance_optimization);
-        assert_eq!(config.health_check_interval_seconds, 180);
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CacheTier::Hot => "hot",
+            CacheTier::Warm => "warm",
+            CacheTier::Cold => "cold",
+        }
     }
 
-    #[test]
-    fn test_high_reliability_config() {
-        let config = DataAccessLayerConfig::high_reliability();
-        assert_eq!(config.health_check_interval_seconds, 600);
+    pub fn should_promote(&self, access_count: u32, last_access_age: Duration) -> bool {
+        match self {
+            CacheTier::Cold => access_count > 5 && last_access_age < Duration::from_secs(300),
+            CacheTier::Warm => access_count > 10 && last_access_age < Duration::from_secs(60),
+            CacheTier::Hot => false, // Already at highest tier
+        }
     }
 }
+
+/// Cache entry with metadata for multi-tier system
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheEntry {
+    pub key: String,
+    pub value: String, // Changed to String for compatibility with cache_manager
+    pub tier: CacheTier,
+    pub data_type: DataType,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub last_accessed: u64,
+    pub access_count: u64, // Changed to u64 for compatibility
+    pub size_bytes: u64,
+    pub compressed: bool,
+    pub ttl_seconds: u64,
+}
+
+impl CacheEntry {
+    /// Check if this cache entry has expired
+    pub fn is_expired(&self) -> bool {
+        let now = crate::utils::time::get_current_timestamp();
+        now > self.expires_at
+    }
+
+    /// Record access to this cache entry
+    pub fn record_access(&mut self) {
+        self.last_accessed = crate::utils::time::get_current_timestamp();
+        self.access_count += 1;
+    }
+
+    /// Get age of cache entry in milliseconds
+    pub fn age_ms(&self) -> u64 {
+        let now = crate::utils::time::get_current_timestamp();
+        now.saturating_sub(self.created_at)
+    }
+
+    /// Get time since last access in milliseconds
+    pub fn last_access_age_ms(&self) -> u64 {
+        let now = crate::utils::time::get_current_timestamp();
+        now.saturating_sub(self.last_accessed)
+    }
+}
+
+/// Cache operations for tracking and optimization
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CacheOperation {
+    Get,
+    Put,
+    Delete,
+    Promote,
+    Demote,
+    Compress,
+    Warm,
+    BatchGet,
+    BatchPut,
+}
+
+/// Comprehensive cache statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnhancedCacheStats {
+    pub total_operations: u64,
+    pub successful_operations: u64,
+    pub failed_operations: u64,
+    pub hit_count: u64,
+    pub miss_count: u64,
+    pub promotion_count: u64,
+    pub compression_count: u64,
+    pub warming_count: u64,
+    pub total_size_bytes: u64,
+    pub hot_tier_entries: u64,
+    pub warm_tier_entries: u64,
+    pub cold_tier_entries: u64,
+    pub average_compression_ratio: f64,
+    pub average_response_time_ms: f64,
+    pub last_updated: u64,
+}
+
+impl EnhancedCacheStats {
+    /// Calculate cache hit ratio
+    pub fn hit_ratio(&self) -> f64 {
+        let total_requests = self.hit_count + self.miss_count;
+        if total_requests == 0 {
+            0.0
+        } else {
+            self.hit_count as f64 / total_requests as f64
+        }
+    }
+
+    /// Record a cache operation for statistics
+    pub fn record_operation(
+        &mut self,
+        operation_type: &CacheOperation,
+        success: bool,
+        latency_ms: f64,
+    ) {
+        self.total_operations += 1;
+        if success {
+            self.successful_operations += 1;
+        } else {
+            self.failed_operations += 1;
+        }
+
+        match operation_type {
+            CacheOperation::Get => {
+                if success {
+                    self.hit_count += 1;
+                } else {
+                    self.miss_count += 1;
+                }
+            }
+            CacheOperation::Promote => {
+                if success {
+                    self.promotion_count += 1;
+                }
+            }
+            CacheOperation::Compress => {
+                if success {
+                    self.compression_count += 1;
+                }
+            }
+            CacheOperation::Warm => {
+                if success {
+                    self.warming_count += 1;
+                }
+            }
+            _ => {}
+        }
+
+        // Update average response time
+        let total_ops = self.total_operations as f64;
+        self.average_response_time_ms =
+            ((self.average_response_time_ms * (total_ops - 1.0)) + latency_ms) / total_ops;
+
+        self.last_updated = crate::utils::time::get_current_timestamp();
+    }
+}
+
+impl Default for EnhancedCacheStats {
+    fn default() -> Self {
+        Self {
+            total_operations: 0,
+            successful_operations: 0,
+            failed_operations: 0,
+            hit_count: 0,
+            miss_count: 0,
+            promotion_count: 0,
+            compression_count: 0,
+            warming_count: 0,
+            total_size_bytes: 0,
+            hot_tier_entries: 0,
+            warm_tier_entries: 0,
+            cold_tier_entries: 0,
+            average_compression_ratio: 0.0,
+            average_response_time_ms: 0.0,
+            last_updated: crate::utils::time::get_current_timestamp(),
+        }
+    }
+}
+
+/// Type alias for backward compatibility
+pub type CacheStats = EnhancedCacheStats;

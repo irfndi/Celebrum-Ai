@@ -21,6 +21,7 @@
 //! - **Chaos Engineering**: Circuit breakers and fallback strategies
 
 pub mod analytics_coordinator;
+pub mod analytics_engine;
 pub mod data_processor;
 pub mod metrics_aggregator;
 pub mod report_generator;

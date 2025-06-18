@@ -93,9 +93,9 @@ pub struct CloudflareHealthService {
 impl CloudflareHealthService {
     pub fn new(config: CloudflareHealthConfig) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-        
+
         logger.info("CloudflareHealthService initialized with simple monitoring");
-        
+
         Ok(Self {
             config,
             error_counters: Arc::new(Mutex::new(HashMap::new())),
@@ -130,7 +130,9 @@ impl CloudflareHealthService {
         }
 
         if let Ok(counters) = self.error_counters.lock() {
-            return counters.values().all(|&count| count < self.config.max_errors);
+            return counters
+                .values()
+                .all(|&count| count < self.config.max_errors);
         }
 
         true
@@ -147,4 +149,4 @@ impl CloudflareHealthService {
 /// Simple trait for services to implement basic health checks
 pub trait SimpleHealthCheck {
     async fn health_check(&self) -> ArbitrageResult<bool>;
-} 
+}

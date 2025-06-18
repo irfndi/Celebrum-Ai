@@ -10,7 +10,7 @@
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use worker::{kv::KvStore, Fetch, Request, RequestInit, Method};
+use worker::{kv::KvStore, Fetch, Method, Request, RequestInit};
 
 /// Simple data access configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,7 +97,12 @@ pub struct SimpleDataResponse {
 }
 
 impl SimpleDataResponse {
-    pub fn new(key: String, data: Option<serde_json::Value>, cached: bool, ttl_seconds: u64) -> Self {
+    pub fn new(
+        key: String,
+        data: Option<serde_json::Value>,
+        cached: bool,
+        ttl_seconds: u64,
+    ) -> Self {
         Self {
             key,
             data,
@@ -133,9 +138,9 @@ impl SimpleDataAccessService {
     /// Create new data access service
     pub fn new(config: SimpleDataAccessConfig, kv_store: KvStore) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-        
+
         logger.info("SimpleDataAccessService initialized for Cloudflare Workers");
-        
+
         Ok(Self {
             config,
             kv_store,
@@ -144,21 +149,31 @@ impl SimpleDataAccessService {
     }
 
     /// Get data by key with optional caching
-    pub async fn get_data(&self, request: SimpleDataRequest) -> ArbitrageResult<SimpleDataResponse> {
+    pub async fn get_data(
+        &self,
+        request: SimpleDataRequest,
+    ) -> ArbitrageResult<SimpleDataResponse> {
         if !self.config.enabled {
             return Ok(SimpleDataResponse::new(request.key, None, false, 0));
         }
 
         let cache_key = self.build_cache_key(&request.key, &request.data_type);
-        
+
         // Try cache first if enabled
         if request.use_cache {
-            if let Ok(Some(cached_data)) = self.kv_store.get(&cache_key).json::<serde_json::Value>().await {
+            if let Ok(Some(cached_data)) = self
+                .kv_store
+                .get(&cache_key)
+                .json::<serde_json::Value>()
+                .await
+            {
                 return Ok(SimpleDataResponse::new(
                     request.key,
                     Some(cached_data),
                     true,
-                    request.ttl_seconds.unwrap_or(self.config.default_ttl_seconds),
+                    request
+                        .ttl_seconds
+                        .unwrap_or(self.config.default_ttl_seconds),
                 ));
             }
         }
@@ -237,19 +252,23 @@ impl SimpleDataAccessService {
     }
 
     /// Simple batch get operation
-    pub async fn get_batch(&self, requests: Vec<SimpleDataRequest>) -> ArbitrageResult<Vec<SimpleDataResponse>> {
+    pub async fn get_batch(
+        &self,
+        requests: Vec<SimpleDataRequest>,
+    ) -> ArbitrageResult<Vec<SimpleDataResponse>> {
         let mut responses = Vec::new();
-        
+
         for request in requests {
             match self.get_data(request).await {
                 Ok(response) => responses.push(response),
                 Err(err) => {
-                    self.logger.warn(&format!("Batch get failed for key: {}", err));
+                    self.logger
+                        .warn(&format!("Batch get failed for key: {}", err));
                     // Continue with other requests rather than failing the entire batch
                 }
             }
         }
-        
+
         Ok(responses)
     }
 
@@ -285,8 +304,9 @@ impl SimpleDataAccessService {
 
         // Test KV store with a simple operation
         let test_key = "health_check_test";
-        let test_data = serde_json::json!({"test": true, "timestamp": SimpleDataResponse::current_timestamp()});
-        
+        let test_data =
+            serde_json::json!({"test": true, "timestamp": SimpleDataResponse::current_timestamp()});
+
         match self.kv_store.put(test_key, &test_data)?.execute().await {
             Ok(_) => {
                 // Clean up test data
@@ -345,4 +365,4 @@ mod tests {
         let expected_prefix = "market_data:test_key";
         assert!(expected_prefix.starts_with(data_type.as_str()));
     }
-} 
+}

@@ -34,7 +34,7 @@ use worker::Env;
 pub mod ai_services;
 pub mod data_access_layer;
 pub mod data_ingestion_module;
-pub mod database_repositories;
+
 // Monitoring module removed - using Cloudflare Workers built-in monitoring
 pub mod notification_module;
 pub mod shared_types;
@@ -43,19 +43,18 @@ pub mod shared_types;
 pub mod cache_manager;
 pub mod circuit_breaker_service;
 pub mod cloudflare_health_service;
-pub mod database_core;
-pub mod enhanced_kv_cache;
+
 pub mod failover_service;
 pub mod infrastructure_engine;
 pub mod service_health;
-pub mod simple_data_access;
+
 pub mod simple_retry_service;
 pub mod unified_circuit_breaker;
 pub mod unified_health_check;
 pub mod unified_retry;
 
 // ============= ADDITIONAL INFRASTRUCTURE COMPONENTS =============
-pub mod analytics_engine;
+
 pub mod durable_objects;
 pub mod service_container;
 
@@ -96,17 +95,9 @@ pub use ai_services::{
 };
 
 pub use data_access_layer::{
-    APIConnector, CacheLayer, DataAccessLayer, DataAccessLayerConfig, DataAccessLayerHealth,
-    DataCoordinator, DataSourceManager, DataValidator,
-};
-
-pub use database_repositories::{
-    AIDataRepository,
-    AnalyticsRepository,
-    ConfigRepository,
-    DatabaseManager,
-    DatabaseManagerConfig,
-    UserRepository, // Removed FeatureFlagConfig, FeatureFlagService
+    APIConnector, CacheLayer, DataAccessLayer, DataAccessLayerConfig, DataSourceManager, DataValidator,
+    // Import specific coordinator type to avoid naming conflict
+    data_coordinator::DataCoordinator as DataAccessDataCoordinator,
 };
 
 // ============= CORE INFRASTRUCTURE EXPORTS =============
@@ -120,16 +111,7 @@ pub use cloudflare_health_service::{
     HealthCheckResult as CloudflareHealthCheckResult, HealthStatus as CloudflareHealthStatus,
     SimpleHealthCheck,
 };
-pub use database_core::{
-    BatchOperation as DatabaseBatchOperation, DatabaseCore, DatabaseHealth, DatabaseResult,
-};
-pub use enhanced_kv_cache::{
-    AccessPattern, BatchOperation as CacheBatchOperation, BatchResult, CacheEntry,
-    CacheManagerMetrics, CacheOperation, CacheTier, CacheWarmingService, CleanupConfig,
-    CompressionConfig, CompressionEngine, CompressionStats, DataType, EnhancedCacheConfig,
-    EnhancedCacheStats, GeneralConfig, KvCacheManager, MetadataTracker, TierConfig, TierStats,
-    WarmingConfig, WarmingStats,
-};
+
 pub use failover_service::{
     FailoverConfig, FailoverMetrics, FailoverService, FailoverState, FailoverStatus,
     FailoverStrategy, FailoverType, ServiceConfig,
@@ -141,12 +123,8 @@ pub use infrastructure_engine::{
 pub use service_health::{
     HealthStatus, ServiceHealthCheck, ServiceHealthManager, SystemHealthReport,
 };
-pub use simple_data_access::{
-    DataType as SimpleDataType, SimpleDataAccessConfig, SimpleDataAccessService, SimpleDataRequest, SimpleDataResponse,
-};
-pub use simple_retry_service::{
-    SimpleRetryConfig, SimpleRetryService, RetryStats, FailureTracker,
-};
+
+pub use simple_retry_service::{FailureTracker, RetryStats, SimpleRetryConfig, SimpleRetryService};
 pub use unified_circuit_breaker::{
     UnifiedCircuitBreaker, UnifiedCircuitBreakerConfig, UnifiedCircuitBreakerManager,
     UnifiedCircuitBreakerState, UnifiedCircuitBreakerStateInfo, UnifiedCircuitBreakerType,
@@ -155,9 +133,6 @@ pub use unified_health_check::{HealthCheckMethod, UnifiedHealthCheckConfig};
 pub use unified_retry::{UnifiedRetryConfig, UnifiedRetryExecutor};
 
 // ============= ADDITIONAL COMPONENT EXPORTS =============
-pub use analytics_engine::{
-    AnalyticsEngineConfig, AnalyticsEngineService, RealTimeMetrics, UserAnalytics,
-};
 pub use durable_objects::{
     GlobalRateLimiterDO, MarketDataCoordinatorDO, OpportunityCoordinatorDO, UserOpportunityQueueDO,
 };
@@ -178,6 +153,8 @@ pub use analytics_module::{
     AnalyticsCoordinator, AnalyticsModuleConfig, DataProcessor, MetricsAggregator, ReportGenerator,
 };
 
+// Re-export moved components for backward compatibility
+pub use analytics_module::analytics_engine::{AnalyticsEngineConfig, AnalyticsEngineService};
 pub use financial_module::{
     BalanceTracker, ExchangeBalanceSnapshot, FinancialCoordinator, FinancialModule,
     FinancialModuleConfig, FinancialModuleHealth, FinancialModuleMetrics, FundAnalyzer,
@@ -185,9 +162,9 @@ pub use financial_module::{
 };
 
 pub use persistence_layer::{
-    ConnectionHealth, ConnectionManager, ConnectionMetrics, ConnectionPool, ConnectionStats,
-    D1Config, PersistenceConfig, PersistenceHealth, PersistenceLayer, PersistenceMetrics,
-    PoolConfig, R2Config, SchemaHealth, SchemaManager, SchemaMetrics, ServiceHealth,
+    DatabaseCore, DatabaseManager, DatabaseManagerConfig, DatabaseHealth, DatabaseResult,
+    AIDataRepository, AnalyticsRepository, ConfigRepository, UserRepository, InvitationRepository,
+    RepositoryHealth, RepositoryMetrics, Repository, RepositoryConfig,
 };
 
 // All system integration functionality moved to modular services
@@ -208,7 +185,7 @@ pub struct InfrastructureConfig {
     pub data_ingestion_config: data_ingestion_module::DataIngestionModuleConfig,
     pub ai_services_config: ai_services::AIServicesConfig,
     pub data_access_config: data_access_layer::DataAccessLayerConfig,
-    pub database_repositories_config: database_repositories::DatabaseManagerConfig,
+    pub database_repositories_config: DatabaseManagerConfig,
 
     // Core infrastructure configurations
     pub database_core_config: DatabaseCoreConfig,
@@ -274,7 +251,7 @@ impl Default for InfrastructureConfig {
             data_ingestion_config: data_ingestion_module::DataIngestionModuleConfig::default(),
             ai_services_config: ai_services::AIServicesConfig::default(),
             data_access_config: data_access_layer::DataAccessLayerConfig::default(),
-            database_repositories_config: database_repositories::DatabaseManagerConfig::default(),
+            database_repositories_config: DatabaseManagerConfig::default(),
 
             database_core_config: DatabaseCoreConfig::default(),
             cache_manager_config: CacheManagerConfig::default(),
@@ -351,8 +328,7 @@ impl InfrastructureConfig {
                 data_ingestion_module::DataIngestionModuleConfig::high_throughput(),
             ai_services_config: ai_services::AIServicesConfig::high_concurrency(),
             data_access_config: data_access_layer::DataAccessLayerConfig::high_concurrency(),
-            database_repositories_config:
-                database_repositories::DatabaseManagerConfig::high_performance(),
+            database_repositories_config: DatabaseManagerConfig::high_performance(),
 
             database_core_config: DatabaseCoreConfig {
                 connection_pool_size: 50,
@@ -486,7 +462,7 @@ pub struct InfrastructureManager {
     data_ingestion_module: Option<data_ingestion_module::DataIngestionModule>,
     ai_services: Option<ai_services::AICoordinator>,
     data_access_layer: Option<data_access_layer::DataAccessLayer>,
-    database_repositories: Option<database_repositories::DatabaseManager>,
+    database_repositories: Option<DatabaseManager>,
 
     // Core infrastructure
     database_core: Option<DatabaseCore>,
@@ -547,8 +523,6 @@ impl InfrastructureManager {
             infrastructure_engine::InfrastructureConfig::default(),
         ));
 
-
-
         // Initialize modular components
         self.notification_module = Some(
             notification_module::NotificationModule::new(
@@ -582,7 +556,7 @@ impl InfrastructureManager {
             .await?,
         );
 
-        self.database_repositories = Some(database_repositories::DatabaseManager::new(
+        self.database_repositories = Some(DatabaseManager::new(
             self.database_core.as_ref().unwrap().get_database(),
             self.config.database_repositories_config.clone(),
         ));
@@ -639,9 +613,7 @@ impl InfrastructureManager {
         })
     }
 
-    pub fn database_repositories(
-        &self,
-    ) -> ArbitrageResult<&database_repositories::DatabaseManager> {
+    pub fn database_repositories(&self) -> ArbitrageResult<&DatabaseManager> {
         self.database_repositories.as_ref().ok_or_else(|| {
             ArbitrageError::new(ErrorKind::Internal, "DatabaseRepositories not initialized")
         })
@@ -659,8 +631,6 @@ impl InfrastructureManager {
             .as_ref()
             .ok_or_else(|| ArbitrageError::new(ErrorKind::Internal, "CacheManager not initialized"))
     }
-
-
 
     pub fn service_health(&self) -> ArbitrageResult<&ServiceHealthManager> {
         self.service_health.as_ref().ok_or_else(|| {
@@ -742,8 +712,6 @@ impl InfrastructureManager {
         if let Ok(_cache) = self.cache_manager() {
             health_status.insert("cache_manager".to_string(), true);
         }
-
-
 
         if let Ok(_service_health) = self.service_health() {
             health_status.insert("service_health".to_string(), true);
@@ -830,4 +798,14 @@ mod tests {
         };
         assert!(config.validate().is_err());
     }
+}
+
+// Database repositories re-exports for backward compatibility
+pub mod database_repositories {
+    pub use super::persistence_layer::*;
+}
+
+// Analytics engine re-export for backward compatibility  
+pub mod analytics_engine {
+    pub use super::analytics_module::analytics_engine::*;
 }

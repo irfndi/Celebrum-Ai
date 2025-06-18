@@ -256,7 +256,7 @@ impl Default for ValidationResult {
 }
 
 /// Configuration for DataValidator
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataValidatorConfig {
     pub enable_strict_validation: bool,
     pub enable_freshness_check: bool,

@@ -246,7 +246,7 @@ impl ServiceContainer {
     /// Main initialization happens in new().
     pub fn set_user_profile_service(&mut self, encryption_key: String) {
         let user_profile_service_instance = Arc::new(UserProfileService::new(
-            self.data_access_layer.get_kv_store(),
+            self.data_access_layer.get_kv_store().clone(),
             self.database_manager.clone(),
             encryption_key,
         ));

@@ -388,7 +388,7 @@ impl RateLimiter {
 }
 
 /// Configuration for APIConnector
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct APIConnectorConfig {
     pub enable_rate_limiting: bool,
     pub enable_retry_logic: bool,
