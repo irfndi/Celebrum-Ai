@@ -22,7 +22,7 @@ pub use core::infrastructure::{
 
     GlobalRateLimiterDO,
     MarketDataCoordinatorDO,
-    MonitoringModule,
+    // MonitoringModule removed - using Cloudflare Workers built-in monitoring
     // New modular infrastructure components
     NotificationModule,
     OpportunityCoordinatorDO,

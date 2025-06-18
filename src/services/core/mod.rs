@@ -18,8 +18,13 @@ pub use analysis::*;
 pub use auth::*;
 // Don't re-export infrastructure::* to avoid ServiceHealthStatus conflict with admin
 pub use infrastructure::{
-    AnalyticsEngineService, CacheManager, DatabaseManager, FinancialModule, InfrastructureEngine,
-    MonitoringModule, NotificationModule, ServiceContainer,
+    AnalyticsEngineService,
+    CacheManager,
+    DatabaseManager,
+    FinancialModule,
+    InfrastructureEngine,
+    NotificationModule,
+    ServiceContainer, // MonitoringModule removed - using Cloudflare Workers built-in monitoring
 }; // Only export specific items
 pub use invitation::*;
 pub use market_data::*;

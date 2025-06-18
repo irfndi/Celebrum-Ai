@@ -31,7 +31,6 @@ use super::{
     cache_manager::{CacheConfig, CacheManager},
     data_access_layer::{DataAccessLayer, DataAccessLayerConfig},
     database_core::DatabaseCore,
-    monitoring_module::metrics_collector::{MetricsCollector, MetricsCollectorConfig},
     notification_module::{NotificationCoordinator, NotificationCoordinatorConfig},
     service_health::{
         HealthCheckConfig, HealthStatus, ServiceHealthCheck, ServiceHealthManager,
@@ -225,7 +224,7 @@ pub struct InfrastructureEngine {
     service_health: Option<ServiceHealthManager>,
     notification_engine: Option<NotificationCoordinator>,
     data_access_layer: Option<DataAccessLayer>,
-    metrics_collector: Option<MetricsCollector>,
+    // Metrics collector removed - using Cloudflare Workers built-in monitoring
 
     // Service management with async-aware mutexes
     services: Arc<Mutex<HashMap<String, ServiceInfo>>>,
@@ -248,7 +247,7 @@ impl InfrastructureEngine {
             service_health: None,
             notification_engine: None,
             data_access_layer: None,
-            metrics_collector: None,
+            // Metrics collector removed - using Cloudflare Workers built-in monitoring
             services: Arc::new(Mutex::new(HashMap::new())),
             circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
             startup_time: SystemTime::now(),
@@ -266,7 +265,7 @@ impl InfrastructureEngine {
             service_health: None,
             notification_engine: None,
             data_access_layer: None,
-            metrics_collector: None,
+            // Metrics collector removed - using Cloudflare Workers built-in monitoring
             services: Arc::new(Mutex::new(HashMap::new())),
             circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
             startup_time: SystemTime::now(),
@@ -354,26 +353,7 @@ impl InfrastructureEngine {
     pub async fn initialize(&mut self, env: &Env) -> ArbitrageResult<()> {
         // Initialize core services in dependency order
 
-        // 1. Initialize metrics collector first (needed by other services)
-        if self.config.enable_metrics_collection {
-            let metrics_config = MetricsCollectorConfig::default();
-            self.metrics_collector =
-                Some(MetricsCollector::new(metrics_config, self.kv_store.clone(), env).await?);
-            self.register_service(ServiceRegistration {
-                service_name: "metrics_collector".to_string(),
-                service_type: ServiceType::Metrics,
-                version: "1.0.0".to_string(),
-                description: "Centralized metrics collection and analytics".to_string(),
-                dependencies: vec![],
-                health_check_endpoint: None,
-                metrics_enabled: false, // Avoid circular dependency
-                auto_recovery: true,
-                priority: 1,
-                tags: HashMap::new(),
-                configuration: HashMap::new(),
-            })
-            .await?;
-        }
+        // Metrics collector initialization removed - using Cloudflare Workers built-in monitoring
 
         // 2. Initialize database core
         self.database_core = Some(DatabaseCore::new(env)?);

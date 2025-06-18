@@ -10,10 +10,7 @@
 use crate::services::core::infrastructure::circuit_breaker_service::{
     CircuitBreakerService, CircuitBreakerType,
 };
-use crate::services::core::infrastructure::monitoring_module::alert_manager::AlertManager;
-use crate::services::core::infrastructure::monitoring_module::health_monitor::{
-    ComponentHealth, HealthMonitor,
-};
+// Monitoring module removed - using Cloudflare Workers built-in monitoring
 use crate::services::core::infrastructure::UnifiedHealthCheckConfig;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
@@ -500,9 +497,7 @@ pub struct FailoverService {
     strategies: Arc<Mutex<HashMap<String, FailoverStrategy>>>,
     states: Arc<Mutex<HashMap<String, FailoverState>>>,
 
-    // Integration with other services
-    health_monitor: Option<Arc<HealthMonitor>>,
-    alert_manager: Option<Arc<AlertManager>>,
+    // Integration with other services - monitoring removed, using Cloudflare Workers built-in monitoring
     circuit_breaker_service: Option<Arc<CircuitBreakerService>>,
 
     // Metrics and performance
@@ -526,8 +521,6 @@ impl FailoverService {
             kv_store,
             strategies: Arc::new(Mutex::new(HashMap::new())),
             states: Arc::new(Mutex::new(HashMap::new())),
-            health_monitor: None,
-            alert_manager: None,
             circuit_breaker_service: None,
             metrics: Arc::new(Mutex::new(FailoverMetrics::default())),
         };
@@ -536,17 +529,7 @@ impl FailoverService {
         Ok(service)
     }
 
-    /// Set health monitor integration
-    pub fn set_health_monitor(&mut self, health_monitor: Arc<HealthMonitor>) {
-        self.health_monitor = Some(health_monitor);
-        self.logger.info("Health monitor integration enabled");
-    }
-
-    /// Set alert manager integration
-    pub fn set_alert_manager(&mut self, alert_manager: Arc<AlertManager>) {
-        self.alert_manager = Some(alert_manager);
-        self.logger.info("Alert manager integration enabled");
-    }
+    // Health monitor and alert manager integration removed - using Cloudflare Workers built-in monitoring
 
     /// Set circuit breaker service integration
     pub fn set_circuit_breaker_service(
@@ -602,17 +585,7 @@ impl FailoverService {
             strategies.insert(strategy.id.clone(), strategy.clone());
         } // Lock is dropped here
 
-        // Register with health monitor if available
-        if let Some(health_monitor) = &self.health_monitor {
-            let component_health = ComponentHealth::new(
-                strategy.id.clone(),
-                strategy.name.clone(),
-                "failover_strategy".to_string(),
-            )
-            .with_tag("service".to_string(), strategy.service_name.clone());
-
-            let _ = health_monitor.register_component(component_health).await;
-        }
+        // Health monitor registration removed - using Cloudflare Workers built-in monitoring
 
         // Set up circuit breaker if integration is enabled
         if self.config.circuit_breaker_integration {
@@ -829,12 +802,7 @@ impl FailoverService {
             metrics.total_failover_events += 1;
         }
 
-        // Trigger alert
-        if let Some(alert_manager) = &self.alert_manager {
-            let _ = alert_manager
-                .evaluate_metric(strategy_id, "failover_event", 1.0)
-                .await;
-        }
+        // Alert triggering removed - using Cloudflare Workers built-in monitoring
 
         // Try operation with backup configuration
         let result = operation(&next_config);

@@ -16,9 +16,6 @@ use crate::services::core::infrastructure::circuit_breaker_service::CircuitBreak
 use crate::services::core::infrastructure::failover_service::{
     FailoverService, FailoverStatus, FailoverStrategy, FailoverType,
 };
-use crate::services::core::infrastructure::monitoring_module::alert_manager::AlertManager;
-use crate::services::core::infrastructure::monitoring_module::real_time_health_monitor::RealTimeHealthMonitor;
-use crate::services::core::infrastructure::monitoring_module::service_degradation_alerting::ServiceDegradationAlerting;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -794,14 +791,15 @@ pub struct AutomaticFailoverCoordinator {
     // Integration with existing services
     #[allow(dead_code)] // Will be used in future failover integration
     failover_service: Arc<FailoverService>,
-    #[allow(dead_code)] // Will be used in future monitoring enhancements
-    health_monitor: Arc<RealTimeHealthMonitor>,
+    // Monitoring components removed - using Cloudflare Workers built-in monitoring
+    // #[allow(dead_code)] // Will be used in future monitoring enhancements
+    // health_monitor: Arc<RealTimeHealthMonitor>,
     #[allow(dead_code)] // Will be used in circuit breaker integration
     circuit_breaker_service: Arc<CircuitBreakerService>,
-    #[allow(dead_code)] // Will be used in future alerting integration
-    alert_manager: Arc<AlertManager>,
-    #[allow(dead_code)] // Will be used in degradation alerting integration
-    service_degradation_alerting: Arc<ServiceDegradationAlerting>,
+    // #[allow(dead_code)] // Will be used in future alerting integration
+    // alert_manager: Arc<AlertManager>,
+    // #[allow(dead_code)] // Will be used in degradation alerting integration
+    // service_degradation_alerting: Arc<ServiceDegradationAlerting>,
 
     // Decision and coordination engines
     #[allow(dead_code)] // Will be used in future decision processing
@@ -845,10 +843,10 @@ impl AutomaticFailoverCoordinator {
         config: AutomaticFailoverConfig,
         feature_flags: AutomaticFailoverFeatureFlags,
         failover_service: Arc<FailoverService>,
-        health_monitor: Arc<RealTimeHealthMonitor>,
+        // health_monitor: Arc<RealTimeHealthMonitor>, // Removed - using Cloudflare Workers built-in monitoring
         circuit_breaker_service: Arc<CircuitBreakerService>,
-        alert_manager: Arc<AlertManager>,
-        service_degradation_alerting: Arc<ServiceDegradationAlerting>,
+        // alert_manager: Arc<AlertManager>, // Removed - using Cloudflare Workers built-in monitoring
+        // service_degradation_alerting: Arc<ServiceDegradationAlerting>, // Removed - using Cloudflare Workers built-in monitoring
         _env: &worker::Env,
     ) -> ArbitrageResult<Self> {
         // Validate configuration
@@ -873,10 +871,10 @@ impl AutomaticFailoverCoordinator {
             feature_flags,
             logger,
             failover_service,
-            health_monitor,
+            // health_monitor, // Removed - using Cloudflare Workers built-in monitoring
             circuit_breaker_service,
-            alert_manager,
-            service_degradation_alerting,
+            // alert_manager, // Removed - using Cloudflare Workers built-in monitoring
+            // service_degradation_alerting, // Removed - using Cloudflare Workers built-in monitoring
             decision_engine: Mutex::new(decision_engine),
             recovery_engine,
             coordination_manager,
@@ -986,7 +984,7 @@ impl AutomaticFailoverCoordinator {
     ) -> ArbitrageResult<()> {
         // Implementation for non-WASM targets
         let failover_service = Arc::clone(&self.failover_service);
-        let alert_manager = Arc::clone(&self.alert_manager);
+        // Alert manager removed - using Cloudflare Workers built-in monitoring
         let active_monitors = Arc::clone(&self.active_monitors);
         let coordinator_metrics = Arc::clone(&self.coordinator_metrics);
         let failover_history = Arc::clone(&self.failover_history);
@@ -1103,18 +1101,7 @@ impl AutomaticFailoverCoordinator {
                             metrics.automatic_failovers_triggered += 1;
                         }
 
-                        // Send alert via evaluate_metric
-                        let alert_result = alert_manager
-                            .evaluate_metric(
-                                "automatic_failover",
-                                "failover_triggered",
-                                1.0, // Trigger value
-                            )
-                            .await;
-
-                        if let Err(e) = alert_result {
-                            logger.error(&format!("Failed to send failover alert: {}", e));
-                        }
+                        // Alert sending removed - using Cloudflare Workers built-in monitoring
                     }
                 }
                 Err(e) => {

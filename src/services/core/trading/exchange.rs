@@ -470,16 +470,49 @@ impl ExchangeService {
 }
 
 impl ExchangeInterface for ExchangeService {
-    async fn get_ticker(&self, _exchange_id: &str, symbol: &str) -> ArbitrageResult<Ticker> {
-        // Implementation for getting ticker data
-        let endpoint = format!("/api/v3/ticker/24hr?symbol={}", symbol);
+    async fn get_ticker(&self, exchange_id: &str, symbol: &str) -> ArbitrageResult<Ticker> {
+        log::debug!(
+            "🔍 EXCHANGE SERVICE - get_ticker called for {} on {}",
+            symbol,
+            exchange_id
+        );
+
+        // For now, normalize symbol format for Binance (BTCUSDT format)
+        let normalized_symbol = symbol.replace("/", "").replace("-", "").to_uppercase();
+
+        // Log which exchange is being called to track the fix
+        match exchange_id.to_lowercase().as_str() {
+            "binance" => {
+                log::debug!("✅ ROUTING - Calling Binance API for {}", normalized_symbol);
+            }
+            _ => {
+                log::warn!(
+                    "⚠️ UNSUPPORTED EXCHANGE - {} not implemented, falling back to Binance for {}",
+                    exchange_id,
+                    normalized_symbol
+                );
+            }
+        }
+
+        // Implementation for getting ticker data (currently Binance only, but properly logged)
+        let endpoint = format!("/api/v3/ticker/24hr?symbol={}", normalized_symbol);
         let response = self
             .binance_request(&endpoint, Method::Get, None, None)
             .await?;
 
+        log::debug!(
+            "✅ TICKER RESPONSE - Exchange: {}, Symbol: {}, Price: ${}",
+            exchange_id,
+            normalized_symbol,
+            response
+                .get("lastPrice")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0")
+        );
+
         // Parse response into Ticker
         Ok(Ticker {
-            symbol: symbol.to_string(),
+            symbol: normalized_symbol,
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             datetime: chrono::Utc::now().to_rfc3339(),
             high: response

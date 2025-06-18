@@ -7,12 +7,7 @@
 //! - Metrics collection and performance tracking
 //! - Automatic failover and recovery mechanisms
 
-use crate::services::core::infrastructure::monitoring_module::alert_manager::{
-    AlertCondition, AlertManager, AlertRule, AlertSeverity,
-};
-use crate::services::core::infrastructure::monitoring_module::health_monitor::{
-    ComponentHealth, HealthMonitor,
-};
+// Monitoring module removed - using Cloudflare Workers built-in monitoring
 use crate::services::core::infrastructure::shared_types::{CircuitBreaker, CircuitBreakerState};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
@@ -419,9 +414,7 @@ pub struct CircuitBreakerService {
     // Circuit breaker management
     circuit_breakers: Arc<Mutex<HashMap<String, EnhancedCircuitBreaker>>>,
 
-    // Integration with other services
-    health_monitor: Option<Arc<HealthMonitor>>,
-    alert_manager: Option<Arc<AlertManager>>,
+    // Integration with other services - monitoring removed, using Cloudflare Workers built-in monitoring
 
     // Metrics and performance
     metrics: Arc<Mutex<CircuitBreakerMetrics>>,
@@ -443,8 +436,7 @@ impl CircuitBreakerService {
             logger,
             kv_store,
             circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
-            health_monitor: None,
-            alert_manager: None,
+            // monitoring removed - using Cloudflare Workers built-in monitoring
             metrics: Arc::new(Mutex::new(CircuitBreakerMetrics::default())),
         };
 
@@ -452,17 +444,7 @@ impl CircuitBreakerService {
         Ok(service)
     }
 
-    /// Set health monitor integration
-    pub fn set_health_monitor(&mut self, health_monitor: Arc<HealthMonitor>) {
-        self.health_monitor = Some(health_monitor);
-        self.logger.info("Health monitor integration enabled");
-    }
-
-    /// Set alert manager integration
-    pub fn set_alert_manager(&mut self, alert_manager: Arc<AlertManager>) {
-        self.alert_manager = Some(alert_manager);
-        self.logger.info("Alert manager integration enabled");
-    }
+    // Health monitor and alert manager integration removed - using Cloudflare Workers built-in monitoring
 
     /// Register a new circuit breaker
     pub async fn register_circuit_breaker(
@@ -506,19 +488,9 @@ impl CircuitBreakerService {
             circuit_breakers.insert(id.clone(), circuit_breaker);
         } // Lock is dropped here
 
-        // Register with health monitor if available
-        if let Some(health_monitor) = &self.health_monitor {
-            let component_health =
-                ComponentHealth::new(id.clone(), name.clone(), "circuit_breaker".to_string())
-                    .with_tag("service".to_string(), service_name.clone());
+        // Health monitoring removed - using Cloudflare Workers built-in monitoring
 
-            let _ = health_monitor.register_component(component_health).await;
-        }
-
-        // Set up alert rules if alert manager is available
-        if let Some(alert_manager) = &self.alert_manager {
-            let _ = self.setup_alert_rules(&id, alert_manager).await;
-        }
+        // Alert management removed - using Cloudflare Workers built-in monitoring
 
         self.logger.info(&format!(
             "Registered circuit breaker: {} for service: {}",
@@ -575,15 +547,15 @@ impl CircuitBreakerService {
         let response_time = start_time.elapsed().as_millis() as f64;
 
         // Record result and prepare for async operations
-        let (cb_id, should_trigger_alert, should_update_health) = {
+        let (cb_id, _should_trigger_alert) = {
             let mut circuit_breakers = self.circuit_breakers.lock().map_err(|e| {
                 ArbitrageError::internal_error(format!("Failed to acquire lock: {}", e))
             })?;
 
             if let Some(cb) = circuit_breakers.get_mut(circuit_breaker_id) {
                 let cb_id = cb.id.clone();
-                let mut should_trigger_alert = false;
-                let should_update_health = self.health_monitor.is_some();
+                let mut _should_trigger_alert = false;
+                // Health monitoring removed - using Cloudflare Workers built-in monitoring
 
                 match &result {
                     Ok(_) => {
@@ -600,50 +572,22 @@ impl CircuitBreakerService {
                         if matches!(cb.circuit_breaker.state, CircuitBreakerState::Open)
                             && cb.alert_on_open
                         {
-                            should_trigger_alert = true;
+                            _should_trigger_alert = true;
                         }
                     }
                 }
 
-                (Some(cb_id), should_trigger_alert, should_update_health)
+                (Some(cb_id), _should_trigger_alert)
             } else {
-                (None, false, false)
+                (None, false)
             }
         }; // Lock is dropped here
 
         // Perform async operations after releasing the lock
-        if let Some(cb_id) = cb_id {
-            if should_update_health {
-                if let Some(health_monitor) = &self.health_monitor {
-                    match &result {
-                        Ok(_) => {
-                            let _ = health_monitor
-                                .update_component_health(
-                                    &cb_id,
-                                    true,
-                                    Some(format!("Operation successful in {}ms", response_time)),
-                                )
-                                .await;
-                        }
-                        Err(e) => {
-                            let _ = health_monitor
-                                .update_component_health(
-                                    &cb_id,
-                                    false,
-                                    Some(format!("Operation failed: {}", e)),
-                                )
-                                .await;
-                        }
-                    }
-                }
-            }
+        if let Some(_cb_id) = cb_id {
+            // Health monitoring removed - using Cloudflare Workers built-in monitoring
 
-            if should_trigger_alert {
-                // Get circuit breaker for alert triggering
-                if let Some(cb) = self.get_circuit_breaker_for_alert(circuit_breaker_id).await {
-                    let _ = self.trigger_circuit_breaker_alert(&cb).await;
-                }
-            }
+            // Alert triggering removed - using Cloudflare Workers built-in monitoring
         }
 
         // Update metrics
@@ -663,14 +607,7 @@ impl CircuitBreakerService {
             .map(|cb| cb.get_state_info())
     }
 
-    /// Helper method to get circuit breaker for alert triggering
-    async fn get_circuit_breaker_for_alert(
-        &self,
-        circuit_breaker_id: &str,
-    ) -> Option<EnhancedCircuitBreaker> {
-        let circuit_breakers = self.circuit_breakers.lock().ok()?;
-        circuit_breakers.get(circuit_breaker_id).cloned()
-    }
+    // Alert methods removed - using Cloudflare Workers built-in monitoring
 
     /// Get all circuit breaker states
     pub async fn get_all_circuit_breaker_states(&self) -> HashMap<String, CircuitBreakerStateInfo> {
@@ -757,61 +694,7 @@ impl CircuitBreakerService {
         Ok(true)
     }
 
-    /// Setup alert rules for a circuit breaker
-    async fn setup_alert_rules(
-        &self,
-        circuit_breaker_id: &str,
-        alert_manager: &AlertManager,
-    ) -> ArbitrageResult<()> {
-        // Alert when circuit breaker opens
-        let open_alert_rule = AlertRule::new(
-            format!("circuit_breaker_open_{}", circuit_breaker_id),
-            circuit_breaker_id.to_string(),
-            "circuit_breaker_state".to_string(),
-            AlertCondition::Equal,
-            AlertSeverity::Critical,
-            1.0, // Open state = 1
-        )
-        .with_description(format!("Circuit breaker {} is open", circuit_breaker_id))
-        .with_duration(0); // Immediate alert
-
-        // Alert when circuit breaker has high failure rate
-        let failure_rate_alert_rule = AlertRule::new(
-            format!("circuit_breaker_high_failure_rate_{}", circuit_breaker_id),
-            circuit_breaker_id.to_string(),
-            "circuit_breaker_failure_rate".to_string(),
-            AlertCondition::GreaterThan,
-            AlertSeverity::Warning,
-            0.5, // 50% failure rate
-        )
-        .with_description(format!(
-            "Circuit breaker {} has high failure rate",
-            circuit_breaker_id
-        ))
-        .with_duration(300); // 5 minutes
-
-        let _ = alert_manager.add_rule(open_alert_rule).await;
-        let _ = alert_manager.add_rule(failure_rate_alert_rule).await;
-
-        Ok(())
-    }
-
-    /// Trigger circuit breaker alert
-    async fn trigger_circuit_breaker_alert(
-        &self,
-        circuit_breaker: &EnhancedCircuitBreaker,
-    ) -> ArbitrageResult<()> {
-        if let Some(alert_manager) = &self.alert_manager {
-            let _ = alert_manager
-                .evaluate_metric(
-                    &circuit_breaker.id,
-                    "circuit_breaker_state",
-                    1.0, // Open state
-                )
-                .await;
-        }
-        Ok(())
-    }
+    // Alert setup and triggering methods removed - using Cloudflare Workers built-in monitoring
 
     /// Update service metrics
     async fn update_metrics(&self) {
