@@ -693,88 +693,111 @@ impl UnifiedDataAccessEngine {
         Ok(None)
     }
 
-    /// Check circuit breaker state
+    /// Check circuit breaker state - Fixed to not hold lock across await
     async fn check_circuit_breaker(&self, source: &DataSourceType) -> ArbitrageResult<bool> {
         if !self.config.enable_circuit_breaker {
             return Ok(true);
         }
 
-        if let Ok(breakers) = self.circuit_breakers.lock() {
-            if let Some(breaker) = breakers.get(source) {
-                match breaker.state {
-                    CircuitState::Closed => Ok(true),
-                    CircuitState::Open => {
-                        // Check if enough time has passed to try half-open
-                        let current_time = self.get_current_timestamp();
-                        if current_time - breaker.last_failure > 60000 {
-                            // 1 minute
-                            Ok(true) // Allow one request to test
-                        } else {
-                            Ok(false)
+        let current_time = self.get_current_timestamp();
+
+        // Acquire lock, check state, then drop immediately
+        let result = {
+            if let Ok(breakers) = self.circuit_breakers.lock() {
+                if let Some(breaker) = breakers.get(source) {
+                    match breaker.state {
+                        CircuitState::Closed => true,
+                        CircuitState::Open => {
+                            // Check if enough time has passed to try half-open
+                            if current_time - breaker.last_failure > 60000 {
+                                // 1 minute
+                                true // Allow one request to test
+                            } else {
+                                false
+                            }
                         }
+                        CircuitState::HalfOpen => true,
                     }
-                    CircuitState::HalfOpen => Ok(true),
+                } else {
+                    true // No breaker state means it's okay
                 }
             } else {
-                Ok(true) // No breaker state means it's okay
+                true
             }
-        } else {
-            Ok(true)
-        }
+        }; // Lock is dropped here
+
+        Ok(result)
     }
 
-    /// Record circuit breaker failure
+    /// Record circuit breaker failure - Fixed to not hold lock across await
     async fn record_circuit_breaker_failure(&self, source: &DataSourceType) {
         if !self.config.enable_circuit_breaker {
             return;
         }
 
-        if let Ok(mut breakers) = self.circuit_breakers.lock() {
-            let breaker = breakers
-                .entry(source.clone())
-                .or_insert(CircuitBreakerState {
-                    failure_count: 0,
-                    last_failure: 0,
-                    state: CircuitState::Closed,
+        let current_time = self.get_current_timestamp();
+        let source_clone = source.clone();
+
+        // Acquire lock, update state, then drop immediately
+        {
+            if let Ok(mut breakers) = self.circuit_breakers.lock() {
+                let breaker = breakers
+                    .entry(source_clone.clone())
+                    .or_insert(CircuitBreakerState {
+                        failure_count: 0,
+                        last_failure: 0,
+                        state: CircuitState::Closed,
+                    });
+
+                breaker.failure_count += 1;
+                breaker.last_failure = current_time;
+
+                if breaker.failure_count >= self.config.circuit_breaker_threshold {
+                    breaker.state = CircuitState::Open;
+                }
+            }
+        } // Lock is dropped here
+
+        // Log after lock is dropped
+        self.logger.warn(&format!(
+            "Circuit breaker opened for source: {:?}",
+            source_clone
+        ));
+    }
+
+    /// Check rate limiting - Fixed to not hold lock across await
+    async fn check_rate_limit(&self, source: &DataSourceType) -> ArbitrageResult<bool> {
+        let current_time = self.get_current_timestamp();
+        let source_clone = source.clone();
+
+        // Acquire lock, check and update rate limit, then drop immediately
+        let result = {
+            if let Ok(mut limiters) = self.rate_limiters.lock() {
+                let limiter = limiters.entry(source_clone).or_insert(RateLimiterState {
+                    requests: Vec::new(),
+                    last_reset: current_time,
                 });
 
-            breaker.failure_count += 1;
-            breaker.last_failure = self.get_current_timestamp();
+                // Clean old requests (older than 1 second)
+                limiter
+                    .requests
+                    .retain(|&timestamp| current_time - timestamp < 1000);
 
-            if breaker.failure_count >= self.config.circuit_breaker_threshold {
-                breaker.state = CircuitState::Open;
-                self.logger
-                    .warn(&format!("Circuit breaker opened for source: {:?}", source));
+                if limiter.requests.len() >= self.config.rate_limit_per_second as usize {
+                    false
+                } else {
+                    limiter.requests.push(current_time);
+                    true
+                }
+            } else {
+                true
             }
-        }
+        }; // Lock is dropped here
+
+        Ok(result)
     }
 
-    /// Check rate limiting
-    async fn check_rate_limit(&self, source: &DataSourceType) -> ArbitrageResult<bool> {
-        if let Ok(mut limiters) = self.rate_limiters.lock() {
-            let current_time = self.get_current_timestamp();
-            let limiter = limiters.entry(source.clone()).or_insert(RateLimiterState {
-                requests: Vec::new(),
-                last_reset: current_time,
-            });
-
-            // Clean old requests (older than 1 second)
-            limiter
-                .requests
-                .retain(|&timestamp| current_time - timestamp < 1000);
-
-            if limiter.requests.len() >= self.config.rate_limit_per_second as usize {
-                return Ok(false);
-            }
-
-            limiter.requests.push(current_time);
-            Ok(true)
-        } else {
-            Ok(true)
-        }
-    }
-
-    /// Record metrics
+    /// Record metrics - Fixed to not hold lock across await
     async fn record_metrics(
         &self,
         success: bool,
@@ -782,67 +805,77 @@ impl UnifiedDataAccessEngine {
         source: &DataSourceType,
         cache_hit: bool,
     ) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            let execution_time = self.get_current_timestamp() - start_time;
+        let execution_time = self.get_current_timestamp() - start_time;
+        let current_timestamp = self.get_current_timestamp();
 
-            metrics.total_requests += 1;
-            if success {
-                metrics.successful_requests += 1;
-            } else {
-                metrics.failed_requests += 1;
+        // Create all necessary data before acquiring the lock
+        let source_clone = source.clone();
+
+        // Acquire lock, update metrics, then immediately drop the lock
+        {
+            if let Ok(mut metrics) = self.metrics.lock() {
+                metrics.total_requests += 1;
+                if success {
+                    metrics.successful_requests += 1;
+                } else {
+                    metrics.failed_requests += 1;
+                }
+
+                if cache_hit {
+                    metrics.cache_hits += 1;
+                } else {
+                    metrics.cache_misses += 1;
+                }
+
+                // Update rolling average
+                let total = metrics.total_requests as f64;
+                metrics.avg_response_time_ms =
+                    (metrics.avg_response_time_ms * (total - 1.0) + execution_time as f64) / total;
+
+                // Update source-specific metrics
+                let source_metric =
+                    metrics
+                        .source_metrics
+                        .entry(source_clone)
+                        .or_insert(SourceMetrics {
+                            requests: 0,
+                            successes: 0,
+                            failures: 0,
+                            avg_response_time_ms: 0.0,
+                            last_success: 0,
+                            last_failure: 0,
+                            health_score: 1.0,
+                        });
+
+                source_metric.requests += 1;
+                if success {
+                    source_metric.successes += 1;
+                    source_metric.last_success = current_timestamp;
+                } else {
+                    source_metric.failures += 1;
+                    source_metric.last_failure = current_timestamp;
+                }
+
+                // Update source health score
+                source_metric.health_score = if source_metric.requests > 0 {
+                    source_metric.successes as f64 / source_metric.requests as f64
+                } else {
+                    1.0
+                };
+
+                metrics.last_updated = current_timestamp;
             }
-
-            if cache_hit {
-                metrics.cache_hits += 1;
-            } else {
-                metrics.cache_misses += 1;
-            }
-
-            // Update rolling average
-            let total = metrics.total_requests as f64;
-            metrics.avg_response_time_ms =
-                (metrics.avg_response_time_ms * (total - 1.0) + execution_time as f64) / total;
-
-            // Update source-specific metrics
-            let source_metric =
-                metrics
-                    .source_metrics
-                    .entry(source.clone())
-                    .or_insert(SourceMetrics {
-                        requests: 0,
-                        successes: 0,
-                        failures: 0,
-                        avg_response_time_ms: 0.0,
-                        last_success: 0,
-                        last_failure: 0,
-                        health_score: 1.0,
-                    });
-
-            source_metric.requests += 1;
-            if success {
-                source_metric.successes += 1;
-                source_metric.last_success = self.get_current_timestamp();
-            } else {
-                source_metric.failures += 1;
-                source_metric.last_failure = self.get_current_timestamp();
-            }
-
-            // Update source health score
-            source_metric.health_score = if source_metric.requests > 0 {
-                source_metric.successes as f64 / source_metric.requests as f64
-            } else {
-                1.0
-            };
-
-            metrics.last_updated = self.get_current_timestamp();
-        }
+        } // Lock is dropped here
     }
 
-    /// Record validation failure
+    /// Record validation failure - Fixed to not hold lock across await
     async fn record_validation_failure(&self) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.validation_failures += 1;
-        }
+        // Acquire lock, update, then immediately drop
+        {
+            if let Ok(mut metrics) = self.metrics.lock() {
+                metrics.validation_failures += 1;
+            }
+        } // Lock is dropped here
     }
 
     /// Get current timestamp

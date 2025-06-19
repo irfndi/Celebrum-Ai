@@ -1,6 +1,6 @@
 // src/services/user_profile.rs
 
-use crate::services::core::auth::UserProfileProvider;
+// UserProfileProvider trait has been removed in favor of concrete types
 use crate::services::core::infrastructure::DatabaseManager;
 use crate::types::{
     /* ApiKeyProvider, */ ExchangeIdEnum, InvitationCode, UserApiKey, UserProfile, UserSession,
@@ -88,7 +88,7 @@ impl UserProfileService {
     ) -> ArbitrageResult<Option<UserProfile>> {
         // Check KV cache first for fast lookup
         let cache_key = format!("user_cache:telegram:{}", telegram_user_id);
-        if let Ok(Some(cached_user_id)) = self.kv_store.get(&cache_key).text().await {
+        if let Some(cached_user_id) = self.kv_store.get(&cache_key).text().await? {
             // Get full profile from D1 using cached user_id
             if let Some(profile) = self.d1_service.get_user_profile(&cached_user_id).await? {
                 return Ok(Some(profile));
@@ -504,44 +504,7 @@ impl UserProfileService {
     }
 }
 
-#[async_trait(?Send)] // Use ?Send for WASM compatibility (matches trait definition)
-impl UserProfileProvider for UserProfileService {
-    async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile> {
-        // Call the actual implementation method that returns Option<UserProfile>
-        self.d1_service
-            .get_user_profile(user_id)
-            .await?
-            .ok_or_else(|| {
-                ArbitrageError::not_found(format!(
-                    "User profile not found for user_id: {}",
-                    user_id
-                ))
-            })
-    }
-
-    async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
-        // This service's create_user_profile has a different signature.
-        // Adapting by assuming telegram_user_id can be extracted or is primary.
-        // This might need further refinement based on how AuthService intends to use it.
-        if profile.telegram_user_id.is_none() {
-            return Err(ArbitrageError::validation_error(
-                "Telegram user ID is required to create a profile via this provider method.",
-            ));
-        }
-        let _created_profile = self
-            .create_user_profile(
-                profile.telegram_user_id.unwrap(),
-                profile.invitation_code.clone(),
-                profile.telegram_username.clone(),
-            )
-            .await?;
-        Ok(())
-    }
-
-    async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()> {
-        self.update_user_profile(profile).await
-    }
-}
+// UserProfileProvider trait implementation removed as the trait no longer exists
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,61 @@
+[package]
+name = "arb-edge-telegram-bot"
+version = "0.1.0"
+edition = "2021"
+authors = ["ArbEdge Team"]
+description = "Telegram Bot for ArbEdge Arbitrage Platform"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Cloudflare Workers runtime
+worker = "0.3"
+
+# Async support
+tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+console_error_panic_hook = "0.1"
+console_log = "1.0"
+log = "0.4"
+
+# Telegram Bot API
+teloxide = { version = "0.12", features = ["webhooks", "rustls"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "console",
+  "Headers",
+  "Request",
+  "RequestInit",
+  "RequestMode",
+  "Response",
+  "ResponseInit",
+  "Window",
+]
+
+[dependencies.wasm-bindgen]
+version = "0.2"
+
+[dependencies.wasm-bindgen-futures]
+version = "0.4" 

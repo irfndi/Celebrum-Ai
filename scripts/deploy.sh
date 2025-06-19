@@ -9,7 +9,7 @@ echo "🚀 Starting ArbEdge Production Deployment..."
 # Check if wrangler is installed
 if ! command -v wrangler &> /dev/null; then
     echo "❌ Wrangler CLI not found. Installing..."
-    npm install -g wrangler@latest
+    pnpm add -g wrangler@latest
 fi
 
 # Authenticate with Cloudflare (if not already authenticated)

@@ -1,18 +1,18 @@
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::json;
 use std::sync::Arc;
-use worker::{kv::KvStore, D1Database};
+use worker::kv::KvStore;
 
 /// Analytics Service for dashboard analytics
 /// Provides analytics functionality for API endpoints
 pub struct AnalyticsService {
     kv_store: KvStore,
-    d1_service: Arc<D1Database>,
+    d1_service: Arc<worker::D1Database>,
 }
 
 impl AnalyticsService {
     /// Create new AnalyticsService
-    pub fn new(kv_store: KvStore, d1_service: Arc<D1Database>) -> Self {
+    pub fn new(kv_store: KvStore, d1_service: Arc<worker::D1Database>) -> Self {
         Self {
             kv_store,
             d1_service,
@@ -26,7 +26,7 @@ impl AnalyticsService {
     ) -> ArbitrageResult<serde_json::Value> {
         // Check cache first
         let cache_key = format!("dashboard_analytics:{}", user_id);
-        if let Ok(Some(cached)) = self.kv_store.get(&cache_key).text().await {
+        if let Some(cached) = self.kv_store.get(&cache_key).text().await? {
             if let Ok(data) = serde_json::from_str::<serde_json::Value>(&cached) {
                 return Ok(data);
             }
@@ -152,7 +152,7 @@ impl AnalyticsService {
     ) -> ArbitrageResult<serde_json::Value> {
         // Check cache first
         let cache_key = format!("portfolio_analytics:{}", user_id);
-        if let Ok(Some(cached)) = self.kv_store.get(&cache_key).text().await {
+        if let Some(cached) = self.kv_store.get(&cache_key).text().await? {
             if let Ok(data) = serde_json::from_str::<serde_json::Value>(&cached) {
                 return Ok(data);
             }

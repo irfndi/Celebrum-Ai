@@ -1,12 +1,11 @@
 // Infrastructure Engine Module - Main Orchestrator for All Infrastructure Services
 // Provides service discovery, dependency management, configuration, and health monitoring
 
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::utils::error::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use worker::{kv::KvStore, D1Database};
+use worker::kv::KvStore;
 
 use super::{
     data_access_layer::{
@@ -220,7 +219,7 @@ pub struct InfrastructureEngine {
     #[allow(dead_code)]
     kv_store: Option<Arc<KvStore>>,
     #[allow(dead_code)]
-    d1_database: Option<Arc<D1Database>>,
+    d1_database: Option<Arc<worker::D1Database>>,
     startup_time: Option<u64>,
     #[allow(dead_code)]
     is_initialized: bool,

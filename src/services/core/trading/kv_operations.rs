@@ -2,17 +2,30 @@ use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Debug, Clone)]
 pub enum KvOperationError {
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-    #[error("Storage error: {0}")]
-    Storage(String),
-    #[error("Item not found: {0}")]
-    NotFound(String),
-    #[error("Underlying KV store error: {0}")]
-    SdkError(String), // To wrap errors from the actual KvStore or other sources
+    NotFound,
+    SerializationError(String),
+    NetworkError(String),
+    Unauthorized,
+    RateLimited,
+    ServiceUnavailable,
 }
+
+impl std::fmt::Display for KvOperationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KvOperationError::NotFound => write!(f, "Key not found"),
+            KvOperationError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
+            KvOperationError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            KvOperationError::Unauthorized => write!(f, "Unauthorized access"),
+            KvOperationError::RateLimited => write!(f, "Rate limited"),
+            KvOperationError::ServiceUnavailable => write!(f, "Service unavailable"),
+        }
+    }
+}
+
+impl std::error::Error for KvOperationError {}
 
 // Define a generic Result type for KV operations
 pub type KvResult<T> = Result<T, KvOperationError>;

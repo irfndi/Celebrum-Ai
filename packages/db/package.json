@@ -1,0 +1,55 @@
+{
+  "name": "@arb-edge/db",
+  "version": "0.1.0",
+  "description": "Database layer with TypeScript + Drizzle ORM for ArbEdge",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts", 
+      "import": "./dist/schema/index.js"
+    },
+    "./migrations": {
+      "types": "./dist/migrations/index.d.ts",
+      "import": "./dist/migrations/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
+    "type-check": "tsc --noEmit",
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate",
+    "studio": "drizzle-kit studio",
+    "push": "drizzle-kit push",
+    "drop": "drizzle-kit drop",
+    "check": "drizzle-kit check",
+    "up": "drizzle-kit up"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.44.2",
+    "@cloudflare/workers-types": "^4.20250619.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.1",
+    "oxlint": "^1.2.0",
+    "typescript": "^5.8.3",
+    "@types/node": "^22.10.2"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "keywords": [
+    "database",
+    "drizzle",
+    "typescript",
+    "cloudflare",
+    "d1",
+    "sqlite"
+  ]
+} 

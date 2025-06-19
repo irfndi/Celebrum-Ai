@@ -11,8 +11,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: Test & Coverage
+  # Rust-specific checks and tests
+  rust-checks:
+    name: Rust Checks & Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -44,25 +45,134 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Setup Node.js (for wrangler)
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22.x"
-
-      - name: Install wrangler
-        run: npm install -g wrangler@latest
-
-      - name: Check formatting
+      - name: Check Rust formatting
         run: cargo fmt --all -- --check
 
-      - name: Run linter
+      - name: Run Rust linter
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Run tests
+      - name: Run Rust tests
         run: cargo test --verbose
 
       - name: Build for WASM
         run: cargo build --target wasm32-unknown-unknown --release
+
+  # TypeScript/Node.js checks and tests
+  typescript-checks:
+    name: TypeScript Checks & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js with pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.1
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Cache TypeScript build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/*/dist
+            packages/*/build
+            packages/*/.astro
+          key: ${{ runner.os }}-ts-build-${{ hashFiles('packages/*/src/**/*', 'packages/*/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-ts-build-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint TypeScript packages
+        run: pnpm run lint
+
+      - name: Type check all packages
+        run: pnpm run typecheck
+
+      - name: Build TypeScript packages
+        run: pnpm run build
+
+      - name: Test TypeScript packages
+        run: pnpm run test
+
+  # Wrangler deployment test
+  wrangler-test:
+    name: Wrangler Build Test
+    runs-on: ubuntu-latest
+    needs: [rust-checks, typescript-checks]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rust-src
+
+      - name: Add WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Setup Node.js with pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.1
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build TypeScript packages
+        run: pnpm run build
+
+      - name: Build for WASM
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Install wrangler
+        run: pnpm add -g wrangler@latest
 
       - name: Test wrangler build
         run: wrangler deploy --dry-run
@@ -70,7 +180,7 @@ jobs:
   codeql:
     name: CodeQL Security Analysis
     runs-on: ubuntu-latest
-    needs: test
+    needs: [rust-checks, typescript-checks]
     permissions:
       actions: read
       contents: read
@@ -101,7 +211,7 @@ jobs:
 
   deploy:
     name: Deploy to Cloudflare
-    needs: [test, codeql]
+    needs: [rust-checks, typescript-checks, wrangler-test, codeql]
     # Only deploy from main branch on push (not PRs)
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -117,16 +227,53 @@ jobs:
       - name: Add WASM target
         run: rustup target add wasm32-unknown-unknown
 
-      - name: Setup Node.js (for wrangler)
+      - name: Setup Node.js with pnpm
         uses: actions/setup-node@v4
         with:
           node-version: "22.x"
 
-      - name: Install wrangler
-        run: npm install -g wrangler@latest
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.1
+          run_install: false
 
-      - name: Deploy to Cloudflare Workers
-        run: wrangler deploy
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build TypeScript packages
+        run: pnpm run build
+
+      - name: Install wrangler
+        run: pnpm add -g wrangler@latest
+
+      - name: Deploy Core Worker
+        run: pnpm run deploy:core
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Telegram Bot
+        run: pnpm run deploy:telegram-bot
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Web App
+        run: pnpm run deploy:web
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

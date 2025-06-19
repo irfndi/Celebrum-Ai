@@ -245,7 +245,7 @@ impl TemplateEngine {
         // Load templates from KV store
         let templates_key = format!("{}/templates", self.config.template_directory);
 
-        if let Ok(Some(templates_data)) = self.kv_store.get(&templates_key).text().await {
+        if let Some(templates_data) = self.kv_store.get(&templates_key).text().await? {
             if let Ok(templates) =
                 serde_json::from_str::<Vec<NotificationTemplate>>(&templates_data)
             {

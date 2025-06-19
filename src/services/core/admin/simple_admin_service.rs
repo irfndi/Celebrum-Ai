@@ -1,18 +1,19 @@
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::types::{ArbitrageResult, UserStatistics};
+use worker::kv::KvStore;
 use serde_json::json;
 use std::sync::Arc;
-use worker::{kv::KvStore, D1Database};
+use crate::utils::error::{ArbitrageError, ArbitrageResult};
 
 /// Simplified Admin Service for API endpoints
 /// Provides basic admin functionality without complex dependencies
 pub struct SimpleAdminService {
     kv_store: KvStore,
-    d1_service: Arc<D1Database>,
+    d1_service: Arc<worker::D1Database>,
 }
 
 impl SimpleAdminService {
     /// Create new SimpleAdminService
-    pub fn new(kv_store: KvStore, d1_service: Arc<D1Database>) -> Self {
+    pub fn new(kv_store: KvStore, d1_service: Arc<worker::D1Database>) -> Self {
         Self {
             kv_store,
             d1_service,
@@ -22,9 +23,9 @@ impl SimpleAdminService {
     /// Get user statistics for admin dashboard
     pub async fn get_user_statistics(&self) -> ArbitrageResult<UserStatistics> {
         // Get total users
-        let total_users = self.get_total_users().await?;
-        let active_users = self.get_active_users().await?;
-        let premium_users = self.get_premium_users().await?;
+        let total_users = self.get_total_users().await? as u32;
+        let active_users = self.get_active_users().await? as u32;
+        let premium_users = self.get_premium_users().await? as u32;
 
         // Get users by tier
         let tier_stats = self.get_users_by_tier().await?;
@@ -32,23 +33,18 @@ impl SimpleAdminService {
         // Get activity metrics
         let activity_metrics = self.get_activity_metrics().await?;
 
-        // Get registration trends
-        let registration_trends = self.get_registration_trends().await?;
-
         Ok(UserStatistics {
             total_users,
             active_users,
-            premium_users,
-            free_tier_users: tier_stats.free,
-            basic_tier_users: tier_stats.basic,
-            premium_tier_users: tier_stats.premium,
-            enterprise_tier_users: tier_stats.enterprise,
-            daily_active_users: activity_metrics.daily,
-            weekly_active_users: activity_metrics.weekly,
-            monthly_active_users: activity_metrics.monthly,
-            registrations_today: registration_trends.today,
-            registrations_this_week: registration_trends.week,
-            registrations_this_month: registration_trends.month,
+            free_users: tier_stats.free as u32,
+            paid_users: premium_users,
+            admin_users: 0, // Would need separate query
+            super_admin_users: 0, // Would need separate query
+            other_users: 0, // Would need separate query
+            recently_active_users: activity_metrics.daily as u32,
+            total_trades: 0, // Would need separate query
+            total_volume_usdt: 0.0, // Would need separate query
+            generated_at: chrono::Utc::now().timestamp_millis() as u64,
         })
     }
 
@@ -56,7 +52,7 @@ impl SimpleAdminService {
     pub async fn get_system_info(&self) -> ArbitrageResult<serde_json::Value> {
         // Check cache first
         let cache_key = "admin_system_info";
-        if let Ok(Some(cached)) = self.kv_store.get(cache_key).text().await {
+        if let Some(cached) = self.kv_store.get(cache_key).text().await? {
             if let Ok(data) = serde_json::from_str::<serde_json::Value>(&cached) {
                 return Ok(data);
             }
@@ -99,34 +95,30 @@ impl SimpleAdminService {
     pub async fn get_system_config(&self) -> ArbitrageResult<serde_json::Value> {
         // Check cache first
         let cache_key = "admin_system_config";
-        if let Ok(Some(cached)) = self.kv_store.get(cache_key).text().await {
+        if let Some(cached) = self.kv_store.get(cache_key).text().await? {
             if let Ok(data) = serde_json::from_str::<serde_json::Value>(&cached) {
                 return Ok(data);
             }
         }
 
         let config = json!({
-            "timestamp": chrono::Utc::now().timestamp(),
-            "feature_flags": self.get_feature_flags().await?,
-            "rate_limits": {
-                "api_requests_per_minute": 100,
-                "opportunities_per_user": 50,
-                "telegram_commands_per_minute": 10
+            "api": {
+                "rate_limit": 1000,
+                "timeout_seconds": 30,
+                "max_request_size": "10MB"
             },
-            "trading": {
-                "max_position_size": 10000.0,
-                "min_profit_threshold": 0.1,
-                "max_slippage": 0.5
+            "database": {
+                "connection_pool_size": 10,
+                "query_timeout_seconds": 30
             },
-            "notifications": {
-                "telegram_enabled": true,
-                "discord_enabled": false,
-                "email_enabled": false
+            "cache": {
+                "default_ttl_seconds": 300,
+                "max_size": "100MB"
             },
             "security": {
-                "encryption_enabled": true,
-                "audit_logging": true,
-                "session_timeout_minutes": 60
+                "jwt_expiry_hours": 24,
+                "password_min_length": 8,
+                "max_login_attempts": 5
             }
         });
 
@@ -142,199 +134,223 @@ impl SimpleAdminService {
     }
 
     /// Update system configuration
-    pub async fn update_system_config(
-        &self,
-        update_request: serde_json::Value,
-    ) -> ArbitrageResult<serde_json::Value> {
-        // For now, just return the updated config
-        // In a real implementation, this would validate and persist the changes
-        let updated_config = json!({
-            "timestamp": chrono::Utc::now().timestamp(),
-            "updated_fields": update_request,
-            "status": "updated",
-            "message": "Configuration updated successfully"
-        });
-
-        // Clear cache to force refresh
-        let _ = self.kv_store.delete("admin_system_config").await;
-
-        Ok(updated_config)
+    pub async fn update_system_config(&self, updates: serde_json::Value) -> ArbitrageResult<serde_json::Value> {
+        // Get current config
+        let mut current_config = self.get_system_config().await?;
+        
+        // Merge updates into current config
+        if let (Some(current_obj), Some(updates_obj)) = (current_config.as_object_mut(), updates.as_object()) {
+            for (key, value) in updates_obj {
+                current_obj.insert(key.clone(), value.clone());
+            }
+        }
+        
+        // Cache the updated config
+        let cache_key = "admin_system_config";
+        let _ = self
+            .kv_store
+            .put(cache_key, current_config.to_string())?
+            .expiration_ttl(300)
+            .execute()
+            .await;
+        
+        Ok(current_config)
     }
 
-    // Helper methods
-    async fn get_total_users(&self) -> ArbitrageResult<u64> {
-        let stmt = self
+    // Helper methods for user statistics
+    async fn get_total_users(&self) -> ArbitrageResult<i64> {
+        let result = self
             .d1_service
-            .prepare("SELECT COUNT(*) as count FROM user_profiles");
-        let result = stmt.first::<serde_json::Value>(None).await.map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to get total users: {}", e))
-        })?;
+            .prepare("SELECT COUNT(*) as count FROM users")
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(result
-            .and_then(|r| r.get("count").cloned())
-            .and_then(|c| c.as_u64())
+            .and_then(|v| v.get("count"))
+            .and_then(|v| v.as_i64())
             .unwrap_or(0))
     }
 
-    async fn get_active_users(&self) -> ArbitrageResult<u64> {
-        let stmt = self.d1_service.prepare(
-            "
-            SELECT COUNT(*) as count 
-            FROM user_profiles 
-            WHERE last_login_at >= datetime('now', '-7 days')
-        ",
-        );
-        let result = stmt.first::<serde_json::Value>(None).await.map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to get active users: {}", e))
-        })?;
+    async fn get_active_users(&self) -> ArbitrageResult<i64> {
+        let result = self
+            .d1_service
+            .prepare("SELECT COUNT(*) as count FROM users WHERE last_login > datetime('now', '-30 days')")
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(result
-            .and_then(|r| r.get("count").cloned())
-            .and_then(|c| c.as_u64())
+            .and_then(|v| v.get("count"))
+            .and_then(|v| v.as_i64())
             .unwrap_or(0))
     }
 
-    async fn get_premium_users(&self) -> ArbitrageResult<u64> {
-        let stmt = self.d1_service.prepare(
-            "
-            SELECT COUNT(*) as count 
-            FROM user_profiles 
-            WHERE subscription_tier IN ('premium', 'enterprise')
-        ",
-        );
-        let result = stmt.first::<serde_json::Value>(None).await.map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to get premium users: {}", e))
-        })?;
+    async fn get_premium_users(&self) -> ArbitrageResult<i64> {
+        let result = self
+            .d1_service
+            .prepare("SELECT COUNT(*) as count FROM users WHERE subscription_tier IN ('premium', 'enterprise')")
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(result
-            .and_then(|r| r.get("count").cloned())
-            .and_then(|c| c.as_u64())
+            .and_then(|v| v.get("count"))
+            .and_then(|v| v.as_i64())
             .unwrap_or(0))
     }
 
     async fn get_users_by_tier(&self) -> ArbitrageResult<TierStats> {
-        let stmt = self.d1_service.prepare(
-            "
-            SELECT 
-                subscription_tier,
-                COUNT(*) as count 
-            FROM user_profiles 
-            GROUP BY subscription_tier
-        ",
-        );
-        let results = stmt.all().await.map_err(|e| {
-            ArbitrageError::database_error(format!("Failed to get tier stats: {}", e))
-        })?;
+        let result = self
+            .d1_service
+            .prepare("SELECT subscription_tier, COUNT(*) as count FROM users GROUP BY subscription_tier")
+            .all()
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
-        let mut stats = TierStats::default();
-        for result in results.results::<serde_json::Value>().unwrap_or_default() {
-            if let (Some(tier), Some(count)) = (
-                result.get("subscription_tier").and_then(|t| t.as_str()),
-                result.get("count").and_then(|c| c.as_u64()),
-            ) {
-                match tier {
-                    "free" => stats.free = count,
-                    "basic" => stats.basic = count,
-                    "premium" => stats.premium = count,
-                    "enterprise" => stats.enterprise = count,
-                    _ => {}
+        let mut tier_stats = TierStats::default();
+        
+        if let Ok(results) = result.results::<serde_json::Value>() {
+            for row in results {
+                if let (Some(tier), Some(count)) = (row.get("subscription_tier").and_then(|v| v.as_str()), row.get("count").and_then(|v| v.as_i64())) {
+                    match tier {
+                        "free" => tier_stats.free = count,
+                        "basic" => tier_stats.basic = count,
+                        "premium" => tier_stats.premium = count,
+                        "enterprise" => tier_stats.enterprise = count,
+                        _ => {}
+                    }
                 }
             }
         }
 
-        Ok(stats)
+        Ok(tier_stats)
     }
 
     async fn get_activity_metrics(&self) -> ArbitrageResult<ActivityMetrics> {
-        // For now, return mock data since we don't have detailed activity tracking
+        // Daily active users
+        let daily = self
+            .d1_service
+            .prepare("SELECT COUNT(*) as count FROM users WHERE last_login > datetime('now', '-1 day')")
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?
+            .and_then(|v| v.get("count"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        // Weekly active users
+        let weekly = self
+            .d1_service
+            .prepare("SELECT COUNT(*) as count FROM users WHERE last_login > datetime('now', '-7 days')")
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?
+            .and_then(|v| v.get("count"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        // Monthly active users
+        let monthly = self
+            .d1_service
+            .prepare("SELECT COUNT(*) as count FROM users WHERE last_login > datetime('now', '-30 days')")
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?
+            .and_then(|v| v.get("count"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
         Ok(ActivityMetrics {
-            daily: 0,
-            weekly: 0,
-            monthly: 0,
+            daily,
+            weekly,
+            monthly,
         })
     }
 
     async fn get_registration_trends(&self) -> ArbitrageResult<RegistrationTrends> {
-        // For now, return mock data since we don't have detailed registration tracking
+        // Today's registrations
+        let today = self
+            .d1_service
+            .prepare("SELECT COUNT(*) as count FROM users WHERE created_at > datetime('now', '-1 day')")
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?
+            .and_then(|v| v.get("count"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        // This week's registrations
+        let week = self
+            .d1_service
+            .prepare("SELECT COUNT(*) as count FROM users WHERE created_at > datetime('now', '-7 days')")
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?
+            .and_then(|v| v.get("count"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        // This month's registrations
+        let month = self
+            .d1_service
+            .prepare("SELECT COUNT(*) as count FROM users WHERE created_at > datetime('now', '-30 days')")
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| ArbitrageError::database_error(e.to_string()))?
+            .and_then(|v| v.get("count"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
         Ok(RegistrationTrends {
-            today: 0,
-            week: 0,
-            month: 0,
+            today,
+            week,
+            month,
         })
     }
 
     async fn check_database_health(&self) -> bool {
-        matches!(
-            self.d1_service
-                .prepare("SELECT 1")
-                .first::<serde_json::Value>(None)
-                .await,
-            Ok(Some(_))
-        )
+        self.d1_service
+            .prepare("SELECT 1")
+            .first::<serde_json::Value>(None)
+            .await
+            .is_ok()
     }
 
     async fn check_kv_health(&self) -> bool {
-        self.kv_store.get("health_check").text().await.is_ok()
+        self.kv_store
+            .get("health_check")
+            .text()
+            .await
+            .is_ok()
     }
 
     async fn get_feature_flags(&self) -> ArbitrageResult<serde_json::Value> {
-        // Try to get feature flags from KV store
-        if let Ok(Some(flags)) = self.kv_store.get("feature_flags").text().await {
-            if let Ok(data) = serde_json::from_str::<serde_json::Value>(&flags) {
-                return Ok(data);
-            }
-        }
-
-        // Return default feature flags
         Ok(json!({
-            "trading_manual": true,
-            "trading_auto": false,
-            "ai_features": true,
-            "admin_panel": true,
+            "advanced_analytics": true,
+            "real_time_notifications": true,
             "beta_features": false,
-            "funding_rate_integration": true,
-            "opportunity_deduplication": true,
-            "trade_target_calculation": true,
-            "opportunity_validity_engine": true
+            "maintenance_mode": false
         }))
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct TierStats {
-    free: u64,
-    basic: u64,
-    premium: u64,
-    enterprise: u64,
+    free: i64,
+    basic: i64,
+    premium: i64,
+    enterprise: i64,
 }
 
-#[derive(Debug, Default)]
 struct ActivityMetrics {
-    daily: u64,
-    weekly: u64,
-    monthly: u64,
+    daily: i64,
+    weekly: i64,
+    monthly: i64,
 }
 
-#[derive(Debug, Default)]
 struct RegistrationTrends {
-    today: u64,
-    week: u64,
-    month: u64,
-}
-
-#[derive(Debug)]
-pub struct UserStatistics {
-    pub total_users: u64,
-    pub active_users: u64,
-    pub premium_users: u64,
-    pub free_tier_users: u64,
-    pub basic_tier_users: u64,
-    pub premium_tier_users: u64,
-    pub enterprise_tier_users: u64,
-    pub daily_active_users: u64,
-    pub weekly_active_users: u64,
-    pub monthly_active_users: u64,
-    pub registrations_today: u64,
-    pub registrations_this_week: u64,
-    pub registrations_this_month: u64,
+    today: i64,
+    week: i64,
+    month: i64,
 }

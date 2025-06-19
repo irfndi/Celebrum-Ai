@@ -1,0 +1,29 @@
+{
+  "name": "@arb-edge/worker",
+  "version": "0.1.0",
+  "description": "Cloudflare Worker for route-based service separation and request routing",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsup",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@arb-edge/shared": "workspace:*",
+    "hono": "^4.6.11",
+    "@hono/node-server": "^1.13.7"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "typescript": "catalog:",
+    "wrangler": "catalog:",
+    "tsup": "^8.3.5",
+    "vitest": "^2.1.8",
+    "miniflare": "^3.20241218.0",
+    "@cloudflare/vitest-pool-workers": "^0.5.15"
+  }
+}

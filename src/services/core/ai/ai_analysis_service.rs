@@ -1,18 +1,18 @@
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::json;
 use std::sync::Arc;
-use worker::{kv::KvStore, D1Database};
+use worker::kv::KvStore;
 
 /// Simplified AI Analysis Service for API endpoints
 /// Provides basic AI analysis functionality without complex dependencies
 pub struct AiAnalysisService {
     kv_store: KvStore,
-    d1_service: Arc<D1Database>,
+    d1_service: Arc<worker::D1Database>,
 }
 
 impl AiAnalysisService {
     /// Create new AiAnalysisService
-    pub fn new(kv_store: KvStore, d1_service: Arc<D1Database>) -> Self {
+    pub fn new(kv_store: KvStore, d1_service: Arc<worker::D1Database>) -> Self {
         Self {
             kv_store,
             d1_service,
@@ -23,7 +23,7 @@ impl AiAnalysisService {
     pub async fn analyze_market(&self, user_id: &str) -> ArbitrageResult<serde_json::Value> {
         // Check cache first
         let cache_key = format!("ai_market_analysis:{}", user_id);
-        if let Ok(Some(cached)) = self.kv_store.get(&cache_key).text().await {
+        if let Some(cached) = self.kv_store.get(&cache_key).text().await? {
             if let Ok(analysis) = serde_json::from_str::<serde_json::Value>(&cached) {
                 return Ok(analysis);
             }
@@ -47,7 +47,7 @@ impl AiAnalysisService {
     /// Generate price predictions
     pub async fn predict_prices(&self, user_id: &str) -> ArbitrageResult<serde_json::Value> {
         let cache_key = format!("ai_price_predictions:{}", user_id);
-        if let Ok(Some(cached)) = self.kv_store.get(&cache_key).text().await {
+        if let Some(cached) = self.kv_store.get(&cache_key).text().await? {
             if let Ok(predictions) = serde_json::from_str::<serde_json::Value>(&cached) {
                 return Ok(predictions);
             }
@@ -70,7 +70,7 @@ impl AiAnalysisService {
     /// Analyze market sentiment
     pub async fn analyze_sentiment(&self, user_id: &str) -> ArbitrageResult<serde_json::Value> {
         let cache_key = format!("ai_sentiment_analysis:{}", user_id);
-        if let Ok(Some(cached)) = self.kv_store.get(&cache_key).text().await {
+        if let Some(cached) = self.kv_store.get(&cache_key).text().await? {
             if let Ok(sentiment) = serde_json::from_str::<serde_json::Value>(&cached) {
                 return Ok(sentiment);
             }

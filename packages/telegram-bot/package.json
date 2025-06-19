@@ -1,0 +1,48 @@
+{
+  "name": "@arb-edge/telegram-bot",
+  "version": "0.1.0",
+  "description": "Telegram Bot TypeScript interfaces and utilities for ArbEdge",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js"
+    },
+    "./handlers": {
+      "types": "./dist/handlers/index.d.ts",
+      "import": "./dist/handlers/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@arb-edge/db": "workspace:*",
+    "@arb-edge/shared": "workspace:*",
+    "@cloudflare/workers-types": "^4.20250106.0"
+  },
+  "devDependencies": {
+    "oxlint": "^1.2.0",
+    "typescript": "^5.7.3",
+    "@types/node": "^22.10.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "typescript",
+    "cloudflare",
+    "workers",
+    "arbitrage"
+  ]
+} 

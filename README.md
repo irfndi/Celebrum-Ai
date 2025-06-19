@@ -1,8 +1,8 @@
-![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/irfndi/ArbEdge?utm_source=oss&utm_medium=github&utm_campaign=irfndi%2FArbEdge&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/irfndi/ArbEdge)
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/irfndi/Cerebrum-AI?utm_source=oss&utm_medium=github&utm_campaign=irfndi%2FCerebrum-AI&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/irfndi/Cerebrum-AI)
 
 
-# ArbEdge - Production-Ready Rust Implementation
+# Cerebrum AI - Production-Ready Rust Implementation
 
 A high-performance & high-intelligence arbitrage & technical analysis trading detection system built with Rust.
 Currently featuring a Telegram bot interface with API, web & Discord interfaces planned for future releases.
@@ -51,7 +51,7 @@ This project implements a modular, production-ready architecture:
    cargo build
 
    # Install Wrangler globally
-   npm install -g wrangler@latest
+   pnpm add -g wrangler@latest
 
    # Add WASM target
    rustup target add wasm32-unknown-unknown
@@ -299,4 +299,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Built with ❤️ using Rust and Cloudflare Workers** 
 
-*Production-ready since 2025 with real market data integration and comprehensive testing* 
+*Production-ready since 2025 with real market data integration and comprehensive testing*

@@ -1,0 +1,34 @@
+{
+  "rules": {
+    "typescript": "error",
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error",
+    "style": "error",
+    "pedantic": "error",
+    "nursery": "error",
+    "restriction": "error"
+  },
+  "globals": {
+    "console": "readonly",
+    "fetch": "readonly",
+    "Request": "readonly",
+    "Response": "readonly",
+    "Headers": "readonly",
+    "URL": "readonly",
+    "URLSearchParams": "readonly",
+    "FormData": "readonly",
+    "Blob": "readonly",
+    "File": "readonly",
+    "ReadableStream": "readonly",
+    "WritableStream": "readonly",
+    "TransformStream": "readonly",
+    "crypto": "readonly",
+    "TextEncoder": "readonly",
+    "TextDecoder": "readonly"
+  },
+  "env": {
+    "worker": true,
+    "es2022": true
+  }
+} 

@@ -39,26 +39,53 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 print_header
 
-# Step 1: Auto-format code
-print_step "Auto-formatting code"
-if cargo fmt --all; then
-    print_success "Code formatted"
+# Step 1: Auto-format TypeScript code
+print_step "Auto-formatting TypeScript code"
+if command -v pnpm >/dev/null 2>&1; then
+    if pnpm run format; then
+        print_success "TypeScript code formatted"
+    else
+        print_error "TypeScript formatting failed"
+        exit 1
+    fi
 else
-    print_error "Formatting failed"
+    echo -e "${YELLOW}⚠️  pnpm not found, skipping TypeScript formatting${NC}"
+fi
+
+# Step 2: Auto-format Rust code
+print_step "Auto-formatting Rust code"
+if cargo fmt --all; then
+    print_success "Rust code formatted"
+else
+    print_error "Rust formatting failed"
     exit 1
 fi
 
-# Step 2: Quick lint check
-print_step "Running quick lint check"
-if cargo clippy --all-targets --quiet -- -D warnings; then
-    print_success "Lint checks passed"
+# Step 3: Quick TypeScript lint check
+print_step "Running TypeScript lint check"
+if command -v pnpm >/dev/null 2>&1; then
+    if pnpm run lint; then
+        print_success "TypeScript lint checks passed"
+    else
+        print_error "TypeScript lint issues found"
+        echo "Run 'pnpm run lint:fix' to auto-fix some issues"
+        exit 1
+    fi
 else
-    print_error "Lint issues found"
+    echo -e "${YELLOW}⚠️  pnpm not found, skipping TypeScript linting${NC}"
+fi
+
+# Step 4: Quick Rust lint check
+print_step "Running Rust lint check"
+if cargo clippy --all-targets --quiet -- -D warnings; then
+    print_success "Rust lint checks passed"
+else
+    print_error "Rust lint issues found"
     echo "Run 'cargo clippy --fix --allow-dirty --all-targets' to auto-fix some issues"
     exit 1
 fi
 
-# Step 3: Run tests (unless skipped)
+# Step 5: Run tests (unless skipped)
 if [ "$SKIP_TESTS" != "true" ]; then
     print_step "Running tests"
     if cargo test --quiet --all-targets --all-features; then
@@ -72,7 +99,7 @@ else
     echo -e "${YELLOW}⚠️  Tests skipped (SKIP_TESTS=true)${NC}"
 fi
 
-# Step 4: Quick build check (unless skipped)
+# Step 6: Quick build check (unless skipped)
 if [ "$SKIP_BUILD" != "true" ]; then
     print_step "Quick build check"
     if cargo check --quiet --all-targets --all-features; then
@@ -85,13 +112,13 @@ else
     echo -e "${YELLOW}⚠️  Build check skipped (SKIP_BUILD=true)${NC}"
 fi
 
-# Step 5: Check for common issues
+# Step 7: Check for common issues
 print_step "Checking for common issues"
 
 # Check for TODO/FIXME comments in new/modified files
-if git diff --cached --name-only | grep -E '\.(rs|toml|md)$' | xargs grep -l "TODO\|FIXME" 2>/dev/null; then
+if git diff --cached --name-only | grep -E '\.(rs|ts|js|toml|md)$' | xargs grep -l "TODO\|FIXME" 2>/dev/null; then
     print_error "Found TODO/FIXME comments in staged files:"
-    git diff --cached --name-only | grep -E '\.(rs|toml|md)$' | xargs grep -n "TODO\|FIXME" 2>/dev/null || true
+    git diff --cached --name-only | grep -E '\.(rs|ts|js|toml|md)$' | xargs grep -n "TODO\|FIXME" 2>/dev/null || true
     echo "Consider addressing these before committing, or add them to your commit message"
     # Don't fail, just warn
 fi
@@ -114,4 +141,4 @@ echo -e "Run './scripts/local-ci.sh' for full CI validation."
 
 # Show what would be committed
 echo -e "\n${BLUE}Files to be committed:${NC}"
-git diff --cached --name-only | sed 's/^/  /' 
+git diff --cached --name-only | sed 's/^/  /'

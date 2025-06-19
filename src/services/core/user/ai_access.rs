@@ -7,21 +7,21 @@ use crate::types::{
 };
 use log;
 use std::collections::HashMap;
+use worker::kv::KvStore;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen;
-use worker::{kv::KvStore, D1Database};
 
 use serde_json::Value;
 /// Service for managing AI access levels, usage tracking, and template management
 pub struct AIAccessService {
     #[allow(dead_code)] // Will be used for user preference storage
-    d1_service: D1Database,
+    d1_service: worker::D1Database,
     kv_service: KvStore,
 }
 
 impl AIAccessService {
-    pub fn new(d1_service: D1Database, kv_service: KvStore) -> Self {
+    pub fn new(d1_service: worker::D1Database, kv_service: KvStore) -> Self {
         Self {
             d1_service,
             kv_service,
@@ -473,7 +473,7 @@ impl AIAccessService {
             .and_then(|v| v.as_str())
             .ok_or("Missing parameters")?;
 
-        let parameters: AITemplateParameters = serde_json::from_str(parameters_str)
+        let parameters: AITemplateParameters = serde_json::from_str(&parameters_str)
             .map_err(|e| format!("Failed to parse template parameters: {}", e))?;
 
         let created_by = Self::get_field_as_string(&row, "created_by");

@@ -3,9 +3,6 @@
 // Core services organized by domain
 pub mod core;
 
-// Interface services for different platforms
-pub mod interfaces;
-
 // Re-export commonly used services for backward compatibility
 pub use core::ai::{AiBetaIntegrationService, AiIntegrationService, AiIntelligenceService};
 pub use core::analysis::{
@@ -46,5 +43,5 @@ pub use core::user::{
     DynamicConfigService, SessionManagementService, UserProfileService,
     UserTradingPreferencesService,
 };
-pub use interfaces::telegram::{ModularTelegramService, UserInfo, UserPermissions};
-pub use interfaces::{InlineKeyboard, InlineKeyboardButton};
+
+// Note: Telegram interfaces moved to separate package/worker - no longer in main worker

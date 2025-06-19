@@ -16,11 +16,12 @@ use crate::services::core::user::user_trading_preferences::UserTradingPreference
 use crate::types::{
     InvitationCode, RiskProfile, SubscriptionTier, UserAccessLevel, UserPreferences, UserProfile,
 };
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::utils::error::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
+use worker::wasm_bindgen::JsValue;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use worker::{kv::KvStore, wasm_bindgen::JsValue, D1Database};
+use worker::kv::KvStore;
 
 /// Unified configuration for all repository operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,7 +89,7 @@ impl Default for UnifiedRepositoryMetrics {
 #[allow(dead_code)]
 pub struct UnifiedRepositoryLayer {
     config: UnifiedRepositoryConfig,
-    db: Arc<D1Database>,
+    db: Arc<worker::D1Database>,
     cache: Option<Arc<KvStore>>,
     metrics: Arc<Mutex<UnifiedRepositoryMetrics>>,
     logger: crate::utils::logger::Logger,
@@ -96,7 +97,10 @@ pub struct UnifiedRepositoryLayer {
 
 impl UnifiedRepositoryLayer {
     /// Create new unified repository layer
-    pub fn new(config: UnifiedRepositoryConfig, db: Arc<D1Database>) -> ArbitrageResult<Self> {
+    pub fn new(
+        config: UnifiedRepositoryConfig,
+        db: Arc<worker::D1Database>,
+    ) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
         logger.info("Initializing UnifiedRepositoryLayer - consolidating 5 repositories into 1");
@@ -388,7 +392,7 @@ impl UnifiedRepositoryLayer {
             Some(row) => {
                 if let Some(data_str) = row.get("aggregation_data") {
                     if let Some(data_str) = data_str.as_str() {
-                        match serde_json::from_str(data_str) {
+                        match serde_json::from_str(&data_str) {
                             Ok(data) => Ok(Some(data)),
                             Err(_) => Ok(None),
                         }
@@ -558,7 +562,7 @@ impl UnifiedRepositoryLayer {
     async fn get_cached_user_profile(&self, user_id: &str) -> ArbitrageResult<Option<UserProfile>> {
         if let Some(cache) = &self.cache {
             let cache_key = format!("user_profile:{}", user_id);
-            if let Ok(Some(cached_data)) = cache.get(&cache_key).text().await {
+            if let Some(cached_data) = cache.get(&cache_key).text().await? {
                 if let Ok(profile) = serde_json::from_str::<UserProfile>(&cached_data) {
                     if let Ok(mut metrics) = self.metrics.lock() {
                         metrics.cache_hits += 1;
@@ -785,7 +789,7 @@ impl UnifiedRepositoryBuilder {
         self
     }
 
-    pub fn build(self, db: Arc<D1Database>) -> ArbitrageResult<UnifiedRepositoryLayer> {
+    pub fn build(self, db: Arc<worker::D1Database>) -> ArbitrageResult<UnifiedRepositoryLayer> {
         UnifiedRepositoryLayer::new(self.config, db)
     }
 }

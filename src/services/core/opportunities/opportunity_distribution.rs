@@ -13,44 +13,13 @@ use crate::types::{
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 // Non-WASM version with Send + Sync bounds for thread safety
 #[cfg(not(target_arch = "wasm32"))]
-#[async_trait::async_trait]
-pub trait NotificationSender: Send + Sync {
-    fn clone_box(&self) -> Box<dyn NotificationSender>;
-    async fn send_opportunity_notification(
-        &self,
-        chat_id: &str,
-        opportunity: &OpportunityData,
-        is_private: bool,
-    ) -> ArbitrageResult<bool>;
-
-    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()>;
-}
-
-// WASM version with Send + Sync bounds
-#[cfg(target_arch = "wasm32")]
-#[async_trait::async_trait(?Send)] // Re-added ?Send for WASM compatibility
-pub trait NotificationSender: Send + Sync {
-    fn clone_box(&self) -> Box<dyn NotificationSender>;
-    // Added Send + Sync
-    async fn send_opportunity_notification(
-        &self,
-        chat_id: &str,
-        opportunity: &OpportunityData,
-        is_private: bool,
-    ) -> ArbitrageResult<bool>;
-
-    async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()>;
-}
-
-impl Clone for Box<dyn NotificationSender> {
-    fn clone(&self) -> Box<dyn NotificationSender> {
-        self.clone_box()
-    }
-}
+// Async trait removed - using type-erased approach instead
 
 /// Configuration for opportunity distribution
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -89,7 +58,7 @@ pub struct OpportunityDistributionService {
     ai_coordinator: Option<AICoordinator>,
     queue_manager: Option<QueueManager>,
     config: DistributionConfig,
-    notification_sender: Option<Box<dyn NotificationSender>>, // Simplified: Trait itself is Send + Sync
+    notification_sender: Option<NotificationSender>,
 }
 
 impl Clone for OpportunityDistributionService {
@@ -102,7 +71,7 @@ impl Clone for OpportunityDistributionService {
             ai_coordinator: self.ai_coordinator.clone(),
             queue_manager: self.queue_manager.clone(),
             config: self.config.clone(),
-            notification_sender: self.notification_sender.as_ref().map(|ns| ns.clone_box()),
+            notification_sender: self.notification_sender.clone(),
         }
     }
 }
@@ -130,7 +99,7 @@ impl OpportunityDistributionService {
         self
     }
 
-    pub fn set_notification_sender(&mut self, sender: Box<dyn NotificationSender>) {
+    pub fn set_notification_sender(&mut self, sender: NotificationSender) {
         self.notification_sender = Some(sender);
     }
 
@@ -1529,4 +1498,59 @@ pub struct DistributionStats {
     pub active_users: u32,
     pub average_distribution_time_ms: f64,
     pub success_rate_percentage: f64,
+}
+
+// Type-erased notification sender for object safety
+pub struct NotificationSender {
+    sender: Box<dyn NotificationSenderInternal + Send + Sync>,
+}
+
+trait NotificationSenderInternal: Send + Sync {
+    fn clone_box(&self) -> Box<dyn NotificationSenderInternal + Send + Sync>;
+    fn send_opportunity_notification<'a>(
+        &'a self,
+        chat_id: &'a str,
+        opportunity: &'a OpportunityData,
+        is_private: bool,
+    ) -> Pin<Box<dyn Future<Output = ArbitrageResult<bool>> + Send + 'a>>;
+
+    fn send_message<'a>(
+        &'a self,
+        chat_id: &'a str,
+        message: &'a str,
+    ) -> Pin<Box<dyn Future<Output = ArbitrageResult<()>> + Send + 'a>>;
+}
+
+impl Clone for NotificationSender {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone_box(),
+        }
+    }
+}
+
+impl NotificationSender {
+    pub fn new<T>(sender: T) -> Self
+    where
+        T: NotificationSenderInternal + Send + Sync + 'static,
+    {
+        Self {
+            sender: Box::new(sender),
+        }
+    }
+
+    pub async fn send_opportunity_notification(
+        &self,
+        chat_id: &str,
+        opportunity: &OpportunityData,
+        is_private: bool,
+    ) -> ArbitrageResult<bool> {
+        self.sender
+            .send_opportunity_notification(chat_id, opportunity, is_private)
+            .await
+    }
+
+    pub async fn send_message(&self, chat_id: &str, message: &str) -> ArbitrageResult<()> {
+        self.sender.send_message(chat_id, message).await
+    }
 }

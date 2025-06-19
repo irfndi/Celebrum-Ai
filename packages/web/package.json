@@ -1,0 +1,40 @@
+{
+  "name": "@arb-edge/web",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "check": "astro check",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix"
+  },
+  "dependencies": {
+    "@arb-edge/db": "workspace:*",
+    "astro": "^5.9.4",
+    "@astrojs/node": "^9.1.0",
+    "@astrojs/tailwind": "^5.1.2",
+    "tailwindcss": "^3.4.0",
+    "vite": "^6.0.2",
+    "typescript": "^5.7.3"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "oxlint": "^1.2.0"
+  },
+  "keywords": [
+    "arbitrage",
+    "trading",
+    "platform",
+    "astro",
+    "landing"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/irfndi/arb-edge.git",
+    "directory": "packages/web"
+  }
+}

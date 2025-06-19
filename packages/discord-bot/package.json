@@ -1,0 +1,38 @@
+{
+  "name": "@arb-edge/discord-bot",
+  "version": "0.1.0",
+  "description": "ArbEdge Discord Bot - Discord integration for trading platform",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "echo 'Discord bot package not implemented yet'",
+    "dev": "echo 'Discord bot package not implemented yet'",
+    "start": "echo 'Discord bot package not implemented yet'",
+    "test": "echo 'Discord bot package not implemented yet'",
+    "lint": "echo 'Discord bot package not implemented yet'",
+    "format": "echo 'Discord bot package not implemented yet'",
+    "clean": "echo 'Discord bot package not implemented yet'"
+  },
+  "dependencies": {
+    "@arb-edge/shared": "workspace:*"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "trading-platform",
+    "typescript",
+    "discord.js"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/username/arb-edge.git",
+    "directory": "packages/discord-bot"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  }
+} 

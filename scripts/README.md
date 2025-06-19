@@ -124,7 +124,7 @@ cargo install cargo-tarpaulin
 cargo install tokei
 
 # For Cloudflare deployment
-npm install -g wrangler@latest
+pnpm add -g wrangler@latest
 ```
 
 ## 🎯 Recommended Workflow
@@ -204,7 +204,7 @@ rustup target add wasm32-unknown-unknown
 ### Wrangler Issues
 ```bash
 # Install/update wrangler
-npm install -g wrangler@latest
+pnpm add -g wrangler@latest
 
 # Verify installation
 wrangler --version
@@ -216,4 +216,4 @@ wrangler --version
 2. **CI confidence**: Always run `make validate` before pushing
 3. **Release ready**: Use `make quality` before releases
 4. **Parallel work**: Scripts are safe to run in parallel on different branches
-5. **Environment variables**: Most scripts respect environment variables for customization 
+5. **Environment variables**: Most scripts respect environment variables for customization

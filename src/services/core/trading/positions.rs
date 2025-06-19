@@ -6,7 +6,7 @@ use crate::types::{
     AccountInfo, ArbitragePosition, CommandPermission, ExchangeIdEnum, Position, PositionAction,
     PositionSide, PositionStatus,
 };
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::utils::error::{ArbitrageError, ArbitrageResult};
 // use std::collections::HashMap; // Removed unused import
 // use worker::kv::KvStore; // Replaced with KvOperations trait
 use crate::services::core::trading::{KvOperationError, KvOperations};
@@ -276,7 +276,7 @@ impl<T: KvOperations + Send + Sync + 'static> PositionsService<T> {
         match self.kv_store.get::<ArbitragePosition>(&key).await {
             Ok(Some(position)) => Ok(Some(position)),
             Ok(None) => Ok(None),
-            Err(KvOperationError::NotFound(_)) => Ok(None), // Explicitly handle NotFound from KvOperations
+            Err(KvOperationError::NotFound) => Ok(None), // Explicitly handle NotFound from KvOperations
             Err(e) => Err(ArbitrageError::database_error(format!(
                 "Failed to get position {}: {:?}",
                 id, e
@@ -399,7 +399,7 @@ impl<T: KvOperations + Send + Sync + 'static> PositionsService<T> {
         match self.kv_store.get::<Vec<String>>("positions:index").await {
             Ok(Some(ids)) => Ok(ids),
             Ok(None) => Ok(Vec::new()), // If no index exists, return an empty Vec
-            Err(KvOperationError::NotFound(_)) => Ok(Vec::new()), // Explicitly handle NotFound
+            Err(KvOperationError::NotFound) => Ok(Vec::new()), // Explicitly handle NotFound
             Err(e) => Err(ArbitrageError::database_error(format!(
                 "Failed to get position index: {:?}",
                 e

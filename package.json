@@ -1,30 +1,73 @@
 {
-  "name": "arb-edge",
+  "name": "cerebrum-ai-monorepo",
   "version": "0.1.0",
-  "description": "A Cloudflare Worker project for Arbitrage Edge in Rust.",
-  "keywords": [
-    "cloudflare-worker",
-    "arbitrage",
-    "edge-computing",
-    "rust",
-    "wasm"
+  "description": "Cerebrum AI Trading Platform - Unified Cloudflare Worker monorepo with Core API, Telegram Bot, and web interfaces",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
   ],
-  "main": "dist/index.js",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "packageManager": "pnpm@10.12.1",
   "scripts": {
-    "build": "chmod +x build.sh && ./build.sh",
-    "dev": "wrangler dev",
-    "deploy": "chmod +x scripts/setup/setup-d1.sh && ./scripts/setup/setup-d1.sh && wrangler deploy",
-    "setup-d1": "chmod +x scripts/setup/setup-d1.sh && ./scripts/setup/setup-d1.sh",
-    "test": "cargo test",
-    "lint": "cargo clippy",
-    "format": "cargo fmt"
+    "build": "pnpm --recursive run build",
+    "build:core": "pnpm --filter @arb-edge/core run build",
+    "build:shared": "pnpm --filter @arb-edge/shared run build",
+    "build:web": "pnpm --filter @arb-edge/web run build",
+    "build:discord": "pnpm --filter @arb-edge/discord-bot run build",
+    "build:telegram-bot": "pnpm --filter @arb-edge/telegram-bot run build",
+    "dev": "pnpm --parallel --recursive run dev",
+    "dev:core": "pnpm --filter @arb-edge/core run dev",
+    "dev:shared": "pnpm --filter @arb-edge/shared run dev",
+    "dev:web": "pnpm --filter @arb-edge/web run dev",
+    "dev:discord": "pnpm --filter @arb-edge/discord-bot run dev",
+    "dev:telegram-bot": "pnpm --filter @arb-edge/telegram-bot run dev",
+    "test": "pnpm --recursive run test",
+    "test:core": "pnpm --filter @arb-edge/core run test",
+    "test:shared": "pnpm --filter @arb-edge/shared run test",
+    "test:web": "pnpm --filter @arb-edge/web run test",
+    "test:discord": "pnpm --filter @arb-edge/discord-bot run test",
+    "test:telegram-bot": "pnpm --filter @arb-edge/telegram-bot run test",
+    "lint": "oxlint packages/*/src --import-plugin --react-plugin",
+    "lint:fix": "oxlint packages/*/src --import-plugin --react-plugin --fix",
+    "format": "echo 'Using oxlint for formatting'",
+    "format:check": "oxlint packages/*/src --import-plugin --react-plugin",
+    "typecheck": "pnpm --recursive run typecheck",
+    "clean": "pnpm --recursive run clean",
+    "deploy:core": "pnpm --filter @arb-edge/core run deploy",
+    "deploy:telegram-bot": "pnpm --filter @arb-edge/telegram-bot run deploy",
+    "deploy:web": "pnpm --filter @arb-edge/web run deploy",
+    "deploy:staging": "pnpm --parallel run deploy:staging",
+    "deploy:prod": "pnpm --parallel run deploy:prod"
   },
-  "author": "",
-  "license": "MIT",
   "devDependencies": {
-    "wrangler": "^4.19.1"
+    "@changesets/cli": "^2.29.4",
+    "@types/node": "^20.19.1",
+    "oxlint": "^1.2.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.20.3"
   },
-  "pnpm": {
-    "overrides": {}
+  "keywords": [
+    "monorepo",
+    "arbitrage",
+    "trading-platform",
+    "rust",
+    "wasm",
+    "cloudflare-worker",
+    "telegram-bot",
+    "typescript",
+    "pnpm-workspace"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/irfan-dev/cerebrum-ai.git"
+  },
+  "author": "Cerebrum AI Team",
+  "license": "UNLICENSED",
+  "publishConfig": {
+    "access": "restricted"
   }
 }

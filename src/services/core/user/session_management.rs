@@ -351,7 +351,7 @@ impl SessionManagementService {
         );
         // Try KV cache first
         let cache_key = format!("session_cache:{}", telegram_id);
-        if let Ok(Some(cached_data)) = self.kv_service.get(&cache_key).text().await {
+        if let Some(cached_data) = self.kv_service.get(&cache_key).text().await? {
             if let Ok(session) = serde_json::from_str::<EnhancedUserSession>(&cached_data) {
                 if session.is_active() {
                     console_log!(
@@ -716,7 +716,7 @@ impl SessionManagementService {
         for date in [today, yesterday] {
             // Get session count for the date
             let count_key = format!("session_count:{}", date);
-            if let Ok(Some(count_str)) = self.kv_service.get(&count_key).text().await {
+            if let Some(count_str) = self.kv_service.get(&count_key).text().await? {
                 if let Ok(_count) = count_str.parse::<u32>() {
                     analytics.push(SessionAnalytics {
                         commands_executed: 0,

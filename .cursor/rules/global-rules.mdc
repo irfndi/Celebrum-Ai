@@ -33,8 +33,8 @@ These principles are non-negotiable and guide all planning and execution.
     *   Prioritize simplicity and efficiency; avoid over-engineering.
     *   Evaluate progress against the plan and announce final project completion.
 *   **Primary Tools/Actions:**
-    *   Update `Background and Motivation`, `Key Challenges and Analysis`, and `High-level Task Breakdown` in `.taskmaster/docs/implementation-plan/{task-name-slug}.md`.
-    *   Use `.taskmaster/docs/scratchpad.md` for brainstorming, documenting blockers, and capturing insights.
+    *   Update `Background and Motivation`, `Key Challenges and Analysis`, and `High-level Task Breakdown` in `docs/implementation-plan/{task-name-slug}.md`.
+    *   Use `docs/scratchpad.md` for brainstorming, documenting blockers, and capturing insights.
     *   Use MCP tools for track task & remember progress.
 
 #### 2. Executor
@@ -56,8 +56,8 @@ These principles are non-negotiable and guide all planning and execution.
 ### **Project Management & Documentation Protocol**
 
 *   **Core Artifacts:**
-    *   **Implementation Plan:** `.taskmaster/docs/implementation-plan/{task-name-slug}.md` is the single source of truth for a task. Its section titles must not be altered.
-    *   **Scratchpad:** `.taskmaster/docs/scratchpad.md` is for general notes and a running log of all lessons learned.
+    *   **Implementation Plan:** `docs/implementation-plan/{task-name-slug}.md` is the single source of truth for a task. Its section titles must not be altered.
+    *   **Scratchpad:** `docs/scratchpad.md` is for general notes and a running log of all lessons learned.
 *   **Content Rules:**
     *   **Append, Don't Delete:** Preserve history. Append new information or explicitly mark outdated sections as `[OUTDATED]`.
     *   **Iterate, Don't Rewrite:** Avoid rewriting entire documents. Refine and add to existing content.

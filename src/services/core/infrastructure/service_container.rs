@@ -23,7 +23,7 @@ use crate::services::core::user::user_profile::UserProfileService;
 
 use crate::services::core::admin::AdminService;
 use crate::services::core::ai::ai_analysis_service::AiAnalysisService;
-use crate::services::interfaces::telegram::ModularTelegramService;
+// Note: ModularTelegramService moved to separate package/worker
 use crate::utils::feature_flags::{load_feature_flags, FeatureFlags};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;
@@ -36,7 +36,7 @@ use worker::{kv::KvStore, Env};
 pub struct ServiceContainer {
     pub session_service: Arc<SessionManagementService>,
     pub distribution_service: OpportunityDistributionService,
-    pub telegram_service: Option<Arc<ModularTelegramService>>,
+    // Note: telegram_service removed - now in separate worker
     pub exchange_service: Arc<ExchangeService>,
     pub user_profile_service: Option<Arc<UserProfileService>>,
     pub opportunity_engine: Option<Arc<OpportunityEngine>>,
@@ -104,10 +104,6 @@ impl ServiceContainer {
         .await
         .ok();
 
-        // Initialize Telegram Service (using modular service)
-        // Note: Telegram service will be initialized after ServiceContainer creation to avoid circular dependency
-        let telegram_service = None;
-
         // Initialize AI Analysis Service
         let ai_analysis_service = Some(Arc::new(AiAnalysisService::new(
             kv_store.clone(),
@@ -122,7 +118,6 @@ impl ServiceContainer {
         Ok(Self {
             session_service: session_service_instance,
             distribution_service,
-            telegram_service,
             exchange_service,
             user_profile_service: Some(user_profile_service_instance),
             admin_service,
@@ -215,81 +210,6 @@ impl ServiceContainer {
         Ok(container)
     }
 
-    /// Initialize Telegram service after container creation to avoid circular dependency
-    pub async fn initialize_telegram_service(
-        container: Arc<ServiceContainer>,
-        env: &Env,
-    ) -> ArbitrageResult<Arc<ModularTelegramService>> {
-        match ModularTelegramService::new(env, container).await {
-            Ok(service) => {
-                console_log!("✅ Modular Telegram service initialized successfully");
-                Ok(Arc::new(service))
-            }
-            Err(e) => {
-                console_log!("⚠️ Failed to initialize Modular Telegram service: {:?}", e);
-                console_log!("⚠️ Telegram webhooks will not be available");
-                Err(e)
-            }
-        }
-    }
-
-    /// Set the Telegram service for push notifications using Arc for shared ownership
-    pub fn set_telegram_service(&mut self, telegram_service: ModularTelegramService) {
-        let arc_telegram_service = Arc::new(telegram_service);
-        // Note: ModularTelegramService may need different integration with distribution service
-        // self.distribution_service
-        //     .set_notification_sender(Box::new((*arc_telegram_service).clone()));
-        self.telegram_service = Some(arc_telegram_service);
-    }
-
-    /// Set the user profile service with encryption key - This is now primarily for overriding or specific setups if needed post-initialization.
-    /// Main initialization happens in new().
-    pub fn set_user_profile_service(&mut self, encryption_key: String) {
-        let user_profile_service_instance = Arc::new(UserProfileService::new(
-            self.data_access_layer.get_kv_store().clone(),
-            self.database_manager.clone(),
-            encryption_key,
-        ));
-        self.user_profile_service = Some(user_profile_service_instance.clone());
-
-        // Attempt to re-inject into AuthService if it exists and is mutable
-        // This path is less ideal than full setup in `new()`
-        // if let Some(auth_service_option) = &mut self.auth_service {
-        //     if let Some(auth_service_arc_mut) = Arc::get_mut(auth_service_option) {
-        //          auth_service_arc_mut.set_user_profile_provider(user_profile_service_instance);
-        //          worker::console_log!("UserProfileProvider re-injected into AuthService via set_user_profile_service.");
-        //     } else {
-        //         worker::console_warn!(
-        //             "AuthService is already shared. UserProfileProvider could not be re-injected via set_user_profile_service. Ensure it was set during initial new()."
-        //         );
-        //     }
-        // } else {
-        //      worker::console_warn!("AuthService not present. Cannot inject UserProfileProvider via set_user_profile_service.");
-        // }
-    }
-
-    /// Initialize AI Coordinator service with fallback mechanisms
-    pub fn set_ai_coordinator(
-        &mut self,
-        _env: &Env, /* config: Option<AICoordinatorConfig> */
-    ) {
-        // let ai_config = config.unwrap_or_default();
-
-        // match AICoordinator::new(env, ai_config) {
-        //     Ok(coordinator) => {
-        //         self.ai_coordinator = Some(Arc::new(coordinator));
-        //         worker::console_log!("AI Coordinator initialized successfully");
-        //     }
-        //     Err(e) => {
-        //         worker::console_log!(
-        //             "Failed to initialize AI Coordinator: {} - continuing with fallback mode",
-        //             e
-        //         );
-        //         self.ai_coordinator = None;
-        //     }
-        // }
-    }
-
     /// Initialize Data Ingestion Module with fallback mechanisms
     pub async fn set_data_ingestion_module(
         &mut self,
@@ -337,11 +257,6 @@ impl ServiceContainer {
         &mut self.distribution_service
     }
 
-    /// Get telegram service
-    pub fn telegram_service(&self) -> Option<&Arc<ModularTelegramService>> {
-        self.telegram_service.as_ref()
-    }
-
     /// Get user profile service
     pub fn user_profile_service(&self) -> Option<&Arc<UserProfileService>> {
         self.user_profile_service.as_ref()
@@ -370,11 +285,6 @@ impl ServiceContainer {
 
     /// Validate that all required services are configured
     pub fn validate_configuration(&self) -> ArbitrageResult<()> {
-        if self.telegram_service.is_none() {
-            return Err(crate::utils::ArbitrageError::configuration_error(
-                "Telegram service not configured for push notifications".to_string(),
-            ));
-        }
         // if self.auth_service.is_none() {
         //     return Err(crate::utils::ArbitrageError::configuration_error(
         //         "AuthService not configured".to_string(),
@@ -436,18 +346,14 @@ impl ServiceContainer {
         status.auth_service_healthy = true; // Temporarily set to true
 
         status.distribution_service_healthy = true;
-        status.telegram_service_healthy = self.telegram_service.is_some();
         status.exchange_service_healthy = true;
-        status.ai_coordinator_healthy = true; // Set to true since we don't have AI coordinator yet
         status.data_ingestion_module_healthy = self.data_ingestion_module.is_some();
 
         status.overall_healthy = status.session_service_healthy
             && status.distribution_service_healthy
-            && status.telegram_service_healthy
             && status.exchange_service_healthy
             && status.user_profile_service_healthy
             && status.auth_service_healthy
-            && status.ai_coordinator_healthy
             && status.data_ingestion_module_healthy;
 
         if !status.overall_healthy {
@@ -466,11 +372,6 @@ impl ServiceContainer {
         &self,
         opportunities: &[crate::types::ArbitrageOpportunity],
     ) -> ArbitrageResult<u32> {
-        if self.telegram_service.is_none() {
-            return Err(ArbitrageError::service_unavailable(
-                "Telegram service not configured for distribution",
-            ));
-        }
         let mut distributed_count = 0;
         for opportunity in opportunities {
             match self
@@ -499,11 +400,9 @@ pub struct ServiceHealthStatus {
     pub overall_healthy: bool,
     pub session_service_healthy: bool,
     pub distribution_service_healthy: bool,
-    pub telegram_service_healthy: bool,
     pub exchange_service_healthy: bool,
     pub user_profile_service_healthy: bool,
     pub auth_service_healthy: bool,
-    pub ai_coordinator_healthy: bool,
     pub data_ingestion_module_healthy: bool,
     pub errors: Vec<String>,
 }

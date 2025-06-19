@@ -51,6 +51,7 @@ pub enum ErrorKind {
     Cache,
     Storage,
     Internal,
+    Service,
 }
 
 impl fmt::Display for ArbitrageError {
@@ -287,6 +288,10 @@ impl ArbitrageError {
     pub fn initialization_error<T: Into<String>>(message: T) -> Self {
         Self::new(ErrorKind::InfrastructureError, message)
     }
+
+    pub fn service_error(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Service, message)
+    }
 }
 
 // Implement From conversions for common error types
@@ -330,18 +335,24 @@ impl From<url::ParseError> for ArbitrageError {
 impl From<KvOperationError> for ArbitrageError {
     fn from(err: KvOperationError) -> Self {
         match err {
-            KvOperationError::NotFound(key_or_msg) => {
-                ArbitrageError::not_found(format!("KV item not found: {}", key_or_msg))
+            KvOperationError::NotFound => {
+                ArbitrageError::not_found("KV item not found".to_string())
             }
-            KvOperationError::Serialization(e) => ArbitrageError::serialization_error(format!(
+            KvOperationError::SerializationError(msg) => ArbitrageError::serialization_error(format!(
                 "KV serialization/deserialization error: {}",
-                e
+                msg
             )),
-            KvOperationError::Storage(msg) => {
-                ArbitrageError::storage_error(format!("KV storage error: {}", msg))
+            KvOperationError::NetworkError(msg) => {
+                ArbitrageError::network_error(format!("KV network error: {}", msg))
             }
-            KvOperationError::SdkError(msg) => {
-                ArbitrageError::internal_error(format!("KV SDK error: {}", msg))
+            KvOperationError::Unauthorized => {
+                ArbitrageError::unauthorized("KV unauthorized access".to_string())
+            }
+            KvOperationError::RateLimited => {
+                ArbitrageError::rate_limit_exceeded("KV rate limited".to_string())
+            }
+            KvOperationError::ServiceUnavailable => {
+                ArbitrageError::service_unavailable("KV service unavailable".to_string())
             }
         }
     }

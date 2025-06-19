@@ -6,19 +6,28 @@ use serde::{Deserialize, Serialize};
 use worker::kv::KvStore;
 use worker::*;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum CoinMarketCapError {
-    #[error("API error: {0}")]
-    Api(String),
-    #[error("Rate limit exceeded: {0}")]
-    RateLimit(String),
-    #[error("Quota exceeded: {0}")]
-    Quota(String),
-    #[error("Analytics error: {0}")]
-    Analytics(String),
-    #[error("Cache error: {0}")]
-    Cache(String),
+    NetworkError(String),
+    ParseError(String),
+    AuthenticationError,
+    RateLimitExceeded,
+    UnknownError(String),
 }
+
+impl std::fmt::Display for CoinMarketCapError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CoinMarketCapError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            CoinMarketCapError::ParseError(msg) => write!(f, "Parse error: {}", msg),
+            CoinMarketCapError::AuthenticationError => write!(f, "Authentication error"),
+            CoinMarketCapError::RateLimitExceeded => write!(f, "Rate limit exceeded"),
+            CoinMarketCapError::UnknownError(msg) => write!(f, "Unknown error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for CoinMarketCapError {}
 
 impl From<CoinMarketCapError> for ArbitrageError {
     fn from(err: CoinMarketCapError) -> Self {
@@ -212,7 +221,7 @@ impl CoinMarketCapService {
     pub async fn get_symbol_quote(&self, symbol: &str) -> ArbitrageResult<CmcQuoteData> {
         // Try cache first
         let cache_key = format!("cmc_quote:{}", symbol);
-        if let Ok(Some(cached_data)) = self.kv_store.get(&cache_key).text().await {
+        if let Some(cached_data) = self.kv_store.get(&cache_key).text().await? {
             if let Ok(quote) = serde_json::from_str::<CmcQuoteData>(&cached_data) {
                 self.logger
                     .info(&format!("Using cached CMC quote for {}", symbol));
@@ -450,7 +459,7 @@ impl CoinMarketCapService {
     async fn get_quota_usage(&self) -> ArbitrageResult<QuotaUsage> {
         let cache_key = "cmc_quota_usage";
 
-        if let Ok(Some(cached_data)) = self.kv_store.get(cache_key).text().await {
+        if let Some(cached_data) = self.kv_store.get(cache_key).text().await? {
             if let Ok(usage) = serde_json::from_str::<QuotaUsage>(&cached_data) {
                 // Check if we need to reset daily counter
                 let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -533,7 +542,7 @@ impl CoinMarketCapService {
     async fn get_cached_priority_quotes(&self) -> ArbitrageResult<Vec<CmcQuoteData>> {
         let cache_key = "cmc_priority_quotes";
 
-        if let Ok(Some(cached_data)) = self.kv_store.get(cache_key).text().await {
+        if let Some(cached_data) = self.kv_store.get(cache_key).text().await? {
             if let Ok(quotes) = serde_json::from_str::<Vec<CmcQuoteData>>(&cached_data) {
                 return Ok(quotes);
             }
@@ -561,7 +570,7 @@ impl CoinMarketCapService {
     async fn get_cached_global_metrics(&self) -> ArbitrageResult<CmcGlobalMetrics> {
         let cache_key = "cmc_global_metrics";
 
-        if let Ok(Some(cached_data)) = self.kv_store.get(cache_key).text().await {
+        if let Some(cached_data) = self.kv_store.get(cache_key).text().await? {
             if let Ok(metrics) = serde_json::from_str::<CmcGlobalMetrics>(&cached_data) {
                 return Ok(metrics);
             }
@@ -630,7 +639,7 @@ impl CoinMarketCapService {
         let now = Utc::now().timestamp() as u64;
         let minute_window = now / 60; // Current minute window
 
-        if let Ok(Some(rate_data)) = self.kv_store.get(rate_limit_key).text().await {
+        if let Some(rate_data) = self.kv_store.get(rate_limit_key).text().await? {
             if let Ok(status) = serde_json::from_str::<RateLimitStatus>(&rate_data) {
                 // Check if we're in the same minute window
                 if status.minute_window_start == minute_window {
@@ -652,7 +661,7 @@ impl CoinMarketCapService {
         let mut requests_this_minute = 1;
 
         // Get current rate limit status
-        if let Ok(Some(rate_data)) = self.kv_store.get(rate_limit_key).text().await {
+        if let Some(rate_data) = self.kv_store.get(rate_limit_key).text().await? {
             if let Ok(status) = serde_json::from_str::<RateLimitStatus>(&rate_data) {
                 if status.minute_window_start == minute_window {
                     requests_this_minute = status.requests_this_minute + 1;
@@ -681,7 +690,7 @@ impl CoinMarketCapService {
         let now = Utc::now().timestamp() as u64;
         let minute_window = now / 60;
 
-        if let Ok(Some(rate_data)) = self.kv_store.get(rate_limit_key).text().await {
+        if let Some(rate_data) = self.kv_store.get(rate_limit_key).text().await? {
             if let Ok(mut status) = serde_json::from_str::<RateLimitStatus>(&rate_data) {
                 // Update timing info
                 status.seconds_until_reset = 60 - (now % 60);

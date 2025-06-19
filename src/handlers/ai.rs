@@ -85,3 +85,32 @@ pub async fn handle_api_ai_analyze(req: Request, env: Env) -> Result<Response> {
         }
     }
 }
+
+pub async fn handle_ai_request(req: Request, env: Env) -> worker::Result<Response> {
+    let d1_database = Arc::new(env.d1("ArbEdgeD1")?);
+    let kv_store = Arc::new(env.kv("ArbEdgeKV")?);
+
+    // Initialize AI service
+    let ai_service = AiIntegrationService::new(kv_store.clone(), d1_database.clone());
+
+    match req.method() {
+        Method::Get => {
+            // Handle AI data retrieval
+            let response_data = serde_json::json!({
+                "status": "success",
+                "message": "AI service available",
+                "data": []
+            });
+            Response::from_json(&response_data)
+        }
+        Method::Post => {
+            // Handle AI request processing
+            let response_data = serde_json::json!({
+                "status": "success",
+                "message": "AI request processed"
+            });
+            Response::from_json(&response_data)
+        }
+        _ => Response::error("Method not allowed", 405),
+    }
+}

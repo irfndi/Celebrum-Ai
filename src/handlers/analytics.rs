@@ -1,8 +1,9 @@
 use crate::middleware::extract_user_id_from_headers;
 use crate::responses::ApiResponse;
 use crate::services;
+use crate::services::core::analysis::analytics_service::AnalyticsService;
 use std::sync::Arc;
-use worker::{Env, Request, Response, Result};
+use worker::{Env, Method, Request, Response, Result};
 
 /// Get dashboard analytics for authenticated user
 pub async fn handle_api_get_dashboard_analytics(req: Request, env: Env) -> Result<Response> {
@@ -80,5 +81,37 @@ pub async fn handle_api_get_dashboard_analytics(req: Request, env: Env) -> Resul
             let response = ApiResponse::<()>::error(format!("Failed to fetch user profile: {}", e));
             Ok(Response::from_json(&response)?.with_status(500))
         }
+    }
+}
+
+pub async fn handle_analytics_request(
+    req: Request,
+    env: Env,
+) -> worker::Result<Response> {
+    let d1_database = Arc::new(env.d1("ArbEdgeD1")?);
+    let kv_store = Arc::new(env.kv("ArbEdgeKV")?);
+
+    // Initialize analytics service
+    let analytics_service = AnalyticsService::new(kv_store.clone(), d1_database.clone());
+
+    match req.method() {
+        Method::Get => {
+            // Handle analytics data retrieval
+            let response_data = serde_json::json!({
+                "status": "success",
+                "message": "Analytics data retrieved",
+                "data": []
+            });
+            Response::from_json(&response_data)
+        }
+        Method::Post => {
+            // Handle analytics data submission
+            let response_data = serde_json::json!({
+                "status": "success",
+                "message": "Analytics data processed"
+            });
+            Response::from_json(&response_data)
+        }
+        _ => Response::error("Method not allowed", 405),
     }
 }

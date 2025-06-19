@@ -10,11 +10,12 @@
 //!
 //! Total consolidation: 6 files → 1 file (171KB → ~90KB optimized)
 
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::utils::error::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
-use worker::{kv::KvStore, wasm_bindgen::JsValue, D1Database};
+use worker::kv::KvStore;
+use worker::wasm_bindgen::JsValue;
 
 /// Unified configuration for all ingestion operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -282,7 +283,7 @@ impl RateLimiter {
 #[derive(Clone)]
 pub struct UnifiedIngestionEngine {
     config: UnifiedIngestionConfig,
-    db: Arc<D1Database>,
+    db: Arc<worker::D1Database>,
     kv_store: Option<Arc<KvStore>>,
     message_queue: Arc<Mutex<VecDeque<IngestionMessage>>>,
     metrics: Arc<Mutex<UnifiedIngestionMetrics>>,
@@ -311,7 +312,10 @@ enum CircuitState {
 
 impl UnifiedIngestionEngine {
     /// Create new unified ingestion engine
-    pub fn new(config: UnifiedIngestionConfig, db: Arc<D1Database>) -> ArbitrageResult<Self> {
+    pub fn new(
+        config: UnifiedIngestionConfig,
+        db: Arc<worker::D1Database>,
+    ) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
         logger
@@ -858,7 +862,7 @@ impl UnifiedIngestionEngine {
 
     async fn load_persisted_queue(&self) -> ArbitrageResult<()> {
         if let Some(kv) = &self.kv_store {
-            if let Ok(Some(queue_data)) = kv.get("ingestion_queue").text().await {
+            if let Some(queue_data) = kv.get("ingestion_queue").text().await? {
                 match serde_json::from_str::<Vec<IngestionMessage>>(&queue_data) {
                     Ok(messages) => {
                         if let Ok(mut queue) = self.message_queue.lock() {
@@ -1050,7 +1054,7 @@ impl UnifiedIngestionBuilder {
         self
     }
 
-    pub fn build(self, db: Arc<D1Database>) -> ArbitrageResult<UnifiedIngestionEngine> {
+    pub fn build(self, db: Arc<worker::D1Database>) -> ArbitrageResult<UnifiedIngestionEngine> {
         UnifiedIngestionEngine::new(self.config, db)
     }
 }

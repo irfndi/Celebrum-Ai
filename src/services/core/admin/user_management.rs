@@ -4,7 +4,7 @@ use crate::types::{
     GroupAdminRole, GroupRegistration, SubscriptionTier, UpdateUserProfileRequest, UserAccessLevel,
     UserProfile, UserSession, UserStatistics,
 };
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::utils::error::{ArbitrageError, ArbitrageResult};
 use worker::{kv::KvStore, Env};
 
 /// User management service for super admin operations

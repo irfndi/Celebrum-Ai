@@ -8,10 +8,9 @@
 //!
 //! Total consolidation: 4 files → 1 file (92KB → ~50KB optimized)
 
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::utils::error::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use worker::D1Database;
 
 /// Unified database configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,7 +120,7 @@ pub struct MigrationRecord {
 /// Unified database core service
 pub struct UnifiedDatabaseCore {
     config: UnifiedDatabaseConfig,
-    db: Arc<D1Database>,
+    db: Arc<worker::D1Database>,
     schema_info: Arc<Mutex<Option<SchemaInfo>>>,
     migration_history: Arc<Mutex<Vec<MigrationRecord>>>,
     logger: crate::utils::logger::Logger,
@@ -129,7 +128,10 @@ pub struct UnifiedDatabaseCore {
 
 impl UnifiedDatabaseCore {
     /// Create new unified database core
-    pub fn new(config: UnifiedDatabaseConfig, db: Arc<D1Database>) -> ArbitrageResult<Self> {
+    pub fn new(
+        config: UnifiedDatabaseConfig,
+        db: Arc<worker::D1Database>,
+    ) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
 
         logger.info("Initializing UnifiedDatabaseCore - consolidating 4 database modules into 1");
@@ -503,7 +505,7 @@ impl UnifiedDatabaseBuilder {
         self
     }
 
-    pub fn build(self, db: Arc<D1Database>) -> ArbitrageResult<UnifiedDatabaseCore> {
+    pub fn build(self, db: Arc<worker::D1Database>) -> ArbitrageResult<UnifiedDatabaseCore> {
         UnifiedDatabaseCore::new(self.config, db)
     }
 }

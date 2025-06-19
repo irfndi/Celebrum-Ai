@@ -368,7 +368,7 @@ impl OpportunityDataCache {
 
         for key in stat_keys {
             let cache_key = format!("{}:{}", self.cache_prefixes.distribution_stats, key);
-            if let Ok(Some(data)) = self.kv_store.get(&cache_key).text().await {
+            if let Some(data) = self.kv_store.get(&cache_key).text().await? {
                 if let Ok(parsed_data) = serde_json::from_str(&data) {
                     stats.insert(key.to_string(), parsed_data);
                 }

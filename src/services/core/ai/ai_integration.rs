@@ -203,7 +203,7 @@ impl AiIntegrationService {
         let mut ai_keys = Vec::new();
         for key_id in key_ids {
             let key = format!("ai_key:{}:{}", user_id, key_id);
-            if let Ok(Some(data)) = self.kv_store.get(&key).text().await {
+            if let Some(data) = self.kv_store.get(&key).text().await? {
                 // Already correct
                 if let Ok(api_key) = serde_json::from_str::<UserApiKey>(&data) {
                     ai_keys.push(api_key);
@@ -857,7 +857,7 @@ impl AiIntegrationService {
         api_key_id: &str,
     ) -> ArbitrageResult<()> {
         let key = format!("ai_key:{}:{}", user_id, api_key_id);
-        if let Ok(Some(data)) = self.kv_store.get(&key).text().await {
+        if let Some(data) = self.kv_store.get(&key).text().await? {
             if let Ok(mut api_key) = serde_json::from_str::<UserApiKey>(&data) {
                 api_key.update_last_used();
 

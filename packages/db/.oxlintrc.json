@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/crates/oxc_linter/src/config/oxlintrc.schema.json",
+  "plugins": ["typescript", "import", "unicorn"],
+  "rules": {
+    "typescript/prefer-as-const": "error",
+    "typescript/no-explicit-any": "warn",
+    "typescript/no-unused-vars": "error",
+    "typescript/consistent-type-imports": "error",
+    "import/order": "error",
+    "import/no-duplicates": "error",
+    "import/first": "error",
+    "import/newline-after-import": "error",
+    "unicorn/prefer-module": "error",
+    "unicorn/prefer-node-protocol": "error",
+    "unicorn/no-array-push-push": "error",
+    "unicorn/prefer-ternary": "error"
+  },
+  "env": {
+    "node": true,
+    "es2022": true
+  },
+  "settings": {
+    "import/resolver": {
+      "typescript": {
+        "alwaysTryTypes": true
+      }
+    }
+  }
+} 

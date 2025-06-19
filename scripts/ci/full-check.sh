@@ -159,7 +159,7 @@ if command -v wrangler >/dev/null 2>&1; then
         exit 1
     fi
 else
-    print_warning "Wrangler not installed. Install with: npm install -g wrangler@latest"
+    print_warning "Wrangler not installed. Install with: pnpm add -g wrangler@latest"
 fi
 
 # Step 11: Code quality metrics
@@ -202,4 +202,4 @@ echo -e "${BLUE}Next steps:${NC}"
 echo -e "  1. Review any warnings above"
 echo -e "  2. Check coverage report if generated"
 echo -e "  3. Commit your changes if satisfied"
-echo -e "  4. Run './scripts/local-ci.sh' before pushing" 
+echo -e "  4. Run './scripts/local-ci.sh' before pushing"

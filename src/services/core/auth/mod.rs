@@ -26,29 +26,14 @@ pub use user_auth::{
     TelegramUserInfo, UserAuthService,
 };
 
+use crate::services::core::user::session_management::SessionManagementService as SessionService;
+use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::UserProfile;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;
 use worker::console_log;
 
-/// Trait for user profile operations
-/// Use ?Send for WASM compatibility (Cloudflare Workers)
-#[async_trait::async_trait(?Send)]
-pub trait UserProfileProvider: Sync {
-    async fn get_user_profile(&self, user_id: &str) -> ArbitrageResult<UserProfile>;
-    async fn create_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()>;
-    async fn update_user_profile(&self, profile: &UserProfile) -> ArbitrageResult<()>;
-}
-
-/// Trait for session management operations
-/// Use ?Send for WASM compatibility (Cloudflare Workers)
-#[async_trait::async_trait(?Send)]
-pub trait SessionProvider: Sync {
-    async fn validate_session(&self, session_id: &str) -> ArbitrageResult<bool>;
-    async fn create_session(&self, user_id: &str) -> ArbitrageResult<String>;
-    async fn update_session_activity(&self, session_id: &str) -> ArbitrageResult<()>;
-    async fn end_session(&self, session_id: &str) -> ArbitrageResult<()>;
-}
+// Async traits removed - using concrete types for better async compatibility
 
 /// Main Authentication & Authorization Service
 ///
@@ -56,8 +41,8 @@ pub trait SessionProvider: Sync {
 pub struct AuthService {
     rbac_service: RBACService,
     permission_checker: PermissionChecker,
-    user_profile_provider: Option<Arc<dyn UserProfileProvider>>,
-    session_provider: Option<Arc<dyn SessionProvider>>,
+    user_profile_provider: Option<UserProfileService>,
+    session_provider: Option<SessionService>,
 }
 
 impl AuthService {
@@ -80,13 +65,13 @@ impl AuthService {
     }
 
     /// Set user profile provider for dependency injection
-    pub fn set_user_profile_provider(&mut self, provider: Arc<dyn UserProfileProvider>) {
+    pub fn set_user_profile_provider(&mut self, provider: UserProfileService) {
         self.user_profile_provider = Some(provider);
         console_log!("✅ User profile provider injected into auth service");
     }
 
     /// Set session provider for dependency injection
-    pub fn set_session_provider(&mut self, provider: Arc<dyn SessionProvider>) {
+    pub fn set_session_provider(&mut self, provider: SessionService) {
         self.session_provider = Some(provider);
         console_log!("✅ Session provider injected into auth service");
     }
@@ -101,7 +86,10 @@ impl AuthService {
 
         // Get user profile from provider
         let user_profile = if let Some(provider) = &self.user_profile_provider {
-            provider.get_user_profile(user_id).await?
+            match provider.get_user_profile(user_id).await? {
+                Some(profile) => profile,
+                None => return Err(ArbitrageError::unauthorized("User profile not found")),
+            }
         } else {
             return Err(ArbitrageError::service_unavailable(
                 "User profile provider not configured",
@@ -119,7 +107,10 @@ impl AuthService {
 
         // Get user profile from provider
         let user_profile = if let Some(provider) = &self.user_profile_provider {
-            provider.get_user_profile(user_id).await?
+            match provider.get_user_profile(user_id).await? {
+                Some(profile) => profile,
+                None => return Err(ArbitrageError::unauthorized("User profile not found")),
+            }
         } else {
             return Err(ArbitrageError::service_unavailable(
                 "User profile provider not configured",
@@ -157,7 +148,10 @@ impl AuthService {
 
         // Get user profile from provider
         let user_profile = if let Some(provider) = &self.user_profile_provider {
-            provider.get_user_profile(user_id).await?
+            match provider.get_user_profile(user_id).await? {
+                Some(profile) => profile,
+                None => return Err(ArbitrageError::unauthorized("User profile not found")),
+            }
         } else {
             return Err(ArbitrageError::service_unavailable(
                 "User profile provider not configured",
@@ -173,7 +167,7 @@ impl AuthService {
         console_log!("🔍 Validating session: {}", session_id);
 
         // Validate session using provider
-        let is_valid = if let Some(provider) = &self.session_provider {
+        let session_opt = if let Some(provider) = &self.session_provider {
             provider.validate_session(session_id).await?
         } else {
             return Err(ArbitrageError::service_unavailable(
@@ -181,7 +175,7 @@ impl AuthService {
             ));
         };
 
-        if !is_valid {
+        if session_opt.is_none() {
             return Err(ArbitrageError::authentication_error("Invalid session"));
         }
 
@@ -190,7 +184,10 @@ impl AuthService {
 
         // Get user profile
         let user_profile = if let Some(provider) = &self.user_profile_provider {
-            provider.get_user_profile(&user_id).await?
+            match provider.get_user_profile(&user_id).await? {
+                Some(profile) => profile,
+                None => return Err(ArbitrageError::unauthorized("User profile not found")),
+            }
         } else {
             return Err(ArbitrageError::service_unavailable(
                 "User profile provider not configured",
@@ -220,9 +217,9 @@ impl AuthService {
         console_log!("🆕 Creating session for user: {}", user_id);
 
         if let Some(provider) = &self.session_provider {
-            let session_id = provider.create_session(user_id).await?;
-            console_log!("✅ Session created: {}", session_id);
-            Ok(session_id)
+            let session = provider.get_session(user_id).await?;
+            console_log!("✅ Session created: {}", session.session_id);
+            Ok(session.session_id)
         } else {
             Err(ArbitrageError::service_unavailable(
                 "Session provider not configured",

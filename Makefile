@@ -1,22 +1,42 @@
-# ArbEdge Rust Development Makefile
-# Ensures correct Rust toolchain for all operations
+# Cerebrum AI Unified Monorepo Makefile
+# Ensures correct Rust toolchain and pnpm for all operations
 
-# Use rustup's Rust, not Homebrew's
+# Use rustup's Rust, not Homebrew's, and include pnpm
 SHELL := /bin/bash
 export PATH := $(HOME)/.cargo/bin:$(PATH)
 
 .PHONY: help setup test build build-wasm coverage clean lint fix fmt check-all deploy pre-commit local-ci full-check unit-tests integration-tests e2e-tests lib-tests ci-pipeline test-api test-api-local test-api-staging test-api-production test-api-prod-admin test-api-v1 test-api-v1-local test-api-v1-staging test-api-v1-production
 
 help: ## Show this help message
-	@echo "🦀 ArbEdge Rust Development Commands"
+	@echo "🦀 ArbEdge Unified Monorepo Commands"
 	@echo "===================================="
-	@echo "\033[33m💡 Tip: Use 'make local-ci' to mirror GitHub CI exactly\033[0m"
+	@echo "\033[33m💡 Tip: Use 'make ci' for full validation (Rust + TypeScript)\033[0m"
 	@echo "\033[33m💡 Tip: Use 'make fix-and-validate' to auto-fix then validate\033[0m"
 	@echo "===================================="
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 setup: ## Run development environment setup
-	@./scripts/dev-setup.sh
+	@./scripts/dev/dev-setup.sh
+
+# Package management
+install: ## Install all dependencies (Rust + TypeScript packages)
+	@echo "📦 Installing dependencies..."
+	@echo "📦 Installing pnpm dependencies..."
+	@pnpm install
+	@echo "📦 Setting up Rust toolchain..."
+	@rustup component add clippy rustfmt
+
+build-packages: ## Build all TypeScript packages
+	@echo "🔨 Building TypeScript packages..."
+	@pnpm run build
+
+test-packages: ## Test all TypeScript packages
+	@echo "🧪 Testing TypeScript packages..."
+	@pnpm run test
+
+lint-packages: ## Lint all TypeScript packages
+	@echo "🔍 Linting TypeScript packages..."
+	@pnpm run lint
 
 # Testing commands
 test: ## Run all tests
@@ -93,42 +113,56 @@ fix: ## Apply automatic fixes
 	@cargo clippy --fix --allow-dirty
 
 # CI Pipeline
-ci-pipeline: ## Run comprehensive CI pipeline
-	@echo "🚀 Starting Full CI Pipeline..."
-	@echo "================================"
-	@echo "🎨 Step 1: Code Formatting Check"
+ci-pipeline: ## Run comprehensive CI pipeline (Rust + TypeScript)
+	@echo "🚀 Starting Full Monorepo CI Pipeline..."
+	@echo "========================================"
+	@echo "📦 Step 0: Installing Dependencies"
+	@pnpm install --frozen-lockfile
+	@echo "✅ Step 0: Dependencies Installed"
+	@echo "🎨 Step 1: TypeScript Package Linting"
+	@pnpm run lint
+	@echo "✅ Step 1: TypeScript Linting Passed"
+	@echo "🔨 Step 2: TypeScript Package Building"
+	@pnpm run build
+	@echo "✅ Step 2: TypeScript Packages Built"
+	@echo "🧪 Step 3: TypeScript Package Testing"
+	@pnpm run test
+	@echo "✅ Step 3: TypeScript Tests Passed"
+	@echo "🎨 Step 4: Rust Code Formatting Check"
 	@cargo fmt --all -- --check
-	@echo "🔍 Step 2: Clippy Linting Check"
+	@echo "✅ Step 4: Rust Formatting Passed"
+	@echo "🔍 Step 5: Rust Clippy Linting Check"
 	@cargo clippy --all-targets --all-features -- -D warnings --verbose
-	@echo "✅ Step 2: Clippy Linting Passed"
-	@echo "🎯 Step 3: WASM Target Compilation Check"
+	@echo "✅ Step 5: Rust Clippy Linting Passed"
+	@echo "🎯 Step 6: WASM Target Compilation Check"
 	@cargo check --target wasm32-unknown-unknown --lib --verbose
-	@echo "✅ Step 3: WASM Target Compilation Passed"
-	@echo "🧪 Step 4: Library Tests"
+	@echo "✅ Step 6: WASM Target Compilation Passed"
+	@echo "🧪 Step 7: Rust Library Tests"
 	@cargo test --lib --verbose
-	@echo "✅ Step 4: Library Tests Passed (327 tests)"
-	@echo "🧪 Step 5: Unit Tests"
+	@echo "✅ Step 7: Rust Library Tests Passed (327 tests)"
+	@echo "🧪 Step 8: Rust Unit Tests"
 	@$(MAKE) unit-tests
-	@echo "✅ Step 5: Unit Tests Passed (67 tests)"
-	@echo "🧪 Step 6: Integration & E2E Tests"
+	@echo "✅ Step 8: Rust Unit Tests Passed (67 tests)"
+	@echo "🧪 Step 9: Rust Integration & E2E Tests"
 	@$(MAKE) integration-tests
 	@$(MAKE) e2e-tests
-	@echo "✅ Step 6: Integration & E2E Tests Passed (74 tests)"
-	@echo "🔧 Step 7: Final Native Compilation Check"
+	@echo "✅ Step 9: Rust Integration & E2E Tests Passed (74 tests)"
+	@echo "🔧 Step 10: Final Native Compilation Check"
 	@cargo check --verbose
-	@echo "✅ Step 7: Final Native Compilation Check Passed"
-	@echo "🎯 Step 8: Final WASM Build Verification"
+	@echo "✅ Step 10: Final Native Compilation Check Passed"
+	@echo "🎯 Step 11: Final WASM Build Verification"
 	@cargo build --target wasm32-unknown-unknown --lib --verbose
-	@echo "✅ Step 8: Final WASM Build Verification Passed"
-	@echo "🎉 CI Pipeline Completed Successfully!"
+	@echo "✅ Step 11: Final WASM Build Verification Passed"
+	@echo "🎉 Monorepo CI Pipeline Completed Successfully!"
 	@echo "📊 Test Summary:"
-	@echo "   - Library Tests: 327 tests"
-	@echo "   - Unit Tests: 67 tests"
-	@echo "   - Integration Tests: 62 tests"
-	@echo "   - E2E Tests: 12 tests"
-	@echo "   - Total: 468 tests passing"
-	@echo "   - Coverage: 50-80% achieved across all modules"
+	@echo "   - TypeScript Packages: All built and tested ✅"
+	@echo "   - Rust Library Tests: 327 tests ✅"
+	@echo "   - Rust Unit Tests: 67 tests ✅"
+	@echo "   - Rust Integration Tests: 62 tests ✅"
+	@echo "   - Rust E2E Tests: 12 tests ✅"
+	@echo "   - Total Rust Tests: 468 tests passing ✅"
 	@echo "   - WASM Compatibility: ✅ Verified"
+	@echo "   - Monorepo Integration: ✅ Complete"
 
 # Coverage and documentation
 coverage: ## Generate test coverage report

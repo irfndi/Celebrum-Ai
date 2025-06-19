@@ -214,7 +214,7 @@ impl DynamicConfigService {
     ) -> ArbitrageResult<Option<DynamicConfigTemplate>> {
         // Try cache first
         let cache_key = format!("config_template:{}", template_id);
-        if let Ok(Some(cached)) = self.kv_store.get(&cache_key).text().await {
+        if let Some(cached) = self.kv_store.get(&cache_key).text().await? {
             // Already correct
             if let Ok(template) = serde_json::from_str::<DynamicConfigTemplate>(&cached) {
                 return Ok(Some(template));
@@ -350,7 +350,7 @@ impl DynamicConfigService {
     ) -> ArbitrageResult<Option<UserConfigInstance>> {
         // Try cache first
         let cache_key = format!("user_config:{}:{}", user_id, template_id);
-        if let Ok(Some(cached)) = self.kv_store.get(&cache_key).text().await {
+        if let Some(cached) = self.kv_store.get(&cache_key).text().await? {
             // Already correct
             if let Ok(config) = serde_json::from_str::<UserConfigInstance>(&cached) {
                 return Ok(Some(config));
@@ -391,7 +391,7 @@ impl DynamicConfigService {
             .ok_or_else(|| ArbitrageError::not_found("No active configuration found"))?;
 
         if let Some(rollback_data) = &current_config.rollback_data {
-            let previous_config: UserConfigInstance = serde_json::from_str(rollback_data)?;
+            let previous_config: UserConfigInstance = serde_json::from_str(&rollback_data)?;
 
             // Apply the previous configuration
             let restored_config = self

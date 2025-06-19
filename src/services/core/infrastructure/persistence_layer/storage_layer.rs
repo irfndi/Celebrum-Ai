@@ -2,10 +2,10 @@
 // Replaces the complex multi-file persistence layer with a unified approach
 // Optimized for Cloudflare Workers environment with D1/KV/R2 focus
 
-use crate::utils::{ArbitrageError, ArbitrageResult};
+use crate::utils::error::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 
-use worker::{kv::KvStore, D1Database};
+use worker::kv::KvStore;
 
 /// Unified configuration for all storage operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +62,7 @@ impl Default for StorageLayerMetrics {
 pub struct StorageLayerService {
     #[allow(dead_code)]
     config: StorageLayerConfig,
-    d1_database: Option<D1Database>,
+    d1_database: Option<worker::D1Database>,
     kv_store: KvStore,
     metrics: std::sync::Arc<std::sync::Mutex<StorageLayerMetrics>>,
     #[allow(dead_code)]
@@ -73,7 +73,7 @@ impl StorageLayerService {
     /// Create new unified storage service
     pub fn new(
         config: StorageLayerConfig,
-        d1_database: Option<D1Database>,
+        d1_database: Option<worker::D1Database>,
         kv_store: KvStore,
     ) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
@@ -305,7 +305,7 @@ impl StorageLayerService {
 /// Builder pattern for creating storage layer service
 pub struct StorageLayerBuilder {
     config: StorageLayerConfig,
-    d1_database: Option<D1Database>,
+    d1_database: Option<worker::D1Database>,
 }
 
 impl StorageLayerBuilder {
@@ -316,7 +316,7 @@ impl StorageLayerBuilder {
         }
     }
 
-    pub fn with_d1_database(mut self, database: D1Database) -> Self {
+    pub fn with_d1_database(mut self, database: worker::D1Database) -> Self {
         self.d1_database = Some(database);
         self
     }

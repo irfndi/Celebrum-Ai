@@ -44,6 +44,21 @@ print_step "Setting up environment"
 echo "Rust version: $(rustc --version)"
 echo "Cargo version: $(cargo --version)"
 echo "Node version: $(node --version 2>/dev/null || echo 'Node not found')"
+echo "pnpm version: $(pnpm --version 2>/dev/null || echo 'pnpm not found')"
+
+# Step 1.5: Install pnpm dependencies (mirrors CI)
+print_step "Installing pnpm dependencies"
+if command -v pnpm >/dev/null 2>&1; then
+    if pnpm install --frozen-lockfile; then
+        print_success "pnpm dependencies installed"
+    else
+        print_error "pnpm install failed"
+        exit 1
+    fi
+else
+    print_error "pnpm not found. Please install pnpm first."
+    exit 1
+fi
 
 # Step 2: Add WASM target (mirrors CI)
 print_step "Adding WASM target"
@@ -54,43 +69,79 @@ else
     print_success "WASM target added"
 fi
 
-# Step 3: Check formatting (mirrors CI)
-print_step "Checking code formatting"
+# Step 3: Lint TypeScript packages (mirrors CI)
+print_step "Linting TypeScript packages"
+if pnpm run lint; then
+    print_success "TypeScript linting passed"
+else
+    print_error "TypeScript linting failed"
+    exit 1
+fi
+
+# Step 4: Type check all packages (mirrors CI)
+print_step "Type checking all packages"
+if pnpm run typecheck; then
+    print_success "TypeScript type checking passed"
+else
+    print_error "TypeScript type checking failed"
+    exit 1
+fi
+
+# Step 5: Build TypeScript packages (mirrors CI)
+print_step "Building TypeScript packages"
+if pnpm run build; then
+    print_success "TypeScript packages built successfully"
+else
+    print_error "TypeScript package build failed"
+    exit 1
+fi
+
+# Step 6: Test TypeScript packages (mirrors CI)
+print_step "Testing TypeScript packages"
+if pnpm run test; then
+    print_success "TypeScript tests passed"
+else
+    print_error "TypeScript tests failed"
+    exit 1
+fi
+
+# Step 6: Check Rust formatting (mirrors CI)
+print_step "Checking Rust code formatting"
 if cargo fmt --all -- --check; then
-    print_success "Code formatting is correct"
+    print_success "Rust code formatting is correct"
 else
-    print_error "Code formatting issues found. Run 'cargo fmt' to fix."
+    print_error "Rust code formatting issues found. Run 'cargo fmt' to fix."
     exit 1
 fi
 
-# Step 4: Check compilation (mirrors CI)
-print_step "Checking compilation for all targets"
+# Step 7: Check Rust compilation (mirrors CI)
+print_step "Checking Rust compilation for all targets"
 if cargo check --all-targets --all-features; then
-    print_success "Compilation check passed"
+    print_success "Rust compilation check passed"
 else
-    print_error "Compilation errors found"
+    print_error "Rust compilation errors found"
     exit 1
 fi
 
-# Step 5: Run linter (mirrors CI)
-print_step "Running clippy linter"
+# Step 8: Run Rust linter (mirrors CI)
+print_step "Running Rust clippy linter"
 if cargo clippy --all-targets --all-features -- -D warnings; then
-    print_success "Clippy checks passed"
+    print_success "Rust clippy checks passed"
 else
-    print_error "Clippy warnings/errors found"
+    print_error "Rust clippy warnings/errors found"
     exit 1
 fi
 
-# Step 6: Run tests (mirrors CI)
-print_step "Running tests"
+# Step 9: Run Rust tests (mirrors CI)
+print_step "Running Rust tests"
 if cargo test --verbose --all-targets --all-features; then
-    print_success "All tests passed"
+    print_success "All Rust tests passed"
 else
-    print_error "Tests failed"
+    print_error "Rust tests failed"
     exit 1
 fi
 
-# Step 7: Build for WASM (mirrors CI)
+# Step 10: Build for WASM (mirrors CI)
 print_step "Building for WASM target"
 if cargo build --target wasm32-unknown-unknown --release; then
     print_success "WASM build successful"
@@ -99,7 +150,7 @@ else
     exit 1
 fi
 
-# Step 8: Test wrangler build (mirrors CI dry-run)
+# Step 11: Test wrangler build (mirrors CI dry-run)
 print_step "Testing wrangler build (dry-run)"
 if command -v wrangler >/dev/null 2>&1; then
     echo "Wrangler version: $(wrangler --version)"
@@ -111,7 +162,7 @@ if command -v wrangler >/dev/null 2>&1; then
     fi
 else
     print_warning "Wrangler not installed, skipping dry-run test"
-    print_warning "Install with: npm install -g wrangler@latest"
+    print_warning "Install with: pnpm add -g wrangler@latest"
 fi
 
 # Final summary
@@ -119,4 +170,4 @@ echo -e "\n${GREEN}=====================================${NC}"
 echo -e "${GREEN}🎉 All CI checks passed locally!${NC}"
 echo -e "${GREEN}=====================================${NC}"
 echo -e "Your code is ready for commit and push."
-echo -e "The GitHub Actions CI should pass without issues." 
+echo -e "The GitHub Actions CI should pass without issues."

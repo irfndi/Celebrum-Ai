@@ -1,0 +1,24 @@
+packages:
+  - "packages/*"
+  - "packages/core"
+  - "packages/shared" 
+  - "packages/web"
+  - "packages/discord-bot"
+  - "packages/telegram-bot"
+
+# Optional: Configure package versioning for monorepo
+catalog:
+  # Common dependencies that can be shared across packages
+  typescript: ^5.7.2
+  "@types/node": ^22.10.2
+  wrangler: ^4.19.1
+  oxlint: ^1.1.0
+  "drizzle-orm": ^0.44.2
+  "drizzle-kit": ^0.31.1
+
+# Configure pnpm settings
+publishConfig:
+  registry: "https://registry.npmjs.org/"
+
+# Link workspace protocol for local packages
+link-workspace-packages: true 

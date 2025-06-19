@@ -1,98 +1,80 @@
 [package]
-name = "arb_edge"
+name = "cerebrum-ai"
 version = "0.1.0"
 edition = "2021"
+description = "Cerebrum AI Trading Platform - Unified Cloudflare Worker with Core API, Telegram Bot, and Web Interface"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[features]
-default = []
-disabled_tests = []
-enable-logging = []
-
 [dependencies]
-worker = { version = "0.5.0", features = ["d1"] }
-console_error_panic_hook = "0.1.7"
+# Core worker dependencies  
+worker = { version = "0.3", features = ["d1", "queue"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+uuid = { version = "1.0", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
-url = "2.5"
-base64 = "0.22"
-hmac = "0.12"
-sha2 = "0.10"
-hex = "0.4"
-uuid = { version = "1.17", features = ["v4", "serde", "js"] }
-anyhow = "1.0"
-futures = "0.3"
-thiserror = "2.0"
-regex = "1.11"
-async-trait = "0.1"
 log = "0.4"
-rand = "0.8"
+reqwest = { version = "0.11", features = ["json"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+sha2 = "0.10"
 aes-gcm = "0.10"
-secrecy = "0.8"
-once_cell = "1.19"
-approx = "0.5"
+base64 = "0.21"
+ring = "0.16"
+futures = "0.3"
+tokio-util = "0.7"
+url = "2.4"
+indexmap = "2.0"
+
+# Additional dependencies for unified application
+once_cell = "1.18"
+rand = "0.8"
 md5 = "0.7"
-http = "1.0"
+regex = "1.0"
 parking_lot = "0.12"
-flate2 = "1.1.2"
+anyhow = "1.0"
+secrecy = "0.8"
+thiserror = "1.0"
+rust_decimal = { version = "1.0", features = ["serde-float"] }
+rust_decimal_macros = "1.0"
+async-trait = "0.1"
 
-# WASM-specific dependencies
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "console",
+  "Request",
+  "Response", 
+  "Headers",
+  "Url",
+  "Performance",
+  "Window",
+]
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.93"
-wasm-bindgen-futures = "0.4.43"
-js-sys = "0.3.70"
-web-sys = { version = "0.3.70", features = ["Window", "Performance"] }
+wasm-bindgen = "0.2.95"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+wee_alloc = "0.4"
+wasm-bindgen-futures = "0.4"
 gloo-timers = { version = "0.3", features = ["futures"] }
-wee_alloc = "0.4.5"
-# Fix for getrandom WASM compatibility
 getrandom = { version = "0.2", features = ["js"] }
-# HTTP client for WASM - reqwest with WASM features
-reqwest = { version = "0.12.15", features = ["json"], default-features = false }
-
-# Native (non-WASM) dependencies
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# HTTP client for native - reqwest with full features
-reqwest = { version = "0.12.15", features = ["json", "stream"], default-features = false }
-tokio = { version = "1.42", features = ["macros", "rt"] }
-sysinfo = "0.32"
 
 [dev-dependencies]
-criterion = "0.5"
-# WASM-compatible dev dependencies
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-tokio = { version = "1.42", features = ["macros", "rt"] }
 tokio-test = "0.4"
-mockall = "0.12"
+mockall = "0.11"
 
-# Native dev dependencies
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-tokio = { version = "1.42", features = ["macros", "rt-multi-thread"] }
-tokio-test = "0.4"
-mockall = "0.12"
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
 
-[target.wasm32-unknown-unknown.dependencies]
-wee_alloc = "0.4.5"
-
-# E2E Tests
-[[test]]
-name = "webhook_session_management_test"
-path = "tests/e2e/webhook_session_management_test.rs"
-
-# Integration Tests
-[[test]]
-name = "session_opportunity_integration_test"
-path = "tests/integration/session_opportunity_integration_test.rs"
-
-[[test]]
-name = "service_communication_test"
-path = "tests/integration/service_communication_test.rs"
-
-[[test]]
-name = "persistence_layer_integration_test"
-path = "tests/integration/persistence_layer_integration_test.rs"
+[profile.dev]
+opt-level = 0
+debug = true
+panic = "unwind"
 
 
 

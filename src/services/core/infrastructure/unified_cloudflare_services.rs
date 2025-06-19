@@ -15,8 +15,9 @@ use crate::utils::error::{ArbitrageError, ArbitrageResult, ErrorKind};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use worker::wasm_bindgen;
-use worker::{kv::KvStore, D1Database, Env};
+use worker::{wasm_bindgen, Env, D1Database};
+use worker::kv::KvStore;
+use wasm_bindgen::JsValue;
 
 // ============= UNIFIED CONFIGURATION =============
 

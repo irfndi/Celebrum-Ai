@@ -1,0 +1,109 @@
+name = "arb-edge-worker"
+main = "dist/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Worker configuration
+[env.development]
+name = "arb-edge-worker-dev"
+route = { pattern = "dev.arb-edge.com/*", zone_name = "arb-edge.com" }
+
+[env.staging]
+name = "arb-edge-worker-staging"
+route = { pattern = "staging.arb-edge.com/*", zone_name = "arb-edge.com" }
+
+[env.production]
+name = "arb-edge-worker"
+route = { pattern = "arb-edge.com/*", zone_name = "arb-edge.com" }
+
+# KV Namespaces
+[[kv_namespaces]]
+binding = "ArbEdgeKV"
+preview_id = "preview_kv_namespace_id"
+id = "production_kv_namespace_id"
+
+[[kv_namespaces]]
+binding = "PROD_BOT_MARKET_CACHE"
+preview_id = "preview_market_cache_id"
+id = "production_market_cache_id"
+
+[[kv_namespaces]]
+binding = "PROD_BOT_SESSION_STORE"
+preview_id = "preview_session_store_id"
+id = "production_session_store_id"
+
+# D1 Database
+[[d1_databases]]
+binding = "ArbEdgeD1"
+database_name = "arb-edge-db"
+database_id = "your-d1-database-id"
+
+# Environment Variables
+[vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "info"
+RATE_LIMIT_REQUESTS_PER_MINUTE = "60"
+CACHE_TTL_SECONDS = "300"
+SUPER_ADMIN_USER_ID = "admin"
+EXCHANGES = "binance,coinbase,kraken"
+ARBITRAGE_THRESHOLD = "0.5"
+TELEGRAM_CHAT_ID = "your-telegram-chat-id"
+TELEGRAM_TEST_MODE = "false"
+
+# Service URLs for routing
+WEB_SERVICE_URL = "https://web.arb-edge.com"
+API_SERVICE_URL = "https://api.arb-edge.com"
+DISCORD_BOT_SERVICE_URL = "https://discord-bot.arb-edge.com"
+TELEGRAM_BOT_SERVICE_URL = "https://telegram-bot.arb-edge.com"
+
+# Development environment overrides
+[env.development.vars]
+ENVIRONMENT = "development"
+LOG_LEVEL = "debug"
+RATE_LIMIT_REQUESTS_PER_MINUTE = "120"
+TELEGRAM_TEST_MODE = "true"
+WEB_SERVICE_URL = "http://localhost:3000"
+API_SERVICE_URL = "http://localhost:8787"
+DISCORD_BOT_SERVICE_URL = "http://localhost:3001"
+TELEGRAM_BOT_SERVICE_URL = "http://localhost:3002"
+
+# Staging environment overrides
+[env.staging.vars]
+ENVIRONMENT = "staging"
+LOG_LEVEL = "info"
+RATE_LIMIT_REQUESTS_PER_MINUTE = "90"
+TELEGRAM_TEST_MODE = "true"
+WEB_SERVICE_URL = "https://web-staging.arb-edge.com"
+API_SERVICE_URL = "https://api-staging.arb-edge.com"
+DISCORD_BOT_SERVICE_URL = "https://discord-bot-staging.arb-edge.com"
+TELEGRAM_BOT_SERVICE_URL = "https://telegram-bot-staging.arb-edge.com"
+
+# Build configuration
+[build]
+command = "pnpm run build"
+
+# Miniflare configuration for local development
+[miniflare]
+kv_persist = true
+d1_persist = true
+
+# Limits and performance
+[limits]
+cpu_ms = 50
+
+# Analytics and monitoring
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "arb_edge_analytics"
+
+# Durable Objects (if needed in the future)
+# [[durable_objects.bindings]]
+# name = "TRADING_SESSION"
+# class_name = "TradingSession"
+# script_name = "arb-edge-worker"
+
+# R2 Buckets (if needed for file storage)
+# [[r2_buckets]]
+# binding = "ASSETS"
+# bucket_name = "arb-edge-assets"
+# preview_bucket_name = "arb-edge-assets-preview"
