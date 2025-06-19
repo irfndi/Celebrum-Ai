@@ -1,4 +1,4 @@
-use crate::types::{ArbitrageResult, UserStatistics};
+use crate::types::UserStatistics;
 use worker::kv::KvStore;
 use serde_json::json;
 use std::sync::Arc;
@@ -167,7 +167,7 @@ impl SimpleAdminService {
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(result
-            .and_then(|v| v.get("count"))
+            .and_then(|v| v.get("count").cloned())
             .and_then(|v| v.as_i64())
             .unwrap_or(0))
     }
@@ -181,7 +181,7 @@ impl SimpleAdminService {
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(result
-            .and_then(|v| v.get("count"))
+            .and_then(|v| v.get("count").cloned())
             .and_then(|v| v.as_i64())
             .unwrap_or(0))
     }
@@ -195,7 +195,7 @@ impl SimpleAdminService {
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         Ok(result
-            .and_then(|v| v.get("count"))
+            .and_then(|v| v.get("count").cloned())
             .and_then(|v| v.as_i64())
             .unwrap_or(0))
     }
@@ -235,7 +235,7 @@ impl SimpleAdminService {
             .first::<serde_json::Value>(None)
             .await
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?
-            .and_then(|v| v.get("count"))
+            .and_then(|v| v.get("count").cloned())
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
 
@@ -246,7 +246,7 @@ impl SimpleAdminService {
             .first::<serde_json::Value>(None)
             .await
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?
-            .and_then(|v| v.get("count"))
+            .and_then(|v| v.get("count").cloned())
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
 
@@ -257,7 +257,7 @@ impl SimpleAdminService {
             .first::<serde_json::Value>(None)
             .await
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?
-            .and_then(|v| v.get("count"))
+            .and_then(|v| v.get("count").cloned())
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
 
@@ -276,7 +276,7 @@ impl SimpleAdminService {
             .first::<serde_json::Value>(None)
             .await
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?
-            .and_then(|v| v.get("count"))
+            .and_then(|v| v.get("count").cloned())
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
 
@@ -287,7 +287,7 @@ impl SimpleAdminService {
             .first::<serde_json::Value>(None)
             .await
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?
-            .and_then(|v| v.get("count"))
+            .and_then(|v| v.get("count").cloned())
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
 
@@ -298,7 +298,7 @@ impl SimpleAdminService {
             .first::<serde_json::Value>(None)
             .await
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?
-            .and_then(|v| v.get("count"))
+            .and_then(|v| v.get("count").cloned())
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
 

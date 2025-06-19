@@ -1776,44 +1776,7 @@ pub struct RiskManagementConfig {
     pub correlation_limit: f64,
 }
 
-/// Distribution strategy for opportunities
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum DistributionStrategy {
-    Broadcast,           // Send to all eligible users
-    Tiered,              // Send based on subscription tier
-    Personalized,        // AI-personalized distribution
-    RoundRobin,          // Rotate through users
-    HighestBidder,       // Premium users first
-    Immediate,           // Immediate distribution
-    Batched,             // Batched distribution
-    Prioritized,         // Prioritized distribution
-    RateLimited,         // Rate-limited distribution
-    FirstComeFirstServe, // First-come, first-serve distribution
-    PriorityBased,       // Priority-based distribution
-    Targeted,            // Targeted distribution
-    Priority,            // Priority distribution
-}
 
-impl DistributionStrategy {
-    pub fn to_stable_string(&self) -> String {
-        match self {
-            DistributionStrategy::Broadcast => "broadcast".to_string(),
-            DistributionStrategy::Tiered => "tiered".to_string(),
-            DistributionStrategy::Personalized => "personalized".to_string(),
-            DistributionStrategy::RoundRobin => "round_robin".to_string(),
-            DistributionStrategy::HighestBidder => "highest_bidder".to_string(),
-            DistributionStrategy::Immediate => "immediate".to_string(),
-            DistributionStrategy::Batched => "batched".to_string(),
-            DistributionStrategy::Prioritized => "prioritized".to_string(),
-            DistributionStrategy::RateLimited => "rate_limited".to_string(),
-            DistributionStrategy::FirstComeFirstServe => "first_come_first_serve".to_string(),
-            DistributionStrategy::PriorityBased => "priority_based".to_string(),
-            DistributionStrategy::Targeted => "targeted".to_string(),
-            DistributionStrategy::Priority => "priority".to_string(),
-        }
-    }
-}
 
 /// Fairness configuration for opportunity distribution
 #[derive(Debug, Clone, Serialize, Deserialize)]

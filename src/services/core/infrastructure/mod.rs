@@ -17,6 +17,7 @@
 //! 6. **unified_ingestion_engine** - Data ingestion, transformation, pipeline management
 //! 7. **unified_data_access_engine** - API connector, cache, validation, compression (13→1 files)
 //! 8. **unified_ai_services** - AI models, cache, embeddings, personalization (6→1 files)
+//! 9. **cloudflare_queues** - Queue message types and processing for Cloudflare Workers
 //!
 //! ### 🔄 REMAINING LEGACY (To be consolidated):
 //! - notification_module (5 files)
@@ -45,6 +46,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub mod unified_analytics_and_cleanup;
 pub mod unified_cloudflare_services;
 pub mod unified_core_services;
+
+// ============= CLOUDFLARE QUEUE INTEGRATION =============
+pub mod cloudflare_queues;
 
 // ============= PERSISTENCE & DATA LAYER CONSOLIDATION =============
 pub mod data_access_layer;

@@ -8,9 +8,10 @@ use crate::services::core::infrastructure::{
 use crate::services::core::user::session_management::SessionManagementService;
 
 use crate::types::{
-    ArbitrageOpportunity, ArbitrageType, ChatContext, DistributionStrategy, FairnessConfig,
+    ArbitrageOpportunity, ArbitrageType, ChatContext, FairnessConfig,
     GlobalOpportunity, OpportunityData, OpportunitySource, SubscriptionTier,
 };
+use crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
 use std::future::Future;

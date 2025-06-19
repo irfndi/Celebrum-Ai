@@ -9,6 +9,7 @@ use core::TelegramBotClient;
 use crate::types::*;
 use crate::handlers::handle_webhook;
 use worker::*;
+use worker::console_log;
 
 /// Main Telegram Bot wrapper
 #[derive(Clone)]

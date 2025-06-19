@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use worker::kv::KvStore;
+use worker::console_log;
 
 // For D1Result JsValue conversion
 use worker::js_sys;

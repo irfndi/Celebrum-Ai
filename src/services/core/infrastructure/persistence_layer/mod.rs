@@ -271,13 +271,13 @@ pub mod utils {
 /// User repository interface for user-related operations
 #[derive(Clone)]
 pub struct UserRepository {
-    pub database: Arc<worker::worker::D1Database>,
+    pub database: Arc<worker::D1Database>,
     pub name: String,
     pub metrics: Arc<std::sync::Mutex<RepositoryMetrics>>,
 }
 
 impl UserRepository {
-    pub fn new(database: Arc<worker::worker::D1Database>) -> Self {
+    pub fn new(database: Arc<worker::D1Database>) -> Self {
         let metrics = RepositoryMetrics {
             repository_name: "UserRepository".to_string(),
             ..Default::default()
@@ -360,13 +360,13 @@ impl Repository for UserRepository {
 /// Invitation repository interface for invitation-related operations
 #[derive(Clone)]
 pub struct InvitationRepository {
-    pub database: Arc<worker::worker::D1Database>,
+    pub database: Arc<worker::D1Database>,
     pub name: String,
     pub metrics: Arc<std::sync::Mutex<RepositoryMetrics>>,
 }
 
 impl InvitationRepository {
-    pub fn new(database: Arc<worker::worker::D1Database>) -> Self {
+    pub fn new(database: Arc<worker::D1Database>) -> Self {
         let metrics = RepositoryMetrics {
             repository_name: "InvitationRepository".to_string(),
             ..Default::default()
@@ -452,13 +452,13 @@ impl Repository for InvitationRepository {
 /// D1 Database Service for Cloudflare Workers
 #[derive(Clone)]
 pub struct D1Service {
-    pub database: Arc<worker::worker::D1Database>,
+    pub database: Arc<worker::D1Database>,
     pub name: String,
     pub metrics: Arc<std::sync::Mutex<RepositoryMetrics>>,
 }
 
 impl D1Service {
-    pub fn new(database: Arc<worker::worker::D1Database>) -> Self {
+    pub fn new(database: Arc<worker::D1Database>) -> Self {
         let metrics = RepositoryMetrics {
             repository_name: "D1Service".to_string(),
             ..Default::default()

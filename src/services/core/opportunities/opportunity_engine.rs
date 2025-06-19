@@ -14,9 +14,10 @@ use crate::services::core::trading::exchange::ExchangeService;
 use crate::services::core::user::user_access::UserAccessService;
 use crate::services::core::user::UserProfileService;
 use crate::types::{
-    ArbitrageOpportunity, ChatContext, DistributionStrategy, GlobalOpportunity, OpportunitySource,
+    ArbitrageOpportunity, ChatContext, GlobalOpportunity, OpportunitySource,
     TechnicalOpportunity,
 };
+use crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::Utc;
 use serde_json;

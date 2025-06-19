@@ -1,8 +1,10 @@
 use crate::middleware::extract_user_id_from_headers;
 use crate::responses::ApiResponse;
 use crate::services;
+use crate::services::core::ai::AiIntegrationService;
+use crate::services::core::ai::ai_integration::AiIntegrationConfig;
 use std::sync::Arc;
-use worker::{Env, Request, Response, Result};
+use worker::{Env, Method, Request, Response, Result};
 
 /// AI market analysis endpoint
 pub async fn handle_api_ai_analyze(req: Request, env: Env) -> Result<Response> {
@@ -91,7 +93,9 @@ pub async fn handle_ai_request(req: Request, env: Env) -> worker::Result<Respons
     let kv_store = Arc::new(env.kv("ArbEdgeKV")?);
 
     // Initialize AI service
-    let ai_service = AiIntegrationService::new(kv_store.clone(), d1_database.clone());
+    let config = AiIntegrationConfig::default();
+    let encryption_key = env.secret("AI_ENCRYPTION_KEY")?.to_string();
+    let ai_service = AiIntegrationService::new(config, (*kv_store).clone(), encryption_key);
 
     match req.method() {
         Method::Get => {

@@ -58,22 +58,22 @@ pub async fn handle_api_admin_get_users(req: Request, env: Env) -> Result<Respon
                     let user_stats = serde_json::json!({
                         "total_users": stats.total_users,
                         "active_users": stats.active_users,
-                        "premium_users": stats.premium_users,
-                        "users_by_tier": {
-                            "free": stats.free_tier_users,
-                            "basic": stats.basic_tier_users,
-                            "premium": stats.premium_tier_users,
-                            "enterprise": stats.enterprise_tier_users
+                        "users_by_type": {
+                            "free": stats.free_users,
+                            "paid": stats.paid_users,
+                            "admin": stats.admin_users,
+                            "super_admin": stats.super_admin_users,
+                            "other": stats.other_users
                         },
-                        "activity_metrics": {
-                            "daily_active_users": stats.daily_active_users,
-                            "weekly_active_users": stats.weekly_active_users,
-                            "monthly_active_users": stats.monthly_active_users
+                        "user_activity": {
+                            "active_users": stats.active_users,
+                            "recently_active_users": stats.recently_active_users,
+                            "total_users": stats.total_users
                         },
-                        "registration_trends": {
-                            "registrations_today": stats.registrations_today,
-                            "registrations_this_week": stats.registrations_this_week,
-                            "registrations_this_month": stats.registrations_this_month
+                        "trading_activity": {
+                            "total_trades": stats.total_trades,
+                            "total_volume_usdt": stats.total_volume_usdt,
+                            "generated_at": stats.generated_at
                         },
                         "timestamp": std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)

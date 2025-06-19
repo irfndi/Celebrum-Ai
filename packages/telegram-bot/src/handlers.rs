@@ -1,6 +1,6 @@
 //! Handlers for Telegram Bot
 
-use worker::{Request, Response, RouteContext};
+use worker::{Request, Response, RouteContext, console_log};
 use crate::types::*;
 
 /// Handle incoming webhook requests

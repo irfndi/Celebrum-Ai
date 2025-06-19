@@ -92,7 +92,7 @@ pub async fn handle_analytics_request(
     let kv_store = Arc::new(env.kv("ArbEdgeKV")?);
 
     // Initialize analytics service
-    let analytics_service = AnalyticsService::new(kv_store.clone(), d1_database.clone());
+    let analytics_service = AnalyticsService::new((*kv_store).clone(), d1_database.clone());
 
     match req.method() {
         Method::Get => {

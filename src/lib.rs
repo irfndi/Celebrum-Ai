@@ -1,6 +1,6 @@
-use once_cell::sync::OnceCell;
 use std::sync::Arc;
 use worker::*;
+use worker::console_log;
 
 // Time constants for improved readability
 const HOUR_IN_MS: u64 = 60 * 60 * 1000;
@@ -59,19 +59,19 @@ use services::core::infrastructure::service_container::ServiceContainer;
 
 // Main entry point for the Unified ArbEdge Worker
 #[event(fetch)]
-pub async fn main(req: Request, env: worker::Env, ctx: worker::Context) -> Result<Response> {
+pub async fn main(req: Request, env: worker::Env, _ctx: worker::Context) -> Result<Response> {
     // Initialize logging and panic hook
     utils::logger::set_panic_hook();
     utils::logger::init_logger(utils::logger::LogLevel::Info);
 
     // Apply CORS and other middleware
     let req = middleware::cors::handle_cors_preflight(&req)?;
-    let url = req.url()?;
+    let _url = req.url()?;
 
     // Route based on path
     Router::new()
         // === TELEGRAM BOT WEBHOOK ===
-        .post_async("/telegram/webhook", |req, ctx| async move {
+        .post_async("/telegram/webhook", |_req, _ctx| async move {
             // TODO: Implement proper telegram webhook integration
             // For now, return a simple response
             console_log!("Telegram webhook received");
@@ -127,8 +127,8 @@ pub async fn queue(
 
     // Process queue messages
     for message in message_batch.messages()? {
-        let body = message.body()?;
-        queue_handlers::process_queue_message(&env, &body, service_container.clone()).await?;
+        let body = message.body();
+        queue_handlers::process_queue_message(&env, body, service_container.clone()).await?;
     }
 
     Ok(())

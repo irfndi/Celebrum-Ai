@@ -30,7 +30,7 @@ use crate::services::core::user::session_management::SessionManagementService as
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::UserProfile;
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use std::sync::Arc;
+
 use worker::console_log;
 
 // Async traits removed - using concrete types for better async compatibility

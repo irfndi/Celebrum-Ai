@@ -5,10 +5,11 @@ use crate::services::core::opportunities::opportunity_core::{
     OpportunityConfig, OpportunityContext,
 };
 use crate::types::{
-    ArbitrageOpportunity, ArbitrageType, DistributionStrategy, ExchangeIdEnum, GlobalOpportunity,
+    ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum, GlobalOpportunity,
     OpportunityData, OpportunitySource, TechnicalOpportunity, TechnicalRiskLevel,
     TechnicalSignalStrength, TechnicalSignalType,
 };
+use crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::Utc;
 use serde_json;

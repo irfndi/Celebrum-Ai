@@ -6,7 +6,7 @@ use crate::types::{
     /* ApiKeyProvider, */ ExchangeIdEnum, InvitationCode, UserApiKey, UserProfile, UserSession,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
-use async_trait::async_trait;
+
 use std::sync::Arc;
 use worker::{console_log, kv::KvStore};
 // use crate::services::core::infrastructure::data_access_layer::DataAccessLayer;
