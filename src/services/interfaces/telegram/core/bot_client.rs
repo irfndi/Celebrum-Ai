@@ -8,7 +8,7 @@
 //! - Error handling and retries
 //! - Rate limiting
 
-use crate::services::core::infrastructure::UnifiedRetryConfig;
+// use crate::services::core::infrastructure::UnifiedRetryConfig;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -33,8 +33,31 @@ impl Default for TelegramConfig {
     }
 }
 
-// Use unified retry configuration
-pub type RetryConfig = UnifiedRetryConfig;
+// Simple retry configuration for Telegram API
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    pub max_attempts: u32,
+    pub base_delay_ms: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_attempts: 3,
+            base_delay_ms: 1000,
+        }
+    }
+}
+
+impl RetryConfig {
+    /// Calculate delay for retry attempt
+    pub fn calculate_delay(&self, attempt: u32) -> Duration {
+        let base_delay = Duration::from_millis(self.base_delay_ms);
+        let backoff_multiplier = 2.0f64.powf(attempt as f64 - 1.0);
+        let delay_ms = (base_delay.as_millis() as f64 * backoff_multiplier) as u64;
+        Duration::from_millis(delay_ms.min(self.max_attempts as u64 * self.base_delay_ms))
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct RateLimitEntry {
@@ -61,7 +84,7 @@ impl TelegramBotClient {
         Self {
             config,
             http_client: Client::new(),
-            retry_config: UnifiedRetryConfig::delivery_optimized(),
+            retry_config: RetryConfig::default(),
         }
     }
 
@@ -187,7 +210,7 @@ impl TelegramBotClient {
                         let delay = self.calculate_retry_delay(attempt);
                         console_log!(
                             "🔄 Telegram API request failed, retrying in {}ms (attempt {}/{})",
-                            delay,
+                            delay.as_millis(),
                             attempt + 1,
                             self.retry_config.max_attempts
                         );
@@ -196,12 +219,12 @@ impl TelegramBotClient {
                         #[cfg(target_arch = "wasm32")]
                         {
                             use worker::Delay;
-                            Delay::from(Duration::from_millis(delay)).await;
+                            Delay::from(Duration::from_millis(delay.as_millis() as u64)).await;
                         }
 
                         #[cfg(not(target_arch = "wasm32"))]
                         {
-                            tokio::time::sleep(Duration::from_millis(delay)).await;
+                            tokio::time::sleep(delay).await;
                         }
                     }
                 }
@@ -246,9 +269,8 @@ impl TelegramBotClient {
     }
 
     /// Calculate retry delay with exponential backoff
-    fn calculate_retry_delay(&self, attempt: u32) -> u64 {
-        // Use the unified retry config's calculate_delay method
-        self.retry_config.calculate_delay(attempt + 1).as_millis() as u64
+    fn calculate_retry_delay(&self, attempt: u32) -> Duration {
+        self.retry_config.calculate_delay(attempt)
     }
 
     /// Get bot info

@@ -64,20 +64,7 @@ pub struct InvitationUsage {
     pub beta_expires_at: DateTime<Utc>,
 }
 
-// Conversion trait to eliminate duplicate struct mappings
-impl From<InvitationUsage>
-    for crate::services::core::infrastructure::database_repositories::InvitationUsage
-{
-    fn from(usage: InvitationUsage) -> Self {
-        Self {
-            invitation_id: usage.invitation_id,
-            user_id: usage.user_id,
-            telegram_id: usage.telegram_id,
-            used_at: usage.used_at,
-            beta_expires_at: usage.beta_expires_at,
-        }
-    }
-}
+// Note: InvitationUsage is defined locally in this module and used directly
 
 pub struct InvitationService {
     d1_service: DatabaseManager,

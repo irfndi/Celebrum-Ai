@@ -2,7 +2,7 @@
   "models": {
     "main": {
       "provider": "openrouter",
-      "modelId": "google/gemini-2.5-flash-preview-05-20",
+      "modelId": "deepseek/deepseek-chat-v3-0324",
       "maxTokens": 128000,
       "temperature": 0.2
     },

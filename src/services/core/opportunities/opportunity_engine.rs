@@ -2,6 +2,7 @@
 
 use crate::log_info;
 use crate::services::core::ai::ai_beta_integration::AiBetaIntegrationService;
+use crate::services::core::infrastructure::CacheManager;
 use crate::services::core::opportunities::{
     access_manager::AccessManager,
     ai_enhancer::AIEnhancer,
@@ -12,7 +13,6 @@ use crate::services::core::opportunities::{
 use crate::services::core::trading::exchange::ExchangeService;
 use crate::services::core::user::user_access::UserAccessService;
 use crate::services::core::user::UserProfileService;
-use crate::services::CacheManager;
 use crate::types::{
     ArbitrageOpportunity, ChatContext, DistributionStrategy, GlobalOpportunity, OpportunitySource,
     TechnicalOpportunity,
@@ -61,7 +61,12 @@ impl OpportunityEngine {
         // Create market analyzer with proper exchange service dependency injection
         let market_analyzer = Arc::new(MarketAnalyzer::new_production(exchange_service));
         let ai_enhancer = Arc::new(AIEnhancer::new(ai_service, access_manager.clone()));
-        let cache_manager = Arc::new(CacheManager::new(kv_store.clone()));
+
+        // Initialize CacheManager (using unified cloudflare services)
+        let cache_manager = Arc::new(CacheManager::new(
+            crate::services::core::infrastructure::unified_cloudflare_services::UnifiedCloudflareConfig::default()
+        ));
+
         let opportunity_builder = Arc::new(OpportunityBuilder::new(config.clone()));
 
         Ok(Self {
@@ -99,20 +104,20 @@ impl OpportunityEngine {
 
         // Check cache first
         let cache_key = format!("user_arbitrage_opportunities_{}", user_id);
-        if let Ok(Some(cached_opportunities)) = self
-            .cache_manager
-            .get::<Vec<ArbitrageOpportunity>>(&cache_key)
-            .await
-        {
-            log_info!(
-                "Retrieved cached personal arbitrage opportunities",
-                serde_json::json!({
-                    "user_id": user_id,
-                    "count": cached_opportunities.len(),
-                    "cache_hit": true
-                })
-            );
-            return Ok(cached_opportunities);
+        if let Ok(Some(cached_data)) = self.cache_manager.kv_get(&cache_key).await {
+            if let Ok(cached_opportunities) =
+                serde_json::from_str::<Vec<ArbitrageOpportunity>>(&cached_data)
+            {
+                log_info!(
+                    "Retrieved cached personal arbitrage opportunities",
+                    serde_json::json!({
+                        "user_id": user_id,
+                        "count": cached_opportunities.len(),
+                        "cache_hit": true
+                    })
+                );
+                return Ok(cached_opportunities);
+            }
         }
 
         // Get user's exchange APIs
@@ -170,7 +175,11 @@ impl OpportunityEngine {
         let cache_key = format!("user_arbitrage_opportunities_{}", user_id);
         let _ = self
             .cache_manager
-            .set(&cache_key, &opportunities, Some(300))
+            .kv_put(
+                &cache_key,
+                &serde_json::to_string(&opportunities).unwrap_or_default(),
+                Some(300),
+            )
             .await;
 
         // Record opportunity generation for rate limiting
@@ -213,12 +222,12 @@ impl OpportunityEngine {
 
         // Check cache first
         let cache_key = format!("user_technical_opportunities_{}", user_id);
-        if let Ok(Some(cached_opportunities)) = self
-            .cache_manager
-            .get::<Vec<TechnicalOpportunity>>(&cache_key)
-            .await
-        {
-            return Ok(cached_opportunities);
+        if let Ok(Some(cached_data)) = self.cache_manager.kv_get(&cache_key).await {
+            if let Ok(cached_opportunities) =
+                serde_json::from_str::<Vec<TechnicalOpportunity>>(&cached_data)
+            {
+                return Ok(cached_opportunities);
+            }
         }
 
         // Get user's exchange APIs
@@ -280,7 +289,11 @@ impl OpportunityEngine {
         let cache_key = format!("user_technical_opportunities_{}", user_id);
         let _ = self
             .cache_manager
-            .set(&cache_key, &opportunities, Some(300))
+            .kv_put(
+                &cache_key,
+                &serde_json::to_string(&opportunities).unwrap_or_default(),
+                Some(300),
+            )
             .await;
 
         // Record opportunity generation
@@ -329,12 +342,12 @@ impl OpportunityEngine {
             .get_group_id()
             .unwrap_or("unknown_group".to_string());
         let cache_key = format!("group_arbitrage_opportunities_{}", group_id);
-        if let Ok(Some(cached_opportunities)) = self
-            .cache_manager
-            .get::<Vec<ArbitrageOpportunity>>(&cache_key)
-            .await
-        {
-            return Ok(cached_opportunities);
+        if let Ok(Some(cached_data)) = self.cache_manager.kv_get(&cache_key).await {
+            if let Ok(cached_opportunities) =
+                serde_json::from_str::<Vec<ArbitrageOpportunity>>(&cached_data)
+            {
+                return Ok(cached_opportunities);
+            }
         }
 
         // Get group admin's exchange APIs
@@ -399,7 +412,11 @@ impl OpportunityEngine {
         let cache_key = format!("group_arbitrage_opportunities_{}", group_id);
         let _ = self
             .cache_manager
-            .set(&cache_key, &opportunities, Some(300))
+            .kv_put(
+                &cache_key,
+                &serde_json::to_string(&opportunities).unwrap_or_default(),
+                Some(300),
+            )
             .await;
 
         log_info!(
@@ -425,21 +442,21 @@ impl OpportunityEngine {
         // DISABLED: Force fresh data generation for real-time opportunities
         // Check cache first - but with shorter TTL for real-time data
         log::debug!("🔍 CACHE CHECK - Checking cache for global_opportunities");
-        if let Ok(Some(cached_opportunities)) = self
-            .cache_manager
-            .get::<Vec<GlobalOpportunity>>("global_opportunities")
-            .await
-        {
-            // Only use cache if it's non-empty and recent (cache TTL handles staleness)
-            if !cached_opportunities.is_empty() {
-                log::debug!(
-                    "📦 CACHE HIT - Found {} cached opportunities, returning",
-                    cached_opportunities.len()
-                );
-                // DISABLED: Force fresh data generation
-                // return Ok(cached_opportunities);
+        if let Ok(Some(cached_data)) = self.cache_manager.kv_get("global_opportunities").await {
+            if let Ok(cached_opportunities) =
+                serde_json::from_str::<Vec<GlobalOpportunity>>(&cached_data)
+            {
+                // Only use cache if it's non-empty and recent (cache TTL handles staleness)
+                if !cached_opportunities.is_empty() {
+                    log::debug!(
+                        "📦 CACHE HIT - Found {} cached opportunities, returning",
+                        cached_opportunities.len()
+                    );
+                    // DISABLED: Force fresh data generation
+                    // return Ok(cached_opportunities);
+                }
+                log::debug!("📦 CACHE MISS - Cached vector empty, regenerating opportunities");
             }
-            log::debug!("📦 CACHE MISS - Cached vector empty, regenerating opportunities");
         }
 
         let trading_pairs = pairs.unwrap_or_else(|| self.config.default_pairs.clone());
@@ -587,7 +604,11 @@ impl OpportunityEngine {
         // Cache the results with very short TTL for real-time data (30 seconds)
         let _ = self
             .cache_manager
-            .set("global_opportunities", &global_opportunities, Some(30))
+            .kv_put(
+                "global_opportunities",
+                &serde_json::to_string(&global_opportunities).unwrap_or_default(),
+                Some(30),
+            )
             .await;
 
         log_info!(
@@ -682,13 +703,13 @@ impl OpportunityEngine {
     /// Invalidate user caches
     pub async fn invalidate_user_caches(&self, user_id: &str) -> ArbitrageResult<()> {
         let cache_key = format!("user_arbitrage_opportunities_{}", user_id);
-        self.cache_manager.delete(&cache_key).await.map(|_| ())
+        self.cache_manager.kv_delete(&cache_key).await.map(|_| ())
     }
 
     /// Invalidate group caches
     pub async fn invalidate_group_caches(&self, group_id: &str) -> ArbitrageResult<()> {
         let cache_key = format!("group_arbitrage_opportunities_{}", group_id);
-        self.cache_manager.delete(&cache_key).await.map(|_| ())
+        self.cache_manager.kv_delete(&cache_key).await.map(|_| ())
     }
 
     /// Get engine configuration

@@ -1,5 +1,5 @@
-use crate::services::core::infrastructure::d1::D1Service;
-use crate::services::core::infrastructure::kv::KVService;
+// use crate::services::core::infrastructure::d1::D1Service;
+// use crate::services::core::infrastructure::kv::KVService;
 
 use crate::types::{
     AIAccessLevel, AITemplate, AITemplateParameters, AITemplateType, AIUsageTracker,
@@ -7,18 +7,21 @@ use crate::types::{
 };
 use log;
 use std::collections::HashMap;
-use std::time::Duration;
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen;
+use worker::{kv::KvStore, D1Database};
 
 use serde_json::Value;
 /// Service for managing AI access levels, usage tracking, and template management
 pub struct AIAccessService {
     #[allow(dead_code)] // Will be used for user preference storage
-    d1_service: D1Service,
-    kv_service: KVService,
+    d1_service: D1Database,
+    kv_service: KvStore,
 }
 
 impl AIAccessService {
-    pub fn new(d1_service: D1Service, kv_service: KVService) -> Self {
+    pub fn new(d1_service: D1Database, kv_service: KvStore) -> Self {
         Self {
             d1_service,
             kv_service,
@@ -82,10 +85,13 @@ impl AIAccessService {
         let cache_key = format!("ai_access_level:{}", user_profile.user_id);
 
         // Try to get from cache first
-        if let Ok(Some(cached_level)) = self.kv_service.get(&cache_key).await {
-            if let Ok(access_level) = serde_json::from_str::<AIAccessLevel>(&cached_level) {
-                return Ok(access_level);
-            }
+        if let Ok(Some(cached_level)) = self
+            .kv_service
+            .get(&cache_key)
+            .json::<AIAccessLevel>()
+            .await
+        {
+            return Ok(cached_level);
         }
 
         // Calculate access level from user profile
@@ -95,8 +101,13 @@ impl AIAccessService {
         let cache_value = serde_json::to_string(&access_level)
             .map_err(|e| format!("Failed to serialize AI access level: {}", e))?;
 
-        // Removed mutable borrow as KvOperations::put likely takes &self
-        let _ = self.kv_service.put(&cache_key, &cache_value).await;
+        // Cache the result for 1 hour
+        let _ = self
+            .kv_service
+            .put(&cache_key, &cache_value)
+            .map_err(|e| format!("Failed to cache AI access level: {}", e))?
+            .execute()
+            .await;
 
         // Convert UserAccessLevel to AIAccessLevel
         let ai_access_level = match access_level {
@@ -113,7 +124,7 @@ impl AIAccessService {
     /// Invalidate AI access level cache for a user
     pub async fn invalidate_ai_access_cache(&self, user_id: &str) -> Result<(), String> {
         let cache_key = format!("ai_access_level:{}", user_id);
-        // Removed mutable borrow as KvOperations::delete likely takes &self
+        // Delete from cache
         self.kv_service
             .delete(&cache_key)
             .await
@@ -132,9 +143,19 @@ impl AIAccessService {
         #[cfg(target_arch = "wasm32")]
         {
             let query = "SELECT * FROM ai_usage_tracking WHERE user_id = ? AND date = ?";
-            let params = vec![user_id, &_today];
+            let params: Vec<wasm_bindgen::JsValue> = vec![
+                wasm_bindgen::JsValue::from_str(user_id),
+                wasm_bindgen::JsValue::from_str(&_today),
+            ];
 
-            match self.d1_service.query_first(query, &params).await {
+            match self
+                .d1_service
+                .prepare(query)
+                .bind(&params)
+                .map_err(|e| format!("Failed to bind parameters: {}", e))?
+                .first::<serde_json::Value>(None)
+                .await
+            {
                 Ok(Some(row)) => {
                     // Parse existing tracker using helper functions
                     let ai_calls_used = Self::get_field_as_u32(&row, "ai_calls_used", 0);
@@ -210,19 +231,22 @@ impl AIAccessService {
             let last_reset_str = tracker.last_reset.to_string();
             let total_cost_usd_str = tracker.total_cost_usd.to_string();
 
-            let params = vec![
-                tracker.user_id.as_str(),
-                &tracker.date,
-                &ai_calls_used_str,
-                &ai_calls_limit_str,
-                &last_reset_str,
-                &total_cost_usd_str,
-                &cost_breakdown_by_provider,
-                &cost_breakdown_by_feature,
+            let params: Vec<wasm_bindgen::JsValue> = vec![
+                wasm_bindgen::JsValue::from_str(tracker.user_id.as_str()),
+                wasm_bindgen::JsValue::from_str(&tracker.date),
+                wasm_bindgen::JsValue::from_str(&ai_calls_used_str),
+                wasm_bindgen::JsValue::from_str(&ai_calls_limit_str),
+                wasm_bindgen::JsValue::from_str(&last_reset_str),
+                wasm_bindgen::JsValue::from_str(&total_cost_usd_str),
+                wasm_bindgen::JsValue::from_str(&cost_breakdown_by_provider),
+                wasm_bindgen::JsValue::from_str(&cost_breakdown_by_feature),
             ];
 
             self.d1_service
-                .execute(query, &params)
+                .prepare(query)
+                .bind(&params)
+                .map_err(|e| format!("Failed to bind parameters: {}", e))?
+                .run()
                 .await
                 .map_err(|e| format!("Failed to save AI usage tracker: {}", e))?;
         }
@@ -265,7 +289,7 @@ impl AIAccessService {
 
         // Invalidate cache
         let cache_key = format!("ai_usage_tracker:{}", user_id);
-        let _ = self.kv_service.delete(&cache_key).await;
+        let _result = self.kv_service.delete(&cache_key).await;
 
         Ok(true)
     }
@@ -356,16 +380,27 @@ impl AIAccessService {
                 }
             };
 
-            let params: Vec<&str> = if matches!(template_access, TemplateAccess::Full) {
-                vec![_user_id]
-            } else {
-                vec![]
-            };
+            let params: Vec<wasm_bindgen::JsValue> =
+                if matches!(template_access, TemplateAccess::Full) {
+                    vec![wasm_bindgen::JsValue::from_str(_user_id)]
+                } else {
+                    vec![]
+                };
 
-            match self.d1_service.query_all(query, &params).await {
+            match self
+                .d1_service
+                .prepare(query)
+                .bind(&params)
+                .map_err(|e| format!("Failed to bind parameters: {}", e))?
+                .all()
+                .await
+            {
                 Ok(rows) => {
                     let mut templates = Vec::new();
-                    for row in rows {
+                    let results = rows
+                        .results()
+                        .map_err(|e| format!("Failed to get results: {}", e))?;
+                    for row in results {
                         if let Ok(template) = self.parse_ai_template_from_row(&row) {
                             templates.push(template);
                         }
@@ -634,7 +669,7 @@ impl AIAccessService {
             &api_key[..std::cmp::min(10, api_key.len())] // Only cache first 10 chars for security
         );
 
-        match self.kv_service.get(&cache_key).await {
+        match self.kv_service.get(&cache_key).text().await {
             Ok(Some(result)) => Ok(result == "true"),
             _ => Err("No cached result".to_string()),
         }
@@ -684,10 +719,9 @@ impl AIAccessService {
                 },
                 &api_key[..std::cmp::min(10, api_key.len())]
             );
-            let _ = self
-                .kv_service
-                .set(&cache_key, "true", Some(Duration::from_secs(3600)))
-                .await;
+            if let Ok(builder) = self.kv_service.put(&cache_key, "true") {
+                let _ = builder.execute().await;
+            }
         }
 
         validation_result
@@ -701,7 +735,7 @@ impl AIAccessService {
         let cache_key = format!("ai_key_validation_rate_limit:{}", user_id);
 
         // Try to increment atomically, allow 5 validation attempts per hour
-        match self.kv_service.get(&cache_key).await {
+        match self.kv_service.get(&cache_key).text().await {
             Ok(Some(count_str)) => {
                 let count: u32 = count_str.parse().unwrap_or(0);
                 if count >= 5 {
@@ -709,20 +743,20 @@ impl AIAccessService {
                 }
                 let new_count = count + 1;
                 self.kv_service
-                    .set(
-                        &cache_key,
-                        &new_count.to_string(),
-                        Some(Duration::from_secs(3600)),
-                    )
+                    .put(&cache_key, new_count.to_string())
+                    .map_err(|e| format!("Failed to increment validation rate limit: {}", e))?
+                    .execute()
                     .await
-                    .map_err(|e| format!("Failed to increment validation rate limit: {}", e))?;
+                    .map_err(|e| format!("Failed to execute rate limit update: {}", e))?;
                 Ok(true)
             }
             Ok(None) => {
                 self.kv_service
-                    .set(&cache_key, "1", Some(Duration::from_secs(3600)))
+                    .put(&cache_key, "1")
+                    .map_err(|e| format!("Failed to set validation rate limit: {}", e))?
+                    .execute()
                     .await
-                    .map_err(|e| format!("Failed to set validation rate limit: {}", e))?;
+                    .map_err(|e| format!("Failed to execute rate limit set: {}", e))?;
                 Ok(true)
             }
             Err(_) => Ok(true), // Allow on cache errors

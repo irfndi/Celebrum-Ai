@@ -11,11 +11,10 @@
 //! Designed for high efficiency, zero duplication, and maximum concurrency
 
 use crate::utils::error::{ArbitrageError, ArbitrageResult, ErrorKind};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use worker::Env;
 
 // ============= UNIFIED CONFIGURATION =============
 
@@ -61,23 +60,26 @@ pub struct FailoverConfig {
 
 // ============= CORE SERVICE STATES =============
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum CircuitBreakerState {
+    #[default]
     Closed,
     Open,
     HalfOpen,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum HealthStatus {
     Healthy,
     Degraded,
     Unhealthy,
+    #[default]
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum FailoverState {
+    #[default]
     Active,
     Standby,
     Failed,
@@ -174,16 +176,16 @@ impl UnifiedCoreServices {
             CircuitBreakerState::Open => {
                 self.update_metrics_rejected(service_name).await;
                 return Err(ArbitrageError::new(
-                    ErrorKind::ServiceUnavailable,
-                    &format!("Circuit breaker open for service: {}", service_name),
+                    ErrorKind::InfrastructureError,
+                    format!("Circuit breaker open for service: {}", service_name),
                 ));
             }
             CircuitBreakerState::HalfOpen => {
                 if !self.can_attempt_half_open(service_name).await {
                     self.update_metrics_rejected(service_name).await;
                     return Err(ArbitrageError::new(
-                        ErrorKind::ServiceUnavailable,
-                        &format!(
+                        ErrorKind::InfrastructureError,
+                        format!(
                             "Circuit breaker half-open limit reached for: {}",
                             service_name
                         ),
@@ -236,7 +238,24 @@ impl UnifiedCoreServices {
                     }
 
                     if self.should_retry(&error) {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let promise = js_sys::Promise::new(&mut |resolve, _| {
+                                let timeout = web_sys::window()
+                                    .unwrap()
+                                    .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                        &resolve,
+                                        delay as i32,
+                                    )
+                                    .unwrap();
+                                let _ = timeout;
+                            });
+                            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        }
                         delay = (delay as f64 * self.config.retry.backoff_multiplier) as u64;
                         delay = delay.min(self.config.retry.max_delay_ms);
                     } else {
@@ -258,17 +277,37 @@ impl UnifiedCoreServices {
     ) -> HealthStatus {
         let start_time = std::time::Instant::now();
 
-        let result = tokio::time::timeout(
-            tokio::time::Duration::from_millis(self.config.health_check.timeout_ms),
-            check_fn,
-        )
-        .await;
+        let timeout_future = async {
+            #[cfg(target_arch = "wasm32")]
+            {
+                let promise = js_sys::Promise::new(&mut |resolve, _| {
+                    let timeout = web_sys::window()
+                        .unwrap()
+                        .set_timeout_with_callback_and_timeout_and_arguments_0(
+                            &resolve,
+                            self.config.health_check.timeout_ms as i32,
+                        )
+                        .unwrap();
+                    let _ = timeout;
+                });
+                let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    self.config.health_check.timeout_ms,
+                ))
+                .await;
+            }
+        };
+
+        let result = futures::future::select(Box::pin(check_fn), Box::pin(timeout_future)).await;
 
         let duration = start_time.elapsed();
         let status = match result {
-            Ok(Ok(_)) => HealthStatus::Healthy,
-            Ok(Err(_)) => HealthStatus::Unhealthy,
-            Err(_) => HealthStatus::Unhealthy, // Timeout
+            futures::future::Either::Left((Ok(_), _)) => HealthStatus::Healthy,
+            futures::future::Either::Left((Err(_), _)) => HealthStatus::Unhealthy,
+            futures::future::Either::Right((_, _)) => HealthStatus::Unhealthy, // Timeout
         };
 
         self.update_health_status(service_name, status.clone(), duration.as_millis() as f64)
@@ -295,7 +334,7 @@ impl UnifiedCoreServices {
         if self.is_service_available(primary_service).await {
             match operation(primary_service).await {
                 Ok(result) => return Ok(result),
-                Err(error) => {
+                Err(_error) => {
                     self.mark_service_failed(primary_service).await;
                     log::warn!(
                         "Primary service {} failed, attempting failover",
@@ -323,7 +362,7 @@ impl UnifiedCoreServices {
 
         self.update_failover_metrics_failure().await;
         Err(ArbitrageError::new(
-            ErrorKind::ServiceUnavailable,
+            ErrorKind::InfrastructureError,
             "All services failed during failover attempt",
         ))
     }
@@ -331,7 +370,7 @@ impl UnifiedCoreServices {
     // ============= PRIVATE HELPER METHODS =============
 
     async fn get_circuit_breaker_state(&self, service_name: &str) -> CircuitBreakerState {
-        let breakers = self.circuit_breakers.read().await;
+        let breakers = self.circuit_breakers.read();
         breakers
             .get(service_name)
             .cloned()
@@ -344,38 +383,38 @@ impl UnifiedCoreServices {
     }
 
     async fn record_success(&self, service_name: &str) {
-        let mut breakers = self.circuit_breakers.write().await;
+        let mut breakers = self.circuit_breakers.write();
         breakers.insert(service_name.to_string(), CircuitBreakerState::Closed);
 
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
         metrics.circuit_breaker_metrics.successful_requests += 1;
         metrics.circuit_breaker_metrics.total_requests += 1;
     }
 
     async fn record_failure(&self, service_name: &str) {
-        let mut breakers = self.circuit_breakers.write().await;
+        let mut breakers = self.circuit_breakers.write();
         breakers.insert(service_name.to_string(), CircuitBreakerState::Open);
 
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
         metrics.circuit_breaker_metrics.failed_requests += 1;
         metrics.circuit_breaker_metrics.total_requests += 1;
         metrics.circuit_breaker_metrics.state_changes += 1;
     }
 
     async fn update_metrics_rejected(&self, _service_name: &str) {
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
         metrics.circuit_breaker_metrics.rejected_requests += 1;
         metrics.circuit_breaker_metrics.total_requests += 1;
     }
 
     async fn update_retry_metrics_success(&self, _service_name: &str, attempts: u32) {
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
         metrics.retry_metrics.total_attempts += attempts as u64;
         metrics.retry_metrics.successful_retries += 1;
     }
 
     async fn update_retry_metrics_failure(&self, _service_name: &str, attempts: u32) {
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
         metrics.retry_metrics.total_attempts += attempts as u64;
         metrics.retry_metrics.failed_retries += 1;
     }
@@ -386,10 +425,10 @@ impl UnifiedCoreServices {
         status: HealthStatus,
         response_time: f64,
     ) {
-        let mut health_map = self.health_status.write().await;
+        let mut health_map = self.health_status.write();
         health_map.insert(service_name.to_string(), status.clone());
 
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
         metrics.health_metrics.total_checks += 1;
         match status {
             HealthStatus::Healthy => metrics.health_metrics.healthy_checks += 1,
@@ -405,8 +444,8 @@ impl UnifiedCoreServices {
     }
 
     async fn is_service_available(&self, service_name: &str) -> bool {
-        let health_map = self.health_status.read().await;
-        let failover_map = self.failover_states.read().await;
+        let health_map = self.health_status.read();
+        let failover_map = self.failover_states.read();
 
         let health_status = health_map
             .get(service_name)
@@ -415,9 +454,10 @@ impl UnifiedCoreServices {
             .get(service_name)
             .unwrap_or(&FailoverState::Active);
 
+        // Allow Unknown health status for new services that haven't been checked yet
         matches!(
             health_status,
-            HealthStatus::Healthy | HealthStatus::Degraded
+            HealthStatus::Healthy | HealthStatus::Degraded | HealthStatus::Unknown
         ) && matches!(
             failover_state,
             FailoverState::Active | FailoverState::Recovering
@@ -425,40 +465,40 @@ impl UnifiedCoreServices {
     }
 
     async fn mark_service_failed(&self, service_name: &str) {
-        let mut failover_map = self.failover_states.write().await;
+        let mut failover_map = self.failover_states.write();
         failover_map.insert(service_name.to_string(), FailoverState::Failed);
 
-        let mut health_map = self.health_status.write().await;
+        let mut health_map = self.health_status.write();
         health_map.insert(service_name.to_string(), HealthStatus::Unhealthy);
     }
 
     async fn update_failover_metrics_success(&self) {
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
         metrics.failover_metrics.total_failovers += 1;
         metrics.failover_metrics.successful_failovers += 1;
     }
 
     async fn update_failover_metrics_failure(&self) {
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
         metrics.failover_metrics.total_failovers += 1;
         metrics.failover_metrics.failed_failovers += 1;
     }
 
     fn should_retry(&self, error: &ArbitrageError) -> bool {
         matches!(
-            error.kind(),
-            ErrorKind::NetworkError | ErrorKind::TemporaryFailure | ErrorKind::RateLimitExceeded
+            &error.kind,
+            ErrorKind::NetworkError | ErrorKind::RateLimitError | ErrorKind::TimeoutError
         )
     }
 
     // ============= PUBLIC INTERFACE METHODS =============
 
     pub async fn get_metrics(&self) -> ServiceMetrics {
-        self.metrics.read().await.clone()
+        self.metrics.read().clone()
     }
 
     pub async fn get_health_status(&self, service_name: &str) -> HealthStatus {
-        let health_map = self.health_status.read().await;
+        let health_map = self.health_status.read();
         health_map
             .get(service_name)
             .cloned()
@@ -466,16 +506,16 @@ impl UnifiedCoreServices {
     }
 
     pub async fn get_all_health_status(&self) -> HashMap<String, HealthStatus> {
-        self.health_status.read().await.clone()
+        self.health_status.read().clone()
     }
 
     pub async fn reset_circuit_breaker(&self, service_name: &str) {
-        let mut breakers = self.circuit_breakers.write().await;
+        let mut breakers = self.circuit_breakers.write();
         breakers.insert(service_name.to_string(), CircuitBreakerState::Closed);
     }
 
     pub async fn force_circuit_breaker_open(&self, service_name: &str) {
-        let mut breakers = self.circuit_breakers.write().await;
+        let mut breakers = self.circuit_breakers.write();
         breakers.insert(service_name.to_string(), CircuitBreakerState::Open);
     }
 }
@@ -520,35 +560,17 @@ impl UnifiedCoreServicesConfig {
     pub fn validate(&self) -> ArbitrageResult<()> {
         if self.circuit_breaker.failure_threshold == 0 {
             return Err(ArbitrageError::new(
-                ErrorKind::InvalidInput,
+                ErrorKind::ValidationError,
                 "circuit_breaker failure_threshold must be greater than 0",
             ));
         }
         if self.retry.max_attempts == 0 {
             return Err(ArbitrageError::new(
-                ErrorKind::InvalidInput,
+                ErrorKind::ValidationError,
                 "retry max_attempts must be greater than 0",
             ));
         }
         Ok(())
-    }
-}
-
-impl Default for CircuitBreakerState {
-    fn default() -> Self {
-        CircuitBreakerState::Closed
-    }
-}
-
-impl Default for HealthStatus {
-    fn default() -> Self {
-        HealthStatus::Unknown
-    }
-}
-
-impl Default for FailoverState {
-    fn default() -> Self {
-        FailoverState::Active
     }
 }
 
@@ -613,7 +635,7 @@ mod tests {
         let status = service
             .perform_health_check("test_service", async {
                 Err(ArbitrageError::new(
-                    ErrorKind::ServiceUnavailable,
+                    ErrorKind::InfrastructureError,
                     "Test error",
                 ))
             })
@@ -629,17 +651,18 @@ mod tests {
         let fallback_services = vec!["fallback1", "fallback2"];
         let result = service
             .execute_with_failover("primary", &fallback_services, |service_name| {
+                let service_name = service_name.to_string();
                 Box::pin(async move {
                     if service_name == "primary" {
                         Err(ArbitrageError::new(
-                            ErrorKind::ServiceUnavailable,
+                            ErrorKind::InfrastructureError,
                             "Primary failed",
                         ))
                     } else if service_name == "fallback1" {
-                        Ok("fallback1_success")
+                        Ok("fallback1_success".to_string())
                     } else {
                         Err(ArbitrageError::new(
-                            ErrorKind::ServiceUnavailable,
+                            ErrorKind::InfrastructureError,
                             "Fallback failed",
                         ))
                     }
@@ -648,7 +671,7 @@ mod tests {
             .await;
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "fallback1_success");
+        assert_eq!(result.unwrap(), "fallback1_success".to_string());
     }
 
     #[tokio::test]

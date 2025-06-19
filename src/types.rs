@@ -285,6 +285,28 @@ impl UserAccessLevel {
     }
 }
 
+impl std::fmt::Display for UserAccessLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            UserAccessLevel::Guest => "guest",
+            UserAccessLevel::Free => "free",
+            UserAccessLevel::Registered => "registered",
+            UserAccessLevel::Verified => "verified",
+            UserAccessLevel::Paid => "paid",
+            UserAccessLevel::Premium => "premium",
+            UserAccessLevel::Admin => "admin",
+            UserAccessLevel::SuperAdmin => "super_admin",
+            UserAccessLevel::BetaUser => "beta_user",
+            UserAccessLevel::FreeWithoutAPI => "free_without_api",
+            UserAccessLevel::FreeWithAPI => "free_with_api",
+            UserAccessLevel::SubscriptionWithAPI => "subscription_with_api",
+            UserAccessLevel::Basic => "basic",
+            UserAccessLevel::User => "user",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 /// Command permissions for RBAC
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -880,6 +902,21 @@ impl Default for RiskProfile {
             take_profit_percentage: 5.0,
             daily_loss_limit_usd: 50.0,
         }
+    }
+}
+
+impl std::fmt::Display for RiskProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Risk Level: {}, Max Leverage: {}, Max Position: ${:.2}, Stop Loss: {:.1}%, Take Profit: {:.1}%, Daily Loss Limit: ${:.2}",
+            self.risk_level,
+            self.max_leverage,
+            self.max_position_size_usd,
+            self.stop_loss_percentage,
+            self.take_profit_percentage,
+            self.daily_loss_limit_usd
+        )
     }
 }
 

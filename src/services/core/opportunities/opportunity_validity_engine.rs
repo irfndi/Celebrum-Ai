@@ -36,7 +36,7 @@ impl OpportunityValidityEngine {
     pub fn new(
         db: DatabaseManager,
         exchange_service: Arc<ExchangeService>,
-        cache_manager: Arc<crate::services::CacheManager>,
+        cache_manager: Arc<crate::services::core::infrastructure::CacheManager>,
         config: Option<ValidityConfig>,
     ) -> Self {
         let funding_service = FundingRateService::new(exchange_service, cache_manager, None);

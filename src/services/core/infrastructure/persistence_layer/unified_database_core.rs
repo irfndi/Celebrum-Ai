@@ -1,18 +1,17 @@
 //! Unified Database Core - Consolidates database operations
-//! 
+//!
 //! This module combines the functionality of:
 //! - DatabaseCore (23KB, 731 lines)
-//! - SchemaManager (17KB, 494 lines) 
+//! - SchemaManager (17KB, 494 lines)
 //! - MigrationEngine (29KB, 959 lines)
 //! - MigrationUtilities (23KB, 719 lines)
-//! 
+//!
 //! Total consolidation: 4 files → 1 file (92KB → ~50KB optimized)
 
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use worker::{D1Database, wasm_bindgen::JsValue};
+use worker::D1Database;
 
 /// Unified database configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,7 +57,11 @@ pub struct MigrationVersion {
 
 impl MigrationVersion {
     pub fn new(major: u32, minor: u32, patch: u32) -> Self {
-        Self { major, minor, patch }
+        Self {
+            major,
+            minor,
+            patch,
+        }
     }
 }
 
@@ -143,23 +146,26 @@ impl UnifiedDatabaseCore {
     /// Initialize database with schema validation
     pub async fn initialize(&self) -> ArbitrageResult<()> {
         self.logger.info("Initializing unified database core");
-        
+
         // Create migration tracking table if it doesn't exist
         self.create_migration_table().await?;
-        
+
         // Load migration history
         self.load_migration_history().await?;
-        
+
         // Validate schema if enabled
         if self.config.enable_schema_validation {
             self.validate_schema().await?;
         }
-        
+
         Ok(())
     }
 
     /// Execute SQL query with unified error handling
-    pub async fn execute_query<T>(&self, sql: &str) -> ArbitrageResult<DatabaseOperationResult<Vec<T>>>
+    pub async fn execute_query<T>(
+        &self,
+        sql: &str,
+    ) -> ArbitrageResult<DatabaseOperationResult<Vec<T>>>
     where
         T: serde::de::DeserializeOwned,
     {
@@ -167,15 +173,16 @@ impl UnifiedDatabaseCore {
         let query_id = uuid::Uuid::new_v4().to_string();
 
         if self.config.enable_query_logging {
-            self.logger.info(&format!("Executing query {}: {}", query_id, sql));
+            self.logger
+                .info(&format!("Executing query {}: {}", query_id, sql));
         }
 
         let stmt = self.db.prepare(sql);
-        
+
         match stmt.all().await {
             Ok(_results) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
-                
+
                 Ok(DatabaseOperationResult {
                     data: Some(Vec::new()), // Simplified - in real implementation, parse results
                     success: true,
@@ -195,21 +202,25 @@ impl UnifiedDatabaseCore {
     }
 
     /// Execute SQL statement (INSERT, UPDATE, DELETE)
-    pub async fn execute_statement(&self, sql: &str) -> ArbitrageResult<DatabaseOperationResult<u64>> {
+    pub async fn execute_statement(
+        &self,
+        sql: &str,
+    ) -> ArbitrageResult<DatabaseOperationResult<u64>> {
         let start_time = crate::utils::time::get_current_timestamp();
         let query_id = uuid::Uuid::new_v4().to_string();
 
         if self.config.enable_query_logging {
-            self.logger.info(&format!("Executing statement {}: {}", query_id, sql));
+            self.logger
+                .info(&format!("Executing statement {}: {}", query_id, sql));
         }
 
         let stmt = self.db.prepare(sql);
-        
+
         match stmt.run().await {
             Ok(_result) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
                 let rows_affected = 1; // Simplified - in real implementation, extract from result
-                
+
                 Ok(DatabaseOperationResult {
                     data: Some(rows_affected),
                     success: true,
@@ -229,29 +240,45 @@ impl UnifiedDatabaseCore {
     }
 
     /// Apply database migration
-    pub async fn apply_migration(&self, migration_id: &str, sql: &str, version: MigrationVersion, description: &str) -> ArbitrageResult<()> {
+    pub async fn apply_migration(
+        &self,
+        migration_id: &str,
+        sql: &str,
+        version: MigrationVersion,
+        description: &str,
+    ) -> ArbitrageResult<()> {
         if !self.config.enable_migrations {
             return Err(ArbitrageError::validation_error("Migrations are disabled"));
         }
 
         let start_time = crate::utils::time::get_current_timestamp();
-        
-        self.logger.info(&format!("Applying migration {} ({}): {}", migration_id, version, description));
+
+        self.logger.info(&format!(
+            "Applying migration {} ({}): {}",
+            migration_id, version, description
+        ));
 
         // Execute migration SQL
         match self.execute_statement(sql).await {
             Ok(_) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
-                
+
                 // Record migration in history
-                self.record_migration(migration_id, version, description, execution_time).await?;
-                
-                self.logger.info(&format!("Migration {} applied successfully in {}ms", migration_id, execution_time));
+                self.record_migration(migration_id, version, description, execution_time)
+                    .await?;
+
+                self.logger.info(&format!(
+                    "Migration {} applied successfully in {}ms",
+                    migration_id, execution_time
+                ));
                 Ok(())
             }
             Err(e) => {
                 let execution_time = crate::utils::time::get_current_timestamp() - start_time;
-                self.logger.error(&format!("Migration {} failed after {}ms: {}", migration_id, execution_time, e));
+                self.logger.error(&format!(
+                    "Migration {} failed after {}ms: {}",
+                    migration_id, execution_time, e
+                ));
                 Err(e)
             }
         }
@@ -282,26 +309,29 @@ impl UnifiedDatabaseCore {
     /// Validate database schema
     pub async fn validate_schema(&self) -> ArbitrageResult<bool> {
         self.logger.info("Validating database schema");
-        
+
         // Load current schema information
         self.load_schema_info().await?;
-        
+
         // Basic validation - check if required tables exist
         let required_tables = vec![
             "user_profiles",
-            "arbitrage_opportunities", 
+            "arbitrage_opportunities",
             "invitation_codes",
             "user_api_keys",
             "config_templates",
             "_migrations",
         ];
-        
+
         for table_name in &required_tables {
             if !self.table_exists(table_name).await? {
-                return Err(ArbitrageError::database_error(format!("Required table '{}' does not exist", table_name)));
+                return Err(ArbitrageError::database_error(format!(
+                    "Required table '{}' does not exist",
+                    table_name
+                )));
             }
         }
-        
+
         self.logger.info("Schema validation completed successfully");
         Ok(true)
     }
@@ -310,11 +340,14 @@ impl UnifiedDatabaseCore {
     pub async fn table_exists(&self, table_name: &str) -> ArbitrageResult<bool> {
         let query = "SELECT name FROM sqlite_master WHERE type='table' AND name=?";
         let stmt = self.db.prepare(query).bind(&[table_name.into()])?;
-        
-        match stmt.first::<JsValue>(None).await {
+
+        match stmt.first::<serde_json::Value>(None).await {
             Ok(Some(_)) => Ok(true),
             Ok(None) => Ok(false),
-            Err(e) => Err(ArbitrageError::database_error(format!("Failed to check table existence: {}", e))),
+            Err(e) => Err(ArbitrageError::database_error(format!(
+                "Failed to check table existence: {}",
+                e
+            ))),
         }
     }
 
@@ -351,14 +384,15 @@ impl UnifiedDatabaseCore {
                 checksum TEXT NOT NULL
             )
         "#;
-        
+
         self.execute_statement(sql).await?;
         Ok(())
     }
 
     async fn load_migration_history(&self) -> ArbitrageResult<()> {
-        let query = "SELECT * FROM _migrations ORDER BY version_major, version_minor, version_patch";
-        
+        let query =
+            "SELECT * FROM _migrations ORDER BY version_major, version_minor, version_patch";
+
         match self.db.prepare(query).all().await {
             Ok(_results) => {
                 // Simplified - in real implementation, parse results into MigrationRecord structs
@@ -369,18 +403,28 @@ impl UnifiedDatabaseCore {
                 Ok(())
             }
             Err(e) => {
-                self.logger.warn(&format!("Could not load migration history: {}", e));
+                self.logger
+                    .warn(&format!("Could not load migration history: {}", e));
                 Ok(()) // Non-critical error
             }
         }
     }
 
-    async fn record_migration(&self, migration_id: &str, version: MigrationVersion, description: &str, execution_time_ms: u64) -> ArbitrageResult<()> {
+    async fn record_migration(
+        &self,
+        migration_id: &str,
+        version: MigrationVersion,
+        description: &str,
+        execution_time_ms: u64,
+    ) -> ArbitrageResult<()> {
         let applied_at = crate::utils::time::get_current_timestamp();
-        let checksum = format!("{:x}", md5::compute(format!("{}{}", migration_id, description)));
-        
+        let checksum = format!(
+            "{:x}",
+            md5::compute(format!("{}{}", migration_id, description))
+        );
+
         let sql = "INSERT INTO _migrations (migration_id, version_major, version_minor, version_patch, description, applied_at, execution_time_ms, checksum) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-        
+
         let stmt = self.db.prepare(sql).bind(&[
             migration_id.into(),
             version.major.into(),
@@ -389,11 +433,13 @@ impl UnifiedDatabaseCore {
             description.into(),
             applied_at.into(),
             execution_time_ms.into(),
-            checksum.into(),
+            checksum.clone().into(),
         ])?;
-        
-        stmt.run().await.map_err(|e| ArbitrageError::database_error(format!("Failed to record migration: {}", e)))?;
-        
+
+        stmt.run().await.map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to record migration: {}", e))
+        })?;
+
         // Add to in-memory history
         if let Ok(mut history) = self.migration_history.lock() {
             history.push(MigrationRecord {
@@ -405,14 +451,15 @@ impl UnifiedDatabaseCore {
                 checksum,
             });
         }
-        
+
         Ok(())
     }
 
     async fn load_schema_info(&self) -> ArbitrageResult<()> {
         // Load table information from sqlite_master
-        let query = "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
-        
+        let query =
+            "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
+
         match self.db.prepare(query).all().await {
             Ok(_results) => {
                 // Simplified - in real implementation, parse table schema information
@@ -426,7 +473,10 @@ impl UnifiedDatabaseCore {
                 }
                 Ok(())
             }
-            Err(e) => Err(ArbitrageError::database_error(format!("Failed to load schema info: {}", e))),
+            Err(e) => Err(ArbitrageError::database_error(format!(
+                "Failed to load schema info: {}",
+                e
+            ))),
         }
     }
 }
@@ -462,4 +512,4 @@ impl Default for UnifiedDatabaseBuilder {
     fn default() -> Self {
         Self::new()
     }
-} 
+}

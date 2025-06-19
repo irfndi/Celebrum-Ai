@@ -12,11 +12,11 @@
 //! Designed for maximum efficiency, zero duplication, and high concurrency
 
 use crate::utils::error::{ArbitrageError, ArbitrageResult, ErrorKind};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use worker::{kv::KvStore, D1Database, Env, R2Bucket};
+use worker::wasm_bindgen;
+use worker::{kv::KvStore, D1Database, Env};
 
 // ============= UNIFIED CONFIGURATION =============
 
@@ -141,8 +141,9 @@ pub struct HealthMetrics {
 
 // ============= SERVICE STATUS =============
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum ServiceStatus {
+    #[default]
     Healthy,
     Degraded,
     Unhealthy,
@@ -164,7 +165,6 @@ pub struct UnifiedCloudflareServices {
     config: UnifiedCloudflareConfig,
     d1_database: Option<D1Database>,
     kv_store: Option<KvStore>,
-    r2_bucket: Option<R2Bucket>,
     metrics: Arc<RwLock<CloudflareMetrics>>,
     health: Arc<RwLock<ServiceHealth>>,
 }
@@ -175,7 +175,6 @@ impl UnifiedCloudflareServices {
             config,
             d1_database: None,
             kv_store: None,
-            r2_bucket: None,
             metrics: Arc::new(RwLock::new(CloudflareMetrics::default())),
             health: Arc::new(RwLock::new(ServiceHealth::default())),
         }
@@ -202,16 +201,6 @@ impl UnifiedCloudflareServices {
                 .await;
         }
 
-        // Initialize R2 Bucket
-        if let Ok(bucket) = env.r2(&self.config.r2.bucket_name) {
-            self.r2_bucket = Some(bucket);
-            self.update_service_status("r2", ServiceStatus::Healthy)
-                .await;
-        } else {
-            self.update_service_status("r2", ServiceStatus::Unhealthy)
-                .await;
-        }
-
         self.update_overall_health_status().await;
         Ok(())
     }
@@ -226,10 +215,19 @@ impl UnifiedCloudflareServices {
         let start_time = std::time::Instant::now();
 
         let database = self.d1_database.as_ref().ok_or_else(|| {
-            ArbitrageError::new(ErrorKind::ServiceUnavailable, "D1 database not initialized")
+            ArbitrageError::new(
+                ErrorKind::InfrastructureError,
+                "D1 database not initialized",
+            )
         })?;
 
-        let result = database.prepare(query).bind(params)?.all().await;
+        // Convert string parameters to JsValue array
+        let js_params: Vec<wasm_bindgen::JsValue> = params
+            .iter()
+            .map(|param| wasm_bindgen::JsValue::from_str(param))
+            .collect();
+
+        let result = database.prepare(query).bind(&js_params)?.all().await;
 
         let duration = start_time.elapsed();
         self.update_d1_metrics(duration.as_millis() as f64, result.is_ok())
@@ -242,7 +240,7 @@ impl UnifiedCloudflareServices {
                     .await;
                 Err(ArbitrageError::new(
                     ErrorKind::DatabaseError,
-                    &format!("D1 query failed: {:?}", error),
+                    format!("D1 query failed: {:?}", error),
                 ))
             }
         }
@@ -275,7 +273,7 @@ impl UnifiedCloudflareServices {
         let start_time = std::time::Instant::now();
 
         let kv = self.kv_store.as_ref().ok_or_else(|| {
-            ArbitrageError::new(ErrorKind::ServiceUnavailable, "KV store not initialized")
+            ArbitrageError::new(ErrorKind::InfrastructureError, "KV store not initialized")
         })?;
 
         let result = kv.get(key).text().await;
@@ -291,8 +289,8 @@ impl UnifiedCloudflareServices {
                 self.update_service_status("kv", ServiceStatus::Degraded)
                     .await;
                 Err(ArbitrageError::new(
-                    ErrorKind::CacheError,
-                    &format!("KV get failed: {:?}", error),
+                    ErrorKind::Cache,
+                    format!("KV get failed: {:?}", error),
                 ))
             }
         }
@@ -302,7 +300,7 @@ impl UnifiedCloudflareServices {
         let start_time = std::time::Instant::now();
 
         let kv = self.kv_store.as_ref().ok_or_else(|| {
-            ArbitrageError::new(ErrorKind::ServiceUnavailable, "KV store not initialized")
+            ArbitrageError::new(ErrorKind::InfrastructureError, "KV store not initialized")
         })?;
 
         let mut put_request = kv.put(key, value)?;
@@ -322,8 +320,8 @@ impl UnifiedCloudflareServices {
                 self.update_service_status("kv", ServiceStatus::Degraded)
                     .await;
                 Err(ArbitrageError::new(
-                    ErrorKind::CacheError,
-                    &format!("KV put failed: {:?}", error),
+                    ErrorKind::Cache,
+                    format!("KV put failed: {:?}", error),
                 ))
             }
         }
@@ -333,7 +331,7 @@ impl UnifiedCloudflareServices {
         let start_time = std::time::Instant::now();
 
         let kv = self.kv_store.as_ref().ok_or_else(|| {
-            ArbitrageError::new(ErrorKind::ServiceUnavailable, "KV store not initialized")
+            ArbitrageError::new(ErrorKind::InfrastructureError, "KV store not initialized")
         })?;
 
         let result = kv.delete(key).await;
@@ -348,8 +346,8 @@ impl UnifiedCloudflareServices {
                 self.update_service_status("kv", ServiceStatus::Degraded)
                     .await;
                 Err(ArbitrageError::new(
-                    ErrorKind::CacheError,
-                    &format!("KV delete failed: {:?}", error),
+                    ErrorKind::Cache,
+                    format!("KV delete failed: {:?}", error),
                 ))
             }
         }
@@ -357,100 +355,28 @@ impl UnifiedCloudflareServices {
 
     // ============= R2 OBJECT STORAGE OPERATIONS =============
 
-    pub async fn r2_get(&self, key: &str) -> ArbitrageResult<Option<Vec<u8>>> {
-        let start_time = std::time::Instant::now();
-
-        let r2 = self.r2_bucket.as_ref().ok_or_else(|| {
-            ArbitrageError::new(ErrorKind::ServiceUnavailable, "R2 bucket not initialized")
-        })?;
-
-        let result = r2.get(key).execute().await;
-
-        let duration = start_time.elapsed();
-        let is_success = result.is_ok();
-        self.update_r2_metrics("download", duration.as_millis() as f64, 0, is_success)
-            .await;
-
-        match result {
-            Ok(Some(object)) => {
-                let bytes = object.body().unwrap().bytes().await.unwrap_or_default();
-                self.update_r2_metrics(
-                    "download",
-                    duration.as_millis() as f64,
-                    bytes.len() as u64,
-                    true,
-                )
-                .await;
-                Ok(Some(bytes))
-            }
-            Ok(None) => Ok(None),
-            Err(error) => {
-                self.update_service_status("r2", ServiceStatus::Degraded)
-                    .await;
-                Err(ArbitrageError::new(
-                    ErrorKind::StorageError,
-                    &format!("R2 get failed: {:?}", error),
-                ))
-            }
-        }
+    /// Get object from R2 storage (placeholder - R2 not available in current WASM context)
+    pub async fn r2_get(&self, _key: &str) -> ArbitrageResult<Option<Vec<u8>>> {
+        // R2 operations removed due to Send/Sync compatibility issues in WASM
+        Err(ArbitrageError::storage_error(
+            "R2 operations not available in WASM context",
+        ))
     }
 
-    pub async fn r2_put(&self, key: &str, data: Vec<u8>) -> ArbitrageResult<()> {
-        let start_time = std::time::Instant::now();
-        let data_size = data.len() as u64;
-
-        let r2 = self.r2_bucket.as_ref().ok_or_else(|| {
-            ArbitrageError::new(ErrorKind::ServiceUnavailable, "R2 bucket not initialized")
-        })?;
-
-        let result = r2.put(key, data).execute().await;
-
-        let duration = start_time.elapsed();
-        self.update_r2_metrics(
-            "upload",
-            duration.as_millis() as f64,
-            data_size,
-            result.is_ok(),
-        )
-        .await;
-
-        match result {
-            Ok(_) => Ok(()),
-            Err(error) => {
-                self.update_service_status("r2", ServiceStatus::Degraded)
-                    .await;
-                Err(ArbitrageError::new(
-                    ErrorKind::StorageError,
-                    &format!("R2 put failed: {:?}", error),
-                ))
-            }
-        }
+    /// Put object to R2 storage (placeholder - R2 not available in current WASM context)
+    pub async fn r2_put(&self, _key: &str, _data: Vec<u8>) -> ArbitrageResult<()> {
+        // R2 operations removed due to Send/Sync compatibility issues in WASM
+        Err(ArbitrageError::storage_error(
+            "R2 operations not available in WASM context",
+        ))
     }
 
-    pub async fn r2_delete(&self, key: &str) -> ArbitrageResult<()> {
-        let start_time = std::time::Instant::now();
-
-        let r2 = self.r2_bucket.as_ref().ok_or_else(|| {
-            ArbitrageError::new(ErrorKind::ServiceUnavailable, "R2 bucket not initialized")
-        })?;
-
-        let result = r2.delete(key).await;
-
-        let duration = start_time.elapsed();
-        self.update_r2_metrics("delete", duration.as_millis() as f64, 0, result.is_ok())
-            .await;
-
-        match result {
-            Ok(_) => Ok(()),
-            Err(error) => {
-                self.update_service_status("r2", ServiceStatus::Degraded)
-                    .await;
-                Err(ArbitrageError::new(
-                    ErrorKind::StorageError,
-                    &format!("R2 delete failed: {:?}", error),
-                ))
-            }
-        }
+    /// Delete object from R2 storage (placeholder - R2 not available in current WASM context)
+    pub async fn r2_delete(&self, _key: &str) -> ArbitrageResult<()> {
+        // R2 operations removed due to Send/Sync compatibility issues in WASM
+        Err(ArbitrageError::storage_error(
+            "R2 operations not available in WASM context",
+        ))
     }
 
     // ============= PIPELINE OPERATIONS =============
@@ -462,7 +388,7 @@ impl UnifiedCloudflareServices {
         processor: F,
     ) -> ArbitrageResult<Vec<T>>
     where
-        T: Send + Sync + 'static,
+        T: Send + Sync + 'static + Clone,
         F: Fn(T) -> Fut + Send + Sync + Clone + 'static,
         Fut: std::future::Future<Output = ArbitrageResult<T>> + Send,
     {
@@ -509,8 +435,8 @@ impl UnifiedCloudflareServices {
             Ok(results)
         } else {
             Err(ArbitrageError::new(
-                ErrorKind::ProcessingError,
-                &format!(
+                ErrorKind::Internal,
+                format!(
                     "Pipeline {} failed {} out of {} items",
                     name, failed_count, total_items
                 ),
@@ -540,7 +466,7 @@ impl UnifiedCloudflareServices {
 
         // Update stored health status
         {
-            let mut health = self.health.write().await;
+            let mut health = self.health.write();
             *health = health_status.clone();
         }
 
@@ -552,7 +478,7 @@ impl UnifiedCloudflareServices {
     // ============= PRIVATE HELPER METHODS =============
 
     async fn update_d1_metrics(&self, duration_ms: f64, success: bool) {
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
         metrics.d1_metrics.total_queries += 1;
 
         if success {
@@ -569,7 +495,7 @@ impl UnifiedCloudflareServices {
     }
 
     async fn update_kv_metrics(&self, operation: &str, duration_ms: f64, is_hit: bool) {
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
         metrics.kv_metrics.total_operations += 1;
 
         match operation {
@@ -593,6 +519,7 @@ impl UnifiedCloudflareServices {
             (current_avg * (total - 1.0) + duration_ms) / total;
     }
 
+    #[allow(dead_code)]
     async fn update_r2_metrics(
         &self,
         operation: &str,
@@ -600,7 +527,7 @@ impl UnifiedCloudflareServices {
         bytes: u64,
         success: bool,
     ) {
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
         metrics.r2_metrics.total_operations += 1;
 
         if success {
@@ -627,7 +554,7 @@ impl UnifiedCloudflareServices {
         items_processed: u64,
         success: bool,
     ) {
-        let mut metrics = self.metrics.write().await;
+        let mut metrics = self.metrics.write();
 
         if success {
             metrics.pipeline_metrics.completed_pipelines += 1;
@@ -648,7 +575,7 @@ impl UnifiedCloudflareServices {
     }
 
     async fn update_service_status(&self, service: &str, status: ServiceStatus) {
-        let mut health = self.health.write().await;
+        let mut health = self.health.write();
         match service {
             "d1" => health.d1_status = status,
             "kv" => health.kv_status = status,
@@ -659,11 +586,11 @@ impl UnifiedCloudflareServices {
     }
 
     async fn update_overall_health_status(&self) {
-        let health = self.health.read().await;
+        let health = self.health.read();
         let overall = self.calculate_overall_status(&health);
         drop(health);
 
-        let mut health = self.health.write().await;
+        let mut health = self.health.write();
         health.overall_status = overall;
     }
 
@@ -718,20 +645,13 @@ impl UnifiedCloudflareServices {
     }
 
     async fn check_r2_health(&self) -> ServiceStatus {
-        if self.r2_bucket.is_none() {
-            return ServiceStatus::Unhealthy;
-        }
-
-        // Try a simple R2 operation
-        match self.r2_get("__health_check__").await {
-            Ok(_) => ServiceStatus::Healthy,
-            Err(_) => ServiceStatus::Degraded, // R2 might be available but slow
-        }
+        // R2 health check disabled due to WASM compatibility
+        ServiceStatus::Maintenance
     }
 
     async fn check_pipeline_health(&self) -> ServiceStatus {
         // Pipeline health is based on recent metrics
-        let metrics = self.metrics.read().await;
+        let metrics = self.metrics.read();
         let total_pipelines = metrics.pipeline_metrics.completed_pipelines
             + metrics.pipeline_metrics.failed_pipelines;
 
@@ -752,8 +672,8 @@ impl UnifiedCloudflareServices {
     }
 
     async fn update_health_metrics(&self) {
-        let mut metrics = self.metrics.write().await;
-        let health = self.health.read().await;
+        let mut metrics = self.metrics.write();
+        let health = self.health.read();
 
         // Calculate uptime percentage based on service statuses
         let healthy_services = [
@@ -812,15 +732,15 @@ impl UnifiedCloudflareServices {
     // ============= PUBLIC INTERFACE METHODS =============
 
     pub async fn get_metrics(&self) -> CloudflareMetrics {
-        self.metrics.read().await.clone()
+        self.metrics.read().clone()
     }
 
     pub async fn get_health(&self) -> ServiceHealth {
-        self.health.read().await.clone()
+        self.health.read().clone()
     }
 
     pub fn is_initialized(&self) -> bool {
-        self.d1_database.is_some() || self.kv_store.is_some() || self.r2_bucket.is_some()
+        self.d1_database.is_some() || self.kv_store.is_some()
     }
 }
 
@@ -868,12 +788,6 @@ impl Default for UnifiedCloudflareConfig {
                 },
             },
         }
-    }
-}
-
-impl Default for ServiceStatus {
-    fn default() -> Self {
-        ServiceStatus::Healthy
     }
 }
 

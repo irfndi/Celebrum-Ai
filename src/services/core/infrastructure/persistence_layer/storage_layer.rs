@@ -337,3 +337,6 @@ impl Default for StorageLayerBuilder {
         Self::new()
     }
 }
+
+/// Type alias for compatibility with imports
+pub type StorageLayer = StorageLayerService;

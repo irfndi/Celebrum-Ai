@@ -15,13 +15,18 @@
 // - mod.rs (11KB, 364 lines) - Module definitions
 // Total reduction: 13 files → 1 file (367KB → ~120KB optimized)
 
-use crate::services::core::market_data::market_data_ingestion::{MarketDataSnapshot, PriceData};
-use crate::types::{ArbitrageOpportunity, ExchangeType};
+use crate::types::ExchangeId;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use worker::{kv::KvStore, Request, Response, console_log};
+use worker::{kv::KvStore, Request, Response};
+
+#[cfg(target_arch = "wasm32")]
+use js_sys::Date;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ============= UNIFIED CONFIGURATION =============
 
@@ -34,7 +39,7 @@ pub struct UnifiedDataAccessConfig {
     pub rate_limit_per_second: u32,
     pub retry_attempts: u32,
     pub retry_delay_ms: u64,
-    
+
     // Cache Configuration
     pub enable_caching: bool,
     pub cache_ttl_seconds: u64,
@@ -42,18 +47,18 @@ pub struct UnifiedDataAccessConfig {
     pub cache_compression_enabled: bool,
     pub max_cache_size_mb: u64,
     pub cache_eviction_policy: CacheEvictionPolicy,
-    
+
     // Data Validation
     pub enable_validation: bool,
     pub validation_timeout_ms: u64,
     pub data_freshness_threshold_ms: u64,
     pub enable_integrity_checks: bool,
-    
+
     // Compression Settings
     pub compression_enabled: bool,
     pub compression_threshold_bytes: usize,
     pub compression_level: u8,
-    
+
     // Performance Tuning
     pub batch_size: usize,
     pub connection_pool_size: u32,
@@ -70,23 +75,23 @@ impl Default for UnifiedDataAccessConfig {
             rate_limit_per_second: 100,
             retry_attempts: 3,
             retry_delay_ms: 1000,
-            
+
             enable_caching: true,
             cache_ttl_seconds: 300,
             cache_warming_enabled: true,
             cache_compression_enabled: true,
             max_cache_size_mb: 100,
             cache_eviction_policy: CacheEvictionPolicy::LRU,
-            
+
             enable_validation: true,
             validation_timeout_ms: 5000,
             data_freshness_threshold_ms: 60000,
             enable_integrity_checks: true,
-            
+
             compression_enabled: true,
             compression_threshold_bytes: 1024,
             compression_level: 6,
-            
+
             batch_size: 100,
             connection_pool_size: 20,
             enable_metrics: true,
@@ -110,7 +115,7 @@ pub enum CacheEvictionPolicy {
 /// Data source types for unified access
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum DataSourceType {
-    Exchange(ExchangeType),
+    Exchange(ExchangeId),
     CacheLayer,
     Database,
     External,
@@ -189,7 +194,7 @@ pub struct UnifiedDataAccessMetrics {
     pub validation_failures: u64,
     pub circuit_breaker_trips: u64,
     pub last_updated: u64,
-    
+
     // Per-source metrics
     pub source_metrics: HashMap<DataSourceType, SourceMetrics>,
 }
@@ -245,6 +250,7 @@ struct CircuitBreakerState {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 enum CircuitState {
     Closed,
     Open,
@@ -253,6 +259,7 @@ enum CircuitState {
 
 /// Rate limiter state
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct RateLimiterState {
     requests: Vec<u64>,
     last_reset: u64,
@@ -262,7 +269,7 @@ impl UnifiedDataAccessEngine {
     /// Create new unified data access engine
     pub fn new(config: UnifiedDataAccessConfig) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-        
+
         logger.info("Initializing UnifiedDataAccessEngine - consolidating 13 data access modules");
 
         Ok(Self {
@@ -282,27 +289,33 @@ impl UnifiedDataAccessEngine {
     }
 
     /// Process a unified data request
-    pub async fn process_request(&self, request: UnifiedDataRequest) -> ArbitrageResult<UnifiedDataResponse> {
+    pub async fn process_request(
+        &self,
+        request: UnifiedDataRequest,
+    ) -> ArbitrageResult<UnifiedDataResponse> {
         let start_time = self.get_current_timestamp();
-        
+
         // Check circuit breaker
         if !self.check_circuit_breaker(&request.source_type).await? {
-            return Err(ArbitrageError::ServiceUnavailable(
-                format!("Circuit breaker open for source: {:?}", request.source_type)
-            ));
+            return Err(ArbitrageError::service_unavailable(format!(
+                "Circuit breaker open for source: {:?}",
+                request.source_type
+            )));
         }
 
         // Check rate limiting
         if !self.check_rate_limit(&request.source_type).await? {
-            return Err(ArbitrageError::RateLimit(
-                format!("Rate limit exceeded for source: {:?}", request.source_type)
-            ));
+            return Err(ArbitrageError::rate_limit_error(format!(
+                "Rate limit exceeded for source: {:?}",
+                request.source_type
+            )));
         }
 
         // Try cache first if enabled
         if self.config.enable_caching && request.cache_key.is_some() {
             if let Ok(Some(cached_response)) = self.get_from_cache(&request).await {
-                self.record_metrics(true, start_time, &request.source_type, true).await;
+                self.record_metrics(true, start_time, &request.source_type, true)
+                    .await;
                 return Ok(cached_response);
             }
         }
@@ -311,18 +324,21 @@ impl UnifiedDataAccessEngine {
         let mut response = match self.execute_request(&request).await {
             Ok(response) => response,
             Err(error) => {
-                self.record_circuit_breaker_failure(&request.source_type).await;
-                self.record_metrics(false, start_time, &request.source_type, false).await;
+                self.record_circuit_breaker_failure(&request.source_type)
+                    .await;
+                self.record_metrics(false, start_time, &request.source_type, false)
+                    .await;
                 return Err(error);
             }
         };
 
         // Validate response if required
-        if request.validation_required && self.config.enable_validation {
-            if !self.validate_response(&response).await? {
-                response.validation_passed = false;
-                self.record_validation_failure().await;
-            }
+        if request.validation_required
+            && self.config.enable_validation
+            && !self.validate_response(&response).await?
+        {
+            response.validation_passed = false;
+            self.record_validation_failure().await;
         }
 
         // Compress if enabled and threshold met
@@ -339,13 +355,17 @@ impl UnifiedDataAccessEngine {
         }
 
         response.response_time_ms = self.get_current_timestamp() - start_time;
-        self.record_metrics(true, start_time, &request.source_type, false).await;
+        self.record_metrics(true, start_time, &request.source_type, false)
+            .await;
 
         Ok(response)
     }
 
     /// Execute the actual data request
-    async fn execute_request(&self, request: &UnifiedDataRequest) -> ArbitrageResult<UnifiedDataResponse> {
+    async fn execute_request(
+        &self,
+        request: &UnifiedDataRequest,
+    ) -> ArbitrageResult<UnifiedDataResponse> {
         match &request.source_type {
             DataSourceType::Exchange(exchange) => self.fetch_exchange_data(request, exchange).await,
             DataSourceType::API => self.fetch_api_data(request).await,
@@ -356,24 +376,34 @@ impl UnifiedDataAccessEngine {
     }
 
     /// Fetch data from exchange API
-    async fn fetch_exchange_data(&self, request: &UnifiedDataRequest, exchange: &ExchangeType) -> ArbitrageResult<UnifiedDataResponse> {
-        self.logger.info(&format!("Fetching data from exchange: {:?}", exchange));
+    async fn fetch_exchange_data(
+        &self,
+        request: &UnifiedDataRequest,
+        exchange: &ExchangeId,
+    ) -> ArbitrageResult<UnifiedDataResponse> {
+        self.logger
+            .info(&format!("Fetching data from exchange: {:?}", exchange));
 
         // Build request URL
         let url = self.build_exchange_url(exchange, &request.endpoint, &request.parameters)?;
-        
+
         // Make HTTP request with timeout
-        let client_request = Request::new_with_init(&url, &worker::RequestInit::new()
-            .with_method(worker::Method::Get))?;
+        let client_request = Request::new_with_init(
+            &url,
+            worker::RequestInit::new().with_method(worker::Method::Get),
+        )?;
 
         // Execute with timeout
-        let response = self.execute_with_timeout(client_request, request.timeout_ms).await?;
-        let data: serde_json::Value = response.json().await
-            .map_err(|e| ArbitrageError::Serialization(format!("Failed to parse JSON: {}", e)))?;
+        let mut response = self
+            .execute_with_timeout(client_request, request.timeout_ms)
+            .await?;
+        let data: serde_json::Value = response.json().await.map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to parse JSON: {}", e))
+        })?;
 
         Ok(UnifiedDataResponse {
             request_id: request.request_id.clone(),
-            data,
+            data: data.clone(),
             metadata: self.create_metadata(&data).await,
             cache_hit: false,
             compressed: false,
@@ -384,19 +414,28 @@ impl UnifiedDataAccessEngine {
     }
 
     /// Fetch data from generic API
-    async fn fetch_api_data(&self, request: &UnifiedDataRequest) -> ArbitrageResult<UnifiedDataResponse> {
-        self.logger.info(&format!("Fetching data from API: {}", request.endpoint));
+    async fn fetch_api_data(
+        &self,
+        request: &UnifiedDataRequest,
+    ) -> ArbitrageResult<UnifiedDataResponse> {
+        self.logger
+            .info(&format!("Fetching data from API: {}", request.endpoint));
 
-        let client_request = Request::new_with_init(&request.endpoint, &worker::RequestInit::new()
-            .with_method(worker::Method::Get))?;
+        let client_request = Request::new_with_init(
+            &request.endpoint,
+            worker::RequestInit::new().with_method(worker::Method::Get),
+        )?;
 
-        let response = self.execute_with_timeout(client_request, request.timeout_ms).await?;
-        let data: serde_json::Value = response.json().await
-            .map_err(|e| ArbitrageError::Serialization(format!("Failed to parse JSON: {}", e)))?;
+        let mut response = self
+            .execute_with_timeout(client_request, request.timeout_ms)
+            .await?;
+        let data: serde_json::Value = response.json().await.map_err(|e| {
+            ArbitrageError::serialization_error(format!("Failed to parse JSON: {}", e))
+        })?;
 
         Ok(UnifiedDataResponse {
             request_id: request.request_id.clone(),
-            data,
+            data: data.clone(),
             metadata: self.create_metadata(&data).await,
             cache_hit: false,
             compressed: false,
@@ -407,7 +446,10 @@ impl UnifiedDataAccessEngine {
     }
 
     /// Fetch data from database
-    async fn fetch_database_data(&self, _request: &UnifiedDataRequest) -> ArbitrageResult<UnifiedDataResponse> {
+    async fn fetch_database_data(
+        &self,
+        _request: &UnifiedDataRequest,
+    ) -> ArbitrageResult<UnifiedDataResponse> {
         // Database operations would be implemented here
         // For now, return a placeholder
         Ok(UnifiedDataResponse {
@@ -431,73 +473,88 @@ impl UnifiedDataAccessEngine {
     }
 
     /// Fetch external data
-    async fn fetch_external_data(&self, request: &UnifiedDataRequest) -> ArbitrageResult<UnifiedDataResponse> {
+    async fn fetch_external_data(
+        &self,
+        request: &UnifiedDataRequest,
+    ) -> ArbitrageResult<UnifiedDataResponse> {
         // Similar to API data but with different handling
         self.fetch_api_data(request).await
     }
 
     /// Fetch cache layer data
-    async fn fetch_cache_layer_data(&self, request: &UnifiedDataRequest) -> ArbitrageResult<UnifiedDataResponse> {
+    async fn fetch_cache_layer_data(
+        &self,
+        request: &UnifiedDataRequest,
+    ) -> ArbitrageResult<UnifiedDataResponse> {
         if let Some(ref cache) = self.cache {
             let cache_key = request.cache_key.as_ref().unwrap_or(&request.request_id);
-            
+
             match cache.get(cache_key).json::<serde_json::Value>().await {
-                Ok(Some(data)) => {
-                    Ok(UnifiedDataResponse {
-                        request_id: request.request_id.clone(),
-                        data,
-                        metadata: DataMetadata {
-                            timestamp: self.get_current_timestamp(),
-                            size_bytes: 0,
-                            checksum: None,
-                            version: "1.0".to_string(),
-                            ttl_seconds: Some(self.config.cache_ttl_seconds),
-                            tags: vec!["cache".to_string()],
-                            quality_score: 1.0,
-                        },
-                        cache_hit: true,
-                        compressed: false,
-                        validation_passed: true,
-                        response_time_ms: 0,
-                        source: request.source_type.clone(),
-                    })
-                }
-                _ => Err(ArbitrageError::NotFound("Cache data not found".to_string())),
+                Ok(Some(data)) => Ok(UnifiedDataResponse {
+                    request_id: request.request_id.clone(),
+                    data,
+                    metadata: DataMetadata {
+                        timestamp: self.get_current_timestamp(),
+                        size_bytes: 0,
+                        checksum: None,
+                        version: "1.0".to_string(),
+                        ttl_seconds: Some(self.config.cache_ttl_seconds),
+                        tags: vec!["cache".to_string()],
+                        quality_score: 1.0,
+                    },
+                    cache_hit: true,
+                    compressed: false,
+                    validation_passed: true,
+                    response_time_ms: 0,
+                    source: request.source_type.clone(),
+                }),
+                _ => Err(ArbitrageError::not_found(
+                    "Cache data not found".to_string(),
+                )),
             }
         } else {
-            Err(ArbitrageError::Configuration("Cache not configured".to_string()))
+            Err(ArbitrageError::configuration_error(
+                "Cache not configured".to_string(),
+            ))
         }
     }
 
-    /// Execute HTTP request with timeout 
-    async fn execute_with_timeout(&self, request: Request, timeout_ms: Option<u64>) -> ArbitrageResult<Response> {
+    /// Execute HTTP request with timeout
+    async fn execute_with_timeout(
+        &self,
+        request: Request,
+        timeout_ms: Option<u64>,
+    ) -> ArbitrageResult<Response> {
         let _timeout = timeout_ms.unwrap_or(self.config.request_timeout_ms);
-        
+
         // Use Cloudflare Workers fetch with timeout
         worker::Fetch::Request(request)
             .send()
             .await
-            .map_err(|e| ArbitrageError::Http(format!("Request failed: {}", e)))
+            .map_err(|e| ArbitrageError::network_error(format!("Request failed: {}", e)))
     }
 
     /// Build exchange-specific URL
-    fn build_exchange_url(&self, exchange: &ExchangeType, endpoint: &str, params: &HashMap<String, String>) -> ArbitrageResult<String> {
-        let base_url = match exchange {
-            ExchangeType::Binance => "https://api.binance.com/api/v3",
-            ExchangeType::Coinbase => "https://api.coinbase.com/v2",
-            ExchangeType::Kraken => "https://api.kraken.com/0/public",
-            ExchangeType::Bybit => "https://api.bybit.com/v2/public",
-            ExchangeType::Okx => "https://www.okx.com/api/v5",
-            _ => return Err(ArbitrageError::Configuration(format!("Unsupported exchange: {:?}", exchange))),
+    fn build_exchange_url(
+        &self,
+        exchange: &ExchangeId,
+        endpoint: &str,
+        params: &HashMap<String, String>,
+    ) -> ArbitrageResult<String> {
+        let base_url = match exchange.as_str() {
+            "binance" => "https://api.binance.com/api/v3",
+            "coinbase" => "https://api.coinbase.com/v2",
+            "kraken" => "https://api.kraken.com/0/public",
+            "bybit" => "https://api.bybit.com/v2/public",
+            "okx" => "https://www.okx.com/api/v5",
+            _ => "https://api.binance.com/api/v3", // Default fallback
         };
 
         let mut url = format!("{}/{}", base_url, endpoint.trim_start_matches('/'));
-        
+
         if !params.is_empty() {
-            let query_string: Vec<String> = params
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect();
+            let query_string: Vec<String> =
+                params.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
             url.push_str(&format!("?{}", query_string.join("&")));
         }
 
@@ -507,7 +564,7 @@ impl UnifiedDataAccessEngine {
     /// Create metadata for response
     async fn create_metadata(&self, data: &serde_json::Value) -> DataMetadata {
         let serialized = serde_json::to_string(data).unwrap_or_default();
-        
+
         DataMetadata {
             timestamp: self.get_current_timestamp(),
             size_bytes: serialized.len(),
@@ -523,7 +580,7 @@ impl UnifiedDataAccessEngine {
     fn calculate_checksum(&self, data: &str) -> String {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         data.hash(&mut hasher);
         format!("{:x}", hasher.finish())
@@ -539,7 +596,7 @@ impl UnifiedDataAccessEngine {
         // Check data freshness
         let current_time = self.get_current_timestamp();
         let data_age = current_time - response.metadata.timestamp;
-        
+
         if data_age > self.config.data_freshness_threshold_ms {
             return Ok(false);
         }
@@ -548,7 +605,7 @@ impl UnifiedDataAccessEngine {
         if self.config.enable_integrity_checks {
             let serialized = serde_json::to_string(&response.data).unwrap_or_default();
             let calculated_checksum = self.calculate_checksum(&serialized);
-            
+
             if let Some(ref stored_checksum) = response.metadata.checksum {
                 if calculated_checksum != *stored_checksum {
                     return Ok(false);
@@ -562,7 +619,7 @@ impl UnifiedDataAccessEngine {
     /// Compress data using simple string compression
     async fn compress_data(&self, data: &serde_json::Value) -> ArbitrageResult<serde_json::Value> {
         let serialized = serde_json::to_string(data)
-            .map_err(|e| ArbitrageError::Serialization(e.to_string()))?;
+            .map_err(|e| ArbitrageError::serialization_error(e.to_string()))?;
 
         if serialized.len() < self.config.compression_threshold_bytes {
             return Ok(data.clone());
@@ -578,48 +635,58 @@ impl UnifiedDataAccessEngine {
     }
 
     /// Cache response data
-    async fn cache_response(&self, request: &UnifiedDataRequest, response: &UnifiedDataResponse) -> ArbitrageResult<()> {
+    async fn cache_response(
+        &self,
+        request: &UnifiedDataRequest,
+        response: &UnifiedDataResponse,
+    ) -> ArbitrageResult<()> {
         if let Some(ref cache) = self.cache {
             if let Some(ref cache_key) = request.cache_key {
-                let ttl = response.metadata.ttl_seconds.unwrap_or(self.config.cache_ttl_seconds);
-                
-                cache.put(cache_key, &response.data)
-                    .map_err(|e| ArbitrageError::Cache(format!("Cache put failed: {}", e)))?
+                let ttl = response
+                    .metadata
+                    .ttl_seconds
+                    .unwrap_or(self.config.cache_ttl_seconds);
+
+                cache
+                    .put(cache_key, &response.data)
+                    .map_err(|e| ArbitrageError::cache_error(format!("Cache put failed: {}", e)))?
                     .expiration_ttl(ttl)
                     .execute()
                     .await
-                    .map_err(|e| ArbitrageError::Cache(format!("Cache execute failed: {}", e)))?;
+                    .map_err(|e| {
+                        ArbitrageError::cache_error(format!("Cache execute failed: {}", e))
+                    })?;
             }
         }
         Ok(())
     }
 
     /// Get data from cache
-    async fn get_from_cache(&self, request: &UnifiedDataRequest) -> ArbitrageResult<Option<UnifiedDataResponse>> {
+    async fn get_from_cache(
+        &self,
+        request: &UnifiedDataRequest,
+    ) -> ArbitrageResult<Option<UnifiedDataResponse>> {
         if let Some(ref cache) = self.cache {
             if let Some(ref cache_key) = request.cache_key {
-                match cache.get(cache_key).json::<serde_json::Value>().await {
-                    Ok(Some(data)) => {
-                        return Ok(Some(UnifiedDataResponse {
-                            request_id: request.request_id.clone(),
-                            data,
-                            metadata: DataMetadata {
-                                timestamp: self.get_current_timestamp(),
-                                size_bytes: 0,
-                                checksum: None,
-                                version: "1.0".to_string(),
-                                ttl_seconds: Some(self.config.cache_ttl_seconds),
-                                tags: vec!["cached".to_string()],
-                                quality_score: 1.0,
-                            },
-                            cache_hit: true,
-                            compressed: false,
-                            validation_passed: true,
-                            response_time_ms: 0,
-                            source: request.source_type.clone(),
-                        }));
-                    }
-                    _ => {}
+                if let Ok(Some(data)) = cache.get(cache_key).json::<serde_json::Value>().await {
+                    return Ok(Some(UnifiedDataResponse {
+                        request_id: request.request_id.clone(),
+                        data,
+                        metadata: DataMetadata {
+                            timestamp: self.get_current_timestamp(),
+                            size_bytes: 0,
+                            checksum: None,
+                            version: "1.0".to_string(),
+                            ttl_seconds: Some(self.config.cache_ttl_seconds),
+                            tags: vec!["cached".to_string()],
+                            quality_score: 1.0,
+                        },
+                        cache_hit: true,
+                        compressed: false,
+                        validation_passed: true,
+                        response_time_ms: 0,
+                        source: request.source_type.clone(),
+                    }));
                 }
             }
         }
@@ -639,7 +706,8 @@ impl UnifiedDataAccessEngine {
                     CircuitState::Open => {
                         // Check if enough time has passed to try half-open
                         let current_time = self.get_current_timestamp();
-                        if current_time - breaker.last_failure > 60000 { // 1 minute
+                        if current_time - breaker.last_failure > 60000 {
+                            // 1 minute
                             Ok(true) // Allow one request to test
                         } else {
                             Ok(false)
@@ -662,18 +730,21 @@ impl UnifiedDataAccessEngine {
         }
 
         if let Ok(mut breakers) = self.circuit_breakers.lock() {
-            let breaker = breakers.entry(source.clone()).or_insert(CircuitBreakerState {
-                failure_count: 0,
-                last_failure: 0,
-                state: CircuitState::Closed,
-            });
+            let breaker = breakers
+                .entry(source.clone())
+                .or_insert(CircuitBreakerState {
+                    failure_count: 0,
+                    last_failure: 0,
+                    state: CircuitState::Closed,
+                });
 
             breaker.failure_count += 1;
             breaker.last_failure = self.get_current_timestamp();
 
             if breaker.failure_count >= self.config.circuit_breaker_threshold {
                 breaker.state = CircuitState::Open;
-                self.logger.warn(&format!("Circuit breaker opened for source: {:?}", source));
+                self.logger
+                    .warn(&format!("Circuit breaker opened for source: {:?}", source));
             }
         }
     }
@@ -688,7 +759,9 @@ impl UnifiedDataAccessEngine {
             });
 
             // Clean old requests (older than 1 second)
-            limiter.requests.retain(|&timestamp| current_time - timestamp < 1000);
+            limiter
+                .requests
+                .retain(|&timestamp| current_time - timestamp < 1000);
 
             if limiter.requests.len() >= self.config.rate_limit_per_second as usize {
                 return Ok(false);
@@ -702,10 +775,16 @@ impl UnifiedDataAccessEngine {
     }
 
     /// Record metrics
-    async fn record_metrics(&self, success: bool, start_time: u64, source: &DataSourceType, cache_hit: bool) {
+    async fn record_metrics(
+        &self,
+        success: bool,
+        start_time: u64,
+        source: &DataSourceType,
+        cache_hit: bool,
+    ) {
         if let Ok(mut metrics) = self.metrics.lock() {
             let execution_time = self.get_current_timestamp() - start_time;
-            
+
             metrics.total_requests += 1;
             if success {
                 metrics.successful_requests += 1;
@@ -721,18 +800,23 @@ impl UnifiedDataAccessEngine {
 
             // Update rolling average
             let total = metrics.total_requests as f64;
-            metrics.avg_response_time_ms = (metrics.avg_response_time_ms * (total - 1.0) + execution_time as f64) / total;
-            
+            metrics.avg_response_time_ms =
+                (metrics.avg_response_time_ms * (total - 1.0) + execution_time as f64) / total;
+
             // Update source-specific metrics
-            let source_metric = metrics.source_metrics.entry(source.clone()).or_insert(SourceMetrics {
-                requests: 0,
-                successes: 0,
-                failures: 0,
-                avg_response_time_ms: 0.0,
-                last_success: 0,
-                last_failure: 0,
-                health_score: 1.0,
-            });
+            let source_metric =
+                metrics
+                    .source_metrics
+                    .entry(source.clone())
+                    .or_insert(SourceMetrics {
+                        requests: 0,
+                        successes: 0,
+                        failures: 0,
+                        avg_response_time_ms: 0.0,
+                        last_success: 0,
+                        last_failure: 0,
+                        health_score: 1.0,
+                    });
 
             source_metric.requests += 1;
             if success {
@@ -763,7 +847,17 @@ impl UnifiedDataAccessEngine {
 
     /// Get current timestamp
     fn get_current_timestamp(&self) -> u64 {
-        (js_sys::Date::now() as u64)
+        #[cfg(target_arch = "wasm32")]
+        {
+            Date::now() as u64
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        }
     }
 
     /// Get comprehensive metrics
@@ -778,7 +872,7 @@ impl UnifiedDataAccessEngine {
     /// Health check for the entire unified engine
     pub async fn health_check(&self) -> ArbitrageResult<bool> {
         let metrics = self.get_metrics().await;
-        
+
         // Consider healthy if success rate > 80% and no recent circuit breaker trips
         let success_rate = if metrics.total_requests > 0 {
             metrics.successful_requests as f64 / metrics.total_requests as f64
@@ -796,14 +890,17 @@ impl UnifiedDataAccessEngine {
         }
 
         let mut warmed_count = 0;
-        
+
         for request in requests {
-            if let Ok(_) = self.process_request(request).await {
+            if (self.process_request(request).await).is_ok() {
                 warmed_count += 1;
             }
         }
 
-        self.logger.info(&format!("Cache warming completed: {} items warmed", warmed_count));
+        self.logger.info(&format!(
+            "Cache warming completed: {} items warmed",
+            warmed_count
+        ));
         Ok(warmed_count)
     }
 }
@@ -886,14 +983,14 @@ pub fn create_simple_request(
 
 /// Create a high-priority exchange data request
 pub fn create_exchange_request(
-    exchange: ExchangeType,
+    exchange: ExchangeId,
     endpoint: String,
     parameters: HashMap<String, String>,
 ) -> UnifiedDataRequest {
     UnifiedDataRequest {
         request_id: uuid::Uuid::new_v4().to_string(),
-        source_type: DataSourceType::Exchange(exchange),
-        endpoint,
+        source_type: DataSourceType::Exchange(exchange.clone()),
+        endpoint: endpoint.clone(),
         parameters,
         cache_key: Some(format!("exchange_{:?}_{}", exchange, endpoint)),
         priority: DataPriority::High,
@@ -936,7 +1033,7 @@ mod tests {
             "test/endpoint".to_string(),
             Some("test_cache_key".to_string()),
         );
-        
+
         assert_eq!(request.source_type, DataSourceType::API);
         assert_eq!(request.endpoint, "test/endpoint");
         assert_eq!(request.cache_key, Some("test_cache_key".to_string()));
@@ -947,14 +1044,11 @@ mod tests {
     fn test_create_exchange_request() {
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), "BTCUSDT".to_string());
-        
-        let request = create_exchange_request(
-            ExchangeType::Binance,
-            "ticker/price".to_string(),
-            params,
-        );
-        
-        assert!(matches!(request.source_type, DataSourceType::Exchange(ExchangeType::Binance)));
+
+        let request =
+            create_exchange_request("binance".to_string(), "ticker/price".to_string(), params);
+
+        assert!(matches!(request.source_type, DataSourceType::Exchange(_)));
         assert_eq!(request.priority, DataPriority::High);
         assert!(request.retry_config.is_some());
     }
@@ -968,7 +1062,7 @@ mod tests {
             .with_rate_limiting(200)
             .with_circuit_breaker(true, 10)
             .build();
-        
+
         assert!(engine.is_ok());
     }
 
@@ -977,10 +1071,10 @@ mod tests {
         let policy = CacheEvictionPolicy::LRU;
         let serialized = serde_json::to_string(&policy).unwrap();
         let deserialized: CacheEvictionPolicy = serde_json::from_str(&serialized).unwrap();
-        
+
         match (policy, deserialized) {
-            (CacheEvictionPolicy::LRU, CacheEvictionPolicy::LRU) => {},
+            (CacheEvictionPolicy::LRU, CacheEvictionPolicy::LRU) => {}
             _ => panic!("Serialization failed"),
         }
     }
-} 
+}

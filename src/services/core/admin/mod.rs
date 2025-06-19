@@ -7,7 +7,7 @@ pub mod user_management;
 use crate::services::core::admin::audit::{AuditConfig, AuditEvent, UserAuditAction};
 use crate::services::core::admin::monitoring::SystemHealth;
 use crate::services::core::admin::system_config::SystemConfig;
-use crate::services::core::infrastructure::D1Service;
+use crate::services::core::infrastructure::persistence_layer::D1Service;
 use crate::types::*;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;
@@ -28,7 +28,7 @@ pub struct AdminService {
     pub system_config: Arc<SystemConfigService>,
     pub monitoring: Arc<MonitoringService>,
     pub audit: Arc<AuditService>,
-    pub d1_service: Arc<D1Service>,
+    // pub d1_service: Arc<D1Service>,
     pub env: Env,
 }
 
@@ -36,7 +36,7 @@ impl AdminService {
     /// Create new AdminService with all sub-services
     pub async fn new(
         env: Env,
-        d1_service: Arc<D1Service>,
+        _d1_service: Arc<D1Service>,
         audit_config: Option<AuditConfig>,
     ) -> ArbitrageResult<Self> {
         let kv_store = env.kv("ArbEdgeKV")?;
@@ -56,7 +56,6 @@ impl AdminService {
             monitoring,
             system_config,
             user_management,
-            d1_service,
             env,
         })
     }

@@ -41,8 +41,8 @@ pub struct UpdatePositionData {
 }
 
 /// Production positions service type alias
-pub type ProductionPositionsService =
-    PositionsService<crate::services::core::infrastructure::kv::KVService>;
+// pub type ProductionPositionsService =
+//     PositionsService<crate::services::core::infrastructure::kv::KVService>;
 
 // PositionsService now uses a generic KV store
 #[derive(Clone)]

@@ -10,12 +10,13 @@
 //!
 //! Designed for high efficiency, zero duplication, and maximum performance
 
-use crate::utils::error::{ArbitrageError, ArbitrageResult, ErrorKind};
+use crate::utils::error::ErrorKind;
+use crate::utils::ArbitrageError;
+use crate::ArbitrageResult;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use worker::Env;
 
 // ============= UNIFIED CONFIGURATION =============
 
@@ -137,11 +138,12 @@ pub struct DetailedMetric {
     pub breakdown: HashMap<String, f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum TrendDirection {
     Up,
     Down,
     Stable,
+    #[default]
     Unknown,
 }
 
@@ -243,14 +245,19 @@ impl UnifiedAnalyticsAndCleanup {
     // ============= ANALYTICS OPERATIONS =============
 
     pub async fn track_event(&self, event: AnalyticsData) -> ArbitrageResult<()> {
-        let mut buffer = self.analytics_buffer.write().await;
-        buffer.push(event);
+        let events_to_process = {
+            let mut buffer = self.analytics_buffer.write();
+            buffer.push(event);
 
-        // Process buffer if it reaches batch size
-        if buffer.len() >= self.config.analytics.batch_size {
-            let events_to_process = buffer.drain(..).collect::<Vec<_>>();
-            drop(buffer);
+            // Process buffer if it reaches batch size
+            if buffer.len() >= self.config.analytics.batch_size {
+                buffer.drain(..).collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
+        };
 
+        if !events_to_process.is_empty() {
             self.process_analytics_batch(events_to_process).await?;
         }
 
@@ -273,7 +280,7 @@ impl UnifiedAnalyticsAndCleanup {
 
         // Update metrics
         {
-            let mut metrics = self.analytics_metrics.write().await;
+            let mut metrics = self.analytics_metrics.write();
             metrics.events_processed += event_count as u64;
             metrics.processing_time_ms = duration.as_millis() as f64;
             metrics.error_count += errors.len() as u64;
@@ -281,8 +288,8 @@ impl UnifiedAnalyticsAndCleanup {
 
         if !errors.is_empty() {
             return Err(ArbitrageError::new(
-                ErrorKind::ProcessingError,
-                &format!(
+                ErrorKind::Internal,
+                format!(
                     "Failed to process {} out of {} events",
                     errors.len(),
                     event_count
@@ -331,7 +338,7 @@ impl UnifiedAnalyticsAndCleanup {
 
         // Update metrics
         {
-            let mut metrics = self.analytics_metrics.write().await;
+            let mut metrics = self.analytics_metrics.write();
             metrics.reports_generated += 1;
             metrics.processing_time_ms = start_time.elapsed().as_millis() as f64;
         }
@@ -361,7 +368,7 @@ impl UnifiedAnalyticsAndCleanup {
         };
 
         {
-            let mut queue = self.cleanup_queue.write().await;
+            let mut queue = self.cleanup_queue.write();
             queue.push(operation);
         }
 
@@ -369,8 +376,8 @@ impl UnifiedAnalyticsAndCleanup {
     }
 
     pub async fn execute_cleanup_operations(&self) -> ArbitrageResult<Vec<String>> {
-        let mut operations_to_process = {
-            let mut queue = self.cleanup_queue.write().await;
+        let operations_to_process = {
+            let mut queue = self.cleanup_queue.write();
             let operations = queue.drain(..).collect::<Vec<_>>();
             operations
         };
@@ -382,7 +389,7 @@ impl UnifiedAnalyticsAndCleanup {
 
             // Add to active operations
             {
-                let mut active = self.active_operations.write().await;
+                let mut active = self.active_operations.write();
                 active.insert(operation.operation_id.clone(), operation.clone());
             }
 
@@ -410,7 +417,7 @@ impl UnifiedAnalyticsAndCleanup {
 
             // Remove from active operations
             {
-                let mut active = self.active_operations.write().await;
+                let mut active = self.active_operations.write();
                 active.remove(&operation.operation_id);
             }
 
@@ -425,12 +432,12 @@ impl UnifiedAnalyticsAndCleanup {
         &self,
         operation_id: &str,
     ) -> ArbitrageResult<CleanupOperation> {
-        let active = self.active_operations.read().await;
+        let active = self.active_operations.read();
 
         active.get(operation_id).cloned().ok_or_else(|| {
             ArbitrageError::new(
-                ErrorKind::NotFound,
-                &format!("Cleanup operation {} not found", operation_id),
+                ErrorKind::NotFoundError,
+                format!("Cleanup operation not found: {}", operation_id),
             )
         })
     }
@@ -491,9 +498,10 @@ impl UnifiedAnalyticsAndCleanup {
     }
 
     async fn generate_analytics_summary(&self, events: &[AnalyticsData]) -> AnalyticsSummary {
-        let mut summary = AnalyticsSummary::default();
-
-        summary.total_events = events.len() as u64;
+        let mut summary = AnalyticsSummary {
+            total_events: events.len() as u64,
+            ..Default::default()
+        };
 
         // Calculate unique users and sessions
         let mut unique_users = std::collections::HashSet::new();
@@ -603,7 +611,7 @@ impl UnifiedAnalyticsAndCleanup {
     }
 
     async fn update_cleanup_metrics(&self, operation: &CleanupOperation) {
-        let mut metrics = self.cleanup_metrics.write().await;
+        let mut metrics = self.cleanup_metrics.write();
 
         metrics.total_operations += 1;
         match operation.status {
@@ -669,25 +677,20 @@ impl UnifiedAnalyticsAndCleanup {
     // ============= PUBLIC INTERFACE METHODS =============
 
     pub async fn get_analytics_metrics(&self) -> AnalyticsMetrics {
-        self.analytics_metrics.read().await.clone()
+        self.analytics_metrics.read().clone()
     }
 
     pub async fn get_cleanup_metrics(&self) -> CleanupMetrics {
-        self.cleanup_metrics.read().await.clone()
+        self.cleanup_metrics.read().clone()
     }
 
     pub async fn get_active_cleanup_operations(&self) -> Vec<CleanupOperation> {
-        self.active_operations
-            .read()
-            .await
-            .values()
-            .cloned()
-            .collect()
+        self.active_operations.read().values().cloned().collect()
     }
 
     pub async fn flush_analytics_buffer(&self) -> ArbitrageResult<()> {
         let events = {
-            let mut buffer = self.analytics_buffer.write().await;
+            let mut buffer = self.analytics_buffer.write();
             buffer.drain(..).collect::<Vec<_>>()
         };
 
@@ -696,6 +699,55 @@ impl UnifiedAnalyticsAndCleanup {
         }
 
         Ok(())
+    }
+
+    /// Track CMC (CoinMarketCap) data for analytics
+    pub async fn track_cmc_data(
+        &mut self,
+        data_type: &str,
+        data: &serde_json::Value,
+    ) -> ArbitrageResult<()> {
+        let event = AnalyticsData {
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            event_type: format!("cmc_{}", data_type),
+            user_id: None,
+            session_id: None,
+            data: std::iter::once(("data".to_string(), data.clone())).collect(),
+            metadata: AnalyticsMetadata {
+                source: "cmc_tracker".to_string(),
+                version: "1.0.0".to_string(),
+                environment: "production".to_string(),
+                region: None,
+            },
+        };
+        self.track_event(event).await
+    }
+
+    /// Track market snapshot data for analytics  
+    pub async fn track_market_snapshot(
+        &mut self,
+        snapshot: serde_json::Value,
+    ) -> ArbitrageResult<()> {
+        let event = AnalyticsData {
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            event_type: "market_snapshot".to_string(),
+            user_id: None,
+            session_id: None,
+            data: std::iter::once(("snapshot".to_string(), snapshot)).collect(),
+            metadata: AnalyticsMetadata {
+                source: "market_tracker".to_string(),
+                version: "1.0.0".to_string(),
+                environment: "production".to_string(),
+                region: None,
+            },
+        };
+        self.track_event(event).await
     }
 }
 
@@ -779,12 +831,6 @@ impl Default for UnifiedAnalyticsAndCleanupConfig {
                 storage_threshold_percent: 85.0,
             },
         }
-    }
-}
-
-impl Default for TrendDirection {
-    fn default() -> Self {
-        TrendDirection::Unknown
     }
 }
 

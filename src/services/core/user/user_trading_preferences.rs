@@ -28,6 +28,16 @@ pub enum TradingFocus {
     Hybrid, // Both arbitrage and technical (experienced users)
 }
 
+impl std::fmt::Display for TradingFocus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TradingFocus::Arbitrage => write!(f, "arbitrage"),
+            TradingFocus::Technical => write!(f, "technical"),
+            TradingFocus::Hybrid => write!(f, "hybrid"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum AutomationLevel {
     #[serde(rename = "manual")]
@@ -37,6 +47,16 @@ pub enum AutomationLevel {
     SemiAuto, // Pre-approval required for each trade
     #[serde(rename = "full_auto")]
     FullAuto, // Automated execution based on rules
+}
+
+impl std::fmt::Display for AutomationLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AutomationLevel::Manual => write!(f, "manual"),
+            AutomationLevel::SemiAuto => write!(f, "semi_auto"),
+            AutomationLevel::FullAuto => write!(f, "full_auto"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -52,6 +72,17 @@ pub enum AutomationScope {
     Both, // Automate both types
 }
 
+impl std::fmt::Display for AutomationScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AutomationScope::None => write!(f, "none"),
+            AutomationScope::ArbitrageOnly => write!(f, "arbitrage_only"),
+            AutomationScope::TechnicalOnly => write!(f, "technical_only"),
+            AutomationScope::Both => write!(f, "both"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum ExperienceLevel {
     #[serde(rename = "beginner")]
@@ -63,6 +94,16 @@ pub enum ExperienceLevel {
     Advanced, // Experienced trader
 }
 
+impl std::fmt::Display for ExperienceLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExperienceLevel::Beginner => write!(f, "beginner"),
+            ExperienceLevel::Intermediate => write!(f, "intermediate"),
+            ExperienceLevel::Advanced => write!(f, "advanced"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum RiskTolerance {
     #[serde(rename = "conservative")]
@@ -72,6 +113,16 @@ pub enum RiskTolerance {
     Balanced, // Moderate risk tolerance
     #[serde(rename = "aggressive")]
     Aggressive, // Higher risk tolerance
+}
+
+impl std::fmt::Display for RiskTolerance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RiskTolerance::Conservative => write!(f, "conservative"),
+            RiskTolerance::Balanced => write!(f, "balanced"),
+            RiskTolerance::Aggressive => write!(f, "aggressive"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

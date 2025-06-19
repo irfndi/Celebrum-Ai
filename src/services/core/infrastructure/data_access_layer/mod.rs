@@ -14,9 +14,9 @@ pub mod unified_data_access_engine;
 
 // NEW: Unified data access components (all functionality consolidated)
 pub use unified_data_access_engine::{
-    UnifiedDataAccessEngine, UnifiedDataAccessEngineBuilder, UnifiedDataAccessConfig,
-    UnifiedDataAccessMetrics, UnifiedDataRequest, UnifiedDataResponse, DataSourceType,
-    DataPriority, DataMetadata,
+    DataMetadata, DataPriority, DataSourceType, UnifiedDataAccessConfig, UnifiedDataAccessEngine,
+    UnifiedDataAccessEngineBuilder, UnifiedDataAccessMetrics, UnifiedDataRequest,
+    UnifiedDataResponse,
 };
 
 // Legacy compatibility exports (for backward compatibility)
@@ -41,6 +41,75 @@ pub type EnhancedCacheConfig = UnifiedDataAccessConfig;
 use crate::utils::ArbitrageResult;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+
+/// Data types for cache categorization and optimization
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DataType {
+    /// Market data (prices, rates, etc.)
+    MarketData,
+    /// User profiles and settings
+    UserData,
+    /// Trading opportunities
+    Opportunities,
+    /// Analytics and metrics
+    Analytics,
+    /// Configuration data
+    Configuration,
+    /// Authentication and session data
+    Authentication,
+    /// Temporary/cache-only data
+    Temporary,
+    /// AI-generated content
+    AIGenerated,
+    /// Custom data type with name
+    Custom(String),
+}
+
+impl DataType {
+    /// Get default TTL for this data type
+    pub fn default_ttl(&self) -> Duration {
+        match self {
+            DataType::MarketData => Duration::from_secs(30), // Very dynamic
+            DataType::Opportunities => Duration::from_secs(60), // Dynamic
+            DataType::UserData => Duration::from_secs(3600), // Somewhat stable
+            DataType::Analytics => Duration::from_secs(900), // 15 minutes
+            DataType::Configuration => Duration::from_secs(86400), // Very stable
+            DataType::Authentication => Duration::from_secs(1800), // 30 minutes
+            DataType::Temporary => Duration::from_secs(300), // 5 minutes
+            DataType::AIGenerated => Duration::from_secs(600), // 10 minutes
+            DataType::Custom(_) => Duration::from_secs(1800), // Default 30 minutes
+        }
+    }
+
+    /// Get cache tier preference for this data type
+    pub fn preferred_tier(&self) -> CacheTier {
+        match self {
+            DataType::MarketData => CacheTier::Hot,
+            DataType::Opportunities => CacheTier::Hot,
+            DataType::UserData => CacheTier::Warm,
+            DataType::Analytics => CacheTier::Warm,
+            DataType::Configuration => CacheTier::Cold,
+            DataType::Authentication => CacheTier::Hot,
+            DataType::Temporary => CacheTier::Hot,
+            DataType::AIGenerated => CacheTier::Warm,
+            DataType::Custom(_) => CacheTier::Warm,
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            DataType::MarketData => "market_data",
+            DataType::UserData => "user_data",
+            DataType::Opportunities => "opportunities",
+            DataType::Analytics => "analytics",
+            DataType::Configuration => "configuration",
+            DataType::Authentication => "authentication",
+            DataType::Temporary => "temporary",
+            DataType::AIGenerated => "ai_generated",
+            DataType::Custom(name) => name,
+        }
+    }
+}
 
 /// Unified Data Access Layer Configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

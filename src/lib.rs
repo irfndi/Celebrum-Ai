@@ -768,9 +768,67 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     console_log!("🕐 Scheduled event triggered: {:?}", event.cron());
 
-    if let Err(e) = monitor_opportunities_scheduled(env).await {
-        console_log!("❌ Scheduled monitoring failed: {:?}", e);
+    // Determine maintenance tier based on cron schedule
+    let maintenance_tier = determine_maintenance_tier(&event.cron());
+    console_log!("🔧 Running maintenance tier: {:?}", maintenance_tier);
+
+    match maintenance_tier {
+        MaintenanceTier::HighFrequency => {
+            // Tier 1: Every 5 minutes - Critical operations only
+            if let Err(e) = run_high_frequency_maintenance(&env).await {
+                console_log!("❌ High-frequency maintenance failed: {:?}", e);
+            }
+        }
+        MaintenanceTier::MediumFrequency => {
+            // Tier 2: Every 30 minutes - Routine maintenance
+            if let Err(e) = run_medium_frequency_maintenance(&env).await {
+                console_log!("❌ Medium-frequency maintenance failed: {:?}", e);
+            }
+        }
+        MaintenanceTier::LowFrequency => {
+            // Tier 3: Every 6 hours - Deep cleanup
+            if let Err(e) = run_low_frequency_maintenance(&env).await {
+                console_log!("❌ Low-frequency maintenance failed: {:?}", e);
+            }
+        }
+        MaintenanceTier::OpportunityGeneration => {
+            // Opportunity generation (runs with high frequency)
+            if let Err(e) = monitor_opportunities_scheduled(env).await {
+                console_log!("❌ Scheduled opportunity monitoring failed: {:?}", e);
+            }
+        }
     }
+}
+
+#[derive(Debug)]
+enum MaintenanceTier {
+    HighFrequency,         // Every 5 minutes - Critical operations
+    MediumFrequency,       // Every 30 minutes - Routine maintenance
+    LowFrequency,          // Every 6 hours - Deep cleanup
+    OpportunityGeneration, // Opportunity generation
+}
+
+fn determine_maintenance_tier(cron_expression: &str) -> MaintenanceTier {
+    match cron_expression {
+        "*/5 * * * *" => MaintenanceTier::OpportunityGeneration, // Every 5 minutes: opportunity generation
+        "*/30 * * * *" => MaintenanceTier::MediumFrequency, // Every 30 minutes: routine maintenance
+        "0 */6 * * *" => MaintenanceTier::LowFrequency,     // Every 6 hours: deep cleanup
+        _ => MaintenanceTier::HighFrequency,                // Default fallback
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
+pub async fn initialize_services(env: Env) -> ServiceContainer {
+    let kv = env.kv("ArbEdgeKV").expect("KV binding not found");
+
+    let container = ServiceContainer::new(&env, kv)
+        .await
+        .expect("Failed to create service container in initialize_services");
+
+    container
 }
 
 #[allow(dead_code)]
@@ -794,41 +852,25 @@ fn parse_exchanges_from_env(
         .collect()
 }
 
-// async fn create_opportunity_service(
-//     custom_env: &types::Env,
-// ) -> ArbitrageResult<OpportunityService> {
-//     let config = OpportunityServiceConfig {
-//         exchanges: parse_exchanges_from_env("binance,bybit")?,
-//         monitored_pairs: vec![], // Empty for now, will be populated as needed
-//         threshold: 0.01,
-//     };
-//
-//     let exchange_service = Arc::new(ExchangeService::new(custom_env)?);
-//
-//     Ok(OpportunityService::new(
-//         config,
-//         exchange_service,
-//         None, // No telegram service for now
-//     ))
-// }
+// =============================================================================
+// TIERED MAINTENANCE SYSTEM - Optimized for Cloudflare Workers
+// =============================================================================
 
-// Legacy handlers removed - all functionality moved to modular services
-
-async fn run_five_minute_maintenance(
-    env: &Env,
-    // _opportunity_service: &OpportunityService,
-) -> ArbitrageResult<()> {
-    console_log!("🔧 Running 5-minute maintenance tasks...");
+/// Tier 1: High-frequency maintenance (Every 5 minutes)
+/// - Critical operations only
+/// - Minimal cost operations
+async fn run_high_frequency_maintenance(env: &Env) -> ArbitrageResult<()> {
+    console_log!("🔧 Running high-frequency maintenance (Tier 1)...");
 
     let current_timestamp = chrono::Utc::now().timestamp_millis() as u64;
     let mut completed_tasks = 0;
     let mut failed_tasks = 0;
 
-    // Get required services
+    // Get KV store
     let kv_store = match env.kv("ArbEdgeKV") {
         Ok(kv) => kv,
         Err(e) => {
-            console_log!("❌ Failed to access KV store for maintenance: {:?}", e);
+            console_log!("❌ Failed to access KV store: {:?}", e);
             return Err(ArbitrageError::kv_error(format!(
                 "KV access failed: {:?}",
                 e
@@ -836,15 +878,85 @@ async fn run_five_minute_maintenance(
         }
     };
 
-    // 1. Clean up expired opportunities from KV store
-    console_log!("🧹 Cleaning up expired opportunities...");
-    match cleanup_expired_opportunities(&kv_store, current_timestamp).await {
-        Ok(cleaned_count) => {
-            console_log!("✅ Cleaned up {} expired opportunities", cleaned_count);
+    // Only critical operations for high frequency
+
+    // 1. Update basic metrics (lightweight)
+    console_log!("📊 Updating basic metrics...");
+    match update_basic_metrics(&kv_store, current_timestamp).await {
+        Ok(()) => {
+            console_log!("✅ Basic metrics updated");
             completed_tasks += 1;
         }
         Err(e) => {
-            console_log!("❌ Failed to cleanup expired opportunities: {:?}", e);
+            console_log!("❌ Failed to update basic metrics: {:?}", e);
+            failed_tasks += 1;
+        }
+    }
+
+    // Store maintenance summary
+    let maintenance_summary = serde_json::json!({
+        "tier": "high_frequency",
+        "timestamp": current_timestamp,
+        "completed_tasks": completed_tasks,
+        "failed_tasks": failed_tasks,
+        "success_rate": if completed_tasks + failed_tasks > 0 {
+            completed_tasks as f64 / (completed_tasks + failed_tasks) as f64 * 100.0
+        } else { 0.0 }
+    });
+
+    if let Err(e) = kv_store
+        .put(
+            "maintenance:high_frequency:last_run",
+            maintenance_summary.to_string(),
+        )?
+        .execute()
+        .await
+    {
+        console_log!("⚠️ Failed to store maintenance summary: {:?}", e);
+    }
+
+    console_log!(
+        "✅ High-frequency maintenance completed: {}/{} tasks successful",
+        completed_tasks,
+        completed_tasks + failed_tasks
+    );
+    Ok(())
+}
+
+/// Tier 2: Medium-frequency maintenance (Every 30 minutes)
+/// - Routine maintenance tasks
+/// - Moderate cost operations
+async fn run_medium_frequency_maintenance(env: &Env) -> ArbitrageResult<()> {
+    console_log!("🔧 Running medium-frequency maintenance (Tier 2)...");
+
+    let current_timestamp = chrono::Utc::now().timestamp_millis() as u64;
+    let mut completed_tasks = 0;
+    let mut failed_tasks = 0;
+
+    // Get KV store
+    let kv_store = match env.kv("ArbEdgeKV") {
+        Ok(kv) => kv,
+        Err(e) => {
+            console_log!("❌ Failed to access KV store: {:?}", e);
+            return Err(ArbitrageError::kv_error(format!(
+                "KV access failed: {:?}",
+                e
+            )));
+        }
+    };
+
+    // 1. Clean up expired opportunities (recent only)
+    console_log!("🧹 Cleaning up recent expired opportunities...");
+    match cleanup_recent_expired_opportunities(&kv_store, current_timestamp).await {
+        Ok(cleaned_count) => {
+            console_log!(
+                "✅ Cleaned up {} recent expired opportunities",
+                cleaned_count
+            );
+            completed_tasks += 1;
+        }
+        Err(e) => {
+            console_log!("❌ Failed to cleanup recent expired opportunities: {:?}", e);
             failed_tasks += 1;
         }
     }
@@ -862,7 +974,7 @@ async fn run_five_minute_maintenance(
         }
     }
 
-    // 3. Process pending opportunity distributions
+    // 3. Process pending distributions
     console_log!("📤 Processing pending distributions...");
     match process_pending_distributions(&kv_store, current_timestamp).await {
         Ok(processed_count) => {
@@ -875,8 +987,73 @@ async fn run_five_minute_maintenance(
         }
     }
 
-    // 4. Update user activity metrics
-    console_log!("👥 Updating user activity metrics...");
+    // Store maintenance summary
+    let maintenance_summary = serde_json::json!({
+        "tier": "medium_frequency",
+        "timestamp": current_timestamp,
+        "completed_tasks": completed_tasks,
+        "failed_tasks": failed_tasks,
+        "success_rate": if completed_tasks + failed_tasks > 0 {
+            completed_tasks as f64 / (completed_tasks + failed_tasks) as f64 * 100.0
+        } else { 0.0 }
+    });
+
+    if let Err(e) = kv_store
+        .put(
+            "maintenance:medium_frequency:last_run",
+            maintenance_summary.to_string(),
+        )?
+        .execute()
+        .await
+    {
+        console_log!("⚠️ Failed to store maintenance summary: {:?}", e);
+    }
+
+    console_log!(
+        "✅ Medium-frequency maintenance completed: {}/{} tasks successful",
+        completed_tasks,
+        completed_tasks + failed_tasks
+    );
+    Ok(())
+}
+
+/// Tier 3: Low-frequency maintenance (Every 6 hours)
+/// - Deep cleanup and archival
+/// - Higher cost operations
+async fn run_low_frequency_maintenance(env: &Env) -> ArbitrageResult<()> {
+    console_log!("🔧 Running low-frequency maintenance (Tier 3)...");
+
+    let current_timestamp = chrono::Utc::now().timestamp_millis() as u64;
+    let mut completed_tasks = 0;
+    let mut failed_tasks = 0;
+
+    // Get services
+    let kv_store = match env.kv("ArbEdgeKV") {
+        Ok(kv) => kv,
+        Err(e) => {
+            console_log!("❌ Failed to access KV store: {:?}", e);
+            return Err(ArbitrageError::kv_error(format!(
+                "KV access failed: {:?}",
+                e
+            )));
+        }
+    };
+
+    // 1. Deep cleanup of all expired data
+    console_log!("🧹 Deep cleanup of all expired opportunities...");
+    match cleanup_all_expired_opportunities(&kv_store, current_timestamp).await {
+        Ok(cleaned_count) => {
+            console_log!("✅ Deep cleaned {} expired opportunities", cleaned_count);
+            completed_tasks += 1;
+        }
+        Err(e) => {
+            console_log!("❌ Failed to perform deep cleanup: {:?}", e);
+            failed_tasks += 1;
+        }
+    }
+
+    // 2. Update comprehensive user activity metrics
+    console_log!("👥 Updating comprehensive user activity metrics...");
     match update_user_activity_metrics(&kv_store, current_timestamp).await {
         Ok(active_users) => {
             console_log!("✅ Updated activity metrics for {} users", active_users);
@@ -888,8 +1065,8 @@ async fn run_five_minute_maintenance(
         }
     }
 
-    // 5. Cleanup inactive user sessions
-    console_log!("🧹 Cleaning up expired sessions...");
+    // 3. Cleanup expired sessions (comprehensive)
+    console_log!("🧹 Comprehensive session cleanup...");
     if let Ok(d1_database) = env.d1("ArbEdgeDB") {
         if let Ok(encryption_key) = env.var("ENCRYPTION_KEY") {
             let database_manager = DatabaseManager::new(
@@ -923,21 +1100,35 @@ async fn run_five_minute_maintenance(
         failed_tasks += 1;
     }
 
-    // Store maintenance metrics
+    // 4. Archive old data to R2 (if available)
+    console_log!("📦 Archiving old data to R2...");
+    match archive_old_data_to_r2(env, &kv_store, current_timestamp).await {
+        Ok(archived_count) => {
+            console_log!("✅ Archived {} data items to R2", archived_count);
+            completed_tasks += 1;
+        }
+        Err(e) => {
+            console_log!("❌ Failed to archive data to R2: {:?}", e);
+            failed_tasks += 1;
+        }
+    }
+
+    // Store maintenance summary
     let maintenance_summary = serde_json::json!({
+        "tier": "low_frequency",
         "timestamp": current_timestamp,
         "completed_tasks": completed_tasks,
         "failed_tasks": failed_tasks,
-        "total_tasks": completed_tasks + failed_tasks,
         "success_rate": if completed_tasks + failed_tasks > 0 {
             completed_tasks as f64 / (completed_tasks + failed_tasks) as f64 * 100.0
-        } else {
-            0.0
-        }
+        } else { 0.0 }
     });
 
     if let Err(e) = kv_store
-        .put("maintenance:last_run", maintenance_summary.to_string())?
+        .put(
+            "maintenance:low_frequency:last_run",
+            maintenance_summary.to_string(),
+        )?
         .execute()
         .await
     {
@@ -945,15 +1136,86 @@ async fn run_five_minute_maintenance(
     }
 
     console_log!(
-        "✅ 5-minute maintenance completed: {}/{} tasks successful",
+        "✅ Low-frequency maintenance completed: {}/{} tasks successful",
         completed_tasks,
         completed_tasks + failed_tasks
     );
     Ok(())
 }
 
-// Helper function to clean up expired opportunities
-async fn cleanup_expired_opportunities(
+// =============================================================================
+// MAINTENANCE HELPER FUNCTIONS - Optimized for Different Tiers
+// =============================================================================
+
+/// Update basic metrics (lightweight for high-frequency maintenance)
+async fn update_basic_metrics(kv_store: &KvStore, current_timestamp: u64) -> ArbitrageResult<()> {
+    let basic_metrics = serde_json::json!({
+        "timestamp": current_timestamp,
+        "last_maintenance_check": current_timestamp,
+        "maintenance_tier": "high_frequency",
+        "status": "active"
+    });
+
+    kv_store
+        .put("metrics:basic", basic_metrics.to_string())?
+        .execute()
+        .await
+        .map_err(|e| {
+            ArbitrageError::kv_error(format!("Failed to update basic metrics: {:?}", e))
+        })?;
+
+    Ok(())
+}
+
+/// Clean up only recent expired opportunities (for medium-frequency maintenance)
+async fn cleanup_recent_expired_opportunities(
+    kv_store: &KvStore,
+    current_timestamp: u64,
+) -> ArbitrageResult<u32> {
+    let mut cleaned_count = 0;
+
+    // Only clean opportunities older than 2 hours (more conservative)
+    let expiry_threshold = current_timestamp - (2 * HOUR_IN_MS);
+
+    // Focus on recent opportunity patterns only
+    let recent_opportunity_keys = [
+        "opportunity:live:BTCUSDT",
+        "opportunity:live:ETHUSDT",
+        "arb_opp:latest",
+        "arb_opp:current",
+    ];
+
+    for key in recent_opportunity_keys {
+        match kv_store.get(key).text().await {
+            Ok(Some(data)) => {
+                if let Ok(opportunity) = serde_json::from_str::<serde_json::Value>(&data) {
+                    if let Some(timestamp) = opportunity.get("timestamp").and_then(|t| t.as_u64()) {
+                        if timestamp < expiry_threshold {
+                            if let Err(e) = kv_store.delete(key).await {
+                                console_log!(
+                                    "⚠️ Failed to delete recent expired opportunity {}: {:?}",
+                                    key,
+                                    e
+                                );
+                            } else {
+                                cleaned_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(None) => {} // Key doesn't exist
+            Err(e) => {
+                console_log!("⚠️ Error checking recent opportunity key {}: {:?}", key, e);
+            }
+        }
+    }
+
+    Ok(cleaned_count)
+}
+
+/// Comprehensive cleanup of all expired opportunities (for low-frequency maintenance)
+async fn cleanup_all_expired_opportunities(
     kv_store: &KvStore,
     current_timestamp: u64,
 ) -> ArbitrageResult<u32> {
@@ -962,25 +1224,16 @@ async fn cleanup_expired_opportunities(
     // Opportunities older than 1 hour are considered expired
     let expiry_threshold = current_timestamp - HOUR_IN_MS;
 
-    // IMPORTANT: This is a simplified implementation during modular architecture migration.
-    //
-    // LIMITATION: Cloudflare Workers KV does not currently support list/scan operations
-    // that can efficiently iterate through keys by prefix. This implementation checks
-    // known key patterns based on the current opportunity generation strategy.
-    //
-    // FUTURE IMPROVEMENT: When KV list operations become available, or when we migrate
-    // to a database-backed solution, this should be replaced with proper key scanning.
-    //
-    // Current strategy: Check keys that match our opportunity ID patterns
-    let known_opportunity_keys = [
-        // Fallback opportunity keys (from our current implementation)
+    // Comprehensive cleanup - all known patterns
+    let all_opportunity_keys = [
+        // Fallback opportunity keys
         "fallback_BTCUSDT_binance_0_0",
         "fallback_BTCUSDT_binance_0_1",
         "fallback_BTCUSDT_bybit_0_0",
         "fallback_ETHUSDT_binance_1_0",
         "fallback_ETHUSDT_binance_1_1",
         "fallback_ETHUSDT_bybit_1_0",
-        // Additional common patterns that might be used
+        // Live opportunity keys
         "opportunity:live:BTCUSDT",
         "opportunity:live:ETHUSDT",
         "opportunity:live:ADAUSDT",
@@ -991,13 +1244,12 @@ async fn cleanup_expired_opportunities(
     ];
 
     // Check each known key pattern for expired data
-    for key in known_opportunity_keys {
+    for key in all_opportunity_keys {
         match kv_store.get(key).text().await {
             Ok(Some(data)) => {
                 if let Ok(opportunity) = serde_json::from_str::<serde_json::Value>(&data) {
                     if let Some(timestamp) = opportunity.get("timestamp").and_then(|t| t.as_u64()) {
                         if timestamp < expiry_threshold {
-                            console_log!("🧹 Cleaning expired opportunity: {}", key);
                             if let Err(e) = kv_store.delete(key).await {
                                 console_log!(
                                     "⚠️ Failed to delete expired opportunity {}: {:?}",
@@ -1006,30 +1258,26 @@ async fn cleanup_expired_opportunities(
                                 );
                             } else {
                                 cleaned_count += 1;
-                                console_log!("✅ Deleted expired opportunity: {}", key);
                             }
                         }
                     }
                 }
             }
-            Ok(None) => {
-                // Key doesn't exist, which is fine
-            }
+            Ok(None) => {} // Key doesn't exist
             Err(e) => {
                 console_log!("⚠️ Error checking opportunity key {}: {:?}", key, e);
             }
         }
     }
 
-    // Also check for any time-based opportunity keys (opportunities with timestamp suffixes)
-    let now_hour = current_timestamp / HOUR_IN_MS; // Current hour
-    for hours_back in 2..24 {
-        // Check last 24 hours, starting from 2 hours ago
+    // Also check time-based opportunity keys (comprehensive)
+    let now_hour = current_timestamp / HOUR_IN_MS;
+    for hours_back in 2..48 {
+        // Check last 48 hours for comprehensive cleanup
         let target_hour = now_hour - hours_back;
         let time_key = format!("opportunities:{}", target_hour);
 
         if let Ok(Some(_)) = kv_store.get(&time_key).text().await {
-            console_log!("🧹 Cleaning old hourly opportunities: {}", time_key);
             if let Err(e) = kv_store.delete(&time_key).await {
                 console_log!(
                     "⚠️ Failed to delete old hourly opportunities {}: {:?}",
@@ -1042,31 +1290,90 @@ async fn cleanup_expired_opportunities(
         }
     }
 
-    if cleaned_count > 0 {
-        console_log!(
-            "✅ Cleaned up {} expired opportunity entries",
-            cleaned_count
-        );
-    } else {
-        console_log!("ℹ️ No expired opportunities found for cleanup");
-    }
-
     Ok(cleaned_count)
 }
 
-// Helper function to update distribution statistics
+/// Archive old data to R2 storage (for low-frequency maintenance)
+async fn archive_old_data_to_r2(
+    env: &Env,
+    kv_store: &KvStore,
+    current_timestamp: u64,
+) -> ArbitrageResult<u32> {
+    let mut archived_count = 0;
+
+    // Try to get R2 bucket
+    let r2_bucket = match env.bucket("ArbEdgeR2") {
+        Ok(bucket) => bucket,
+        Err(_) => {
+            console_log!("ℹ️ R2 bucket not available, skipping archival");
+            return Ok(0);
+        }
+    };
+
+    // Archive old maintenance logs (older than 7 days)
+    let archive_threshold = current_timestamp - (7 * DAY_IN_MS);
+    let archive_date = chrono::DateTime::from_timestamp_millis(current_timestamp as i64)
+        .unwrap_or_else(chrono::Utc::now)
+        .format("%Y-%m-%d")
+        .to_string();
+
+    // Archive maintenance summaries
+    let maintenance_keys = [
+        "maintenance:high_frequency:last_run",
+        "maintenance:medium_frequency:last_run",
+        "maintenance:low_frequency:last_run",
+    ];
+
+    for key in maintenance_keys {
+        if let Ok(Some(data)) = kv_store.get(key).text().await {
+            if let Ok(maintenance_data) = serde_json::from_str::<serde_json::Value>(&data) {
+                if let Some(timestamp) = maintenance_data.get("timestamp").and_then(|t| t.as_u64())
+                {
+                    if timestamp < archive_threshold {
+                        let archive_key = format!("archived/maintenance/{}/{}", archive_date, key);
+
+                        match r2_bucket
+                            .put(&archive_key, data.as_bytes().to_vec())
+                            .execute()
+                            .await
+                        {
+                            Ok(_) => {
+                                console_log!("✅ Archived maintenance data to R2: {}", archive_key);
+                                archived_count += 1;
+
+                                // Remove from KV after successful archival
+                                if let Err(e) = kv_store.delete(key).await {
+                                    console_log!(
+                                        "⚠️ Failed to remove archived data from KV: {:?}",
+                                        e
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                console_log!("⚠️ Failed to archive to R2: {:?}", e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(archived_count)
+}
+
+/// Update distribution statistics (shared by medium and low frequency)
 async fn update_distribution_statistics(
     kv_store: &KvStore,
     current_timestamp: u64,
 ) -> ArbitrageResult<()> {
-    // Calculate distribution statistics for the past hour
     let stats = serde_json::json!({
         "timestamp": current_timestamp,
         "hourly_distributions": 0, // TODO: Implement actual counting
         "total_users_notified": 0, // TODO: Implement actual counting
         "distribution_success_rate": 100.0, // TODO: Calculate based on actual data
         "avg_distribution_time_ms": 150.0, // TODO: Calculate based on actual metrics
-        "next_update": current_timestamp + (5 * 60 * 1000) // Next update in 5 minutes
+        "next_update": current_timestamp + (30 * 60 * 1000) // Next update in 30 minutes
     });
 
     kv_store
@@ -1080,7 +1387,7 @@ async fn update_distribution_statistics(
     Ok(())
 }
 
-// Helper function to process pending distributions
+/// Process pending distributions (shared by medium frequency)
 async fn process_pending_distributions(
     kv_store: &KvStore,
     current_timestamp: u64,
@@ -1088,23 +1395,14 @@ async fn process_pending_distributions(
     let mut processed_count = 0;
 
     // Check for pending distributions using specific queue indices
-    // TODO: Implement actual queue processing logic
-    // For now, check for any queued distribution items using known queue patterns
-    let queue_types = [
-        ("queue:distribution:", 10), // Check reasonable range for distribution queue
-        ("pending:notification:", 25), // Check notification queue
-    ];
+    let queue_types = [("queue:distribution:", 10), ("pending:notification:", 25)];
 
     for (prefix, max_items) in queue_types {
-        // Instead of hardcoded 0..50, use configurable max_items per queue type
         for i in 0..max_items {
             let key = format!("{}{}", prefix, i);
             if let Ok(Some(data)) = kv_store.get(&key).text().await {
                 if let Ok(distribution) = serde_json::from_str::<serde_json::Value>(&data) {
-                    // Process the distribution (simplified)
-                    console_log!("📤 Processing distribution: {}", key);
-
-                    // Mark as processed by moving to processed queue
+                    // Mark as processed
                     let processed_key = format!("processed:{}", key);
                     let processed_data = serde_json::json!({
                         "original_data": distribution,
@@ -1118,13 +1416,10 @@ async fn process_pending_distributions(
                         .await
                     {
                         console_log!("⚠️ Failed to mark distribution as processed: {:?}", e);
+                    } else if let Err(e) = kv_store.delete(&key).await {
+                        console_log!("⚠️ Failed to remove from pending queue: {:?}", e);
                     } else {
-                        // Remove from pending queue
-                        if let Err(e) = kv_store.delete(&key).await {
-                            console_log!("⚠️ Failed to remove from pending queue: {:?}", e);
-                        } else {
-                            processed_count += 1;
-                        }
+                        processed_count += 1;
                     }
                 }
             }
@@ -1134,25 +1429,17 @@ async fn process_pending_distributions(
     Ok(processed_count)
 }
 
-// Helper function to update user activity metrics
+/// Update user activity metrics (shared by low frequency)
 async fn update_user_activity_metrics(
     kv_store: &KvStore,
     current_timestamp: u64,
 ) -> ArbitrageResult<u32> {
     let mut active_users = 0;
-
-    // Calculate user activity for the past hour
     let activity_threshold = current_timestamp - HOUR_IN_MS;
 
-    // TODO: Implement actual user activity scanning
-    // For now, check session and activity keys using targeted ranges
-    let activity_sources = [
-        ("user:activity:", 100), // Check reasonable range for user activity
-        ("session:", 150),       // Check session keys
-    ];
+    let activity_sources = [("user:activity:", 100), ("session:", 150)];
 
     for (prefix, max_items) in activity_sources {
-        // Instead of hardcoded 0..200, use configurable max_items per source
         for i in 0..max_items {
             let key = format!("{}{}", prefix, i);
             if let Ok(Some(data)) = kv_store.get(&key).text().await {
@@ -1169,12 +1456,11 @@ async fn update_user_activity_metrics(
         }
     }
 
-    // Store updated activity metrics
     let activity_summary = serde_json::json!({
         "timestamp": current_timestamp,
         "active_users_last_hour": active_users,
         "measurement_period_ms": HOUR_IN_MS,
-        "next_update": current_timestamp + (5 * 60 * 1000)
+        "next_update": current_timestamp + (6 * HOUR_IN_MS) // Next update in 6 hours
     });
 
     kv_store
@@ -1188,26 +1474,22 @@ async fn update_user_activity_metrics(
     Ok(active_users)
 }
 
-// Helper function to cleanup expired sessions
+/// Cleanup expired sessions (shared by low frequency)
 async fn cleanup_expired_sessions(
     _user_profile_service: &UserProfileService,
     kv_store: &KvStore,
     current_timestamp: u64,
 ) -> ArbitrageResult<u32> {
     let mut cleaned_sessions = 0;
-
-    // Sessions older than 24 hours are considered expired
     let session_expiry = current_timestamp - DAY_IN_MS;
 
-    // Check session keys using targeted patterns
     let session_sources = [
-        ("session:", 200),      // Primary session store
-        ("user_session:", 300), // User-specific sessions
-        ("auth_session:", 100), // Auth sessions
+        ("session:", 200),
+        ("user_session:", 300),
+        ("auth_session:", 100),
     ];
 
     for (prefix, max_items) in session_sources {
-        // Instead of hardcoded 0..500, use configurable max_items per session type
         for i in 0..max_items {
             let key = format!("{}{}", prefix, i);
             if let Ok(Some(data)) = kv_store.get(&key).text().await {
@@ -1221,7 +1503,7 @@ async fn cleanup_expired_sessions(
                     {
                         created_at < session_expiry
                     } else {
-                        false // Keep sessions without timestamps for safety
+                        false
                     };
 
                     if should_delete {
@@ -1239,6 +1521,7 @@ async fn cleanup_expired_sessions(
     Ok(cleaned_sessions)
 }
 
+/// Monitor opportunities scheduled (for opportunity generation tier)
 async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
     console_log!("🔄 Starting scheduled opportunity monitoring...");
 
@@ -1250,7 +1533,6 @@ async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
     console_log!("🔍 Generating global opportunities...");
     match service_container.opportunity_engine {
         Some(ref opportunity_engine) => {
-            console_log!("⚠️ DEBUG: About to call generate_global_opportunities");
             match opportunity_engine.generate_global_opportunities(None).await {
                 Ok(opportunities) => {
                     console_log!("✅ Generated {} global opportunities", opportunities.len());
@@ -1259,7 +1541,6 @@ async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
                     let distribution_service = &service_container.distribution_service;
                     let mut distributed_count = 0;
                     for global_opp in opportunities {
-                        // Convert GlobalOpportunity to ArbitrageOpportunity for distribution
                         if let crate::types::OpportunityData::Arbitrage(arb_opp) =
                             global_opp.opportunity_data
                         {
@@ -1283,23 +1564,6 @@ async fn monitor_opportunities_scheduled(env: Env) -> ArbitrageResult<()> {
         }
     }
 
-    // Run maintenance after opportunity generation
-    run_five_minute_maintenance(&env).await?;
-
     console_log!("✅ Scheduled opportunity monitoring completed successfully");
     Ok(())
-}
-
-#[cfg(target_arch = "wasm32")]
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
-pub async fn initialize_services(env: Env) -> ServiceContainer {
-    let kv = env.kv("ArbEdgeKV").expect("KV binding not found");
-
-    let container = ServiceContainer::new(&env, kv)
-        .await
-        .expect("Failed to create service container in initialize_services");
-
-    container
 }

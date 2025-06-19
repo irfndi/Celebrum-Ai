@@ -236,7 +236,7 @@ impl TemplateEngine {
             cache: Arc::new(Mutex::new(HashMap::new())),
             kv_store,
         };
-        
+
         engine.load_templates().await?;
         Ok(engine)
     }
@@ -244,16 +244,18 @@ impl TemplateEngine {
     async fn load_templates(&self) -> ArbitrageResult<()> {
         // Load templates from KV store
         let templates_key = format!("{}/templates", self.config.template_directory);
-        
+
         if let Ok(Some(templates_data)) = self.kv_store.get(&templates_key).text().await {
-            if let Ok(templates) = serde_json::from_str::<Vec<NotificationTemplate>>(&templates_data) {
+            if let Ok(templates) =
+                serde_json::from_str::<Vec<NotificationTemplate>>(&templates_data)
+            {
                 let mut template_map = self.templates.lock().unwrap();
                 for template in templates {
                     template_map.insert(template.id.clone(), template);
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -263,9 +265,17 @@ impl TemplateEngine {
         variables: &HashMap<String, String>,
         channel: &NotificationChannel,
     ) -> ArbitrageResult<String> {
-        let cache_key = format!("{}:{}:{}", template_id, channel.as_str(), 
-                               variables.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join("&"));
-        
+        let cache_key = format!(
+            "{}:{}:{}",
+            template_id,
+            channel.as_str(),
+            variables
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join("&")
+        );
+
         // Check cache first
         if self.config.enable_template_caching {
             let cache = self.cache.lock().unwrap();
@@ -280,8 +290,9 @@ impl TemplateEngine {
         // Get template
         let template = {
             let templates = self.templates.lock().unwrap();
-            templates.get(template_id).cloned()
-                .ok_or_else(|| ArbitrageError::not_found(format!("Template not found: {}", template_id)))?
+            templates.get(template_id).cloned().ok_or_else(|| {
+                ArbitrageError::not_found(format!("Template not found: {}", template_id))
+            })?
         };
 
         // Render template
@@ -294,12 +305,19 @@ impl TemplateEngine {
         // Cache result
         if self.config.enable_template_caching {
             let mut cache = self.cache.lock().unwrap();
-            cache.insert(cache_key, (content.clone(), chrono::Utc::now().timestamp_millis() as u64));
+            cache.insert(
+                cache_key,
+                (
+                    content.clone(),
+                    chrono::Utc::now().timestamp_millis() as u64,
+                ),
+            );
         }
 
         Ok(content)
     }
 
+    #[allow(clippy::await_holding_lock)]
     pub async fn add_template(&self, template: NotificationTemplate) -> ArbitrageResult<()> {
         let mut templates = self.templates.lock().unwrap();
         templates.insert(template.id.clone(), template);
@@ -307,14 +325,18 @@ impl TemplateEngine {
         Ok(())
     }
 
+    #[allow(clippy::await_holding_lock)]
     async fn save_templates(&self) -> ArbitrageResult<()> {
         let templates = self.templates.lock().unwrap();
         let templates_vec: Vec<_> = templates.values().cloned().collect();
         let templates_json = serde_json::to_string(&templates_vec)?;
-        
+
         let templates_key = format!("{}/templates", self.config.template_directory);
-        self.kv_store.put(&templates_key, templates_json)?.execute().await?;
-        
+        self.kv_store
+            .put(&templates_key, templates_json)?
+            .execute()
+            .await?;
+
         Ok(())
     }
 }
@@ -408,7 +430,7 @@ pub struct ChannelDeliveryConfig {
     pub retry_config: RetryConfig,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetryConfig {
     pub max_retries: u32,
     pub initial_delay_seconds: u64,
@@ -427,7 +449,9 @@ impl Default for RetryConfig {
     }
 }
 
+#[allow(dead_code)]
 pub struct ChannelManager {
+    #[allow(dead_code)]
     config: ChannelManagerConfig,
     endpoints: Arc<Mutex<HashMap<NotificationChannel, ChannelEndpoint>>>,
     rate_limits: Arc<Mutex<HashMap<NotificationChannel, (u32, u64)>>>,
@@ -450,19 +474,21 @@ impl ChannelManager {
 
     pub fn is_channel_available(&self, channel: &NotificationChannel) -> bool {
         let endpoints = self.endpoints.lock().unwrap();
-        endpoints.get(channel).map_or(false, |endpoint| endpoint.is_active)
+        endpoints
+            .get(channel)
+            .is_some_and(|endpoint| endpoint.is_active)
     }
 
     pub fn check_rate_limit(&self, channel: &NotificationChannel) -> bool {
         let mut rate_limits = self.rate_limits.lock().unwrap();
         let now = chrono::Utc::now().timestamp() as u64;
-        
+
         if let Some((count, last_reset)) = rate_limits.get_mut(channel) {
             if now - *last_reset >= 60 {
                 *count = 0;
                 *last_reset = now;
             }
-            
+
             let endpoints = self.endpoints.lock().unwrap();
             if let Some(endpoint) = endpoints.get(channel) {
                 if *count >= endpoint.rate_limit_per_minute {
@@ -473,7 +499,7 @@ impl ChannelManager {
         } else {
             rate_limits.insert(channel.clone(), (1, now));
         }
-        
+
         true
     }
 }
@@ -481,25 +507,6 @@ impl ChannelManager {
 // =============================================================================
 // Delivery Management
 // =============================================================================
-
-#[derive(Debug, Clone)]
-pub struct RetryConfig {
-    pub max_retries: u32,
-    pub initial_delay_seconds: u64,
-    pub max_delay_seconds: u64,
-    pub backoff_multiplier: f64,
-}
-
-impl Default for RetryConfig {
-    fn default() -> Self {
-        Self {
-            max_retries: 3,
-            initial_delay_seconds: 1,
-            max_delay_seconds: 60,
-            backoff_multiplier: 2.0,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct DeliveryManagerConfig {
@@ -557,7 +564,9 @@ pub enum DeliveryStatus {
     Cancelled,
 }
 
+#[allow(dead_code)]
 pub struct DeliveryManager {
+    #[allow(dead_code)]
     config: DeliveryManagerConfig,
     channel_manager: Arc<ChannelManager>,
     active_deliveries: Arc<Mutex<HashMap<String, DeliveryRequest>>>,
@@ -574,9 +583,12 @@ impl DeliveryManager {
         }
     }
 
-    pub async fn deliver_notification(&self, request: DeliveryRequest) -> ArbitrageResult<DeliveryAttempt> {
+    pub async fn deliver_notification(
+        &self,
+        request: DeliveryRequest,
+    ) -> ArbitrageResult<DeliveryAttempt> {
         let start_time = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         if !self.channel_manager.is_channel_available(&request.channel) {
             return Ok(DeliveryAttempt {
                 attempt_number: 1,
@@ -607,7 +619,7 @@ impl DeliveryManager {
         }
 
         let delivery_result = self.send_to_channel(&request).await;
-        
+
         let end_time = chrono::Utc::now().timestamp_millis() as u64;
         let delivery_time = end_time - start_time;
 
@@ -634,7 +646,10 @@ impl DeliveryManager {
 
         {
             let mut history = self.delivery_history.lock().unwrap();
-            history.entry(request.id.clone()).or_insert_with(Vec::new).push(attempt.clone());
+            history
+                .entry(request.id.clone())
+                .or_default()
+                .push(attempt.clone());
         }
 
         {
@@ -650,7 +665,9 @@ impl DeliveryManager {
             NotificationChannel::Email => Ok(()),
             NotificationChannel::Telegram => Ok(()),
             NotificationChannel::Push => Ok(()),
-            _ => Err(ArbitrageError::not_implemented("Channel not implemented".to_string())),
+            _ => Err(ArbitrageError::not_implemented(
+                "Channel not implemented".to_string(),
+            )),
         }
     }
 }
@@ -676,7 +693,11 @@ pub struct NotificationRequest {
 }
 
 impl NotificationRequest {
-    pub fn new(user_id: String, notification_type: String, channels: Vec<NotificationChannel>) -> Self {
+    pub fn new(
+        user_id: String,
+        notification_type: String,
+        channels: Vec<NotificationChannel>,
+    ) -> Self {
         Self {
             notification_id: uuid::Uuid::new_v4().to_string(),
             user_id,
@@ -698,7 +719,11 @@ impl NotificationRequest {
         self
     }
 
-    pub fn with_template(mut self, template_id: String, variables: HashMap<String, String>) -> Self {
+    pub fn with_template(
+        mut self,
+        template_id: String,
+        variables: HashMap<String, String>,
+    ) -> Self {
         self.template_id = Some(template_id);
         self.template_variables = variables;
         self
@@ -716,11 +741,15 @@ impl NotificationRequest {
 
     pub fn validate(&self) -> ArbitrageResult<()> {
         if self.channels.is_empty() {
-            return Err(ArbitrageError::validation_error("At least one channel must be specified"));
+            return Err(ArbitrageError::validation_error(
+                "At least one channel must be specified",
+            ));
         }
 
         if self.template_id.is_none() && self.custom_content.is_none() {
-            return Err(ArbitrageError::validation_error("Either template_id or custom_content must be provided"));
+            return Err(ArbitrageError::validation_error(
+                "Either template_id or custom_content must be provided",
+            ));
         }
 
         for channel in &self.channels {
@@ -788,20 +817,32 @@ impl Default for NotificationCoordinatorConfig {
     }
 }
 
+#[allow(dead_code)]
 pub struct NotificationCoordinator {
+    #[allow(dead_code)]
     config: NotificationCoordinatorConfig,
     template_engine: TemplateEngine,
     delivery_manager: DeliveryManager,
+    #[allow(dead_code)]
     channel_manager: Arc<ChannelManager>,
     active_notifications: Arc<Mutex<HashMap<String, NotificationRequest>>>,
+    #[allow(dead_code)]
     kv_store: KvStore,
 }
 
 impl NotificationCoordinator {
-    pub async fn new(config: NotificationCoordinatorConfig, kv_store: KvStore, _env: &worker::Env) -> ArbitrageResult<Self> {
+    pub async fn new(
+        config: NotificationCoordinatorConfig,
+        kv_store: KvStore,
+        _env: &worker::Env,
+    ) -> ArbitrageResult<Self> {
         let channel_manager = Arc::new(ChannelManager::new(config.channel_manager_config.clone()));
-        let template_engine = TemplateEngine::new(config.template_engine_config.clone(), kv_store.clone()).await?;
-        let delivery_manager = DeliveryManager::new(config.delivery_manager_config.clone(), channel_manager.clone());
+        let template_engine =
+            TemplateEngine::new(config.template_engine_config.clone(), kv_store.clone()).await?;
+        let delivery_manager = DeliveryManager::new(
+            config.delivery_manager_config.clone(),
+            channel_manager.clone(),
+        );
 
         Ok(Self {
             config,
@@ -813,7 +854,10 @@ impl NotificationCoordinator {
         })
     }
 
-    pub async fn send_notification(&self, request: NotificationRequest) -> ArbitrageResult<NotificationResult> {
+    pub async fn send_notification(
+        &self,
+        request: NotificationRequest,
+    ) -> ArbitrageResult<NotificationResult> {
         let start_time = chrono::Utc::now().timestamp_millis() as u64;
         request.validate()?;
 
@@ -831,13 +875,16 @@ impl NotificationCoordinator {
                 Some(recipient) => recipient.clone(),
                 None => {
                     failed_channels += 1;
-                    channel_results.insert(channel.clone(), ChannelResult {
-                        channel: channel.clone(),
-                        success: false,
-                        message_id: None,
-                        error_message: Some("No recipient specified".to_string()),
-                        delivery_time_ms: 0,
-                    });
+                    channel_results.insert(
+                        channel.clone(),
+                        ChannelResult {
+                            channel: channel.clone(),
+                            success: false,
+                            message_id: None,
+                            error_message: Some("No recipient specified".to_string()),
+                            delivery_time_ms: 0,
+                        },
+                    );
                     continue;
                 }
             };
@@ -846,13 +893,16 @@ impl NotificationCoordinator {
                 Ok(content) => content,
                 Err(e) => {
                     failed_channels += 1;
-                    channel_results.insert(channel.clone(), ChannelResult {
-                        channel: channel.clone(),
-                        success: false,
-                        message_id: None,
-                        error_message: Some(e.to_string()),
-                        delivery_time_ms: 0,
-                    });
+                    channel_results.insert(
+                        channel.clone(),
+                        ChannelResult {
+                            channel: channel.clone(),
+                            success: false,
+                            message_id: None,
+                            error_message: Some(e.to_string()),
+                            delivery_time_ms: 0,
+                        },
+                    );
                     continue;
                 }
             };
@@ -868,7 +918,11 @@ impl NotificationCoordinator {
                 created_at: chrono::Utc::now().timestamp_millis() as u64,
             };
 
-            match self.delivery_manager.deliver_notification(delivery_request).await {
+            match self
+                .delivery_manager
+                .deliver_notification(delivery_request)
+                .await
+            {
                 Ok(attempt) => {
                     let success = matches!(attempt.status, DeliveryStatus::Delivered);
                     if success {
@@ -876,24 +930,34 @@ impl NotificationCoordinator {
                     } else {
                         failed_channels += 1;
                     }
-                    
-                    channel_results.insert(channel.clone(), ChannelResult {
-                        channel: channel.clone(),
-                        success,
-                        message_id: if success { Some(format!("msg_{}", attempt.timestamp)) } else { None },
-                        error_message: attempt.error_message,
-                        delivery_time_ms: attempt.delivery_time_ms,
-                    });
+
+                    channel_results.insert(
+                        channel.clone(),
+                        ChannelResult {
+                            channel: channel.clone(),
+                            success,
+                            message_id: if success {
+                                Some(format!("msg_{}", attempt.timestamp))
+                            } else {
+                                None
+                            },
+                            error_message: attempt.error_message,
+                            delivery_time_ms: attempt.delivery_time_ms,
+                        },
+                    );
                 }
                 Err(e) => {
                     failed_channels += 1;
-                    channel_results.insert(channel.clone(), ChannelResult {
-                        channel: channel.clone(),
-                        success: false,
-                        message_id: None,
-                        error_message: Some(e.to_string()),
-                        delivery_time_ms: 0,
-                    });
+                    channel_results.insert(
+                        channel.clone(),
+                        ChannelResult {
+                            channel: channel.clone(),
+                            success: false,
+                            message_id: None,
+                            error_message: Some(e.to_string()),
+                            delivery_time_ms: 0,
+                        },
+                    );
                 }
             }
         }
@@ -922,140 +986,29 @@ impl NotificationCoordinator {
         })
     }
 
-    async fn prepare_content(&self, request: &NotificationRequest, channel: &NotificationChannel) -> ArbitrageResult<String> {
+    async fn prepare_content(
+        &self,
+        request: &NotificationRequest,
+        channel: &NotificationChannel,
+    ) -> ArbitrageResult<String> {
         if let Some(custom_content) = &request.custom_content {
             return Ok(custom_content.clone());
         }
 
         if let Some(template_id) = &request.template_id {
-            return self.template_engine.render_template(template_id, &request.template_variables, channel).await;
+            return self
+                .template_engine
+                .render_template(template_id, &request.template_variables, channel)
+                .await;
         }
 
-        Err(ArbitrageError::validation_error("No content source specified"))
+        Err(ArbitrageError::validation_error(
+            "No content source specified",
+        ))
     }
 }
 
 // =============================================================================
-// Delivery Manager
-// =============================================================================
-
-#[derive(Debug, Clone)]
-pub struct DeliveryManagerConfig {
-    pub max_concurrent_deliveries: u32,
-    pub default_timeout_seconds: u64,
-    pub enable_retry_logic: bool,
-    pub default_retry_config: RetryConfig,
-    pub enable_delivery_tracking: bool,
-    pub enable_metrics: bool,
-}
-
-impl Default for DeliveryManagerConfig {
-    fn default() -> Self {
-        Self {
-            max_concurrent_deliveries: 50,
-            default_timeout_seconds: 30,
-            enable_retry_logic: true,
-            default_retry_config: RetryConfig::default(),
-            enable_delivery_tracking: true,
-            enable_metrics: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeliveryRequest {
-    pub id: String,
-    pub channel: NotificationChannel,
-    pub recipient: String,
-    pub content: String,
-    pub priority: u8,
-    pub retry_config: RetryConfig,
-    pub metadata: HashMap<String, String>,
-    pub created_at: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeliveryAttempt {
-    pub attempt_number: u32,
-    pub timestamp: u64,
-    pub status: DeliveryStatus,
-    pub response_code: Option<u16>,
-    pub response_message: Option<String>,
-    pub delivery_time_ms: u64,
-    pub error_message: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DeliveryStatus {
-    Pending,
-    InProgress,
-    Delivered,
-    Failed,
-    Retrying,
-    Cancelled,
-}
-
-// Removed duplicate DeliveryManager and NotificationRequest definitions
-// Keeping only the first implementations
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NotificationResult {
-    pub notification_id: String,
-    pub success: bool,
-    pub channel_results: HashMap<NotificationChannel, ChannelResult>,
-    pub total_channels: u32,
-    pub successful_channels: u32,
-    pub failed_channels: u32,
-    pub processing_time_ms: u64,
-    pub error_message: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChannelResult {
-    pub channel: NotificationChannel,
-    pub success: bool,
-    pub message_id: Option<String>,
-    pub error_message: Option<String>,
-    pub delivery_time_ms: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct NotificationCoordinatorConfig {
-    pub enable_coordinator: bool,
-    pub enable_parallel_processing: bool,
-    pub max_concurrent_notifications: usize,
-    pub enable_fallback_processing: bool,
-    pub enable_metrics: bool,
-    pub enable_kv_storage: bool,
-    pub kv_key_prefix: String,
-    pub template_engine_config: TemplateEngineConfig,
-    pub delivery_manager_config: DeliveryManagerConfig,
-    pub channel_manager_config: ChannelManagerConfig,
-}
-
-impl Default for NotificationCoordinatorConfig {
-    fn default() -> Self {
-        Self {
-            enable_coordinator: true,
-            enable_parallel_processing: true,
-            max_concurrent_notifications: 100,
-            enable_fallback_processing: true,
-            enable_metrics: true,
-            enable_kv_storage: true,
-            kv_key_prefix: "notifications".to_string(),
-            template_engine_config: TemplateEngineConfig::default(),
-            delivery_manager_config: DeliveryManagerConfig::default(),
-            channel_manager_config: ChannelManagerConfig::default(),
-        }
-    }
-}
-
-// =============================================================================
-// Unified Notification Services
-// =============================================================================
-
-#[derive(Debug, Clone)]
-
 // =============================================================================
 // Unified Notification Services
 // =============================================================================
@@ -1116,10 +1069,14 @@ impl UnifiedNotificationServicesConfig {
 
     pub fn validate(&self) -> ArbitrageResult<()> {
         if self.max_notifications_per_minute == 0 {
-            return Err(ArbitrageError::configuration_error("max_notifications_per_minute must be greater than 0".to_string()));
+            return Err(ArbitrageError::configuration_error(
+                "max_notifications_per_minute must be greater than 0".to_string(),
+            ));
         }
         if self.max_notifications_per_hour == 0 {
-            return Err(ArbitrageError::configuration_error("max_notifications_per_hour must be greater than 0".to_string()));
+            return Err(ArbitrageError::configuration_error(
+                "max_notifications_per_hour must be greater than 0".to_string(),
+            ));
         }
         Ok(())
     }
@@ -1200,11 +1157,16 @@ pub struct UnifiedNotificationServices {
 }
 
 impl UnifiedNotificationServices {
-    pub async fn new(config: UnifiedNotificationServicesConfig, kv_store: KvStore, env: &worker::Env) -> ArbitrageResult<Self> {
+    pub async fn new(
+        config: UnifiedNotificationServicesConfig,
+        kv_store: KvStore,
+        env: &worker::Env,
+    ) -> ArbitrageResult<Self> {
         config.validate()?;
-        
-        let coordinator = NotificationCoordinator::new(config.coordinator_config.clone(), kv_store, env).await?;
-        
+
+        let coordinator =
+            NotificationCoordinator::new(config.coordinator_config.clone(), kv_store, env).await?;
+
         Ok(Self {
             config,
             coordinator,
@@ -1214,9 +1176,14 @@ impl UnifiedNotificationServices {
         })
     }
 
-    pub async fn send_notification(&self, request: NotificationRequest) -> ArbitrageResult<NotificationResult> {
+    pub async fn send_notification(
+        &self,
+        request: NotificationRequest,
+    ) -> ArbitrageResult<NotificationResult> {
         if !self.config.enable_notifications {
-            return Err(ArbitrageError::service_unavailable("Notifications are disabled"));
+            return Err(ArbitrageError::service_unavailable(
+                "Notifications are disabled",
+            ));
         }
 
         let result = self.coordinator.send_notification(request).await?;
@@ -1224,9 +1191,12 @@ impl UnifiedNotificationServices {
         Ok(result)
     }
 
-    pub async fn send_batch_notifications(&self, requests: Vec<NotificationRequest>) -> ArbitrageResult<Vec<NotificationResult>> {
+    pub async fn send_batch_notifications(
+        &self,
+        requests: Vec<NotificationRequest>,
+    ) -> ArbitrageResult<Vec<NotificationResult>> {
         let mut results = Vec::new();
-        
+
         for request in requests {
             match self.send_notification(request).await {
                 Ok(result) => results.push(result),
@@ -1244,43 +1214,44 @@ impl UnifiedNotificationServices {
                 }
             }
         }
-        
+
         Ok(results)
     }
 
     async fn update_metrics(&self, result: &NotificationResult) {
         let mut metrics = self.metrics.lock().unwrap();
         metrics.total_notifications += 1;
-        
+
         if result.success {
             metrics.successful_notifications += 1;
         } else {
             metrics.failed_notifications += 1;
         }
-        
+
         // Update running average
         let total = metrics.total_notifications as f64;
-        metrics.average_processing_time_ms = 
-            (metrics.average_processing_time_ms * (total - 1.0) + result.processing_time_ms as f64) / total;
-        
+        metrics.average_processing_time_ms = (metrics.average_processing_time_ms * (total - 1.0)
+            + result.processing_time_ms as f64)
+            / total;
+
         metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
     }
 
     pub async fn health_check(&self) -> ArbitrageResult<UnifiedNotificationServicesHealth> {
         let mut health = self.health.lock().unwrap();
-        
+
         health.coordinator_healthy = true; // In real implementation, check coordinator health
         health.template_engine_healthy = true;
         health.delivery_manager_healthy = true;
         health.channel_manager_healthy = true;
-        
-        health.is_healthy = health.coordinator_healthy && 
-                           health.template_engine_healthy && 
-                           health.delivery_manager_healthy && 
-                           health.channel_manager_healthy;
-        
+
+        health.is_healthy = health.coordinator_healthy
+            && health.template_engine_healthy
+            && health.delivery_manager_healthy
+            && health.channel_manager_healthy;
+
         health.last_health_check = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         Ok(health.clone())
     }
 
@@ -1304,7 +1275,9 @@ mod tests {
         let security_alert = NotificationType::SecurityAlert;
         assert_eq!(security_alert.as_str(), "security_alert");
         assert_eq!(security_alert.default_priority(), 10);
-        assert!(security_alert.default_channels().contains(&NotificationChannel::Email));
+        assert!(security_alert
+            .default_channels()
+            .contains(&NotificationChannel::Email));
     }
 
     #[test]
@@ -1318,7 +1291,7 @@ mod tests {
     fn test_unified_notification_services_config_validation() {
         let config = UnifiedNotificationServicesConfig::default();
         assert!(config.validate().is_ok());
-        
+
         let invalid_config = UnifiedNotificationServicesConfig {
             max_notifications_per_minute: 0,
             ..UnifiedNotificationServicesConfig::default()
@@ -1345,17 +1318,18 @@ mod tests {
         let request = NotificationRequest::new(
             "user123".to_string(),
             "opportunity_alert".to_string(),
-            vec![NotificationChannel::Email]
-        ).with_recipient(NotificationChannel::Email, "user@example.com".to_string())
-         .with_custom_content("Test notification".to_string());
-        
+            vec![NotificationChannel::Email],
+        )
+        .with_recipient(NotificationChannel::Email, "user@example.com".to_string())
+        .with_custom_content("Test notification".to_string());
+
         assert!(request.validate().is_ok());
-        
+
         let invalid_request = NotificationRequest::new(
             "user123".to_string(),
             "opportunity_alert".to_string(),
-            vec![]
+            vec![],
         );
         assert!(invalid_request.validate().is_err());
     }
-} 
+}

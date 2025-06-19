@@ -248,6 +248,7 @@ mod tests {
 }
 
 /// Production-ready feature flags for ArbEdge platform
+#[derive(Debug, Clone)]
 pub struct FeatureFlags {
     flags: HashMap<String, Value>,
 }

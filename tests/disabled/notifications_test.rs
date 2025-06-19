@@ -9,23 +9,10 @@
     clippy::useless_vec
 )]
 
-use arb_edge::services::core::infrastructure::notification_module::template_engine::{
-    ChannelTemplate,
-    NotificationTemplate,
-    TemplateCategory,
-    TemplateFormat,
-    // AttachmentType, // Add if needed for TemplateAttachment
-    TemplateVariable,
+use arb_edge::services::core::infrastructure::unified_notification_services::{
+    ChannelTemplate, DeliveryStatus, NotificationChannel, NotificationPriority,
+    NotificationTemplate, NotificationType, TemplateCategory, TemplateFormat, TemplateVariable,
     VariableType,
-};
-use arb_edge::services::core::infrastructure::notification_module::{
-    DeliveryStatus, // Keep if used directly from notification_module
-    // ChannelResult, // Assuming this is defined elsewhere or not used
-    NotificationChannel,  // Keep if used directly from notification_module
-    NotificationPriority, // Keep if used directly from notification_module
-    // NotificationCoordinator, // Assuming this is defined elsewhere or not used in this specific test context
-    // NotificationRequest, // Assuming this is defined elsewhere or not used
-    NotificationType, // Keep if used directly from notification_module
 };
 use arb_edge::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::json;

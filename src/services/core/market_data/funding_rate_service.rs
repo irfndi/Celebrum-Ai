@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use crate::services::{CacheManager, ExchangeService};
+use crate::services::core::infrastructure::CacheManager;
+use crate::services::ExchangeService;
 use crate::types::{ExchangeIdEnum, FundingRateInfo};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 
@@ -54,7 +55,12 @@ impl FundingRateService {
         let cache_key = Self::cache_key(exchange, symbol);
 
         // Attempt cache hit
-        if let Ok(Some(cached)) = self.cache_manager.get::<FundingRateInfo>(&cache_key).await {
+        if let Ok(Some(cached)) = self
+            .cache_manager
+            .kv_get(&cache_key)
+            .await
+            .map(|s| s.and_then(|v| serde_json::from_str::<FundingRateInfo>(&v).ok()))
+        {
             return Ok(cached);
         }
 
@@ -83,9 +89,9 @@ impl FundingRateService {
         // Persist in cache (ignore cache errors – non-critical)
         let _ = self
             .cache_manager
-            .set(
+            .kv_put(
                 &Self::cache_key(exchange, symbol),
-                &rate_info,
+                &serde_json::to_string(&rate_info).unwrap_or_default(),
                 Some(self.ttl_seconds),
             )
             .await;

@@ -124,10 +124,14 @@ impl BalanceTrackerConfig {
 
     pub fn validate(&self) -> ArbitrageResult<()> {
         if self.update_interval_seconds == 0 {
-            return Err(ArbitrageError::configuration_error("update_interval_seconds must be greater than 0".to_string()));
+            return Err(ArbitrageError::configuration_error(
+                "update_interval_seconds must be greater than 0".to_string(),
+            ));
         }
         if self.max_exchanges_per_user == 0 {
-            return Err(ArbitrageError::configuration_error("max_exchanges_per_user must be greater than 0".to_string()));
+            return Err(ArbitrageError::configuration_error(
+                "max_exchanges_per_user must be greater than 0".to_string(),
+            ));
         }
         Ok(())
     }
@@ -195,6 +199,7 @@ impl Default for BalanceTrackerMetrics {
     }
 }
 
+#[allow(dead_code)]
 pub struct BalanceTracker {
     config: BalanceTrackerConfig,
     health: Arc<Mutex<BalanceTrackerHealth>>,
@@ -207,7 +212,7 @@ pub struct BalanceTracker {
 impl BalanceTracker {
     pub fn new(config: BalanceTrackerConfig) -> ArbitrageResult<Self> {
         config.validate()?;
-        
+
         Ok(Self {
             config,
             health: Arc::new(Mutex::new(BalanceTrackerHealth::default())),
@@ -218,7 +223,12 @@ impl BalanceTracker {
         })
     }
 
-    pub async fn track_balance(&self, user_id: &str, exchange_id: &str, balances: Balances) -> ArbitrageResult<ExchangeBalanceSnapshot> {
+    pub async fn track_balance(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        balances: Balances,
+    ) -> ArbitrageResult<ExchangeBalanceSnapshot> {
         let snapshot = ExchangeBalanceSnapshot {
             exchange_id: exchange_id.to_string(),
             balances: balances.clone(),
@@ -229,8 +239,9 @@ impl BalanceTracker {
 
         {
             let mut current_balances = self.current_balances.lock().unwrap();
-            current_balances.entry(user_id.to_string())
-                .or_insert_with(HashMap::new)
+            current_balances
+                .entry(user_id.to_string())
+                .or_default()
                 .insert(exchange_id.to_string(), snapshot.clone());
         }
 
@@ -247,7 +258,7 @@ impl BalanceTracker {
         for (asset, balance) in balances {
             let usd_price = self.get_asset_price_usd(asset).await.unwrap_or(0.0);
             total_value += balance.free * usd_price;
-            total_value += balance.locked * usd_price;
+            total_value += balance.used * usd_price;
         }
         Ok(total_value)
     }
@@ -257,10 +268,14 @@ impl BalanceTracker {
         Ok(1.0)
     }
 
-    async fn add_to_history(&self, user_id: &str, snapshot: &ExchangeBalanceSnapshot) -> ArbitrageResult<()> {
+    async fn add_to_history(
+        &self,
+        user_id: &str,
+        snapshot: &ExchangeBalanceSnapshot,
+    ) -> ArbitrageResult<()> {
         let mut history = self.balance_history.lock().unwrap();
-        let user_history = history.entry(user_id.to_string()).or_insert_with(Vec::new);
-        
+        let user_history = history.entry(user_id.to_string()).or_default();
+
         for (asset, balance) in &snapshot.balances {
             let entry = BalanceHistoryEntry {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -268,7 +283,7 @@ impl BalanceTracker {
                 exchange_id: snapshot.exchange_id.clone(),
                 asset: asset.clone(),
                 balance: balance.clone(),
-                usd_value: balance.free + balance.locked,
+                usd_value: balance.free + balance.used,
                 timestamp: snapshot.timestamp,
                 snapshot_id: format!("{}:{}", snapshot.exchange_id, snapshot.timestamp),
             };
@@ -276,8 +291,8 @@ impl BalanceTracker {
         }
 
         // Cleanup old entries
-        let cutoff_time = chrono::Utc::now().timestamp_millis() as u64 - 
-                         (self.config.history_retention_days as u64 * 24 * 60 * 60 * 1000);
+        let cutoff_time = chrono::Utc::now().timestamp_millis() as u64
+            - (self.config.history_retention_days as u64 * 24 * 60 * 60 * 1000);
         user_history.retain(|entry| entry.timestamp > cutoff_time);
 
         Ok(())
@@ -290,25 +305,34 @@ impl BalanceTracker {
         metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
     }
 
-    pub async fn get_current_balances(&self, user_id: &str) -> ArbitrageResult<HashMap<String, ExchangeBalanceSnapshot>> {
+    pub async fn get_current_balances(
+        &self,
+        user_id: &str,
+    ) -> ArbitrageResult<HashMap<String, ExchangeBalanceSnapshot>> {
         let current_balances = self.current_balances.lock().unwrap();
         Ok(current_balances.get(user_id).cloned().unwrap_or_default())
     }
 
-    pub async fn get_balance_history(&self, user_id: &str, exchange_id: Option<&str>, limit: Option<u32>) -> ArbitrageResult<Vec<BalanceHistoryEntry>> {
+    pub async fn get_balance_history(
+        &self,
+        user_id: &str,
+        exchange_id: Option<&str>,
+        limit: Option<u32>,
+    ) -> ArbitrageResult<Vec<BalanceHistoryEntry>> {
         let history = self.balance_history.lock().unwrap();
         let user_history = history.get(user_id).cloned().unwrap_or_default();
-        
-        let mut filtered_history: Vec<_> = user_history.into_iter()
-            .filter(|entry| exchange_id.map_or(true, |ex_id| entry.exchange_id == ex_id))
+
+        let mut filtered_history: Vec<_> = user_history
+            .into_iter()
+            .filter(|entry| exchange_id.is_none_or(|ex_id| entry.exchange_id == ex_id))
             .collect();
-        
+
         filtered_history.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        
+
         if let Some(limit) = limit {
             filtered_history.truncate(limit as usize);
         }
-        
+
         Ok(filtered_history)
     }
 
@@ -376,10 +400,14 @@ impl FundAnalyzerConfig {
 
     pub fn validate(&self) -> ArbitrageResult<()> {
         if self.analysis_window_hours == 0 {
-            return Err(ArbitrageError::configuration_error("analysis_window_hours must be greater than 0".to_string()));
+            return Err(ArbitrageError::configuration_error(
+                "analysis_window_hours must be greater than 0".to_string(),
+            ));
         }
         if self.risk_tolerance_level < 0.0 || self.risk_tolerance_level > 1.0 {
-            return Err(ArbitrageError::configuration_error("risk_tolerance_level must be between 0.0 and 1.0".to_string()));
+            return Err(ArbitrageError::configuration_error(
+                "risk_tolerance_level must be between 0.0 and 1.0".to_string(),
+            ));
         }
         Ok(())
     }
@@ -441,6 +469,7 @@ impl Default for FundAnalyzerMetrics {
     }
 }
 
+#[allow(dead_code)]
 pub struct FundAnalyzer {
     config: FundAnalyzerConfig,
     health: Arc<Mutex<FundAnalyzerHealth>>,
@@ -451,7 +480,7 @@ pub struct FundAnalyzer {
 impl FundAnalyzer {
     pub fn new(config: FundAnalyzerConfig) -> ArbitrageResult<Self> {
         config.validate()?;
-        
+
         Ok(Self {
             config,
             health: Arc::new(Mutex::new(FundAnalyzerHealth::default())),
@@ -460,26 +489,30 @@ impl FundAnalyzer {
         })
     }
 
-    pub async fn analyze_portfolio(&self, user_id: &str, snapshots: &HashMap<String, ExchangeBalanceSnapshot>) -> ArbitrageResult<PortfolioAnalytics> {
+    pub async fn analyze_portfolio(
+        &self,
+        _user_id: &str,
+        snapshots: &HashMap<String, ExchangeBalanceSnapshot>,
+    ) -> ArbitrageResult<PortfolioAnalytics> {
         let start_time = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         let mut total_value = 0.0;
         let mut exchange_distribution = HashMap::new();
         let mut asset_distribution = HashMap::new();
-        
+
         for (exchange_id, snapshot) in snapshots {
             total_value += snapshot.total_usd_value;
             exchange_distribution.insert(exchange_id.clone(), snapshot.total_usd_value);
-            
+
             for (asset, balance) in &snapshot.balances {
-                let asset_value = balance.free + balance.locked;
+                let asset_value = balance.free + balance.used;
                 *asset_distribution.entry(asset.clone()).or_insert(0.0) += asset_value;
             }
         }
 
         let diversity_score = self.calculate_diversity_score(&asset_distribution);
         let risk_score = self.calculate_risk_score(&asset_distribution);
-        
+
         let analytics = PortfolioAnalytics {
             total_value_usd: total_value,
             total_value_change_24h: 0.0, // Would calculate from historical data
@@ -496,7 +529,7 @@ impl FundAnalyzer {
 
         let end_time = chrono::Utc::now().timestamp_millis() as u64;
         self.update_metrics(end_time - start_time).await;
-        
+
         Ok(analytics)
     }
 
@@ -504,18 +537,18 @@ impl FundAnalyzer {
         if asset_distribution.is_empty() {
             return 0.0;
         }
-        
+
         let total_value: f64 = asset_distribution.values().sum();
         if total_value == 0.0 {
             return 0.0;
         }
-        
+
         let mut herfindahl_index = 0.0;
         for value in asset_distribution.values() {
             let share = value / total_value;
             herfindahl_index += share * share;
         }
-        
+
         // Convert to diversity score (0-1, higher is more diverse)
         1.0 - herfindahl_index
     }
@@ -524,11 +557,11 @@ impl FundAnalyzer {
         // Simplified risk calculation based on asset types
         let mut risk_score = 0.0;
         let total_value: f64 = asset_distribution.values().sum();
-        
+
         if total_value == 0.0 {
             return 0.0;
         }
-        
+
         for (asset, value) in asset_distribution {
             let asset_risk = match asset.as_str() {
                 "BTC" | "ETH" => 0.3,
@@ -537,33 +570,40 @@ impl FundAnalyzer {
             };
             risk_score += (value / total_value) * asset_risk;
         }
-        
+
         risk_score
     }
 
     fn find_best_performing_asset(&self, asset_distribution: &HashMap<String, f64>) -> String {
-        asset_distribution.iter()
+        asset_distribution
+            .iter()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(asset, _)| asset.clone())
             .unwrap_or_else(|| "N/A".to_string())
     }
 
     fn find_worst_performing_asset(&self, asset_distribution: &HashMap<String, f64>) -> String {
-        asset_distribution.iter()
+        asset_distribution
+            .iter()
             .min_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(asset, _)| asset.clone())
             .unwrap_or_else(|| "N/A".to_string())
     }
 
-    pub async fn optimize_allocation(&self, user_id: &str, current_allocation: &HashMap<String, f64>, target_allocation: &HashMap<String, f64>) -> ArbitrageResult<FundOptimizationResult> {
+    pub async fn optimize_allocation(
+        &self,
+        _user_id: &str,
+        current_allocation: &HashMap<String, f64>,
+        target_allocation: &HashMap<String, f64>,
+    ) -> ArbitrageResult<FundOptimizationResult> {
         let mut allocations = Vec::new();
         let mut total_variance = 0.0;
-        
+
         for (asset, &target_amount) in target_allocation {
             let current_amount = current_allocation.get(asset).copied().unwrap_or(0.0);
             let variance = ((target_amount - current_amount) / current_amount.max(1.0)) * 100.0;
             total_variance += variance.abs();
-            
+
             let action = if variance > self.config.rebalancing_threshold_percentage {
                 "buy".to_string()
             } else if variance < -self.config.rebalancing_threshold_percentage {
@@ -571,7 +611,7 @@ impl FundAnalyzer {
             } else {
                 "hold".to_string()
             };
-            
+
             allocations.push(FundAllocation {
                 exchange_id: "consolidated".to_string(),
                 asset: asset.clone(),
@@ -579,13 +619,19 @@ impl FundAnalyzer {
                 optimal_amount: target_amount,
                 variance_percentage: variance,
                 action_needed: action,
-                priority: if variance.abs() > 10.0 { "high" } else { "medium" }.to_string(),
+                priority: if variance.abs() > 10.0 {
+                    "high"
+                } else {
+                    "medium"
+                }
+                .to_string(),
                 estimated_impact: variance.abs() / 100.0,
             });
         }
-        
-        let optimization_score = 1.0 - (total_variance / (target_allocation.len() as f64 * 100.0)).min(1.0);
-        
+
+        let optimization_score =
+            1.0 - (total_variance / (target_allocation.len() as f64 * 100.0)).min(1.0);
+
         Ok(FundOptimizationResult {
             allocations,
             total_portfolio_value: current_allocation.values().sum(),
@@ -596,7 +642,12 @@ impl FundAnalyzer {
             ],
             risk_assessment: "Moderate".to_string(),
             expected_improvement: total_variance / target_allocation.len() as f64,
-            implementation_priority: if total_variance > 50.0 { "high" } else { "medium" }.to_string(),
+            implementation_priority: if total_variance > 50.0 {
+                "high"
+            } else {
+                "medium"
+            }
+            .to_string(),
         })
     }
 
@@ -604,11 +655,11 @@ impl FundAnalyzer {
         let mut metrics = self.metrics.lock().unwrap();
         metrics.total_analyses += 1;
         metrics.successful_analyses += 1;
-        
+
         let total = metrics.total_analyses as f64;
-        metrics.average_portfolio_value = 
+        metrics.average_portfolio_value =
             (metrics.average_portfolio_value * (total - 1.0) + processing_time as f64) / total;
-        
+
         metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
     }
 
@@ -677,10 +728,14 @@ impl FinancialCoordinatorConfig {
 
     pub fn validate(&self) -> ArbitrageResult<()> {
         if self.coordination_interval_seconds == 0 {
-            return Err(ArbitrageError::configuration_error("coordination_interval_seconds must be greater than 0".to_string()));
+            return Err(ArbitrageError::configuration_error(
+                "coordination_interval_seconds must be greater than 0".to_string(),
+            ));
         }
         if self.risk_threshold_percentage < 0.0 || self.risk_threshold_percentage > 100.0 {
-            return Err(ArbitrageError::configuration_error("risk_threshold_percentage must be between 0.0 and 100.0".to_string()));
+            return Err(ArbitrageError::configuration_error(
+                "risk_threshold_percentage must be between 0.0 and 100.0".to_string(),
+            ));
         }
         Ok(())
     }
@@ -744,6 +799,7 @@ impl Default for FinancialCoordinatorMetrics {
     }
 }
 
+#[allow(dead_code)]
 pub struct FinancialCoordinator {
     config: FinancialCoordinatorConfig,
     balance_tracker: Arc<BalanceTracker>,
@@ -754,9 +810,13 @@ pub struct FinancialCoordinator {
 }
 
 impl FinancialCoordinator {
-    pub fn new(config: FinancialCoordinatorConfig, balance_tracker: Arc<BalanceTracker>, fund_analyzer: Arc<FundAnalyzer>) -> ArbitrageResult<Self> {
+    pub fn new(
+        config: FinancialCoordinatorConfig,
+        balance_tracker: Arc<BalanceTracker>,
+        fund_analyzer: Arc<FundAnalyzer>,
+    ) -> ArbitrageResult<Self> {
         config.validate()?;
-        
+
         Ok(Self {
             config,
             balance_tracker,
@@ -769,80 +829,93 @@ impl FinancialCoordinator {
 
     pub async fn coordinate_financial_operations(&self, user_id: &str) -> ArbitrageResult<()> {
         let start_time = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         // Get current balances
         let current_balances = self.balance_tracker.get_current_balances(user_id).await?;
-        
+
         if current_balances.is_empty() {
             return Ok(());
         }
-        
+
         // Analyze portfolio
-        let analytics = self.fund_analyzer.analyze_portfolio(user_id, &current_balances).await?;
-        
+        let analytics = self
+            .fund_analyzer
+            .analyze_portfolio(user_id, &current_balances)
+            .await?;
+
         // Check for risk alerts
         if analytics.risk_score > self.config.risk_threshold_percentage / 100.0 {
             self.trigger_risk_alert(user_id, &analytics).await?;
         }
-        
+
         // Check for rebalancing opportunities
         if self.config.enable_automated_rebalancing {
-            self.check_rebalancing_opportunities(user_id, &analytics).await?;
+            self.check_rebalancing_opportunities(user_id, &analytics)
+                .await?;
         }
-        
+
         let end_time = chrono::Utc::now().timestamp_millis() as u64;
         self.update_metrics(end_time - start_time, true).await;
-        
+
         Ok(())
     }
 
-    async fn trigger_risk_alert(&self, user_id: &str, analytics: &PortfolioAnalytics) -> ArbitrageResult<()> {
+    async fn trigger_risk_alert(
+        &self,
+        _user_id: &str,
+        _analytics: &PortfolioAnalytics,
+    ) -> ArbitrageResult<()> {
         let mut health = self.health.lock().unwrap();
         health.risk_alerts_triggered += 1;
-        
+
         // In real implementation, would send notification
         Ok(())
     }
 
-    async fn check_rebalancing_opportunities(&self, user_id: &str, analytics: &PortfolioAnalytics) -> ArbitrageResult<()> {
-        if analytics.portfolio_diversity_score < 0.5 {
+    async fn check_rebalancing_opportunities(
+        &self,
+        _user_id: &str,
+        _analytics: &PortfolioAnalytics,
+    ) -> ArbitrageResult<()> {
+        if _analytics.portfolio_diversity_score < 0.5 {
             // Portfolio needs rebalancing
             let mut health = self.health.lock().unwrap();
             health.rebalancing_operations += 1;
         }
-        
+
         Ok(())
     }
 
     async fn update_metrics(&self, processing_time: u64, success: bool) {
         let mut metrics = self.metrics.lock().unwrap();
         metrics.total_coordination_cycles += 1;
-        
+
         if success {
             metrics.successful_cycles += 1;
         } else {
             metrics.failed_cycles += 1;
         }
-        
+
         let total = metrics.total_coordination_cycles as f64;
-        metrics.average_processing_time_ms = 
+        metrics.average_processing_time_ms =
             (metrics.average_processing_time_ms * (total - 1.0) + processing_time as f64) / total;
-        
+
         metrics.coordination_efficiency = metrics.successful_cycles as f64 / total;
         metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
     }
 
+    #[allow(clippy::await_holding_lock)]
     pub async fn health_check(&self) -> ArbitrageResult<FinancialCoordinatorHealth> {
         let mut health = self.health.lock().unwrap();
-        
+
         let balance_tracker_health = self.balance_tracker.health_check().await?;
         let fund_analyzer_health = self.fund_analyzer.health_check().await?;
-        
+
         health.balance_tracker_healthy = balance_tracker_health.is_healthy;
         health.fund_analyzer_healthy = fund_analyzer_health.is_healthy;
         health.is_healthy = health.balance_tracker_healthy && health.fund_analyzer_healthy;
         health.last_health_check = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         Ok(health.clone())
     }
 
@@ -983,7 +1056,7 @@ pub struct UnifiedFinancialServices {
 impl UnifiedFinancialServices {
     pub async fn new(config: UnifiedFinancialServicesConfig, _env: &Env) -> ArbitrageResult<Self> {
         config.validate()?;
-        
+
         let balance_tracker = Arc::new(BalanceTracker::new(config.balance_tracker_config.clone())?);
         let fund_analyzer = Arc::new(FundAnalyzer::new(config.fund_analyzer_config.clone())?);
         let financial_coordinator = FinancialCoordinator::new(
@@ -991,7 +1064,7 @@ impl UnifiedFinancialServices {
             balance_tracker.clone(),
             fund_analyzer.clone(),
         )?;
-        
+
         Ok(Self {
             config,
             balance_tracker,
@@ -1003,41 +1076,71 @@ impl UnifiedFinancialServices {
         })
     }
 
-    pub async fn track_balance(&self, user_id: &str, exchange_id: &str, balances: Balances) -> ArbitrageResult<ExchangeBalanceSnapshot> {
+    pub async fn track_balance(
+        &self,
+        user_id: &str,
+        exchange_id: &str,
+        balances: Balances,
+    ) -> ArbitrageResult<ExchangeBalanceSnapshot> {
         if !self.config.enable_financial_services {
-            return Err(ArbitrageError::service_unavailable("Financial services are disabled"));
+            return Err(ArbitrageError::service_unavailable(
+                "Financial services are disabled",
+            ));
         }
 
-        let snapshot = self.balance_tracker.track_balance(user_id, exchange_id, balances).await?;
+        let snapshot = self
+            .balance_tracker
+            .track_balance(user_id, exchange_id, balances)
+            .await?;
         self.update_metrics_balance_update().await;
         Ok(snapshot)
     }
 
     pub async fn analyze_portfolio(&self, user_id: &str) -> ArbitrageResult<PortfolioAnalytics> {
         let current_balances = self.balance_tracker.get_current_balances(user_id).await?;
-        let analytics = self.fund_analyzer.analyze_portfolio(user_id, &current_balances).await?;
+        let analytics = self
+            .fund_analyzer
+            .analyze_portfolio(user_id, &current_balances)
+            .await?;
         self.update_metrics_portfolio_analysis().await;
         Ok(analytics)
     }
 
-    pub async fn optimize_portfolio(&self, user_id: &str, target_allocation: &HashMap<String, f64>) -> ArbitrageResult<FundOptimizationResult> {
+    pub async fn optimize_portfolio(
+        &self,
+        user_id: &str,
+        target_allocation: &HashMap<String, f64>,
+    ) -> ArbitrageResult<FundOptimizationResult> {
         let current_balances = self.balance_tracker.get_current_balances(user_id).await?;
-        let current_allocation: HashMap<String, f64> = current_balances.iter()
+        let current_allocation: HashMap<String, f64> = current_balances
+            .iter()
             .flat_map(|(_, snapshot)| &snapshot.balances)
-            .map(|(asset, balance)| (asset.clone(), balance.free + balance.locked))
+            .map(|(asset, balance)| (asset.clone(), balance.free + balance.used))
             .collect();
-        
-        let optimization = self.fund_analyzer.optimize_allocation(user_id, &current_allocation, target_allocation).await?;
+
+        let optimization = self
+            .fund_analyzer
+            .optimize_allocation(user_id, &current_allocation, target_allocation)
+            .await?;
         self.update_metrics_optimization().await;
         Ok(optimization)
     }
 
     pub async fn coordinate_financial_operations(&self, user_id: &str) -> ArbitrageResult<()> {
-        self.financial_coordinator.coordinate_financial_operations(user_id).await
+        self.financial_coordinator
+            .coordinate_financial_operations(user_id)
+            .await
     }
 
-    pub async fn get_balance_history(&self, user_id: &str, exchange_id: Option<&str>, limit: Option<u32>) -> ArbitrageResult<Vec<BalanceHistoryEntry>> {
-        self.balance_tracker.get_balance_history(user_id, exchange_id, limit).await
+    pub async fn get_balance_history(
+        &self,
+        user_id: &str,
+        exchange_id: Option<&str>,
+        limit: Option<u32>,
+    ) -> ArbitrageResult<Vec<BalanceHistoryEntry>> {
+        self.balance_tracker
+            .get_balance_history(user_id, exchange_id, limit)
+            .await
     }
 
     async fn update_metrics_balance_update(&self) {
@@ -1058,23 +1161,24 @@ impl UnifiedFinancialServices {
         metrics.last_updated = chrono::Utc::now().timestamp_millis() as u64;
     }
 
+    #[allow(clippy::await_holding_lock)]
     pub async fn health_check(&self) -> ArbitrageResult<UnifiedFinancialServicesHealth> {
         let mut health = self.health.lock().unwrap();
-        
+
         let balance_tracker_health = self.balance_tracker.health_check().await?;
         let fund_analyzer_health = self.fund_analyzer.health_check().await?;
         let coordinator_health = self.financial_coordinator.health_check().await?;
-        
+
         health.balance_tracker_healthy = balance_tracker_health.is_healthy;
         health.fund_analyzer_healthy = fund_analyzer_health.is_healthy;
         health.financial_coordinator_healthy = coordinator_health.is_healthy;
-        
-        health.is_healthy = health.balance_tracker_healthy && 
-                           health.fund_analyzer_healthy && 
-                           health.financial_coordinator_healthy;
-        
+
+        health.is_healthy = health.balance_tracker_healthy
+            && health.fund_analyzer_healthy
+            && health.financial_coordinator_healthy;
+
         health.last_health_check = chrono::Utc::now().timestamp_millis() as u64;
-        
+
         Ok(health.clone())
     }
 
@@ -1086,6 +1190,31 @@ impl UnifiedFinancialServices {
     pub fn get_uptime_seconds(&self) -> u64 {
         let now = chrono::Utc::now().timestamp_millis() as u64;
         (now - self.startup_time) / 1000
+    }
+
+    pub async fn generate_rebalance_suggestions(
+        &self,
+        _user_id: &str,
+    ) -> Result<Vec<FundOptimizationResult>, ArbitrageError> {
+        // Implementation needed
+        unimplemented!()
+    }
+
+    pub async fn save_portfolio_analytics(
+        &self,
+        _user_id: &str,
+        _analytics: &PortfolioAnalytics,
+    ) -> Result<(), ArbitrageError> {
+        // Implementation needed
+        unimplemented!()
+    }
+
+    pub async fn get_portfolio_analytics(
+        &self,
+        _user_id: &str,
+    ) -> Result<Option<PortfolioAnalytics>, ArbitrageError> {
+        // Implementation needed
+        unimplemented!()
     }
 }
 
@@ -1117,7 +1246,7 @@ mod tests {
     fn test_balance_tracker_config_validation() {
         let mut config = BalanceTrackerConfig::default();
         assert!(config.validate().is_ok());
-        
+
         config.update_interval_seconds = 0;
         assert!(config.validate().is_err());
     }
@@ -1126,7 +1255,7 @@ mod tests {
     fn test_fund_analyzer_config_validation() {
         let mut config = FundAnalyzerConfig::default();
         assert!(config.validate().is_ok());
-        
+
         config.risk_tolerance_level = 1.5;
         assert!(config.validate().is_err());
     }
@@ -1137,12 +1266,12 @@ mod tests {
         asset_distribution.insert("BTC".to_string(), 50.0);
         asset_distribution.insert("ETH".to_string(), 30.0);
         asset_distribution.insert("USDT".to_string(), 20.0);
-        
+
         let analyzer = FundAnalyzer::new(FundAnalyzerConfig::default()).unwrap();
         let diversity = analyzer.calculate_diversity_score(&asset_distribution);
         assert!(diversity > 0.5);
-        
+
         let risk = analyzer.calculate_risk_score(&asset_distribution);
         assert!(risk > 0.1 && risk < 0.5);
     }
-} 
+}

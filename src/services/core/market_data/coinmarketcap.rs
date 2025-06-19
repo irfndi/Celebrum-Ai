@@ -1,4 +1,4 @@
-use crate::services::core::infrastructure::analytics_engine::AnalyticsEngineService;
+use crate::services::core::infrastructure::AnalyticsEngineService;
 use crate::utils::logger::Logger;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::Utc;

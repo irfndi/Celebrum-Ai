@@ -14,15 +14,14 @@ pub mod simple_ingestion;
 
 // NEW: Unified ingestion engine components (all functionality consolidated)
 pub use unified_ingestion_engine::{
-    UnifiedIngestionEngine, UnifiedIngestionEngineBuilder, UnifiedIngestionConfig,
-    UnifiedIngestionMetrics, UnifiedIngestionRequest, UnifiedIngestionResponse,
-    IngestionSourceType, IngestionPriority,
+    DataFormat, IngestionMessage, IngestionStage, MessagePriority, UnifiedIngestionBuilder,
+    UnifiedIngestionConfig, UnifiedIngestionEngine, UnifiedIngestionMetrics,
 };
 
 // Simplified ingestion components
 pub use simple_ingestion::{
-    IngestionDataType, IngestionPriority as SimpleIngestionPriority, 
-    IngestionRequest as SimpleIngestionRequest, IngestionResult as SimpleIngestionResult, 
+    IngestionDataType, IngestionPriority as SimpleIngestionPriority,
+    IngestionRequest as SimpleIngestionRequest, IngestionResult as SimpleIngestionResult,
     SimpleIngestionBuilder, SimpleIngestionConfig, SimpleIngestionMetrics, SimpleIngestionService,
 };
 
@@ -272,6 +271,8 @@ pub struct DataIngestionModuleConfig {
     pub enable_kv_fallback: bool,
     pub enable_compression: bool,
     pub compression_threshold_bytes: usize,
+    pub enable_validation: bool,
+    pub enable_metrics: bool,
 }
 
 impl Default for DataIngestionModuleConfig {
@@ -288,6 +289,8 @@ impl Default for DataIngestionModuleConfig {
             enable_kv_fallback: true,
             enable_compression: true,
             compression_threshold_bytes: 1024, // 1KB
+            enable_validation: true,
+            enable_metrics: true,
         }
     }
 }
@@ -296,10 +299,10 @@ impl DataIngestionModuleConfig {
     /// Create configuration optimized for high throughput
     pub fn high_throughput() -> Self {
         Self {
-            pipeline_config: PipelineManagerConfig::high_throughput(),
-            queue_config: QueueManagerConfig::high_throughput(),
-            transformer_config: DataTransformerConfig::high_performance(),
-            coordinator_config: IngestionCoordinatorConfig::high_throughput(),
+            pipeline_config: UnifiedIngestionConfig::high_reliability(),
+            queue_config: UnifiedIngestionConfig::high_reliability(),
+            transformer_config: UnifiedIngestionConfig::high_reliability(),
+            coordinator_config: UnifiedIngestionConfig::high_reliability(),
             enable_performance_optimization: true,
             compression_threshold_bytes: 512, // More aggressive compression
             ..Default::default()
@@ -382,12 +385,16 @@ impl DataIngestionModule {
         config.validate()?;
 
         // Initialize components
-        let pipeline_manager =
-            Arc::new(PipelineManager::new(config.pipeline_config.clone(), env).await?);
-        let queue_manager = Arc::new(QueueManager::new(config.queue_config.clone(), env).await?);
-        let data_transformer = Arc::new(DataTransformer::new(config.transformer_config.clone())?);
+        let pipeline_manager = Arc::new(
+            PipelineManager::new_pipeline_manager(config.pipeline_config.clone(), env).await?,
+        );
+        let queue_manager =
+            Arc::new(QueueManager::new_queue_manager(config.queue_config.clone(), env).await?);
+        let data_transformer = Arc::new(DataTransformer::new_data_transformer(
+            config.transformer_config.clone(),
+        )?);
         let coordinator = Arc::new(
-            IngestionCoordinator::new(
+            IngestionCoordinator::new_ingestion_coordinator(
                 config.coordinator_config.clone(),
                 kv_store,
                 pipeline_manager.clone(),
@@ -399,8 +406,8 @@ impl DataIngestionModule {
 
         logger.info(&format!(
             "DataIngestionModule initialized: pipeline_enabled={}, queue_enabled={}, compression_enabled={}",
-            config.pipeline_config.enable_pipelines,
-            config.queue_config.enable_queues,
+            config.enable_performance_optimization,
+            config.enable_comprehensive_monitoring,
             config.enable_compression
         ));
 
@@ -603,8 +610,8 @@ impl DataIngestionModule {
     pub async fn get_health_summary(&self) -> ArbitrageResult<serde_json::Value> {
         let health = self.get_health().await;
         let metrics = self.get_metrics().await;
-        let pipeline_health = self.pipeline_manager.get_health().await;
-        let queue_health = self.queue_manager.get_health().await;
+        let pipeline_health = self.pipeline_manager.health_check().await;
+        let queue_health = self.queue_manager.health_check().await;
         let coordinator_metrics = self.coordinator.get_metrics().await;
 
         Ok(serde_json::json!({

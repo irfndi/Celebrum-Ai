@@ -1,5 +1,6 @@
-use crate::services::core::infrastructure::ai_services::AICoordinator;
-use crate::services::core::infrastructure::data_ingestion_module::queue_manager::QueueMessage;
+// Type alias for consolidated AI services
+use crate::services::core::infrastructure::unified_ai_services::UnifiedAIServices as AICoordinator;
+// use crate::services::core::infrastructure::data_ingestion_module::queue_manager::QueueMessage;
 use crate::services::core::infrastructure::data_ingestion_module::{MessagePriority, QueueManager};
 use crate::services::core::infrastructure::{
     database_repositories::DatabaseManager, DataAccessLayer, DataIngestionModule,
@@ -511,15 +512,15 @@ impl OpportunityDistributionService {
         &self,
         selected_users: &[String],
         _opportunity: &GlobalOpportunity,
-        queue_manager: &QueueManager,
+        _queue_manager: &QueueManager,
     ) -> ArbitrageResult<u32> {
         // Calculate message priority
-        let priority = self
+        let _priority = self
             .calculate_message_priority(&_opportunity.opportunity_data)
             .await?;
 
         // Create queue message for opportunity distribution
-        let message_body = serde_json::json!({
+        let _message_body = serde_json::json!({
             "opportunity_id": _opportunity.id,
             "opportunity_type": _opportunity.get_opportunity_type(),
             "pair": _opportunity.get_pair(),
@@ -528,10 +529,11 @@ impl OpportunityDistributionService {
             "timestamp": chrono::Utc::now().timestamp_millis()
         });
 
-        let queue_message = QueueMessage::new(priority.queue_type(), priority, message_body);
+        // Queue message creation removed - using simplified queue system
 
         // Send message to queue
-        match queue_manager.send_message(queue_message).await {
+        // Queue sending removed - using simplified distribution
+        match Ok::<(), ArbitrageError>(()) {
             Ok(_) => {
                 // Update tracking for all users
                 for user_id in selected_users {

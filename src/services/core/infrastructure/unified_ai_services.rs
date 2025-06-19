@@ -8,12 +8,17 @@
 // - mod.rs (5.4KB, 160 lines) - Module definitions
 // Total reduction: 6 files → 1 file (160.4KB → ~80KB optimized)
 
-use crate::services::core::user::user_profile::UserProfile;
-use crate::utils::{ArbitrageError, ArbitrageResult, feature_flags::FeatureFlags};
+use crate::utils::{feature_flags::FeatureFlags, ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use worker::{kv::KvStore, console_log};
+use worker::kv::KvStore;
+
+#[cfg(target_arch = "wasm32")]
+use js_sys::Date;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ============= UNIFIED CONFIGURATION =============
 
@@ -27,25 +32,25 @@ pub struct UnifiedAIConfig {
     pub model_timeout_ms: u64,
     pub max_tokens: u32,
     pub temperature: f32,
-    
+
     // Cache Configuration
     pub cache_enabled: bool,
     pub cache_ttl_seconds: u64,
     pub cache_max_size_mb: u64,
     pub cache_compression_enabled: bool,
-    
+
     // Embedding Configuration
     pub embedding_model: String,
     pub embedding_dimensions: usize,
     pub embedding_batch_size: usize,
     pub similarity_threshold: f32,
-    
+
     // Personalization
     pub personalization_enabled: bool,
     pub learning_rate: f32,
     pub max_history_items: usize,
     pub personalization_weight: f32,
-    
+
     // Performance
     pub max_concurrent_requests: usize,
     pub request_timeout_ms: u64,
@@ -66,22 +71,22 @@ impl Default for UnifiedAIConfig {
             model_timeout_ms: 30000,
             max_tokens: 2048,
             temperature: 0.7,
-            
+
             cache_enabled: true,
             cache_ttl_seconds: 3600,
             cache_max_size_mb: 500,
             cache_compression_enabled: true,
-            
+
             embedding_model: "text-embedding-ada-002".to_string(),
             embedding_dimensions: 1536,
             embedding_batch_size: 100,
             similarity_threshold: 0.8,
-            
+
             personalization_enabled: true,
             learning_rate: 0.1,
             max_history_items: 1000,
             personalization_weight: 0.3,
-            
+
             max_concurrent_requests: 20,
             request_timeout_ms: 30000,
             retry_attempts: 3,
@@ -93,7 +98,7 @@ impl Default for UnifiedAIConfig {
 // ============= AI DATA STRUCTURES =============
 
 /// AI request types for unified processing
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AIRequestType {
     TextGeneration,
     TextCompletion,
@@ -119,7 +124,7 @@ pub struct UnifiedAIRequest {
 }
 
 /// AI request parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AIParameters {
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
@@ -128,20 +133,6 @@ pub struct AIParameters {
     pub frequency_penalty: Option<f32>,
     pub presence_penalty: Option<f32>,
     pub stop_sequences: Option<Vec<String>>,
-}
-
-impl Default for AIParameters {
-    fn default() -> Self {
-        Self {
-            model: None,
-            max_tokens: None,
-            temperature: None,
-            top_p: None,
-            frequency_penalty: None,
-            presence_penalty: None,
-            stop_sequences: None,
-        }
-    }
 }
 
 /// Unified AI response
@@ -243,6 +234,7 @@ impl Default for UnifiedAIMetrics {
 // ============= UNIFIED AI SERVICES ENGINE =============
 
 /// Main unified AI services engine
+#[derive(Clone)]
 pub struct UnifiedAIServices {
     config: UnifiedAIConfig,
     cache: Option<Arc<KvStore>>,
@@ -256,6 +248,7 @@ pub struct UnifiedAIServices {
 
 /// Model availability status
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct ModelStatus {
     available: bool,
     last_error: Option<String>,
@@ -267,18 +260,21 @@ impl UnifiedAIServices {
     /// Create new unified AI services
     pub fn new(config: UnifiedAIConfig, feature_flags: FeatureFlags) -> ArbitrageResult<Self> {
         let logger = crate::utils::logger::Logger::new(crate::utils::logger::LogLevel::Info);
-        
+
         logger.info("Initializing UnifiedAIServices - consolidating 6 AI service modules");
 
         // Initialize model status for all available models
         let mut model_status = HashMap::new();
         for model in &config.available_models {
-            model_status.insert(model.clone(), ModelStatus {
-                available: true,
-                last_error: None,
-                last_success: Self::get_current_timestamp(),
-                failure_count: 0,
-            });
+            model_status.insert(
+                model.clone(),
+                ModelStatus {
+                    available: true,
+                    last_error: None,
+                    last_success: Self::current_timestamp(),
+                    failure_count: 0,
+                },
+            );
         }
 
         Ok(Self {
@@ -300,18 +296,30 @@ impl UnifiedAIServices {
     }
 
     /// Process a unified AI request
-    pub async fn process_request(&self, request: UnifiedAIRequest) -> ArbitrageResult<UnifiedAIResponse> {
-        let start_time = Self::get_current_timestamp();
-        
+    pub async fn process_request(
+        &self,
+        request: UnifiedAIRequest,
+    ) -> ArbitrageResult<UnifiedAIResponse> {
+        let start_time = Self::current_timestamp();
+
         // Check feature flags
-        if !self.feature_flags.ai_features.enabled {
-            return Err(ArbitrageError::FeatureDisabled("AI features are disabled".to_string()));
+        if !self.feature_flags.get_bool_flag("ai_features", false) {
+            return Err(ArbitrageError::feature_disabled(
+                "AI features are disabled".to_string(),
+            ));
         }
 
         // Try cache first if enabled
         if self.config.cache_enabled && request.cache_key.is_some() {
             if let Ok(Some(cached_response)) = self.get_from_cache(&request).await {
-                self.record_metrics(true, start_time, &cached_response.model_used, true, cached_response.tokens_used).await;
+                self.record_metrics(
+                    true,
+                    start_time,
+                    &cached_response.model_used,
+                    true,
+                    cached_response.tokens_used,
+                )
+                .await;
                 return Ok(cached_response);
             }
         }
@@ -324,16 +332,31 @@ impl UnifiedAIServices {
 
         // Select appropriate model
         let model = self.select_model(&personalized_request).await?;
-        
+
         // Process the request based on type
         let mut response = match personalized_request.request_type {
-            AIRequestType::TextGeneration => self.process_text_generation(&personalized_request, &model).await?,
-            AIRequestType::TextCompletion => self.process_text_completion(&personalized_request, &model).await?,
+            AIRequestType::TextGeneration => {
+                self.process_text_generation(&personalized_request, &model)
+                    .await?
+            }
+            AIRequestType::TextCompletion => {
+                self.process_text_completion(&personalized_request, &model)
+                    .await?
+            }
             AIRequestType::Embedding => self.process_embedding(&personalized_request).await?,
-            AIRequestType::Classification => self.process_classification(&personalized_request, &model).await?,
-            AIRequestType::Summarization => self.process_summarization(&personalized_request, &model).await?,
+            AIRequestType::Classification => {
+                self.process_classification(&personalized_request, &model)
+                    .await?
+            }
+            AIRequestType::Summarization => {
+                self.process_summarization(&personalized_request, &model)
+                    .await?
+            }
             AIRequestType::Analysis => self.process_analysis(&personalized_request, &model).await?,
-            AIRequestType::Personalization => self.process_personalization_request(&personalized_request).await?,
+            AIRequestType::Personalization => {
+                self.process_personalization_request(&personalized_request)
+                    .await?
+            }
         };
 
         // Cache the response if caching is enabled
@@ -343,11 +366,19 @@ impl UnifiedAIServices {
 
         // Update personalization profile if applicable
         if personalized_request.personalize && personalized_request.user_id.is_some() {
-            self.update_personalization_profile(&personalized_request, &response).await;
+            self.update_personalization_profile(&personalized_request, &response)
+                .await;
         }
 
-        response.processing_time_ms = Self::get_current_timestamp() - start_time;
-        self.record_metrics(true, start_time, &response.model_used, false, response.tokens_used).await;
+        response.processing_time_ms = Self::current_timestamp() - start_time;
+        self.record_metrics(
+            true,
+            start_time,
+            &response.model_used,
+            false,
+            response.tokens_used,
+        )
+        .await;
 
         Ok(response)
     }
@@ -356,10 +387,9 @@ impl UnifiedAIServices {
     async fn select_model(&self, request: &UnifiedAIRequest) -> ArbitrageResult<String> {
         // Use model specified in parameters if available and valid
         if let Some(ref model) = request.parameters.model {
-            if self.config.available_models.contains(model) {
-                if self.is_model_available(model).await {
-                    return Ok(model.clone());
-                }
+            if self.config.available_models.contains(model) && self.is_model_available(model).await
+            {
+                return Ok(model.clone());
             }
         }
 
@@ -372,13 +402,16 @@ impl UnifiedAIServices {
         if self.config.model_fallback_enabled {
             for model in &self.config.available_models {
                 if self.is_model_available(model).await {
-                    self.logger.warn(&format!("Using fallback model: {}", model));
+                    self.logger
+                        .warn(&format!("Using fallback model: {}", model));
                     return Ok(model.clone());
                 }
             }
         }
 
-        Err(ArbitrageError::ServiceUnavailable("No AI models available".to_string()))
+        Err(ArbitrageError::service_unavailable(
+            "No AI models available".to_string(),
+        ))
     }
 
     /// Check if a model is currently available
@@ -392,8 +425,13 @@ impl UnifiedAIServices {
     }
 
     /// Process text generation request
-    async fn process_text_generation(&self, request: &UnifiedAIRequest, model: &str) -> ArbitrageResult<UnifiedAIResponse> {
-        self.logger.info(&format!("Processing text generation with model: {}", model));
+    async fn process_text_generation(
+        &self,
+        request: &UnifiedAIRequest,
+        model: &str,
+    ) -> ArbitrageResult<UnifiedAIResponse> {
+        self.logger
+            .info(&format!("Processing text generation with model: {}", model));
 
         // Simulate AI API call (in real implementation, call actual AI service)
         let response_text = format!("Generated response for: {}", request.prompt);
@@ -410,7 +448,7 @@ impl UnifiedAIServices {
             processing_time_ms: 0, // Set by caller
             embeddings: None,
             metadata: AIResponseMetadata {
-                timestamp: Self::get_current_timestamp(),
+                timestamp: Self::current_timestamp(),
                 finish_reason: "stop".to_string(),
                 quality_score: 0.9,
                 cost_estimate: self.calculate_cost(tokens_used, model),
@@ -421,8 +459,13 @@ impl UnifiedAIServices {
     }
 
     /// Process text completion request
-    async fn process_text_completion(&self, request: &UnifiedAIRequest, model: &str) -> ArbitrageResult<UnifiedAIResponse> {
-        self.logger.info(&format!("Processing text completion with model: {}", model));
+    async fn process_text_completion(
+        &self,
+        request: &UnifiedAIRequest,
+        model: &str,
+    ) -> ArbitrageResult<UnifiedAIResponse> {
+        self.logger
+            .info(&format!("Processing text completion with model: {}", model));
 
         // Similar to text generation but for completion
         let response_text = format!("Completed: {}", request.prompt);
@@ -439,7 +482,7 @@ impl UnifiedAIServices {
             processing_time_ms: 0,
             embeddings: None,
             metadata: AIResponseMetadata {
-                timestamp: Self::get_current_timestamp(),
+                timestamp: Self::current_timestamp(),
                 finish_reason: "stop".to_string(),
                 quality_score: 0.85,
                 cost_estimate: self.calculate_cost(tokens_used, model),
@@ -450,12 +493,15 @@ impl UnifiedAIServices {
     }
 
     /// Process embedding request
-    async fn process_embedding(&self, request: &UnifiedAIRequest) -> ArbitrageResult<UnifiedAIResponse> {
+    async fn process_embedding(
+        &self,
+        request: &UnifiedAIRequest,
+    ) -> ArbitrageResult<UnifiedAIResponse> {
         self.logger.info("Processing embedding request");
 
         // Check embeddings cache first
         let cache_key = format!("embedding_{}", self.calculate_text_hash(&request.prompt));
-        
+
         if let Ok(embeddings_cache) = self.embeddings_cache.lock() {
             if let Some(cached_embedding) = embeddings_cache.get(&cache_key) {
                 return Ok(UnifiedAIResponse {
@@ -486,13 +532,16 @@ impl UnifiedAIServices {
 
         // Cache the embedding
         if let Ok(mut embeddings_cache) = self.embeddings_cache.lock() {
-            embeddings_cache.insert(cache_key, EmbeddingVector {
-                id: request.request_id.clone(),
-                text: request.prompt.clone(),
-                vector: embedding_vector.clone(),
-                metadata: HashMap::new(),
-                timestamp: Self::get_current_timestamp(),
-            });
+            embeddings_cache.insert(
+                cache_key,
+                EmbeddingVector {
+                    id: request.request_id.clone(),
+                    text: request.prompt.clone(),
+                    vector: embedding_vector.clone(),
+                    metadata: HashMap::new(),
+                    timestamp: Self::current_timestamp(),
+                },
+            );
         }
 
         Ok(UnifiedAIResponse {
@@ -506,7 +555,7 @@ impl UnifiedAIServices {
             processing_time_ms: 0,
             embeddings: Some(embedding_vector),
             metadata: AIResponseMetadata {
-                timestamp: Self::get_current_timestamp(),
+                timestamp: Self::current_timestamp(),
                 finish_reason: "stop".to_string(),
                 quality_score: 1.0,
                 cost_estimate: self.calculate_cost(tokens_used, &self.config.embedding_model),
@@ -517,8 +566,13 @@ impl UnifiedAIServices {
     }
 
     /// Process classification request
-    async fn process_classification(&self, request: &UnifiedAIRequest, model: &str) -> ArbitrageResult<UnifiedAIResponse> {
-        self.logger.info(&format!("Processing classification with model: {}", model));
+    async fn process_classification(
+        &self,
+        request: &UnifiedAIRequest,
+        model: &str,
+    ) -> ArbitrageResult<UnifiedAIResponse> {
+        self.logger
+            .info(&format!("Processing classification with model: {}", model));
 
         let response_text = format!("Classification result for: {}", request.prompt);
         let tokens_used = self.estimate_tokens(&response_text);
@@ -534,7 +588,7 @@ impl UnifiedAIServices {
             processing_time_ms: 0,
             embeddings: None,
             metadata: AIResponseMetadata {
-                timestamp: Self::get_current_timestamp(),
+                timestamp: Self::current_timestamp(),
                 finish_reason: "stop".to_string(),
                 quality_score: 0.95,
                 cost_estimate: self.calculate_cost(tokens_used, model),
@@ -545,10 +599,18 @@ impl UnifiedAIServices {
     }
 
     /// Process summarization request
-    async fn process_summarization(&self, request: &UnifiedAIRequest, model: &str) -> ArbitrageResult<UnifiedAIResponse> {
-        self.logger.info(&format!("Processing summarization with model: {}", model));
+    async fn process_summarization(
+        &self,
+        request: &UnifiedAIRequest,
+        model: &str,
+    ) -> ArbitrageResult<UnifiedAIResponse> {
+        self.logger
+            .info(&format!("Processing summarization with model: {}", model));
 
-        let response_text = format!("Summary of: {}", &request.prompt[..std::cmp::min(100, request.prompt.len())]);
+        let response_text = format!(
+            "Summary of: {}",
+            &request.prompt[..std::cmp::min(100, request.prompt.len())]
+        );
         let tokens_used = self.estimate_tokens(&response_text);
 
         Ok(UnifiedAIResponse {
@@ -562,7 +624,7 @@ impl UnifiedAIServices {
             processing_time_ms: 0,
             embeddings: None,
             metadata: AIResponseMetadata {
-                timestamp: Self::get_current_timestamp(),
+                timestamp: Self::current_timestamp(),
                 finish_reason: "stop".to_string(),
                 quality_score: 0.88,
                 cost_estimate: self.calculate_cost(tokens_used, model),
@@ -573,8 +635,13 @@ impl UnifiedAIServices {
     }
 
     /// Process analysis request
-    async fn process_analysis(&self, request: &UnifiedAIRequest, model: &str) -> ArbitrageResult<UnifiedAIResponse> {
-        self.logger.info(&format!("Processing analysis with model: {}", model));
+    async fn process_analysis(
+        &self,
+        request: &UnifiedAIRequest,
+        model: &str,
+    ) -> ArbitrageResult<UnifiedAIResponse> {
+        self.logger
+            .info(&format!("Processing analysis with model: {}", model));
 
         let response_text = format!("Analysis of: {}", request.prompt);
         let tokens_used = self.estimate_tokens(&response_text);
@@ -590,7 +657,7 @@ impl UnifiedAIServices {
             processing_time_ms: 0,
             embeddings: None,
             metadata: AIResponseMetadata {
-                timestamp: Self::get_current_timestamp(),
+                timestamp: Self::current_timestamp(),
                 finish_reason: "stop".to_string(),
                 quality_score: 0.92,
                 cost_estimate: self.calculate_cost(tokens_used, model),
@@ -601,7 +668,10 @@ impl UnifiedAIServices {
     }
 
     /// Process personalization-specific request
-    async fn process_personalization_request(&self, request: &UnifiedAIRequest) -> ArbitrageResult<UnifiedAIResponse> {
+    async fn process_personalization_request(
+        &self,
+        request: &UnifiedAIRequest,
+    ) -> ArbitrageResult<UnifiedAIResponse> {
         self.logger.info("Processing personalization request");
 
         let response_text = format!("Personalization processed for user: {:?}", request.user_id);
@@ -618,7 +688,7 @@ impl UnifiedAIServices {
             processing_time_ms: 0,
             embeddings: None,
             metadata: AIResponseMetadata {
-                timestamp: Self::get_current_timestamp(),
+                timestamp: Self::current_timestamp(),
                 finish_reason: "stop".to_string(),
                 quality_score: 0.8,
                 cost_estimate: 0.0, // Personalization is internal
@@ -629,23 +699,25 @@ impl UnifiedAIServices {
     }
 
     /// Apply personalization to request
-    async fn apply_personalization(&self, request: UnifiedAIRequest) -> ArbitrageResult<UnifiedAIRequest> {
+    async fn apply_personalization(
+        &self,
+        request: UnifiedAIRequest,
+    ) -> ArbitrageResult<UnifiedAIRequest> {
         if let Some(ref user_id) = request.user_id {
             if let Ok(profiles) = self.personalization_profiles.lock() {
                 if let Some(profile) = profiles.get(user_id) {
                     // Apply personalization based on user profile
                     let mut personalized_request = request;
-                    
+
                     // Modify prompt based on user preferences
                     if !profile.preferences.is_empty() {
                         let personalization_context = format!(
                             "User preferences: {:?}. Original request: {}",
-                            profile.preferences,
-                            personalized_request.prompt
+                            profile.preferences, personalized_request.prompt
                         );
                         personalized_request.prompt = personalization_context;
                     }
-                    
+
                     return Ok(personalized_request);
                 }
             }
@@ -654,21 +726,27 @@ impl UnifiedAIServices {
     }
 
     /// Update personalization profile based on interaction
-    async fn update_personalization_profile(&self, request: &UnifiedAIRequest, response: &UnifiedAIResponse) {
+    async fn update_personalization_profile(
+        &self,
+        request: &UnifiedAIRequest,
+        response: &UnifiedAIResponse,
+    ) {
         if let Some(ref user_id) = request.user_id {
             if let Ok(mut profiles) = self.personalization_profiles.lock() {
-                let profile = profiles.entry(user_id.clone()).or_insert(PersonalizationProfile {
-                    user_id: user_id.clone(),
-                    preferences: HashMap::new(),
-                    interaction_history: Vec::new(),
-                    personalization_vector: None,
-                    last_updated: Self::get_current_timestamp(),
-                    learning_progress: 0.0,
-                });
+                let profile = profiles
+                    .entry(user_id.clone())
+                    .or_insert(PersonalizationProfile {
+                        user_id: user_id.clone(),
+                        preferences: HashMap::new(),
+                        interaction_history: Vec::new(),
+                        personalization_vector: None,
+                        last_updated: Self::current_timestamp(),
+                        learning_progress: 0.0,
+                    });
 
                 // Add interaction record
                 let interaction = InteractionRecord {
-                    timestamp: Self::get_current_timestamp(),
+                    timestamp: Self::current_timestamp(),
                     request_type: request.request_type.clone(),
                     prompt: request.prompt.clone(),
                     response: response.response_text.clone(),
@@ -684,8 +762,10 @@ impl UnifiedAIServices {
                 }
 
                 // Update learning progress
-                profile.learning_progress = (profile.interaction_history.len() as f32 / self.config.max_history_items as f32).min(1.0);
-                profile.last_updated = Self::get_current_timestamp();
+                profile.learning_progress = (profile.interaction_history.len() as f32
+                    / self.config.max_history_items as f32)
+                    .min(1.0);
+                profile.last_updated = Self::current_timestamp();
             }
         }
     }
@@ -695,7 +775,7 @@ impl UnifiedAIServices {
         // Simulate embedding generation
         let mut embedding = Vec::with_capacity(self.config.embedding_dimensions);
         let hash = self.calculate_text_hash(text);
-        
+
         for i in 0..self.config.embedding_dimensions {
             let value = ((hash.wrapping_add(i as u64)) as f32 / u64::MAX as f32) * 2.0 - 1.0;
             embedding.push(value);
@@ -718,19 +798,28 @@ impl UnifiedAIServices {
         let embedding2 = self.generate_embedding(text2).await?;
 
         // Calculate cosine similarity
-        let dot_product: f32 = embedding1.iter().zip(embedding2.iter()).map(|(a, b)| a * b).sum();
-        Ok(dot_product.max(-1.0).min(1.0))
+        let dot_product: f32 = embedding1
+            .iter()
+            .zip(embedding2.iter())
+            .map(|(a, b)| a * b)
+            .sum();
+        Ok(dot_product.clamp(-1.0, 1.0))
     }
 
     /// Find similar texts using embeddings
-    pub async fn find_similar(&self, query_text: &str, threshold: Option<f32>) -> ArbitrageResult<Vec<(String, f32)>> {
+    pub async fn find_similar(
+        &self,
+        query_text: &str,
+        threshold: Option<f32>,
+    ) -> ArbitrageResult<Vec<(String, f32)>> {
         let query_embedding = self.generate_embedding(query_text).await?;
         let threshold = threshold.unwrap_or(self.config.similarity_threshold);
         let mut similar_items = Vec::new();
 
         if let Ok(embeddings_cache) = self.embeddings_cache.lock() {
             for (_, embedding_vec) in embeddings_cache.iter() {
-                let similarity = self.calculate_cosine_similarity(&query_embedding, &embedding_vec.vector);
+                let similarity =
+                    self.calculate_cosine_similarity(&query_embedding, &embedding_vec.vector);
                 if similarity >= threshold {
                     similar_items.push((embedding_vec.text.clone(), similarity));
                 }
@@ -756,35 +845,44 @@ impl UnifiedAIServices {
             return 0.0;
         }
 
-        (dot_product / (magnitude1 * magnitude2)).max(-1.0).min(1.0)
+        (dot_product / (magnitude1 * magnitude2)).clamp(-1.0, 1.0)
     }
 
     /// Cache AI response
-    async fn cache_response(&self, request: &UnifiedAIRequest, response: &UnifiedAIResponse) -> ArbitrageResult<()> {
+    async fn cache_response(
+        &self,
+        request: &UnifiedAIRequest,
+        response: &UnifiedAIResponse,
+    ) -> ArbitrageResult<()> {
         if let Some(ref cache) = self.cache {
             if let Some(ref cache_key) = request.cache_key {
-                cache.put(cache_key, response)
-                    .map_err(|e| ArbitrageError::Cache(format!("Cache put failed: {}", e)))?
+                cache
+                    .put(cache_key, response)
+                    .map_err(|e| ArbitrageError::cache_error(format!("Cache put failed: {}", e)))?
                     .expiration_ttl(self.config.cache_ttl_seconds)
                     .execute()
                     .await
-                    .map_err(|e| ArbitrageError::Cache(format!("Cache execute failed: {}", e)))?;
+                    .map_err(|e| {
+                        ArbitrageError::cache_error(format!("Cache execute failed: {}", e))
+                    })?;
             }
         }
         Ok(())
     }
 
     /// Get response from cache
-    async fn get_from_cache(&self, request: &UnifiedAIRequest) -> ArbitrageResult<Option<UnifiedAIResponse>> {
+    async fn get_from_cache(
+        &self,
+        request: &UnifiedAIRequest,
+    ) -> ArbitrageResult<Option<UnifiedAIResponse>> {
         if let Some(ref cache) = self.cache {
             if let Some(ref cache_key) = request.cache_key {
-                match cache.get(cache_key).json::<UnifiedAIResponse>().await {
-                    Ok(Some(mut response)) => {
-                        response.cache_hit = true;
-                        response.metadata.cached_at = Some(Self::get_current_timestamp());
-                        return Ok(Some(response));
-                    }
-                    _ => {}
+                if let Ok(Some(mut response)) =
+                    cache.get(cache_key).json::<UnifiedAIResponse>().await
+                {
+                    response.cache_hit = true;
+                    response.metadata.cached_at = Some(Self::current_timestamp());
+                    return Ok(Some(response));
                 }
             }
         }
@@ -806,7 +904,7 @@ impl UnifiedAIServices {
             m if m.contains("claude") => 0.01,
             _ => 0.001,
         };
-        
+
         (tokens as f32 / 1000.0) * cost_per_1k_tokens
     }
 
@@ -814,17 +912,24 @@ impl UnifiedAIServices {
     fn calculate_text_hash(&self, text: &str) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
         hasher.finish()
     }
 
     /// Record metrics
-    async fn record_metrics(&self, success: bool, start_time: u64, model: &str, cache_hit: bool, tokens_used: u32) {
+    async fn record_metrics(
+        &self,
+        success: bool,
+        start_time: u64,
+        model: &str,
+        cache_hit: bool,
+        tokens_used: u32,
+    ) {
         if let Ok(mut metrics) = self.metrics.lock() {
-            let execution_time = Self::get_current_timestamp() - start_time;
-            
+            let execution_time = Self::current_timestamp() - start_time;
+
             metrics.total_requests += 1;
             if success {
                 metrics.successful_requests += 1;
@@ -842,18 +947,29 @@ impl UnifiedAIServices {
 
             // Update rolling averages
             let total = metrics.total_requests as f64;
-            metrics.avg_response_time_ms = (metrics.avg_response_time_ms * (total - 1.0) + execution_time as f64) / total;
+            metrics.avg_response_time_ms =
+                (metrics.avg_response_time_ms * (total - 1.0) + execution_time as f64) / total;
 
             // Update model usage
             *metrics.model_usage.entry(model.to_string()).or_insert(0) += 1;
 
-            metrics.last_updated = Self::get_current_timestamp();
+            metrics.last_updated = Self::current_timestamp();
         }
     }
 
     /// Get current timestamp
-    fn get_current_timestamp() -> u64 {
-        (js_sys::Date::now() as u64)
+    fn current_timestamp() -> u64 {
+        #[cfg(target_arch = "wasm32")]
+        {
+            Date::now() as u64
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        }
     }
 
     /// Get comprehensive metrics
@@ -878,7 +994,10 @@ impl UnifiedAIServices {
     }
 
     /// Get personalization profile for user
-    pub async fn get_personalization_profile(&self, user_id: &str) -> Option<PersonalizationProfile> {
+    pub async fn get_personalization_profile(
+        &self,
+        user_id: &str,
+    ) -> Option<PersonalizationProfile> {
         if let Ok(profiles) = self.personalization_profiles.lock() {
             profiles.get(user_id).cloned()
         } else {
@@ -904,6 +1023,7 @@ pub fn create_simple_ai_request(
     prompt: String,
     user_id: Option<String>,
 ) -> UnifiedAIRequest {
+    let personalize = user_id.is_some();
     UnifiedAIRequest {
         request_id: uuid::Uuid::new_v4().to_string(),
         request_type,
@@ -912,7 +1032,7 @@ pub fn create_simple_ai_request(
         context: None,
         parameters: AIParameters::default(),
         cache_key: None,
-        personalize: user_id.is_some(),
+        personalize,
         timeout_ms: None,
     }
 }
@@ -955,7 +1075,7 @@ mod tests {
             "Test prompt".to_string(),
             Some("user123".to_string()),
         );
-        
+
         assert_eq!(request.request_type, AIRequestType::TextGeneration);
         assert_eq!(request.prompt, "Test prompt");
         assert_eq!(request.user_id, Some("user123".to_string()));
@@ -969,7 +1089,7 @@ mod tests {
             "Text to embed".to_string(),
             "cache_key_123".to_string(),
         );
-        
+
         assert_eq!(request.request_type, AIRequestType::Embedding);
         assert_eq!(request.cache_key, Some("cache_key_123".to_string()));
         assert!(!request.personalize);
@@ -982,4 +1102,4 @@ mod tests {
         assert!(params.max_tokens.is_none());
         assert!(params.temperature.is_none());
     }
-} 
+}

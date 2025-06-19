@@ -106,9 +106,12 @@ bucket_name = "prod-arb-edge-analytics"
 binding = "ARBITRAGE_ANALYTICS"
 dataset = "arbitrage_analytics"
 
-# Cron Triggers
+# Cron Triggers - Optimized Tiered Maintenance System
 [triggers]
-crons = ["*/2 * * * *"]
+# Tier 1: High-frequency tasks (every 5 minutes) - critical operations
+# Tier 2: Medium-frequency tasks (every 30 minutes) - routine maintenance  
+# Tier 3: Low-frequency tasks (every 6 hours) - deep cleanup
+crons = ["*/5 * * * *", "*/30 * * * *", "0 */6 * * *"]
 
 
 

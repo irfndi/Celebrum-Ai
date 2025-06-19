@@ -1,5 +1,5 @@
 use crate::log_info;
-use crate::services::core::infrastructure::D1Service;
+use crate::services::core::infrastructure::persistence_layer::D1Service;
 use crate::services::core::trading::exchange::{ExchangeInterface, ExchangeService};
 use crate::services::core::user::UserProfileService;
 use crate::types::{ApiKeyProvider, ExchangeCredentials, ExchangeIdEnum, UserApiKey};

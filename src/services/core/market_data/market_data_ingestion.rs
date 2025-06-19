@@ -1,5 +1,6 @@
-use crate::services::core::infrastructure::analytics_engine::AnalyticsEngineService;
-use crate::services::core::infrastructure::cloudflare_pipelines::CloudflarePipelinesService;
+use crate::services::core::infrastructure::{
+    AnalyticsEngineService, UnifiedCloudflareServices as CloudflarePipelinesService,
+};
 use crate::services::core::market_data::coinmarketcap::CoinMarketCapService;
 use crate::types::{ExchangeIdEnum, FundingRateInfo};
 use crate::utils::logger::Logger;
@@ -1021,7 +1022,9 @@ impl MarketDataIngestionService {
 
         if let Some(engine) = &mut self.analytics_engine {
             for snapshot in snapshots {
-                engine.track_market_snapshot(snapshot).await?;
+                engine
+                    .track_market_snapshot(serde_json::to_value(snapshot)?)
+                    .await?;
             }
         } else {
             self.logger

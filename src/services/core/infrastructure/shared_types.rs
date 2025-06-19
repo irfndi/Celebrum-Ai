@@ -390,6 +390,58 @@ impl HealthCheckResult {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum HealthStatus {
+    Healthy,
+    Degraded,
+    Unhealthy,
+    Maintenance,
+}
+
+impl Default for HealthStatus {
+    fn default() -> Self {
+        Self::Healthy
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceHealthCheck {
+    pub service_name: String,
+    pub status: HealthStatus,
+    pub last_check: u64,
+    pub message: String,
+}
+
+impl Default for ServiceHealthCheck {
+    fn default() -> Self {
+        Self {
+            service_name: "unknown".to_string(),
+            status: HealthStatus::Healthy,
+            last_check: 0,
+            message: "No status available".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemHealthReport {
+    pub overall_status: HealthStatus,
+    pub services: HashMap<String, ServiceHealthCheck>,
+    pub timestamp: u64,
+    pub uptime_seconds: u64,
+}
+
+impl Default for SystemHealthReport {
+    fn default() -> Self {
+        Self {
+            overall_status: HealthStatus::Healthy,
+            services: HashMap::new(),
+            timestamp: 0,
+            uptime_seconds: 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

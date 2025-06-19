@@ -22,27 +22,35 @@ pub struct ArbitrageError {
     pub kind: ErrorKind,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorKind {
-    NetworkError,
+    #[default]
+    UnknownError,
     ApiError,
-    ValidationError,
-    NotFound,
-    Authentication,
-    Authorization,
-    RateLimit,
-    ExchangeError,
-    ParseError,
-    ConfigError,
+    NetworkError,
     DatabaseError,
-    TelegramError,
-    NotImplemented,
-    Serialization,
-    Internal,
-    Storage,
-    AccessDenied,
+    ValidationError,
+    AuthenticationError,
+    AuthorizationError,
+    ConfigurationError,
+    SerializationError,
+    DeserializationError,
+    RateLimitError,
+    TimeoutError,
+    NotFoundError,
+    ConflictError,
+    InternalServerError,
+    ServiceUnavailable,
+    BadRequest,
+    ExternalServiceError,
+    CacheError,
+    StorageError,
+    ProcessingError,
     InfrastructureError,
+    Cache,
+    Storage,
+    Internal,
 }
 
 impl fmt::Display for ArbitrageError {
@@ -86,7 +94,7 @@ impl ArbitrageError {
     }
 
     // Convenience constructors for common error types
-    pub fn network_error(message: impl Into<String>) -> Self {
+    pub fn network_error<T: Into<String>>(message: T) -> Self {
         Self::new(ErrorKind::NetworkError, message)
             .with_status(503)
             .with_code("NETWORK_ERROR")
@@ -104,32 +112,32 @@ impl ArbitrageError {
             .with_code("VALIDATION_ERROR")
     }
 
-    pub fn not_found(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::NotFound, message)
+    pub fn not_found<T: Into<String>>(message: T) -> Self {
+        Self::new(ErrorKind::NotFoundError, message)
             .with_status(404)
             .with_code("NOT_FOUND")
     }
 
     pub fn authentication_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Authentication, message)
+        Self::new(ErrorKind::AuthenticationError, message)
             .with_status(401)
             .with_code("AUTH_ERROR")
     }
 
     pub fn authorization_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Authorization, message)
+        Self::new(ErrorKind::AuthorizationError, message)
             .with_status(403)
             .with_code("AUTH_Z_ERROR")
     }
 
     pub fn unauthorized(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Authorization, message)
+        Self::new(ErrorKind::AuthorizationError, message)
             .with_status(401)
             .with_code("UNAUTHORIZED")
     }
 
-    pub fn rate_limit_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::RateLimit, message)
+    pub fn rate_limit_error<T: Into<String>>(message: T) -> Self {
+        Self::new(ErrorKind::RateLimitError, message)
             .with_status(429)
             .with_code("RATE_LIMIT")
     }
@@ -141,20 +149,20 @@ impl ArbitrageError {
             serde_json::Value::String(exchange.to_string()),
         );
 
-        Self::new(ErrorKind::ExchangeError, message)
+        Self::new(ErrorKind::ExternalServiceError, message)
             .with_details(details)
             .with_status(502)
             .with_code("EXCHANGE_ERROR")
     }
 
     pub fn parse_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::ParseError, message)
+        Self::new(ErrorKind::DeserializationError, message)
             .with_status(400)
             .with_code("PARSE_ERROR")
     }
 
     pub fn config_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::ConfigError, message)
+        Self::new(ErrorKind::ConfigurationError, message)
             .with_status(500)
             .with_code("CONFIG_ERROR")
     }
@@ -166,72 +174,68 @@ impl ArbitrageError {
     }
 
     pub fn telegram_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::TelegramError, message)
+        Self::new(ErrorKind::ExternalServiceError, message)
             .with_status(502)
             .with_code("TELEGRAM_ERROR")
     }
 
-    pub fn internal_error(message: impl Into<String>) -> Self {
+    pub fn internal_error<T: Into<String>>(message: T) -> Self {
         Self::new(ErrorKind::Internal, message)
             .with_status(500)
             .with_code("INTERNAL_ERROR")
     }
 
     pub fn not_implemented(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::NotImplemented, message)
+        Self::new(ErrorKind::InternalServerError, message)
             .with_status(501)
             .with_code("NOT_IMPLEMENTED")
     }
 
-    pub fn serialization_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Serialization, message)
+    pub fn serialization_error<T: Into<String>>(message: T) -> Self {
+        Self::new(ErrorKind::SerializationError, message)
             .with_status(400)
             .with_code("SERIALIZATION_ERROR")
     }
 
     pub fn storage_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Storage, message)
+        Self::new(ErrorKind::StorageError, message)
     }
 
     pub fn kv_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Storage, message)
+        Self::new(ErrorKind::StorageError, message)
             .with_status(500)
             .with_code("KV_ERROR")
     }
 
-    pub fn infrastructure_error(message: impl Into<String>) -> Self {
+    pub fn infrastructure_error<T: Into<String>>(message: T) -> Self {
         Self::new(ErrorKind::InfrastructureError, message)
             .with_status(500)
             .with_code("INFRASTRUCTURE_ERROR")
     }
 
-    pub fn service_unavailable(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Internal, message)
-            .with_status(503)
-            .with_code("SERVICE_UNAVAILABLE")
+    pub fn service_unavailable<T: Into<String>>(message: T) -> Self {
+        Self::new(ErrorKind::ServiceUnavailable, message)
     }
 
     pub fn parsing_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::ParseError, message)
+        Self::new(ErrorKind::DeserializationError, message)
             .with_status(400)
             .with_code("PARSING_ERROR")
     }
 
-    pub fn configuration_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::ConfigError, message)
-            .with_status(500)
-            .with_code("CONFIGURATION_ERROR")
+    pub fn configuration_error<T: Into<String>>(message: T) -> Self {
+        Self::new(ErrorKind::ConfigurationError, message)
     }
 
     pub fn data_unavailable(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::NotFound, message)
+        Self::new(ErrorKind::NotFoundError, message)
             .with_status(503)
             .with_code("DATA_UNAVAILABLE")
     }
 
     pub fn session_not_found(identifier: impl Into<String>) -> Self {
         Self::new(
-            ErrorKind::NotFound,
+            ErrorKind::NotFoundError,
             format!("Session not found: {}", identifier.into()),
         )
         .with_status(404)
@@ -239,39 +243,49 @@ impl ArbitrageError {
     }
 
     pub fn rate_limit_exceeded(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::RateLimit, message)
+        Self::new(ErrorKind::RateLimitError, message)
             .with_status(429)
             .with_code("RATE_LIMIT_EXCEEDED")
     }
 
     pub fn quota_exceeded(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::RateLimit, message)
+        Self::new(ErrorKind::RateLimitError, message)
             .with_status(429)
             .with_code("QUOTA_EXCEEDED")
     }
 
-    pub fn cache_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Storage, message)
-            .with_status(500)
-            .with_code("CACHE_ERROR")
+    pub fn cache_error<T: Into<String>>(message: T) -> Self {
+        Self::new(ErrorKind::CacheError, message)
+    }
+
+    pub fn feature_disabled(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::ConfigurationError, message)
+            .with_status(400)
+            .with_code("FEATURE_DISABLED")
     }
 
     pub fn processing_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Internal, message)
-            .with_status(500)
-            .with_code("PROCESSING_ERROR")
+        Self::new(ErrorKind::ProcessingError, message)
     }
 
     pub fn access_denied(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::AccessDenied, message)
+        Self::new(ErrorKind::AuthorizationError, message)
             .with_status(403)
             .with_code("ACCESS_DENIED")
     }
 
     pub fn timeout_error(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::NetworkError, message)
+        Self::new(ErrorKind::TimeoutError, message)
             .with_status(408)
             .with_code("TIMEOUT_ERROR")
+    }
+
+    pub fn operation_error<T: Into<String>>(message: T) -> Self {
+        Self::new(ErrorKind::ProcessingError, message)
+    }
+
+    pub fn initialization_error<T: Into<String>>(message: T) -> Self {
+        Self::new(ErrorKind::InfrastructureError, message)
     }
 }
 
@@ -291,6 +305,12 @@ impl From<worker::Error> for ArbitrageError {
 impl From<worker::kv::KvError> for ArbitrageError {
     fn from(err: worker::kv::KvError) -> Self {
         Self::storage_error(format!("KV error: {:?}", err))
+    }
+}
+
+impl From<String> for ArbitrageError {
+    fn from(err: String) -> Self {
+        Self::validation_error(err)
     }
 }
 
@@ -391,8 +411,9 @@ mod tests {
 
     #[test]
     fn test_error_with_status() {
-        let error = ArbitrageError::new(ErrorKind::NotFound, "Item not found").with_status(404);
-        assert_eq!(error.kind, ErrorKind::NotFound);
+        let error =
+            ArbitrageError::new(ErrorKind::NotFoundError, "Item not found").with_status(404);
+        assert_eq!(error.kind, ErrorKind::NotFoundError);
         assert_eq!(error.status, Some(404));
     }
 
@@ -415,7 +436,7 @@ mod tests {
         assert_eq!(val_err.status, Some(400));
 
         let nf_err = ArbitrageError::not_found("Resource missing");
-        assert_eq!(nf_err.kind, ErrorKind::NotFound);
+        assert_eq!(nf_err.kind, ErrorKind::NotFoundError);
         assert_eq!(nf_err.status, Some(404));
     }
 
@@ -424,7 +445,7 @@ mod tests {
         let json_err_str = "{\"key\": invalid_json}"; // Malformed JSON
         let serde_error = serde_json::from_str::<Value>(json_err_str).unwrap_err();
         let arbitrage_error = ArbitrageError::from(serde_error);
-        assert_eq!(arbitrage_error.kind, ErrorKind::ParseError);
+        assert_eq!(arbitrage_error.kind, ErrorKind::DeserializationError);
         assert!(arbitrage_error.message.contains("JSON parsing error"));
     }
 
@@ -440,7 +461,7 @@ mod tests {
     fn test_from_kv_operation_error_not_found() {
         let kv_err = KvOperationError::NotFound("test_key".to_string());
         let arb_err = ArbitrageError::from(kv_err);
-        assert_eq!(arb_err.kind, ErrorKind::NotFound);
+        assert_eq!(arb_err.kind, ErrorKind::NotFoundError);
         assert_eq!(arb_err.status, Some(404));
         assert!(arb_err.message.contains("KV item not found: test_key"));
     }
@@ -452,7 +473,7 @@ mod tests {
         let json_error = serde_json::from_str::<Value>(malformed_json).unwrap_err();
         let kv_err = KvOperationError::Serialization(json_error);
         let arb_err = ArbitrageError::from(kv_err);
-        assert_eq!(arb_err.kind, ErrorKind::Serialization);
+        assert_eq!(arb_err.kind, ErrorKind::SerializationError);
         assert_eq!(arb_err.status, Some(400)); // Assuming serialization error maps to 400
         assert!(arb_err
             .message
@@ -490,8 +511,8 @@ mod tests {
 
     #[test]
     fn test_arbitrage_error_macro() {
-        let error_simple = arbitrage_error!(ErrorKind::ConfigError, "Bad config file");
-        assert_eq!(error_simple.kind, ErrorKind::ConfigError);
+        let error_simple = arbitrage_error!(ErrorKind::ConfigurationError, "Bad config file");
+        assert_eq!(error_simple.kind, ErrorKind::ConfigurationError);
         assert_eq!(error_simple.message, "Bad config file");
 
         let error_with_details = arbitrage_error!(
