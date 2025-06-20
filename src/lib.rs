@@ -3,7 +3,6 @@ use worker::console_log;
 use worker::*;
 
 // Time constants for improved readability
-const HOUR_IN_MS: u64 = 60 * 60 * 1000;
 
 // Request validation structs will be added when needed
 

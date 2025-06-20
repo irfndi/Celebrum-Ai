@@ -1,18 +1,21 @@
 [workspace]
 members = [
-    ".",
-    "packages/telegram-bot",
-    "packages/discord-bot",
-    "packages/web",
-    "packages/worker",
     "packages/shared",
     "packages/db",
-    "packages/telegram-bot/tests",
-    "packages/discord-bot/tests",
-    "packages/web/tests",
+    "packages/worker",
+    "packages/web",
+    "packages/discord-bot",
+    "packages/telegram-bot",
+    "packages/shared/tests",
     "packages/worker/tests",
-    "packages/shared/tests"
 ]
+resolver = "2"
+
+[workspace.dependencies]
+getrandom = { version = "0.3.3", features = ["wasm_js"], default-features = false }
+
+[patch.crates-io]
+getrandom = { git = "https://github.com/rust-random/getrandom", tag = "v0.3.3", features = ["wasm_js"], default-features = false }
 
 [package]
 name = "cerebrum-ai"
@@ -29,15 +32,14 @@ worker = { version = "0.3", features = ["d1", "queue"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
-uuid = { version = "1.0", features = ["v4"] }
+uuid = { version = "1.10", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
-reqwest = { version = "0.11", features = ["json"] }
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+reqwest = { version = "0.12", features = ["json"] }
+sqlx = { version = "0.8", features = ["sqlite", "macros", "migrate", "chrono", "uuid"], default-features = false }
 sha2 = "0.10"
 aes-gcm = "0.10"
 base64 = "0.21"
-ring = "0.16"
 futures = "0.3"
 tokio-util = "0.7"
 url = "2.4"
@@ -55,6 +57,7 @@ thiserror = "1.0"
 rust_decimal = { version = "1.0", features = ["serde-float"] }
 rust_decimal_macros = "1.0"
 async-trait = "0.1"
+getrandom = { workspace = true }
 
 [dependencies.web-sys]
 version = "0.3"
@@ -68,14 +71,20 @@ features = [
   "Window",
 ]
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.95"
+wasm-bindgen = "0.2"
 js-sys = "0.3"
-console_error_panic_hook = "0.1"
-wee_alloc = "0.4"
-wasm-bindgen-futures = "0.4"
-gloo-timers = { version = "0.3", features = ["futures"] }
-getrandom = { version = "0.2", features = ["js"] }
+web-sys = { version = "0.3", features = [
+  "console",
+  "Document",
+  "Element",
+  "HtmlElement",
+  "Window",
+] }
+getrandom = { version = "0.3.3", features = ["wasm_js"], default-features = false }
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -11,7 +11,7 @@ use crate::utils::error::{ArbitrageError, ArbitrageResult};
 use chrono::{Timelike, Utc};
 use core::future::Future;
 use reqwest;
-use serde::Serialize;
+
 use std::sync::Arc;
 
 use worker::console_log;
@@ -791,7 +791,6 @@ impl WebPushService {
         .await
     }
 }
-
 
 pub async fn handle_user_cleanup(
     _event: ScheduledEvent,

@@ -1511,7 +1511,7 @@ pub struct NotificationSender {
     sender: Box<dyn NotificationSenderInternal + Send + Sync>,
 }
 
-trait NotificationSenderInternal: Send + Sync {
+pub trait NotificationSenderInternal: Send + Sync {
     fn clone_box(&self) -> Box<dyn NotificationSenderInternal + Send + Sync>;
     fn send_opportunity_notification<'a>(
         &'a self,
