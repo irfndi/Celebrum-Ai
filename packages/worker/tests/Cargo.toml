@@ -1,0 +1,52 @@
+[package]
+name = "worker-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Test dependencies
+tokio-test = "0.4"
+mockall = "0.11"
+serde_json = "1.0"
+futures = "0.3"
+
+# Local dependencies
+shared-tests = { path = "../../shared/tests" }
+
+# Core dependencies needed for tests
+worker = { version = "0.3", features = ["d1", "queue"] }
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.0", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4"] }
+log = "0.4"
+reqwest = { version = "0.11", features = ["json"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+rust_decimal = { version = "1.0", features = ["serde-float"] }
+async-trait = "0.1"
+sha2 = "0.10"
+aes-gcm = "0.10"
+base64 = "0.21"
+ring = "0.16"
+rand = "0.8"
+
+# Test modules
+[[test]]
+name = "analysis_tests"
+path = "analysis/mod.rs"
+
+[[test]]
+name = "trading_tests"
+path = "trading/mod.rs"
+
+[[test]]
+name = "opportunities_tests"
+path = "opportunities/mod.rs"
+
+[[test]]
+name = "integration_tests"
+path = "integration/mod.rs"
+
+[[test]]
+name = "e2e_tests"
+path = "e2e/mod.rs"

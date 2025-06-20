@@ -102,60 +102,66 @@ pub struct QueueEvent<T> {
 // ============= ENUMS =============
 
 /// Message priority levels
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum Priority {
     Low,
+    #[default]
     Normal,
     High,
     Critical,
 }
 
-impl Default for Priority {
-    fn default() -> Self {
-        Priority::Normal
-    }
-}
-
 /// Distribution strategies for opportunity messages
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum DistributionStrategy {
-    Broadcast,           // Send to all eligible users
-    Targeted,            // Send to specific users based on criteria
-    RoundRobin,          // Distribute evenly among users
-    PriorityBased,       // Send to highest priority users first
-    Geographic,          // Send based on geographic location
-    Tiered,              // Send based on subscription tier
-    Personalized,        // AI-personalized distribution
-    HighestBidder,       // Premium users first
-    Immediate,           // Immediate distribution
-    Batched,             // Batched distribution
-    Prioritized,         // Prioritized distribution
-    RateLimited,         // Rate-limited distribution
+    Broadcast, // Send to all eligible users
+    #[default]
+    Targeted, // Send to specific users based on criteria
+    RoundRobin, // Distribute evenly among users
+    PriorityBased, // Send to highest priority users first
+    Geographic, // Send based on geographic location
+    Tiered,    // Send based on subscription tier
+    Personalized, // AI-personalized distribution
+    HighestBidder, // Premium users first
+    Immediate, // Immediate distribution
+    Batched,   // Batched distribution
+    Prioritized, // Prioritized distribution
+    RateLimited, // Rate-limited distribution
     FirstComeFirstServe, // First-come, first-serve distribution
-    Priority,            // Priority distribution
+    Priority,  // Priority distribution
 }
 
-impl Default for DistributionStrategy {
-    fn default() -> Self {
-        DistributionStrategy::Targeted
+impl DistributionStrategy {
+    pub fn to_stable_string(&self) -> String {
+        match self {
+            DistributionStrategy::Broadcast => "broadcast".to_string(),
+            DistributionStrategy::Targeted => "targeted".to_string(),
+            DistributionStrategy::RoundRobin => "round_robin".to_string(),
+            DistributionStrategy::PriorityBased => "priority_based".to_string(),
+            DistributionStrategy::Geographic => "geographic".to_string(),
+            DistributionStrategy::Tiered => "tiered".to_string(),
+            DistributionStrategy::Personalized => "personalized".to_string(),
+            DistributionStrategy::HighestBidder => "highest_bidder".to_string(),
+            DistributionStrategy::Immediate => "immediate".to_string(),
+            DistributionStrategy::Batched => "batched".to_string(),
+            DistributionStrategy::Prioritized => "prioritized".to_string(),
+            DistributionStrategy::RateLimited => "rate_limited".to_string(),
+            DistributionStrategy::FirstComeFirstServe => "first_come_first_serve".to_string(),
+            DistributionStrategy::Priority => "priority".to_string(),
+        }
     }
 }
 
 /// Delivery methods for notifications
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum DeliveryMethod {
-    InApp,          // In-application notification
-    Telegram,       // Telegram bot message
-    Email,          // Email notification
-    Push,           // Push notification
-    Webhook,        // Webhook delivery
+    #[default]
+    InApp, // In-application notification
+    Telegram,                      // Telegram bot message
+    Email,                         // Email notification
+    Push,                          // Push notification
+    Webhook,                       // Webhook delivery
     Multiple(Vec<DeliveryMethod>), // Multiple delivery methods
-}
-
-impl Default for DeliveryMethod {
-    fn default() -> Self {
-        DeliveryMethod::InApp
-    }
 }
 
 // ============= HELPER FUNCTIONS =============
@@ -217,12 +223,7 @@ impl OpportunityDistributionMessage {
 }
 
 impl NotificationMessage {
-    pub fn new(
-        user_id: String,
-        title: String,
-        content: String,
-        notification_type: String,
-    ) -> Self {
+    pub fn new(user_id: String, title: String, content: String, notification_type: String) -> Self {
         Self {
             notification_id: uuid::Uuid::new_v4().to_string(),
             user_id,
@@ -253,11 +254,7 @@ impl NotificationMessage {
 }
 
 impl UserNotificationMessage {
-    pub fn new(
-        user_id: String,
-        message: String,
-        notification_type: String,
-    ) -> Self {
+    pub fn new(user_id: String, message: String, notification_type: String) -> Self {
         Self {
             notification_id: uuid::Uuid::new_v4().to_string(),
             user_id,
@@ -288,11 +285,7 @@ impl UserNotificationMessage {
 }
 
 impl UserMessage {
-    pub fn new(
-        user_id: String,
-        content: String,
-        message_type: String,
-    ) -> Self {
+    pub fn new(user_id: String, content: String, message_type: String) -> Self {
         Self {
             message_id: uuid::Uuid::new_v4().to_string(),
             user_id,

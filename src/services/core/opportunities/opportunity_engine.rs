@@ -2,6 +2,7 @@
 
 use crate::log_info;
 use crate::services::core::ai::ai_beta_integration::AiBetaIntegrationService;
+use crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy;
 use crate::services::core::infrastructure::CacheManager;
 use crate::services::core::opportunities::{
     access_manager::AccessManager,
@@ -14,10 +15,8 @@ use crate::services::core::trading::exchange::ExchangeService;
 use crate::services::core::user::user_access::UserAccessService;
 use crate::services::core::user::UserProfileService;
 use crate::types::{
-    ArbitrageOpportunity, ChatContext, GlobalOpportunity, OpportunitySource,
-    TechnicalOpportunity,
+    ArbitrageOpportunity, ChatContext, GlobalOpportunity, OpportunitySource, TechnicalOpportunity,
 };
-use crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy;
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use chrono::Utc;
 use serde_json;

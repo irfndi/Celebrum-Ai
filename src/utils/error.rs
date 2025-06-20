@@ -338,10 +338,9 @@ impl From<KvOperationError> for ArbitrageError {
             KvOperationError::NotFound => {
                 ArbitrageError::not_found("KV item not found".to_string())
             }
-            KvOperationError::SerializationError(msg) => ArbitrageError::serialization_error(format!(
-                "KV serialization/deserialization error: {}",
-                msg
-            )),
+            KvOperationError::SerializationError(msg) => ArbitrageError::serialization_error(
+                format!("KV serialization/deserialization error: {}", msg),
+            ),
             KvOperationError::NetworkError(msg) => {
                 ArbitrageError::network_error(format!("KV network error: {}", msg))
             }
@@ -470,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_from_kv_operation_error_not_found() {
-        let kv_err = KvOperationError::NotFound("test_key".to_string());
+        let kv_err = KvOperationError::NotFound;
         let arb_err = ArbitrageError::from(kv_err);
         assert_eq!(arb_err.kind, ErrorKind::NotFoundError);
         assert_eq!(arb_err.status, Some(404));
@@ -482,7 +481,7 @@ mod tests {
         // Create a real serde_json::Error by trying to parse malformed JSON
         let malformed_json = "{\"key\": invalid_value}"; // Missing quotes around invalid_value
         let json_error = serde_json::from_str::<Value>(malformed_json).unwrap_err();
-        let kv_err = KvOperationError::Serialization(json_error);
+        let kv_err = KvOperationError::SerializationError(json_error.to_string());
         let arb_err = ArbitrageError::from(kv_err);
         assert_eq!(arb_err.kind, ErrorKind::SerializationError);
         assert_eq!(arb_err.status, Some(400)); // Assuming serialization error maps to 400

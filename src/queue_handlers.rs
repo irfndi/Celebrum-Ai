@@ -2,8 +2,8 @@
 // Production implementation for consuming queue messages using #[event(queue)] macro
 
 use crate::services::core::infrastructure::cloudflare_queues::{
-    AnalyticsEventMessage, DeliveryMethod, DistributionStrategy, NotificationMessage, OpportunityDistributionMessage,
-    Priority, UserMessage, UserNotificationMessage,
+    AnalyticsEventMessage, DeliveryMethod, DistributionStrategy, NotificationMessage,
+    OpportunityDistributionMessage, Priority, UserMessage, UserNotificationMessage,
 };
 use crate::services::core::infrastructure::service_container::ServiceContainer;
 
@@ -14,8 +14,8 @@ use reqwest;
 use serde::Serialize;
 use std::sync::Arc;
 
-use worker::*;
 use worker::console_log;
+use worker::*;
 
 /// Handle opportunity distribution queue message
 pub async fn opportunity_queue_handler(
@@ -30,7 +30,7 @@ pub async fn opportunity_queue_handler(
     );
 
     // Note: Telegram service initialization removed - now handled by separate telegram worker
-    let telegram_service = None;
+    let _telegram_service: Option<()> = None;
 
     for message in messages {
         let body = message.body();
@@ -59,13 +59,10 @@ pub async fn notification_queue_handler(
     _ctx: Context,
 ) -> Result<()> {
     let messages = message_batch.messages()?;
-    console_log!(
-        "Processing notification batch: {} messages",
-        messages.len()
-    );
+    console_log!("Processing notification batch: {} messages", messages.len());
 
     // Telegram service is now handled by a separate worker
-    let telegram_service: Option<()> = None;
+    let _telegram_service: Option<()> = None;
 
     for message in messages {
         let body = message.body();
@@ -94,10 +91,7 @@ pub async fn analytics_queue_handler(
     _ctx: Context,
 ) -> Result<()> {
     let messages = message_batch.messages()?;
-    console_log!(
-        "Processing analytics batch: {} messages",
-        messages.len()
-    );
+    console_log!("Processing analytics batch: {} messages", messages.len());
 
     // Initialize analytics service once for the entire batch
     let analytics_service = match initialize_analytics_service(&env).await {
@@ -187,7 +181,9 @@ async fn process_opportunity_message(
     _telegram_service: Option<()>, // Removed telegram service - now in separate worker
 ) -> ArbitrageResult<()> {
     // Telegram service removed - notifications now handled by separate telegram worker
-    console_log!("Opportunity distribution message processed - telegram notifications handled separately");
+    console_log!(
+        "Opportunity distribution message processed - telegram notifications handled separately"
+    );
 
     // Distribute opportunity to target user
     for user_id in &message.target_users {
@@ -198,9 +194,10 @@ async fn process_opportunity_message(
             }
             DistributionStrategy::RoundRobin => {
                 let kv = _env.kv("ArbEdgeKV").map_err(|e| {
-                    crate::utils::ArbitrageError::configuration_error(
-                        format!("Failed to access KV store for round-robin distribution: {}", e)
-                    )
+                    crate::utils::ArbitrageError::configuration_error(format!(
+                        "Failed to access KV store for round-robin distribution: {}",
+                        e
+                    ))
                 })?;
 
                 let last_index_key = "distribution:roundrobin:last_user_index";
@@ -213,23 +210,33 @@ async fn process_opportunity_message(
                 let selected_user = &message.target_users[next_index];
 
                 // Telegram notifications now handled by separate worker
-                console_log!("Telegram notification queued for selected user: {}", selected_user);
+                console_log!(
+                    "Telegram notification queued for selected user: {}",
+                    selected_user
+                );
 
-                kv.put(last_index_key, &next_index.to_string()).map_err(|e| {
-                    crate::utils::ArbitrageError::storage_error(
-                        format!("Failed to update round-robin index: {}", e)
-                    )
-                })?.execute().await.map_err(|e| {
-                    crate::utils::ArbitrageError::storage_error(
-                        format!("Failed to save round-robin index: {}", e)
-                    )
-                })?;
+                kv.put(last_index_key, next_index.to_string())
+                    .map_err(|e| {
+                        crate::utils::ArbitrageError::storage_error(format!(
+                            "Failed to update round-robin index: {}",
+                            e
+                        ))
+                    })?
+                    .execute()
+                    .await
+                    .map_err(|e| {
+                        crate::utils::ArbitrageError::storage_error(format!(
+                            "Failed to save round-robin index: {}",
+                            e
+                        ))
+                    })?;
             }
             DistributionStrategy::PriorityBased => {
                 let d1 = _env.d1("ArbEdgeD1").map_err(|e| {
-                    crate::utils::ArbitrageError::configuration_error(
-                        format!("Failed to access D1 database for priority-based distribution: {}", e)
-                    )
+                    crate::utils::ArbitrageError::configuration_error(format!(
+                        "Failed to access D1 database for priority-based distribution: {}",
+                        e
+                    ))
                 })?;
 
                 let mut user_priorities: Vec<(String, i32)> = Vec::new();
@@ -237,24 +244,35 @@ async fn process_opportunity_message(
                 for user_id in &message.target_users {
                     let query = "SELECT subscription_tier, activity_score FROM user_profiles WHERE user_id = ?";
                     let stmt = d1.prepare(query);
-                    let result = stmt.bind(&[user_id.into()]).map_err(|e| {
-                        crate::utils::ArbitrageError::database_error(
-                            format!("Failed to bind user query: {}", e)
-                        )
-                    })?.first::<serde_json::Value>(None).await.map_err(|e| {
-                        crate::utils::ArbitrageError::database_error(
-                            format!("Failed to query user priority data: {}", e)
-                        )
-                    })?;
+                    let result = stmt
+                        .bind(&[user_id.into()])
+                        .map_err(|e| {
+                            crate::utils::ArbitrageError::database_error(format!(
+                                "Failed to bind user query: {}",
+                                e
+                            ))
+                        })?
+                        .first::<serde_json::Value>(None)
+                        .await
+                        .map_err(|e| {
+                            crate::utils::ArbitrageError::database_error(format!(
+                                "Failed to query user priority data: {}",
+                                e
+                            ))
+                        })?;
 
                     let priority = if let Some(data) = result {
-                        let tier_priority = match data.get("subscription_tier").and_then(|v| v.as_str()) {
-                            Some("premium") => 100,
-                            Some("pro") => 50,
-                            Some("basic") => 20,
-                            _ => 10,
-                        };
-                        let activity_score = data.get("activity_score").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                        let tier_priority =
+                            match data.get("subscription_tier").and_then(|v| v.as_str()) {
+                                Some("premium") => 100,
+                                Some("pro") => 50,
+                                Some("basic") => 20,
+                                _ => 10,
+                            };
+                        let activity_score = data
+                            .get("activity_score")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0) as i32;
                         tier_priority + (activity_score / 10)
                     } else {
                         10
@@ -265,7 +283,8 @@ async fn process_opportunity_message(
 
                 user_priorities.sort_by(|a, b| b.1.cmp(&a.1));
 
-                let top_users = user_priorities.into_iter()
+                let top_users = user_priorities
+                    .into_iter()
                     .take(std::cmp::min(5, message.target_users.len()))
                     .map(|(user_id, _)| user_id)
                     .collect::<Vec<_>>();
@@ -274,14 +293,18 @@ async fn process_opportunity_message(
 
                 for user_id in &top_users {
                     // Telegram notifications now handled by separate worker
-                    console_log!("Telegram notification queued for priority user: {}", user_id);
+                    console_log!(
+                        "Telegram notification queued for priority user: {}",
+                        user_id
+                    );
                 }
             }
             DistributionStrategy::Geographic => {
                 let d1 = _env.d1("ArbEdgeD1").map_err(|e| {
-                    crate::utils::ArbitrageError::configuration_error(
-                        format!("Failed to access D1 database for geographic distribution: {}", e)
-                    )
+                    crate::utils::ArbitrageError::configuration_error(format!(
+                        "Failed to access D1 database for geographic distribution: {}",
+                        e
+                    ))
                 })?;
 
                 let current_hour = Utc::now().hour();
@@ -290,22 +313,39 @@ async fn process_opportunity_message(
                 for user_id in &message.target_users {
                     let query = "SELECT timezone_offset, trading_hours_start, trading_hours_end FROM user_profiles WHERE user_id = ?";
                     let stmt = d1.prepare(query);
-                    let result = stmt.bind(&[user_id.into()]).map_err(|e| {
-                        crate::utils::ArbitrageError::database_error(
-                            format!("Failed to bind geographic query: {}", e)
-                        )
-                    })?.first::<serde_json::Value>(None).await.map_err(|e| {
-                        crate::utils::ArbitrageError::database_error(
-                            format!("Failed to query user geographic data: {}", e)
-                        )
-                    })?;
+                    let result = stmt
+                        .bind(&[user_id.into()])
+                        .map_err(|e| {
+                            crate::utils::ArbitrageError::database_error(format!(
+                                "Failed to bind geographic query: {}",
+                                e
+                            ))
+                        })?
+                        .first::<serde_json::Value>(None)
+                        .await
+                        .map_err(|e| {
+                            crate::utils::ArbitrageError::database_error(format!(
+                                "Failed to query user geographic data: {}",
+                                e
+                            ))
+                        })?;
 
                     if let Some(data) = result {
-                        let timezone_offset = data.get("timezone_offset").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-                        let trading_start = data.get("trading_hours_start").and_then(|v| v.as_u64()).unwrap_or(9) as u32;
-                        let trading_end = data.get("trading_hours_end").and_then(|v| v.as_u64()).unwrap_or(17) as u32;
+                        let timezone_offset = data
+                            .get("timezone_offset")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0) as i32;
+                        let trading_start = data
+                            .get("trading_hours_start")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(9) as u32;
+                        let trading_end = data
+                            .get("trading_hours_end")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(17) as u32;
 
-                        let user_local_hour = ((current_hour as i32 + timezone_offset).rem_euclid(24)) as u32;
+                        let user_local_hour =
+                            ((current_hour as i32 + timezone_offset).rem_euclid(24)) as u32;
 
                         if user_local_hour >= trading_start && user_local_hour <= trading_end {
                             eligible_users.push(user_id.clone());
@@ -324,11 +364,17 @@ async fn process_opportunity_message(
 
                 for user_id in &eligible_users {
                     // Telegram notifications now handled by separate worker
-                    console_log!("Telegram notification queued for geographic user: {}", user_id);
+                    console_log!(
+                        "Telegram notification queued for geographic user: {}",
+                        user_id
+                    );
                 }
             }
             DistributionStrategy::Targeted => {
-                console_log!("Targeted distribution strategy processed for {} users", message.target_users.len());
+                console_log!(
+                    "Targeted distribution strategy processed for {} users",
+                    message.target_users.len()
+                );
             }
             _ => {
                 console_log!("Unhandled distribution strategy, using default broadcast behavior");
@@ -348,7 +394,10 @@ async fn process_notification_message(
     match &message.delivery_method {
         DeliveryMethod::Telegram => {
             // Telegram delivery now handled by separate telegram worker
-            console_log!("Telegram notification queued for separate processing: {}", message.notification_id);
+            console_log!(
+                "Telegram notification queued for separate processing: {}",
+                message.notification_id
+            );
             return Ok(());
         }
         DeliveryMethod::Email => {
@@ -454,12 +503,19 @@ async fn process_notification_message(
         }
         DeliveryMethod::Webhook => {
             // Webhook delivery implementation
-            console_log!("Webhook notification processed: {}", message.notification_id);
+            console_log!(
+                "Webhook notification processed: {}",
+                message.notification_id
+            );
         }
         DeliveryMethod::Multiple(methods) => {
             // Handle multiple delivery methods
             for method in methods {
-                console_log!("Processing multiple delivery method: {:?} for notification: {}", method, message.notification_id);
+                console_log!(
+                    "Processing multiple delivery method: {:?} for notification: {}",
+                    method,
+                    message.notification_id
+                );
             }
         }
     }
@@ -471,9 +527,7 @@ async fn process_notification_message(
 async fn process_analytics_message(
     message: &AnalyticsEventMessage,
     _env: &Env,
-    analytics_service: Option<
-        &crate::services::core::infrastructure::AnalyticsEngineService,
-    >,
+    analytics_service: Option<&crate::services::core::infrastructure::AnalyticsEngineService>,
 ) -> ArbitrageResult<()> {
     // Use the pre-initialized analytics service
     let analytics_service = analytics_service.ok_or_else(|| {
@@ -513,8 +567,7 @@ async fn process_analytics_message(
 /// Initialize Analytics Engine service from environment
 async fn initialize_analytics_service(
     env: &Env,
-) -> ArbitrageResult<crate::services::core::infrastructure::AnalyticsEngineService>
-{
+) -> ArbitrageResult<crate::services::core::infrastructure::AnalyticsEngineService> {
     let _account_id = env
         .var("CLOUDFLARE_ACCOUNT_ID")
         .map_err(|e| {
@@ -572,14 +625,6 @@ async fn initialize_email_service(env: &Env) -> ArbitrageResult<EmailService> {
     let from_email = env.var("FROM_EMAIL")?.to_string();
     let api_url = env.var("EMAIL_API_URL")?.to_string();
     Ok(EmailService::new(api_key, from_email, api_url))
-}
-
-/// Initialize SMS service from environment
-async fn initialize_sms_service(env: &Env) -> ArbitrageResult<SmsService> {
-    let account_sid = env.secret("TWILIO_ACCOUNT_SID")?.to_string();
-    let auth_token = env.secret("TWILIO_AUTH_TOKEN")?.to_string();
-    let from_number = env.var("TWILIO_FROM_NUMBER")?.to_string();
-    Ok(SmsService::new(account_sid, auth_token, from_number))
 }
 
 /// Initialize WebPush service from environment
@@ -647,76 +692,6 @@ impl EmailService {
                     );
                     Err(ArbitrageError::service_error(format!(
                         "Email service failed: {} - {}",
-                        status, error_body
-                    )))
-                }
-            },
-            3,
-        )
-        .await
-    }
-}
-
-pub struct SmsService {
-    account_sid: String,
-    auth_token: String,
-    from_number: String,
-    client: reqwest::Client,
-}
-
-impl SmsService {
-    pub fn new(account_sid: String, auth_token: String, from_number: String) -> Self {
-        Self {
-            account_sid,
-            auth_token,
-            from_number,
-            client: reqwest::Client::new(),
-        }
-    }
-
-    pub async fn send_sms(&self, to: &str, content: &str) -> ArbitrageResult<()> {
-        let to_owned = to.to_string();
-        let content_owned = content.to_string();
-
-        send_with_retry(
-            || async {
-                console_log!("Attempting to send SMS to: {}", to_owned);
-                let twilio_url = format!(
-                    "https://api.twilio.com/2010-04-01/Accounts/{}/Messages.json",
-                    self.account_sid
-                );
-                let response = self
-                    .client
-                    .post(&twilio_url)
-                    .basic_auth(&self.account_sid, Some(&self.auth_token))
-                    .form(&[
-                        ("To", to_owned.as_str()),
-                        ("From", self.from_number.as_str()),
-                        ("Body", content_owned.as_str()),
-                    ])
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        ArbitrageError::network_error(format!("SMS request failed: {}", e))
-                    })?;
-
-                if response.status().is_success() {
-                    console_log!("SMS sent successfully to: {}", to_owned);
-                    Ok(())
-                } else {
-                    let status = response.status();
-                    let error_body = response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "Unknown error body".to_string());
-                    console_error!(
-                        "Failed to send SMS to {}: Status {}, Body: {}",
-                        to_owned,
-                        status,
-                        error_body
-                    );
-                    Err(ArbitrageError::service_error(format!(
-                        "SMS service failed: {} - {}",
                         status, error_body
                     )))
                 }
@@ -817,137 +792,6 @@ impl WebPushService {
     }
 }
 
-async fn store_failed_notification_in_kv<T: Serialize>(
-    env: &Env,
-    message: &T,
-    error: &str,
-) -> ArbitrageResult<()> {
-    let kv = env.kv("ArbEdgeKV").map_err(|e| {
-        crate::utils::ArbitrageError::storage_error(format!("Failed to access KV store: {}", e))
-    })?;
-
-    // Generate unique key for failed notification
-    let timestamp = chrono::Utc::now().timestamp_millis();
-    let unique_id = format!(
-        "{}_{}",
-        timestamp,
-        uuid::Uuid::new_v4().to_string()[..8].to_string()
-    );
-    let failed_key = format!("failed_notification:{}", unique_id);
-
-    // Serialize the message
-    let serialized_message = serde_json::to_string(message).map_err(|e| {
-        crate::utils::ArbitrageError::serialization_error(format!(
-            "Failed to serialize message: {}",
-            e
-        ))
-    })?;
-
-    // Create failed notification entry
-    let failed_entry = serde_json::json!({
-        "id": unique_id,
-        "timestamp": timestamp,
-        "error": error,
-        "message": serde_json::from_str::<serde_json::Value>(&serialized_message).unwrap_or(serde_json::json!({})),
-        "retry_count": 0,
-        "max_retries": 3,
-        "next_retry_at": timestamp + (5 * 60 * 1000), // Retry in 5 minute
-        "status": "failed",
-        "created_at": chrono::Utc::now().to_rfc3339()
-    });
-
-    // Store in KV
-    kv.put(&failed_key, &failed_entry.to_string())?
-        .execute()
-        .await
-        .map_err(|e| {
-            crate::utils::ArbitrageError::storage_error(format!(
-                "Failed to store failed notification: {}",
-                e
-            ))
-        })?;
-
-    // Update failed notification index for easier retrieval
-    let index_key = "failed_notifications:index";
-    let mut notification_ids = Vec::new();
-
-    // Get existing index
-    if let Some(existing_index) = kv.get(index_key).text().await? {
-        if let Ok(existing_ids) = serde_json::from_str::<Vec<String>>(&existing_index) {
-            notification_ids = existing_ids;
-        }
-    }
-
-    // Add new failed notification ID
-    notification_ids.push(unique_id.clone());
-
-    // Keep only last 100 failed notifications in index
-    if notification_ids.len() > 100 {
-        // Remove oldest entries from KV and index
-        let to_remove = notification_ids.len() - 100;
-        for old_id in notification_ids.drain(0..to_remove) {
-            let old_key = format!("failed_notification:{}", old_id);
-            if let Err(e) = kv.delete(&old_key).await {
-                console_log!(
-                    "⚠️ Failed to cleanup old failed notification {}: {:?}",
-                    old_key,
-                    e
-                );
-            }
-        }
-    }
-
-    // Update index
-    if let Err(e) = kv
-        .put(index_key, &serde_json::to_string(&notification_ids)?)?
-        .execute()
-        .await
-    {
-        console_log!("⚠️ Failed to update failed notifications index: {:?}", e);
-    }
-
-    // Update metric
-    let metrics_key = "failed_notifications:metrics";
-    let mut metrics = if let Some(existing_metrics) = kv.get(metrics_key).text().await? {
-        serde_json::from_str::<serde_json::Value>(&existing_metrics)
-            .unwrap_or(serde_json::json!({}))
-    } else {
-        serde_json::json!({})
-    };
-
-    // Update failure count
-    let current_count = metrics
-        .get("total_failures")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-    let daily_count = metrics
-        .get("daily_failures")
-        .and_then(|d| d.get(&today))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-
-    metrics["total_failures"] = serde_json::json!(current_count + 1);
-    metrics["last_failure"] = serde_json::json!(timestamp);
-
-    if let Some(daily_failures) = metrics.get_mut("daily_failures") {
-        daily_failures[&today] = serde_json::json!(daily_count + 1);
-    } else {
-        metrics["daily_failures"] = serde_json::json!({ today: daily_count + 1 });
-    }
-
-    if let Err(e) = kv.put(metrics_key, &metrics.to_string())?.execute().await {
-        console_log!("⚠️ Failed to update failed notification metrics: {:?}", e);
-    }
-
-    console_log!(
-        "📋 Stored failed notification {} in KV: {}",
-        unique_id,
-        error
-    );
-
-    Ok(())
-}
 
 pub async fn handle_user_cleanup(
     _event: ScheduledEvent,
@@ -975,13 +819,10 @@ pub async fn handle_user_notification_queue(
     _ctx: worker::Context,
 ) -> worker::Result<()> {
     let messages = batch.messages()?;
-    console_log!(
-        "📬 Processing {} user messages",
-        messages.len()
-    );
+    console_log!("📬 Processing {} user messages", messages.len());
 
     for message in messages {
-        match process_notification_message(&message.body(), &env, None).await {
+        match process_notification_message(message.body(), &env, None).await {
             Ok(_) => {
                 console_log!(
                     "✅ Successfully processed message {}",
@@ -1014,7 +855,7 @@ pub async fn handle_user_message_queue(
     console_log!("📬 Processing {} user messages", messages.len());
 
     for message in messages {
-        match process_user_message(&message.body(), &env).await {
+        match process_user_message(message.body(), &env).await {
             Ok(_) => {
                 console_log!(
                     "✅ Successfully processed user message {}",
@@ -1044,13 +885,10 @@ pub async fn handle_notification_message_queue(
     _ctx: worker::Context,
 ) -> worker::Result<()> {
     let messages = batch.messages()?;
-    console_log!(
-        "📬 Processing {} notification messages",
-        messages.len()
-    );
+    console_log!("📬 Processing {} notification messages", messages.len());
 
     for message in messages {
-        match process_general_notification(&message.body(), &env).await {
+        match process_general_notification(message.body(), &env).await {
             Ok(_) => {
                 console_log!(
                     "✅ Successfully processed notification {}",
@@ -1078,7 +916,10 @@ async fn process_general_notification(
     message: &NotificationMessage,
     _env: &Env,
 ) -> ArbitrageResult<()> {
-    console_log!("📨 Processing general notification: {}", message.notification_id);
+    console_log!(
+        "📨 Processing general notification: {}",
+        message.notification_id
+    );
 
     // Log the notification for now (can be extended to route to different channels)
     match message.priority {
@@ -1088,7 +929,10 @@ async fn process_general_notification(
         Priority::Critical => console_log!("🚨 CRITICAL PRIORITY: {}", message.content),
     }
 
-    console_log!("✅ General notification processed: {}", message.notification_id);
+    console_log!(
+        "✅ General notification processed: {}",
+        message.notification_id
+    );
     Ok(())
 }
 
@@ -1113,7 +957,7 @@ pub async fn process_opportunity_generation(
     service_container: Arc<ServiceContainer>,
 ) -> worker::Result<()> {
     console_log!("🔍 Starting opportunity generation task");
-    
+
     // Use the opportunity engine from service container
     if let Some(opportunity_engine) = &service_container.opportunity_engine {
         match opportunity_engine.generate_global_opportunities(None).await {
@@ -1123,12 +967,17 @@ pub async fn process_opportunity_generation(
             }
             Err(e) => {
                 console_error!("❌ Opportunity generation failed: {:?}", e);
-                Err(worker::Error::RustError(format!("Opportunity generation failed: {:?}", e)))
+                Err(worker::Error::RustError(format!(
+                    "Opportunity generation failed: {:?}",
+                    e
+                )))
             }
         }
     } else {
         console_error!("❌ Opportunity engine not available");
-        Err(worker::Error::RustError("Opportunity engine not available".to_string()))
+        Err(worker::Error::RustError(
+            "Opportunity engine not available".to_string(),
+        ))
     }
 }
 
@@ -1138,7 +987,7 @@ pub async fn process_data_cleanup(
     service_container: Arc<ServiceContainer>,
 ) -> worker::Result<()> {
     console_log!("🧹 Starting data cleanup task");
-    
+
     // Perform cleanup operations
     match service_container.cleanup_expired_sessions().await {
         Ok(_) => {
@@ -1147,7 +996,10 @@ pub async fn process_data_cleanup(
         }
         Err(e) => {
             console_error!("❌ Data cleanup failed: {:?}", e);
-            Err(worker::Error::RustError(format!("Data cleanup failed: {:?}", e)))
+            Err(worker::Error::RustError(format!(
+                "Data cleanup failed: {:?}",
+                e
+            )))
         }
     }
 }
@@ -1158,11 +1010,11 @@ pub async fn process_user_activity_analysis(
     _service_container: Arc<ServiceContainer>,
 ) -> worker::Result<()> {
     console_log!("🔧 Starting deep maintenance task");
-    
+
     // Perform deep maintenance operations
     // This could include cache optimization, database maintenance, etc.
     console_log!("🔧 Performing cache optimization...");
-    
+
     // For now, just log the operation
     console_log!("✅ Deep maintenance completed successfully");
     Ok(())
@@ -1175,7 +1027,7 @@ pub async fn process_queue_message(
     _service_container: Arc<ServiceContainer>,
 ) -> worker::Result<()> {
     console_log!("📨 Processing queue message: {:?}", body);
-    
+
     // Parse and route the message based on its type
     if let Some(message_type) = body.get("type").and_then(|v| v.as_str()) {
         match message_type {
@@ -1196,7 +1048,7 @@ pub async fn process_queue_message(
             }
         }
     }
-    
+
     console_log!("✅ Queue message processed successfully");
     Ok(())
 }

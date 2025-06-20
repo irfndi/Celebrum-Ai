@@ -12,13 +12,10 @@ pub struct TelegramConfig {
 
 impl TelegramConfig {
     pub fn from_env(env: &Env) -> worker::Result<Self> {
-        let bot_token = env.var("TELEGRAM_BOT_TOKEN")?
-            .to_string();
-        
-        let webhook_url = env.var("TELEGRAM_WEBHOOK_URL")
-            .ok()
-            .map(|v| v.to_string());
-            
+        let bot_token = env.var("TELEGRAM_BOT_TOKEN")?.to_string();
+
+        let webhook_url = env.var("TELEGRAM_WEBHOOK_URL").ok().map(|v| v.to_string());
+
         Ok(Self {
             bot_token,
             webhook_url,

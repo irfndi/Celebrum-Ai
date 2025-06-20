@@ -18,10 +18,10 @@ use crate::types::{
 };
 use crate::utils::error::{ArbitrageError, ArbitrageResult};
 use serde::{Deserialize, Serialize};
-use worker::wasm_bindgen::JsValue;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use worker::kv::KvStore;
+use worker::wasm_bindgen::JsValue;
 
 /// Unified configuration for all repository operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -392,7 +392,7 @@ impl UnifiedRepositoryLayer {
             Some(row) => {
                 if let Some(data_str) = row.get("aggregation_data") {
                     if let Some(data_str) = data_str.as_str() {
-                        match serde_json::from_str(&data_str) {
+                        match serde_json::from_str(data_str) {
                             Ok(data) => Ok(Some(data)),
                             Err(_) => Ok(None),
                         }

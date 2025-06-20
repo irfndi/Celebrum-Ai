@@ -7,11 +7,11 @@ use crate::services::core::infrastructure::{
 };
 use crate::services::core::user::session_management::SessionManagementService;
 
-use crate::types::{
-    ArbitrageOpportunity, ArbitrageType, ChatContext, FairnessConfig,
-    GlobalOpportunity, OpportunityData, OpportunitySource, SubscriptionTier,
-};
 use crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy;
+use crate::types::{
+    ArbitrageOpportunity, ArbitrageType, ChatContext, FairnessConfig, GlobalOpportunity,
+    OpportunityData, OpportunitySource, SubscriptionTier,
+};
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
 use std::future::Future;
@@ -21,7 +21,6 @@ use std::sync::Arc;
 // Non-WASM version with Send + Sync bounds for thread safety
 #[cfg(not(target_arch = "wasm32"))]
 // Async trait removed - using type-erased approach instead
-
 /// Configuration for opportunity distribution
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DistributionConfig {
@@ -420,6 +419,12 @@ impl OpportunityDistributionService {
             DistributionStrategy::Priority => {
                 // Priority-based distribution
                 for user_id in eligible_users.iter().take(5) {
+                    selected_users.push(user_id.clone());
+                }
+            }
+            DistributionStrategy::Geographic => {
+                // Geographic-based distribution
+                for user_id in eligible_users.iter().take(max_users as usize) {
                     selected_users.push(user_id.clone());
                 }
             }

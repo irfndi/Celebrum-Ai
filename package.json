@@ -26,6 +26,7 @@
     "dev:discord": "pnpm --filter @arb-edge/discord-bot run dev",
     "dev:telegram-bot": "pnpm --filter @arb-edge/telegram-bot run dev",
     "test": "pnpm --recursive run test",
+    "test:ci": "pnpm --recursive run test -- --run",
     "test:core": "pnpm --filter @arb-edge/core run test",
     "test:shared": "pnpm --filter @arb-edge/shared run test",
     "test:web": "pnpm --filter @arb-edge/web run test",

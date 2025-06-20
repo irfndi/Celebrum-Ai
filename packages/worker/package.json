@@ -8,7 +8,7 @@
     "build": "tsup",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "vitest",
+    "test": "vitest --run",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

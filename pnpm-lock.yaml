@@ -7,7 +7,7 @@ settings:
 catalogs:
   default:
     '@types/node':
-      specifier: ^22.10.2
+      specifier: 22.15.32
       version: 22.15.32
     typescript:
       specifier: ^5.7.2
@@ -34,7 +34,7 @@ importers:
         version: 5.8.3
       wrangler:
         specifier: ^4.20.3
-        version: 4.20.3(@cloudflare/workers-types@4.20250619.0)
+        version: 4.20.3(@cloudflare/workers-types@4.20250620.0)
 
   packages/db:
     dependencies:
@@ -70,12 +70,18 @@ importers:
         specifier: ^3.22.0
         version: 3.25.67
     devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250620.0
+        version: 4.20250620.0
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.15.32
       tsup:
         specifier: ^8.0.0
         version: 8.5.0(jiti@2.4.2)(postcss@8.5.6)(typescript@5.8.3)(yaml@2.8.0)
       vitest:
         specifier: ^1.0.0
-        version: 1.6.1(@types/node@24.0.3)(lightningcss@1.30.1)
+        version: 1.6.1(@types/node@22.15.32)(lightningcss@1.30.1)
 
   packages/telegram-bot:
     dependencies:
@@ -417,6 +423,9 @@ packages:
 
   '@cloudflare/workers-types@4.20250619.0':
     resolution: {integrity: sha512-OYmVTA45rEEsOmchtltDnrG6BBaOPB7LUGKoyE8AwkfanUOc3/wwuMZ50i1jq6NKrV1TZLsKUKzrwe1NtVGOzQ==}
+
+  '@cloudflare/workers-types@4.20250620.0':
+    resolution: {integrity: sha512-EVvRB/DJEm6jhdKg+A4Qm4y/ry1cIvylSgSO3/f/Bv161vldDRxaXM2YoQQWFhLOJOw0qtrHsKOD51KYxV1XCw==}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -4584,6 +4593,8 @@ snapshots:
 
   '@cloudflare/workers-types@4.20250619.0': {}
 
+  '@cloudflare/workers-types@4.20250620.0': {}
+
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
@@ -5339,7 +5350,7 @@ snapshots:
 
   '@types/fontkit@2.0.8':
     dependencies:
-      '@types/node': 24.0.3
+      '@types/node': 22.15.32
 
   '@types/hast@3.0.4':
     dependencies:
@@ -5372,6 +5383,7 @@ snapshots:
   '@types/node@24.0.3':
     dependencies:
       undici-types: 7.8.0
+    optional: true
 
   '@types/unist@3.0.3': {}
 
@@ -7786,7 +7798,8 @@ snapshots:
 
   undici-types@6.21.0: {}
 
-  undici-types@7.8.0: {}
+  undici-types@7.8.0:
+    optional: true
 
   undici@5.29.0:
     dependencies:
@@ -7911,13 +7924,13 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.2
 
-  vite-node@1.6.1(@types/node@24.0.3)(lightningcss@1.30.1):
+  vite-node@1.6.1(@types/node@22.15.32)(lightningcss@1.30.1):
     dependencies:
       cac: 6.7.14
       debug: 4.4.1
       pathe: 1.1.2
       picocolors: 1.1.1
-      vite: 5.4.19(@types/node@24.0.3)(lightningcss@1.30.1)
+      vite: 5.4.19(@types/node@22.15.32)(lightningcss@1.30.1)
     transitivePeerDependencies:
       - '@types/node'
       - less
@@ -7957,16 +7970,6 @@ snapshots:
       fsevents: 2.3.3
       lightningcss: 1.30.1
 
-  vite@5.4.19(@types/node@24.0.3)(lightningcss@1.30.1):
-    dependencies:
-      esbuild: 0.21.5
-      postcss: 8.5.6
-      rollup: 4.44.0
-    optionalDependencies:
-      '@types/node': 24.0.3
-      fsevents: 2.3.3
-      lightningcss: 1.30.1
-
   vite@6.3.5(@types/node@24.0.3)(jiti@2.4.2)(lightningcss@1.30.1)(yaml@2.8.0):
     dependencies:
       esbuild: 0.25.5
@@ -7986,7 +7989,7 @@ snapshots:
     optionalDependencies:
       vite: 6.3.5(@types/node@24.0.3)(jiti@2.4.2)(lightningcss@1.30.1)(yaml@2.8.0)
 
-  vitest@1.6.1(@types/node@24.0.3)(lightningcss@1.30.1):
+  vitest@1.6.1(@types/node@22.15.32)(lightningcss@1.30.1):
     dependencies:
       '@vitest/expect': 1.6.1
       '@vitest/runner': 1.6.1
@@ -8005,11 +8008,11 @@ snapshots:
       strip-literal: 2.1.1
       tinybench: 2.9.0
       tinypool: 0.8.4
-      vite: 5.4.19(@types/node@24.0.3)(lightningcss@1.30.1)
-      vite-node: 1.6.1(@types/node@24.0.3)(lightningcss@1.30.1)
+      vite: 5.4.19(@types/node@22.15.32)(lightningcss@1.30.1)
+      vite-node: 1.6.1(@types/node@22.15.32)(lightningcss@1.30.1)
       why-is-node-running: 2.3.0
     optionalDependencies:
-      '@types/node': 24.0.3
+      '@types/node': 22.15.32
     transitivePeerDependencies:
       - less
       - lightningcss
@@ -8259,6 +8262,23 @@ snapshots:
       workerd: 1.20250617.0
     optionalDependencies:
       '@cloudflare/workers-types': 4.20250619.0
+      fsevents: 2.3.3
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  wrangler@4.20.3(@cloudflare/workers-types@4.20250620.0):
+    dependencies:
+      '@cloudflare/kv-asset-handler': 0.4.0
+      '@cloudflare/unenv-preset': 2.3.3(unenv@2.0.0-rc.17)(workerd@1.20250617.0)
+      blake3-wasm: 2.1.5
+      esbuild: 0.25.4
+      miniflare: 4.20250617.1
+      path-to-regexp: 6.3.0
+      unenv: 2.0.0-rc.17
+      workerd: 1.20250617.0
+    optionalDependencies:
+      '@cloudflare/workers-types': 4.20250620.0
       fsevents: 2.3.3
     transitivePeerDependencies:
       - bufferutil

@@ -391,7 +391,7 @@ impl DynamicConfigService {
             .ok_or_else(|| ArbitrageError::not_found("No active configuration found"))?;
 
         if let Some(rollback_data) = &current_config.rollback_data {
-            let previous_config: UserConfigInstance = serde_json::from_str(&rollback_data)?;
+            let previous_config: UserConfigInstance = serde_json::from_str(rollback_data)?;
 
             // Apply the previous configuration
             let restored_config = self

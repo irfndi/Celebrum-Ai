@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub use crate::services::core::analysis::market_analysis::OpportunityType;
+pub use crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy;
 
 /// Represents the type of an order.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -1775,8 +1776,6 @@ pub struct RiskManagementConfig {
     pub enable_trailing_stop: bool,
     pub correlation_limit: f64,
 }
-
-
 
 /// Fairness configuration for opportunity distribution
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -49,7 +49,7 @@
     "build": "tsup",
     "build:watch": "tsup --watch",
     "dev": "tsup --watch",
-    "test": "vitest",
+    "test": "vitest --run",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage",
     "lint": "oxlint src",
@@ -63,6 +63,8 @@
     "zod": "^3.22.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "@types/node": "catalog:",
     "tsup": "^8.0.0",
     "vitest": "^1.0.0"
   },

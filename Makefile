@@ -126,7 +126,7 @@ ci-pipeline: ## Run comprehensive CI pipeline (Rust + TypeScript)
 	@pnpm run build
 	@echo "✅ Step 2: TypeScript Packages Built"
 	@echo "🧪 Step 3: TypeScript Package Testing"
-	@pnpm run test
+	@pnpm run test:ci
 	@echo "✅ Step 3: TypeScript Tests Passed"
 	@echo "🎨 Step 4: Rust Code Formatting Check"
 	@cargo fmt --all -- --check
@@ -204,7 +204,7 @@ check-all: lint test build build-wasm check-wasm ## Run all basic checks (lint, 
 dev: fmt lint test check-wasm ## Quick development cycle (format, lint, test, WASM check)
 	@echo "🚀 Development cycle completed!"
 
-ci: ci-pipeline ## Alias for ci-pipeline (legacy)
+ci: ci-pipeline ## Run comprehensive CI pipeline (Rust + TypeScript)
 
 deploy: build-wasm-release ## Prepare for deployment (build WASM and run tests)
 	@echo "🚀 Preparing for deployment..."

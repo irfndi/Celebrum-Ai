@@ -1,13 +1,12 @@
 #![allow(unused_imports, unused_variables, unused_mut, dead_code)]
 
-use arb_edge::services::core::infrastructure::database_core::DatabaseCore;
-// TODO: Find correct location for D1Service
-// use arb_edge::services::core::infrastructure::database_core::D1Service; // Original problematic import
-use arb_edge::services::core::user::user_profile::UserProfileService;
-use arb_edge::services::interfaces::telegram::telegram::{TelegramConfig, TelegramService};
-use arb_edge::types::{CommandPermission, SubscriptionTier, UserProfile};
+use arb_edge_telegram_bot::core::bot_client::TelegramService;
+use arb_edge_telegram_bot::types::{CommandPermission, SubscriptionTier, UserProfile};
 use serde_json::{json, Value};
+use shared_tests::infrastructure::database_core::DatabaseCore;
+use shared_tests::user::user_profile::UserProfileService;
 use std::sync::Arc;
+use worker::kv::KvStore;
 use worker::kv::KvStore;
 
 /// Mock KV Store for testing
@@ -435,7 +434,7 @@ mod telegram_bot_integration_tests {
         // Test commands that should require session (without session service set)
         let protected_commands = vec![
             "/opportunities",
-            "/profile", 
+            "/profile",
             "/settings",
             "/ai_insights",
             "/balance",
@@ -446,38 +445,39 @@ mod telegram_bot_integration_tests {
         for command in protected_commands {
             let update = create_telegram_update(123456789, command, "private");
             let result = telegram_service.handle_webhook(update).await;
-            
+
             assert!(result.is_ok());
-            
+
             // Verify the response indicates session is required
             if let Ok(Some(response)) = result {
                 // The response should contain session-related messaging
                 assert!(
-                    response.contains("session") || 
-                    response.contains("start") || 
-                    response.contains("welcome") ||
-                    response.contains("Please") ||
-                    response.contains("first"),
-                    "Protected command '{}' should indicate session requirement, got: '{}'", 
-                    command, response
+                    response.contains("session")
+                        || response.contains("start")
+                        || response.contains("welcome")
+                        || response.contains("Please")
+                        || response.contains("first"),
+                    "Protected command '{}' should indicate session requirement, got: '{}'",
+                    command,
+                    response
                 );
             }
         }
 
         // Test that session-exempt commands work without session requirements
         let exempt_commands = vec!["/start", "/help"];
-        
+
         for command in exempt_commands {
             let update = create_telegram_update(123456789, command, "private");
             let result = telegram_service.handle_webhook(update).await;
-            
+
             assert!(result.is_ok());
-            
+
             // These commands should work without session requirements
             if let Ok(Some(response)) = result {
                 assert!(
                     !response.is_empty(),
-                    "Exempt command '{}' should provide a response", 
+                    "Exempt command '{}' should provide a response",
                     command
                 );
             }
@@ -655,12 +655,12 @@ fn test_enhanced_help_command_integration() {
     let help_command = "/help";
     let help_with_topic = "/help trading";
     let explain_command = "/explain trading";
-    
+
     // Verify command structure
     assert!(help_command.starts_with("/help"));
     assert!(help_with_topic.contains("trading"));
     assert!(explain_command.contains("trading"));
-    
+
     // Test that commands are properly formatted
     assert_eq!(help_command.len(), 5);
     assert!(help_with_topic.len() > help_command.len());
@@ -680,7 +680,7 @@ mod telegram_error_handling_and_guidance_tests {
         let market_closed_error = "market_closed";
         let network_timeout_error = "network_timeout";
         let subscription_required_error = "subscription_required";
-        
+
         // Verify error types are properly categorized
         assert_eq!(api_key_error, "api_key_invalid");
         assert_eq!(exchange_maintenance_error, "exchange_maintenance");
@@ -688,7 +688,7 @@ mod telegram_error_handling_and_guidance_tests {
         assert_eq!(market_closed_error, "market_closed");
         assert_eq!(network_timeout_error, "network_timeout");
         assert_eq!(subscription_required_error, "subscription_required");
-        
+
         // Test error message structure
         let error_context = "Binance";
         assert!(error_context.len() > 0);
@@ -699,23 +699,35 @@ mod telegram_error_handling_and_guidance_tests {
     fn test_command_specific_help_structure() {
         // Test command-specific help structure
         let valid_commands = [
-            "opportunities", "balance", "buy", "sell", "ai_insights", 
-            "setup_exchange", "market", "help", "status"
+            "opportunities",
+            "balance",
+            "buy",
+            "sell",
+            "ai_insights",
+            "setup_exchange",
+            "market",
+            "help",
+            "status",
         ];
-        
+
         for command in valid_commands.iter() {
             // Verify command format
             assert!(!command.is_empty());
             assert!(!command.contains(" "));
             assert!(command.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
         }
-        
+
         // Test help message components
         let help_components = [
-            "Description:", "Usage:", "Status:", "Examples:", 
-            "Requirements:", "Troubleshooting:", "Tip"
+            "Description:",
+            "Usage:",
+            "Status:",
+            "Examples:",
+            "Requirements:",
+            "Troubleshooting:",
+            "Tip",
         ];
-        
+
         for component in help_components.iter() {
             assert!(!component.is_empty());
             assert!(component.ends_with(':') || component == &"Tip");
@@ -726,24 +738,24 @@ mod telegram_error_handling_and_guidance_tests {
     fn test_progressive_feature_disclosure() {
         // Test progressive feature disclosure logic
         let setup_states = [
-            (true, true, true),   // All configured
-            (true, false, true),  // Exchange only
-            (false, true, true),  // AI only
-            (false, false, true), // Profile only
-            (false, false, false) // Nothing configured
+            (true, true, true),    // All configured
+            (true, false, true),   // Exchange only
+            (false, true, true),   // AI only
+            (false, false, true),  // Profile only
+            (false, false, false), // Nothing configured
         ];
-        
+
         for (has_exchange, has_ai, has_profile) in setup_states.iter() {
             // Verify state combinations are valid
             assert!(has_exchange == &true || has_exchange == &false);
             assert!(has_ai == &true || has_ai == &false);
             assert!(has_profile == &true || has_profile == &false);
-            
+
             // Test feature availability logic
             let trading_available = *has_exchange;
             let personal_ai_available = *has_ai;
             let profile_features_available = *has_profile;
-            
+
             assert_eq!(trading_available, *has_exchange);
             assert_eq!(personal_ai_available, *has_ai);
             assert_eq!(profile_features_available, *has_profile);
@@ -759,22 +771,25 @@ mod telegram_error_handling_and_guidance_tests {
             ("❌", "unavailable"),
             ("🟢", "online"),
             ("🔴", "offline"),
-            ("🟡", "warning")
+            ("🟡", "warning"),
         ];
-        
+
         for (emoji, status) in status_indicators.iter() {
             // Verify emoji indicators are properly formatted
             assert!(!emoji.is_empty());
             assert!(!status.is_empty());
             assert!(status.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
         }
-        
+
         // Test status message structure
         let status_sections = [
-            "System Services:", "Your Account Status:", "System Performance:",
-            "Available Features:", "Enhance Your Experience:"
+            "System Services:",
+            "Your Account Status:",
+            "System Performance:",
+            "Available Features:",
+            "Enhance Your Experience:",
         ];
-        
+
         for section in status_sections.iter() {
             assert!(section.ends_with(':'));
             assert!(!section.is_empty());
@@ -786,25 +801,31 @@ mod telegram_error_handling_and_guidance_tests {
         // Test error recovery suggestions structure
         let error_types = [
             "api_key_invalid",
-            "insufficient_balance", 
+            "insufficient_balance",
             "service_unavailable",
             "network_timeout",
-            "permission_denied"
+            "permission_denied",
         ];
-        
+
         for error_type in error_types.iter() {
             // Verify error types are properly formatted
             assert!(!error_type.is_empty());
-            assert!(error_type.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
+            assert!(error_type
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_'));
             assert!(!error_type.contains(" "));
         }
-        
+
         // Test recovery suggestion components
         let recovery_components = [
-            "Immediate Actions:", "Alternative Actions:", "What you can do:",
-            "Quick Fix:", "Prevention Tips:", "Support Information:"
+            "Immediate Actions:",
+            "Alternative Actions:",
+            "What you can do:",
+            "Quick Fix:",
+            "Prevention Tips:",
+            "Support Information:",
         ];
-        
+
         for component in recovery_components.iter() {
             assert!(component.ends_with(':'));
             assert!(!component.is_empty());
@@ -815,26 +836,33 @@ mod telegram_error_handling_and_guidance_tests {
     fn test_auto_retry_logic() {
         // Test auto-retry logic structure
         let retryable_errors = ["network_timeout", "service_unavailable", "rate_limited"];
-        let non_retryable_errors = ["api_key_invalid", "insufficient_balance", "permission_denied"];
-        
+        let non_retryable_errors = [
+            "api_key_invalid",
+            "insufficient_balance",
+            "permission_denied",
+        ];
+
         for error in retryable_errors.iter() {
             // Verify retryable errors are properly categorized
             assert!(!error.is_empty());
-            assert!(matches!(*error, "network_timeout" | "service_unavailable" | "rate_limited"));
+            assert!(matches!(
+                *error,
+                "network_timeout" | "service_unavailable" | "rate_limited"
+            ));
         }
-        
+
         for error in non_retryable_errors.iter() {
             // Verify non-retryable errors are properly categorized
             assert!(!error.is_empty());
             assert!(!retryable_errors.contains(error));
         }
-        
+
         // Test retry count logic
         let retry_counts = [0, 1, 2, 3, 4];
         for count in retry_counts.iter() {
             let should_retry = *count < 3;
             let is_final_attempt = *count >= 3;
-            
+
             assert_eq!(should_retry, *count < 3);
             assert_eq!(is_final_attempt, *count >= 3);
         }
@@ -844,32 +872,46 @@ mod telegram_error_handling_and_guidance_tests {
     fn test_command_validation() {
         // Test command validation logic
         let valid_commands = [
-            "start", "help", "status", "settings", "profile", "opportunities",
-            "balance", "buy", "sell", "orders", "positions", "ai_insights",
-            "market", "setup_exchange", "setup_ai", "onboard"
+            "start",
+            "help",
+            "status",
+            "settings",
+            "profile",
+            "opportunities",
+            "balance",
+            "buy",
+            "sell",
+            "orders",
+            "positions",
+            "ai_insights",
+            "market",
+            "setup_exchange",
+            "setup_ai",
+            "onboard",
         ];
-        
-        let invalid_commands = [
-            "invalid", "fake_command", "test123", "", " ", "help_me"
-        ];
-        
+
+        let invalid_commands = ["invalid", "fake_command", "test123", "", " ", "help_me"];
+
         for command in valid_commands.iter() {
             // Verify valid commands are properly formatted
             assert!(!command.is_empty());
             assert!(!command.contains(" "));
             assert!(command.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
         }
-        
+
         for command in invalid_commands.iter() {
             // Verify invalid commands are properly identified
             assert!(!valid_commands.contains(command));
         }
-        
+
         // Test command prefix handling
         let commands_with_prefix = ["/help", "/start", "/balance"];
         let commands_without_prefix = ["help", "start", "balance"];
-        
-        for (with_prefix, without_prefix) in commands_with_prefix.iter().zip(commands_without_prefix.iter()) {
+
+        for (with_prefix, without_prefix) in commands_with_prefix
+            .iter()
+            .zip(commands_without_prefix.iter())
+        {
             assert!(with_prefix.starts_with('/'));
             assert!(!without_prefix.starts_with('/'));
             assert_eq!(with_prefix.strip_prefix('/').unwrap(), *without_prefix);
@@ -883,26 +925,30 @@ mod telegram_error_handling_and_guidance_tests {
             ("new_user", "getting_started"),
             ("trading_user", "trading"),
             ("ai_user", "ai"),
-            ("troubleshooting", "troubleshooting")
+            ("troubleshooting", "troubleshooting"),
         ];
-        
+
         for (user_type, help_topic) in help_contexts.iter() {
             // Verify context types are properly formatted
             assert!(!user_type.is_empty());
             assert!(!help_topic.is_empty());
-            assert!(user_type.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
-            assert!(help_topic.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
+            assert!(user_type
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_'));
+            assert!(help_topic
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_'));
         }
-        
+
         // Test help message personalization
         let personalization_factors = [
             "has_exchange_keys",
-            "has_ai_keys", 
+            "has_ai_keys",
             "has_profile",
             "subscription_tier",
-            "user_experience_level"
+            "user_experience_level",
         ];
-        
+
         for factor in personalization_factors.iter() {
             assert!(!factor.is_empty());
             assert!(factor.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
@@ -914,17 +960,17 @@ mod telegram_error_handling_and_guidance_tests {
         // Test error message accessibility features
         let accessibility_features = [
             "clear_language",
-            "actionable_steps", 
+            "actionable_steps",
             "visual_indicators",
             "alternative_options",
-            "support_contact"
+            "support_contact",
         ];
-        
+
         for feature in accessibility_features.iter() {
             assert!(!feature.is_empty());
             assert!(feature.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
         }
-        
+
         // Test message structure components
         let message_components = [
             "title_with_emoji",
@@ -932,12 +978,14 @@ mod telegram_error_handling_and_guidance_tests {
             "immediate_actions",
             "alternative_solutions",
             "support_information",
-            "helpful_tip"
+            "helpful_tip",
         ];
-        
+
         for component in message_components.iter() {
             assert!(!component.is_empty());
-            assert!(component.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
+            assert!(component
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_'));
         }
     }
 
@@ -949,23 +997,25 @@ mod telegram_error_handling_and_guidance_tests {
             "ai_service_status",
             "profile_status",
             "service_availability",
-            "feature_accessibility"
+            "feature_accessibility",
         ];
-        
+
         for component in setup_components.iter() {
             assert!(!component.is_empty());
-            assert!(component.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
+            assert!(component
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_'));
         }
-        
+
         // Test status indicator consistency
         let status_values = [
             ("configured", "✅"),
             ("setup_required", "⚠️"),
             ("unavailable", "❌"),
             ("online", "🟢"),
-            ("offline", "🔴")
+            ("offline", "🔴"),
         ];
-        
+
         for (status, indicator) in status_values.iter() {
             assert!(!status.is_empty());
             assert!(!indicator.is_empty());
@@ -979,29 +1029,33 @@ mod telegram_error_handling_and_guidance_tests {
         let guidance_steps = [
             "identify_problem",
             "provide_immediate_solution",
-            "offer_alternatives", 
+            "offer_alternatives",
             "guide_to_prevention",
-            "connect_to_support"
+            "connect_to_support",
         ];
-        
+
         for step in guidance_steps.iter() {
             assert!(!step.is_empty());
             assert!(step.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
         }
-        
+
         // Test guidance personalization
         let user_states = [
             ("beginner", "detailed_explanations"),
             ("intermediate", "quick_solutions"),
             ("advanced", "technical_details"),
-            ("admin", "system_diagnostics")
+            ("admin", "system_diagnostics"),
         ];
-        
+
         for (user_level, guidance_type) in user_states.iter() {
             assert!(!user_level.is_empty());
             assert!(!guidance_type.is_empty());
-            assert!(user_level.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
-            assert!(guidance_type.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
+            assert!(user_level
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_'));
+            assert!(guidance_type
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_'));
         }
     }
 }

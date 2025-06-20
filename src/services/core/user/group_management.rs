@@ -378,7 +378,7 @@ impl GroupManagementService {
             .and_then(|v| v.as_str())
             .unwrap_or("[]");
 
-        let managed_by_admins: Vec<String> = serde_json::from_str(&admins_str).unwrap_or_default();
+        let managed_by_admins: Vec<String> = serde_json::from_str(admins_str).unwrap_or_default();
 
         Ok(GroupChannelConfig {
             group_id: row

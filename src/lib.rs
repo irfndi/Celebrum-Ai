@@ -1,41 +1,11 @@
 use std::sync::Arc;
-use worker::*;
 use worker::console_log;
+use worker::*;
 
 // Time constants for improved readability
 const HOUR_IN_MS: u64 = 60 * 60 * 1000;
-const DAY_IN_MS: u64 = 24 * HOUR_IN_MS;
 
-// Request validation structs
-#[derive(serde::Deserialize)]
-struct UpdateProfileRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    telegram_username: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    display_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    bio: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    timezone: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    language: Option<String>,
-}
-
-#[derive(serde::Deserialize)]
-struct UpdatePreferencesRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    notification_enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    risk_tolerance: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    min_profit_threshold: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    max_position_size: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    preferred_trading_pairs: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    preferred_exchanges: Option<Vec<String>>,
-}
+// Request validation structs will be added when needed
 
 // Core modules - business logic and infrastructure
 pub mod handlers;
@@ -48,14 +18,11 @@ pub mod utils;
 
 // Re-export commonly used types and functions
 pub use handlers::*;
-pub use middleware::*;
+pub use middleware::{cors, rbac};
 pub use responses::api_response::*;
-pub use services::core::*;
+pub use services::core::{infrastructure::ServiceContainer, opportunities::OpportunityEngine};
 pub use types::*;
 pub use utils::*;
-
-// Telegram bot service integration
-use services::core::infrastructure::service_container::ServiceContainer;
 
 // Main entry point for the Unified ArbEdge Worker
 #[event(fetch)]
@@ -79,18 +46,21 @@ pub async fn main(req: Request, env: worker::Env, _ctx: worker::Context) -> Resu
         })
         // === CORE API ROUTES ===
         // Health check endpoint
-        .get("/health", |_req, _ctx| Response::ok("ArbEdge API is healthy"))
+        .get("/health", |_req, _ctx| {
+            Response::ok("ArbEdge API is healthy")
+        })
         // Admin routes (specific endpoints would be added here)
         // .get_async("/api/v1/admin/users", |req, ctx| async move { handlers::admin::handle_api_admin_get_users(req, ctx.env).await })
         // Trading routes (specific endpoints would be added here)
         // .get_async("/api/v1/trading/status", |req, ctx| async move { handlers::trading::handle_trading_status(req, ctx.env).await })
         // Analytics routes
-        .get_async(
-            "/api/v1/analytics/*",
-            |req, ctx| async move { Ok(handlers::analytics::handle_analytics_request(req, ctx.env).await?) },
-        )
+        .get_async("/api/v1/analytics/*", |req, ctx| async move {
+            handlers::analytics::handle_analytics_request(req, ctx.env).await
+        })
         // AI routes
-        .post_async("/api/v1/ai/*", |req, ctx| async move { Ok(handlers::ai::handle_ai_request(req, ctx.env).await?) })
+        .post_async("/api/v1/ai/*", |req, ctx| async move {
+            handlers::ai::handle_ai_request(req, ctx.env).await
+        })
         // === WEB FRONTEND FALLBACK (Astro) ===
         .get_async("/*", |req, _ctx| async move {
             // Serve static web content from R2 bucket or return index.html for SPA routing
@@ -119,7 +89,7 @@ pub async fn main(req: Request, env: worker::Env, _ctx: worker::Context) -> Resu
 pub async fn queue(
     message_batch: MessageBatch<serde_json::Value>,
     env: worker::Env,
-    ctx: worker::Context,
+    _ctx: worker::Context,
 ) -> worker::Result<()> {
     // Initialize services
     let kv_store = env.kv("ArbEdgeKV")?;

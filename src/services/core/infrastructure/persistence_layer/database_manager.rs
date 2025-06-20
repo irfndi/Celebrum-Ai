@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use worker::kv::KvStore;
 use worker::console_log;
+use worker::kv::KvStore;
 
 // For D1Result JsValue conversion
 use worker::js_sys;
@@ -1257,7 +1257,7 @@ impl DatabaseManager {
                     .and_then(|v| v.as_str().map(|s| s.to_string()))
             });
 
-        if let Some(existing_id) = existing_row_id.as_ref().map(|s| s.as_str()) {
+        if let Some(existing_id) = existing_row_id.as_deref() {
             // Update in-place (rate diff, profit, timestamps)
             let update_query = "UPDATE opportunities SET rate_difference = ?, net_rate_difference = ?, potential_profit_value = ?, profit_percentage = ?, long_rate = ?, short_rate = ?, timestamp = ?, detection_timestamp = ? WHERE id = ?";
             let update_params = vec![

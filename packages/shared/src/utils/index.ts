@@ -140,7 +140,8 @@ export const extractClientId = (request: any): string => {
 // Extract user ID from authorization header
 export const extractUserIdFromAuth = (authHeader: string): string | null => {
   try {
-    const token = authHeader.replace(/^Bearer\s+/i, '');
+    // Extract token from auth header
+    authHeader.replace(/^Bearer\s+/i, '');
     // This would typically decode JWT token
     // For now, return null to use IP-based rate limiting
     return null;

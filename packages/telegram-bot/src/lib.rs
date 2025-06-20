@@ -1,15 +1,14 @@
 use worker::*;
 
-mod core;
 mod handlers;
 mod types;
 mod utils;
 
-use core::TelegramBotClient;
-use crate::types::*;
 use crate::handlers::handle_webhook;
-use worker::*;
+use crate::types::TelegramBotClient;
+use crate::types::*;
 use worker::console_log;
+use worker::*;
 
 /// Main Telegram Bot wrapper
 #[derive(Clone)]
@@ -22,14 +21,15 @@ impl TelegramBot {
     pub fn new(env: &Env) -> worker::Result<Self> {
         let config = TelegramConfig::from_env(env)?;
         let client = TelegramBotClient::new(config.clone());
-        
-        Ok(Self {
-            client,
-            config,
-        })
+
+        Ok(Self { client, config })
     }
-    
-    pub async fn handle_webhook(&self, req: Request, ctx: RouteContext<()>) -> worker::Result<Response> {
+
+    pub async fn handle_webhook(
+        &self,
+        req: Request,
+        ctx: RouteContext<()>,
+    ) -> worker::Result<Response> {
         handle_webhook(req, ctx).await
     }
 }
@@ -48,9 +48,7 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
             let bot = bot.clone();
             move |req, ctx| {
                 let bot = bot.clone();
-                async move {
-                    bot.handle_webhook(req, ctx).await
-                }
+                async move { bot.handle_webhook(req, ctx).await }
             }
         })
         .get("/health", |_, _| Response::ok("Telegram Bot is healthy"))

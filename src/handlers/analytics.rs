@@ -84,15 +84,12 @@ pub async fn handle_api_get_dashboard_analytics(req: Request, env: Env) -> Resul
     }
 }
 
-pub async fn handle_analytics_request(
-    req: Request,
-    env: Env,
-) -> worker::Result<Response> {
+pub async fn handle_analytics_request(req: Request, env: Env) -> worker::Result<Response> {
     let d1_database = Arc::new(env.d1("ArbEdgeD1")?);
     let kv_store = Arc::new(env.kv("ArbEdgeKV")?);
 
     // Initialize analytics service
-    let analytics_service = AnalyticsService::new((*kv_store).clone(), d1_database.clone());
+    let _analytics_service = AnalyticsService::new((*kv_store).clone(), d1_database.clone());
 
     match req.method() {
         Method::Get => {

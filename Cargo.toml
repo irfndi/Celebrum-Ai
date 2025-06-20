@@ -1,3 +1,19 @@
+[workspace]
+members = [
+    ".",
+    "packages/telegram-bot",
+    "packages/discord-bot",
+    "packages/web",
+    "packages/worker",
+    "packages/shared",
+    "packages/db",
+    "packages/telegram-bot/tests",
+    "packages/discord-bot/tests",
+    "packages/web/tests",
+    "packages/worker/tests",
+    "packages/shared/tests"
+]
+
 [package]
 name = "cerebrum-ai"
 version = "0.1.0"

@@ -1,8 +1,8 @@
 use crate::types::UserStatistics;
-use worker::kv::KvStore;
+use crate::utils::error::{ArbitrageError, ArbitrageResult};
 use serde_json::json;
 use std::sync::Arc;
-use crate::utils::error::{ArbitrageError, ArbitrageResult};
+use worker::kv::KvStore;
 
 /// Simplified Admin Service for API endpoints
 /// Provides basic admin functionality without complex dependencies
@@ -38,11 +38,11 @@ impl SimpleAdminService {
             active_users,
             free_users: tier_stats.free as u32,
             paid_users: premium_users,
-            admin_users: 0, // Would need separate query
+            admin_users: 0,       // Would need separate query
             super_admin_users: 0, // Would need separate query
-            other_users: 0, // Would need separate query
+            other_users: 0,       // Would need separate query
             recently_active_users: activity_metrics.daily as u32,
-            total_trades: 0, // Would need separate query
+            total_trades: 0,        // Would need separate query
             total_volume_usdt: 0.0, // Would need separate query
             generated_at: chrono::Utc::now().timestamp_millis() as u64,
         })
@@ -134,17 +134,22 @@ impl SimpleAdminService {
     }
 
     /// Update system configuration
-    pub async fn update_system_config(&self, updates: serde_json::Value) -> ArbitrageResult<serde_json::Value> {
+    pub async fn update_system_config(
+        &self,
+        updates: serde_json::Value,
+    ) -> ArbitrageResult<serde_json::Value> {
         // Get current config
         let mut current_config = self.get_system_config().await?;
-        
+
         // Merge updates into current config
-        if let (Some(current_obj), Some(updates_obj)) = (current_config.as_object_mut(), updates.as_object()) {
+        if let (Some(current_obj), Some(updates_obj)) =
+            (current_config.as_object_mut(), updates.as_object())
+        {
             for (key, value) in updates_obj {
                 current_obj.insert(key.clone(), value.clone());
             }
         }
-        
+
         // Cache the updated config
         let cache_key = "admin_system_config";
         let _ = self
@@ -153,7 +158,7 @@ impl SimpleAdminService {
             .expiration_ttl(300)
             .execute()
             .await;
-        
+
         Ok(current_config)
     }
 
@@ -203,16 +208,21 @@ impl SimpleAdminService {
     async fn get_users_by_tier(&self) -> ArbitrageResult<TierStats> {
         let result = self
             .d1_service
-            .prepare("SELECT subscription_tier, COUNT(*) as count FROM users GROUP BY subscription_tier")
+            .prepare(
+                "SELECT subscription_tier, COUNT(*) as count FROM users GROUP BY subscription_tier",
+            )
             .all()
             .await
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?;
 
         let mut tier_stats = TierStats::default();
-        
+
         if let Ok(results) = result.results::<serde_json::Value>() {
             for row in results {
-                if let (Some(tier), Some(count)) = (row.get("subscription_tier").and_then(|v| v.as_str()), row.get("count").and_then(|v| v.as_i64())) {
+                if let (Some(tier), Some(count)) = (
+                    row.get("subscription_tier").and_then(|v| v.as_str()),
+                    row.get("count").and_then(|v| v.as_i64()),
+                ) {
                     match tier {
                         "free" => tier_stats.free = count,
                         "basic" => tier_stats.basic = count,
@@ -231,7 +241,9 @@ impl SimpleAdminService {
         // Daily active users
         let daily = self
             .d1_service
-            .prepare("SELECT COUNT(*) as count FROM users WHERE last_login > datetime('now', '-1 day')")
+            .prepare(
+                "SELECT COUNT(*) as count FROM users WHERE last_login > datetime('now', '-1 day')",
+            )
             .first::<serde_json::Value>(None)
             .await
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?
@@ -242,7 +254,9 @@ impl SimpleAdminService {
         // Weekly active users
         let weekly = self
             .d1_service
-            .prepare("SELECT COUNT(*) as count FROM users WHERE last_login > datetime('now', '-7 days')")
+            .prepare(
+                "SELECT COUNT(*) as count FROM users WHERE last_login > datetime('now', '-7 days')",
+            )
             .first::<serde_json::Value>(None)
             .await
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?
@@ -268,11 +282,14 @@ impl SimpleAdminService {
         })
     }
 
+    #[allow(dead_code)]
     async fn get_registration_trends(&self) -> ArbitrageResult<RegistrationTrends> {
         // Today's registrations
         let today = self
             .d1_service
-            .prepare("SELECT COUNT(*) as count FROM users WHERE created_at > datetime('now', '-1 day')")
+            .prepare(
+                "SELECT COUNT(*) as count FROM users WHERE created_at > datetime('now', '-1 day')",
+            )
             .first::<serde_json::Value>(None)
             .await
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?
@@ -283,7 +300,9 @@ impl SimpleAdminService {
         // This week's registrations
         let week = self
             .d1_service
-            .prepare("SELECT COUNT(*) as count FROM users WHERE created_at > datetime('now', '-7 days')")
+            .prepare(
+                "SELECT COUNT(*) as count FROM users WHERE created_at > datetime('now', '-7 days')",
+            )
             .first::<serde_json::Value>(None)
             .await
             .map_err(|e| ArbitrageError::database_error(e.to_string()))?
@@ -302,11 +321,7 @@ impl SimpleAdminService {
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
 
-        Ok(RegistrationTrends {
-            today,
-            week,
-            month,
-        })
+        Ok(RegistrationTrends { today, week, month })
     }
 
     async fn check_database_health(&self) -> bool {
@@ -318,11 +333,7 @@ impl SimpleAdminService {
     }
 
     async fn check_kv_health(&self) -> bool {
-        self.kv_store
-            .get("health_check")
-            .text()
-            .await
-            .is_ok()
+        self.kv_store.get("health_check").text().await.is_ok()
     }
 
     async fn get_feature_flags(&self) -> ArbitrageResult<serde_json::Value> {
@@ -343,12 +354,14 @@ struct TierStats {
     enterprise: i64,
 }
 
+#[allow(dead_code)]
 struct ActivityMetrics {
     daily: i64,
     weekly: i64,
     monthly: i64,
 }
 
+#[allow(dead_code)]
 struct RegistrationTrends {
     today: i64,
     week: i64,

@@ -20,6 +20,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "baseUrl": ".",
+    "types": ["@cloudflare/workers-types", "node"],
     "paths": {
       "@/*": ["src/*"]
     }
@@ -33,4 +34,4 @@
     "**/*.test.ts",
     "**/*.spec.ts"
   ]
-} 
+}

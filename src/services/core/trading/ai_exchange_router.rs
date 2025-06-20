@@ -1244,11 +1244,11 @@ mod tests {
             let user_id = "test_user_123";
 
             // Create test opportunity directly
-            use crate::types::{
-                ArbitrageOpportunity, ExchangeIdEnum, GlobalOpportunity,
-                OpportunityData, OpportunitySource,
-            };
             use crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy;
+            use crate::types::{
+                ArbitrageOpportunity, ExchangeIdEnum, GlobalOpportunity, OpportunityData,
+                OpportunitySource,
+            };
 
             let arbitrage_opp = ArbitrageOpportunity::new(
                 "BTCUSDT".to_string(),
