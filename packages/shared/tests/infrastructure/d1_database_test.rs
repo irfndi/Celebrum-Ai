@@ -9,8 +9,8 @@
 // D1Service Unit Tests
 // Comprehensive testing of database operations, migrations, and error handling
 
-use arb_edge::services::core::infrastructure::persistence_layer::DatabaseManager;
-use arb_edge::utils::{ArbitrageError, ArbitrageResult};
+use cerebrum_ai::services::core::infrastructure::persistence_layer::DatabaseManager;
+use cerebrum_ai::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::json;
 use std::collections::HashMap;
 

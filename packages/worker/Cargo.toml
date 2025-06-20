@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 worker = { version = "0.3", features = ["d1", "queue"] }
 
 # Async support
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["sync", "macros", "io-util", "rt", "time"] }
 futures = "0.3"
 
 # HTTP client
@@ -25,8 +25,7 @@ serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.10", features = ["v4"] }
 
-# Database
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+# Database (non-WASM only)
 
 # Cryptography
 sha2 = "0.10"
@@ -42,3 +41,11 @@ once_cell = "1.18"
 
 # Logging
 log = "0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+rand = { version = "0.8", features = ["getrandom"] }
+uuid = { version = "1.10", features = ["v4", "js"] }

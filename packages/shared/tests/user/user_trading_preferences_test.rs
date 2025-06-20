@@ -1,7 +1,7 @@
 // Task 1.5: Trading Focus & Automation Preferences - Unit Tests
 // Tests for user trading preferences service and validation logic
 
-use arb_edge::services::core::user::user_trading_preferences::*;
+use cerebrum_ai::services::core::user::user_trading_preferences::*;
 
 #[tokio::test]
 async fn test_default_user_trading_preferences() {

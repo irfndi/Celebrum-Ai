@@ -9,6 +9,7 @@ pub enum KvOperationError {
     Unauthorized,
     RateLimited,
     ServiceUnavailable,
+    Storage(String),
 }
 
 impl std::fmt::Display for KvOperationError {
@@ -20,11 +21,18 @@ impl std::fmt::Display for KvOperationError {
             KvOperationError::Unauthorized => write!(f, "Unauthorized access"),
             KvOperationError::RateLimited => write!(f, "Rate limited"),
             KvOperationError::ServiceUnavailable => write!(f, "Service unavailable"),
+            KvOperationError::Storage(msg) => write!(f, "Storage error: {}", msg),
         }
     }
 }
 
 impl std::error::Error for KvOperationError {}
+
+impl From<serde_json::Error> for KvOperationError {
+    fn from(err: serde_json::Error) -> Self {
+        KvOperationError::SerializationError(err.to_string())
+    }
+}
 
 // Define a generic Result type for KV operations
 pub type KvResult<T> = Result<T, KvOperationError>;

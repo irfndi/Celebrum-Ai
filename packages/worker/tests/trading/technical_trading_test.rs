@@ -3,18 +3,18 @@
 // TechnicalTradingService Unit Tests
 // Simplified testing of technical signal generation and configuration
 
-use arb_edge::services::core::analysis::market_analysis::{
+use cerebrum_ai::services::core::analysis::market_analysis::{
     OpportunityType, RiskLevel, TimeHorizon,
 };
-use arb_edge::services::core::analysis::technical_analysis::{
+use cerebrum_ai::services::core::analysis::technical_analysis::{
     SignalDirection, SignalStrength, SignalType, SignalType as TradingSignalType,
     TechnicalAnalysisConfig, TechnicalSignal, Timeframe,
 };
-use arb_edge::services::core::user::user_trading_preferences::{
+use cerebrum_ai::services::core::user::user_trading_preferences::{
     ExperienceLevel, RiskTolerance, TradingFocus,
 };
-use arb_edge::types::ExchangeIdEnum;
-use arb_edge::utils::{ArbitrageError, ArbitrageResult};
+use cerebrum_ai::types::ExchangeIdEnum;
+use cerebrum_ai::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::json;
 
 // Simple mock structures for testing

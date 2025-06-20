@@ -9,8 +9,8 @@
 // ExchangeService Unit Tests
 // Comprehensive testing of market data fetching, authentication, API management, and error handling
 
-use arb_edge::types::{Market, MarketLimits, MarketPrecision, MinMax, OrderBook, Ticker};
-use arb_edge::utils::{ArbitrageError, ArbitrageResult};
+use cerebrum_ai::types::{Market, MarketLimits, MarketPrecision, MinMax, OrderBook, Ticker};
+use cerebrum_ai::utils::{ArbitrageError, ArbitrageResult};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 

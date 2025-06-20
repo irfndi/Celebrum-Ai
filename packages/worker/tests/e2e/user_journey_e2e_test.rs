@@ -1,12 +1,14 @@
 #![allow(unused_imports, unused_variables, unused_mut, dead_code)]
 
-use arb_edge::services::core::analysis::market_analysis::{
+use cerebrum_ai::services::core::analysis::market_analysis::{
     OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,
 };
-use arb_edge::services::core::user::user_trading_preferences::{
+use cerebrum_ai::services::core::user::user_trading_preferences::{
     ExperienceLevel, RiskTolerance, TradingFocus, UserTradingPreferences,
 };
-use arb_edge::types::{ApiKeyProvider, ExchangeIdEnum, SubscriptionTier, UserApiKey, UserProfile};
+use cerebrum_ai::types::{
+    ApiKeyProvider, ExchangeIdEnum, SubscriptionTier, UserApiKey, UserProfile,
+};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -60,7 +62,7 @@ fn create_test_preferences(
     experience: ExperienceLevel,
     risk_tolerance: RiskTolerance,
 ) -> UserTradingPreferences {
-    use arb_edge::services::core::user::user_trading_preferences::{
+    use cerebrum_ai::services::core::user::user_trading_preferences::{
         AutomationLevel, AutomationScope,
     };
 

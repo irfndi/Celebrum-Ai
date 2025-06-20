@@ -1,7 +1,7 @@
 // Common Test Helper Functions
 // Shared utilities for creating test data and assertions
 
-use arb_edge::services::core::analysis::market_analysis::{
+use cerebrum_ai::services::core::analysis::market_analysis::{
     OpportunityType, PricePoint, PriceSeries, RiskLevel, TimeFrame, TimeHorizon, TradingOpportunity,
 };
 // Telegram types are not currently exported - using placeholder structs
@@ -31,11 +31,11 @@ pub struct TelegramUser {
     pub username: Option<String>,
     pub first_name: String,
 }
-use arb_edge::services::core::user::user_trading_preferences::{
+use cerebrum_ai::services::core::user::user_trading_preferences::{
     AutomationLevel, AutomationScope, ExperienceLevel, RiskTolerance, TradingFocus,
     UserTradingPreferences,
 };
-use arb_edge::types::{
+use cerebrum_ai::types::{
     ArbitrageOpportunity, CommandPermission, ExchangeIdEnum, SubscriptionTier, UserProfile,
 };
 use serde_json::json;

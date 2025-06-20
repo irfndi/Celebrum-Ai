@@ -1,7 +1,7 @@
-use arb_edge::services::core::analysis::market_analysis::{
+use cerebrum_ai::services::core::analysis::market_analysis::{
     OpportunityType, PricePoint, PriceSeries, RiskLevel, TimeFrame, TimeHorizon, TradingOpportunity,
 };
-use arb_edge::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
+use cerebrum_ai::types::{ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum};
 use serde_json::json;
 
 // Test configuration constants

@@ -1,6 +1,6 @@
 //! Integration tests for the D1/R2 Persistence Layer
 
-use arb_edge::services::core::infrastructure::persistence_layer::{
+use cerebrum_ai::services::core::infrastructure::persistence_layer::{
     DatabaseManagerConfig, StorageLayerConfig,
 };
 

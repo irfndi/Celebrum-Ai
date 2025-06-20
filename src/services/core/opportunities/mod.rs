@@ -4,6 +4,7 @@
 pub mod access_manager;
 pub mod ai_enhancer;
 pub mod cache_manager;
+pub mod config;
 pub mod market_analyzer;
 pub mod opportunity_builders;
 pub mod opportunity_categorization;
@@ -19,6 +20,7 @@ pub mod opportunity_distribution;
 pub use access_manager::AccessManager;
 pub use ai_enhancer::AIEnhancer;
 pub use cache_manager::{CachePrefixes, OpportunityDataCache};
+pub use config::DistributionConfig;
 pub use market_analyzer::MarketAnalyzer;
 pub use opportunity_builders::OpportunityBuilder;
 pub use opportunity_categorization::*;

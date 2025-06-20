@@ -1,13 +1,13 @@
 // Common Test Data
 // Predefined test data constants and fixtures
 
-use arb_edge::services::core::analysis::market_analysis::{
+use cerebrum_ai::services::core::analysis::market_analysis::{
     OpportunityType, RiskLevel, TimeHorizon,
 };
-use arb_edge::services::core::user::user_trading_preferences::{
+use cerebrum_ai::services::core::user::user_trading_preferences::{
     ExperienceLevel, RiskTolerance, TradingFocus,
 };
-use arb_edge::types::SubscriptionTier;
+use cerebrum_ai::types::SubscriptionTier;
 
 // Test User Constants
 pub const TEST_TELEGRAM_ID_1: i64 = 111111111;

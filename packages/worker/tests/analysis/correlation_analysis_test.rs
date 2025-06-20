@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use arb_edge::services::core::analysis::correlation_analysis::*;
-use arb_edge::services::core::analysis::market_analysis::{PricePoint, PriceSeries, TimeFrame};
-use arb_edge::services::core::user::user_trading_preferences::{
+use cerebrum_ai::services::core::analysis::correlation_analysis::*;
+use cerebrum_ai::services::core::analysis::market_analysis::{PricePoint, PriceSeries, TimeFrame};
+use cerebrum_ai::services::core::user::user_trading_preferences::{
     AutomationLevel, AutomationScope, ExperienceLevel, RiskTolerance, TradingFocus,
     UserTradingPreferences,
 };
-use arb_edge::utils::logger::{LogLevel, Logger};
+use cerebrum_ai::utils::logger::{LogLevel, Logger};
 
 // Helper functions for testing
 

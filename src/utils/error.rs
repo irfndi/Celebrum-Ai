@@ -353,6 +353,7 @@ impl From<KvOperationError> for ArbitrageError {
             KvOperationError::ServiceUnavailable => {
                 ArbitrageError::service_unavailable("KV service unavailable".to_string())
             }
+            KvOperationError::Storage(msg) => ArbitrageError::database_error(msg),
         }
     }
 }

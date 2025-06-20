@@ -12,6 +12,7 @@ futures = "0.3"
 
 # Local dependencies
 shared-tests = { path = "../../shared/tests" }
+cerebrum-ai = { path = "../../.." }
 
 # Core dependencies needed for tests
 worker = { version = "0.3", features = ["d1", "queue"] }

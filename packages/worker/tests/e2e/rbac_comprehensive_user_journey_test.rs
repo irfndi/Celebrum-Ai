@@ -3,7 +3,7 @@
 // Comprehensive RBAC User Journey E2E Tests
 // Testing all subscription tiers, permission levels, and user scenarios
 
-use arb_edge::services::{
+use cerebrum_ai::services::{
     core::analysis::market_analysis::{
         OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,
     },
@@ -11,7 +11,7 @@ use arb_edge::services::{
         ExperienceLevel, RiskTolerance, TradingFocus, UserTradingPreferences,
     },
 };
-use arb_edge::types::{
+use cerebrum_ai::types::{
     CommandPermission, SubscriptionTier, UserAccessLevel, UserProfile, UserRole,
 };
 use serde_json::json;

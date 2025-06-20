@@ -9,11 +9,11 @@
 // UserProfileService Unit Tests
 // Comprehensive testing of user profile management, API key handling, invitation system, and session management
 
-use arb_edge::types::{
+use cerebrum_ai::types::{
     ApiKeyProvider, ExchangeIdEnum, InvitationCode, SessionState, UserApiKey, UserProfile,
     UserSession,
 };
-use arb_edge::utils::{ArbitrageError, ArbitrageResult};
+use cerebrum_ai::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
 
 // Mock D1Service for testing

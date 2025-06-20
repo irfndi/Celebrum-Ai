@@ -213,6 +213,7 @@ dependencies = [
  "base64 0.21.7",
  "chrono",
  "futures",
+ "getrandom 0.2.16",
  "log",
  "once_cell",
  "rand 0.8.5",
@@ -439,7 +440,7 @@ dependencies = [
  "base64 0.21.7",
  "chrono",
  "futures",
- "getrandom 0.3.3",
+ "getrandom 0.2.16",
  "indexmap",
  "js-sys",
  "log",
@@ -464,6 +465,7 @@ dependencies = [
  "url",
  "uuid",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
  "worker",
 ]
@@ -2728,6 +2730,8 @@ name = "shared-tests"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.21.7",
+ "cerebrum-ai",
  "chrono",
  "futures",
  "log",
@@ -4189,6 +4193,7 @@ dependencies = [
  "aes-gcm",
  "async-trait",
  "base64 0.21.7",
+ "cerebrum-ai",
  "chrono",
  "futures",
  "log",

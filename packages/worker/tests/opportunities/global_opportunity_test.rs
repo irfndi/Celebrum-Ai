@@ -3,9 +3,9 @@
 // GlobalOpportunityService Unit Tests
 // Comprehensive testing of opportunity generation, distribution, user eligibility, and queue management
 
-use arb_edge::services::core::analysis::market_analysis::OpportunityType;
-use arb_edge::types::{ExchangeIdEnum, RiskLevel, UserAccessLevel, UserOpportunityLimits};
-use arb_edge::utils::{ArbitrageError, ArbitrageResult};
+use cerebrum_ai::services::core::analysis::market_analysis::OpportunityType;
+use cerebrum_ai::types::{ExchangeIdEnum, RiskLevel, UserAccessLevel, UserOpportunityLimits};
+use cerebrum_ai::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
 use uuid::Uuid;
 

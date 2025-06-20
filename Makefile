@@ -53,15 +53,15 @@ lib-tests: ## Run library tests only
 
 unit-tests: ## Run unit tests
 	@echo "🧪 Running unit tests..."
-	@cargo test --test mod
+	@cargo test --lib
 
 integration-tests: ## Run integration tests
 	@echo "🧪 Running integration tests..."
-	@cargo test --test session_opportunity_integration_test
+	@cd packages/worker/tests && cargo test --test integration_tests
 
 e2e-tests: ## Run E2E tests
 	@echo "🧪 Running E2E tests..."
-	@cargo test --test webhook_session_management_test
+	@cd packages/worker/tests && cargo test --test e2e_tests
 
 # Build commands
 build: ## Build for native target

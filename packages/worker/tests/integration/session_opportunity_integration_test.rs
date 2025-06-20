@@ -1,8 +1,8 @@
-use arb_edge::types::{
+use cerebrum_ai::types::{
     ArbitrageOpportunity, ArbitrageType, EnhancedSessionState, EnhancedUserSession, ExchangeIdEnum,
     SessionAnalytics, SessionConfig,
 };
-use arb_edge::utils::ArbitrageResult;
+use cerebrum_ai::utils::ArbitrageResult;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

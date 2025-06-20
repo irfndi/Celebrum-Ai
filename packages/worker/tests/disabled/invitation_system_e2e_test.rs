@@ -7,13 +7,13 @@
 //! 4. Beta expiration and auto-downgrade
 //! 5. Invalid/expired invitation code handling
 
-use arb_edge::services::core::infrastructure::database_core::DatabaseCore;
+use cerebrum_ai::services::core::infrastructure::database_core::DatabaseCore;
 // TODO: Find correct location for D1Service
-// use arb_edge::services::core::infrastructure::database_core::D1Service; // Original problematic import
-// use arb_edge::services::core::invitation::invitation_service::InvitationService;
-use arb_edge::services::core::user::user_profile::UserProfileService;
-use arb_edge::types::{CommandPermission, UserProfile};
-use arb_edge::utils::ArbitrageResult;
+// use cerebrum_ai::services::core::infrastructure::database_core::D1Service; // Original problematic import
+// use cerebrum_ai::services::core::invitation::invitation_service::InvitationService;
+use cerebrum_ai::services::core::user::user_profile::UserProfileService;
+use cerebrum_ai::types::{CommandPermission, UserProfile};
+use cerebrum_ai::utils::ArbitrageResult;
 // use chrono::{Duration, Utc};
 use std::collections::HashMap;
 use worker::Env;

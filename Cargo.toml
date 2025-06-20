@@ -12,7 +12,6 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-getrandom = { version = "0.3.3", features = ["wasm_js"], default-features = false }
 
 [package]
 name = "cerebrum-ai"
@@ -28,12 +27,10 @@ crate-type = ["cdylib", "rlib"]
 worker = { version = "0.3", features = ["d1", "queue"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1.10", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
 reqwest = { version = "0.12", features = ["json"] }
-sqlx = { version = "0.8", features = ["sqlite", "macros", "migrate", "chrono", "uuid"], default-features = false }
 sha2 = "0.10"
 aes-gcm = "0.10"
 base64 = "0.21"
@@ -54,7 +51,6 @@ thiserror = "1.0"
 rust_decimal = { version = "1.0", features = ["serde-float"] }
 rust_decimal_macros = "1.0"
 async-trait = "0.1"
-getrandom = { workspace = true }
 
 [dependencies.web-sys]
 version = "0.3"
@@ -69,10 +65,13 @@ features = [
 ]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "chrono", "uuid"], default-features = false }
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+getrandom = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = [
   "console",
@@ -81,7 +80,10 @@ web-sys = { version = "0.3", features = [
   "HtmlElement",
   "Window",
 ] }
-getrandom = { workspace = true }
+getrandom = { version = "0.2", features = ["js"] }
+rand = { version = "0.8", features = ["getrandom"] }
+tokio = { version = "1.0", features = ["sync", "macros", "io-util", "rt", "time"] }
+uuid = { version = "1.10", features = ["v4", "js"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

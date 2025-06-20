@@ -1,4 +1,4 @@
-use arb_edge::{
+use cerebrum_ai::{
     services::core::{
         analysis::market_analysis::{OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity},
         user::user_trading_preferences::{

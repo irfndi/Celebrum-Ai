@@ -7,45 +7,17 @@ use crate::services::core::infrastructure::{
 };
 use crate::services::core::user::session_management::SessionManagementService;
 
+use super::config::DistributionConfig;
 use crate::services::core::infrastructure::cloudflare_queues::DistributionStrategy;
 use crate::types::{
-    ArbitrageOpportunity, ArbitrageType, ChatContext, FairnessConfig, GlobalOpportunity,
-    OpportunityData, OpportunitySource, SubscriptionTier,
+    ArbitrageOpportunity, ArbitrageType, ChatContext, GlobalOpportunity, OpportunityData,
+    OpportunitySource, SubscriptionTier,
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-
-// Non-WASM version with Send + Sync bounds for thread safety
-#[cfg(not(target_arch = "wasm32"))]
-// Async trait removed - using type-erased approach instead
-/// Configuration for opportunity distribution
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct DistributionConfig {
-    pub max_opportunities_per_user_per_hour: u32,
-    pub max_opportunities_per_user_per_day: u32,
-    pub cooldown_period_minutes: u32,
-    pub batch_size: u32,
-    pub distribution_interval_seconds: u32,
-    pub max_participants_per_opportunity: Option<u32>,
-    pub fairness_config: FairnessConfig,
-}
-
-impl Default for DistributionConfig {
-    fn default() -> Self {
-        Self {
-            max_opportunities_per_user_per_hour: 2,
-            max_opportunities_per_user_per_day: 10,
-            cooldown_period_minutes: 240, // 4 hours
-            batch_size: 50,
-            distribution_interval_seconds: 30,
-            max_participants_per_opportunity: Some(100), // Default to 100 participants
-            fairness_config: FairnessConfig::default(),
-        }
-    }
-}
 
 /// Service for distributing opportunities to eligible users
 /// Handles automated push notifications with fairness algorithms

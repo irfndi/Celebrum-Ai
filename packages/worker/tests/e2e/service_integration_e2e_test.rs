@@ -6,10 +6,10 @@
     clippy::useless_asref
 )]
 
-use arb_edge::services::core::analysis::market_analysis::{
+use cerebrum_ai::services::core::analysis::market_analysis::{
     OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,
 };
-use arb_edge::types::{Position, PositionSide, SubscriptionTier, UserProfile};
+use cerebrum_ai::types::{Position, PositionSide, SubscriptionTier, UserProfile};
 use serde_json::json;
 use std::collections::HashMap;
 

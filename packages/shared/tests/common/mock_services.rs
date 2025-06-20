@@ -1,9 +1,9 @@
 // Mock Service Implementations
 // Simplified service mocks for testing without external dependencies
 
-use arb_edge::services::core::analysis::market_analysis::TradingOpportunity;
-use arb_edge::services::core::user::user_trading_preferences::UserTradingPreferences;
-use arb_edge::types::{ArbitrageOpportunity, UserProfile};
+use cerebrum_ai::services::core::analysis::market_analysis::TradingOpportunity;
+use cerebrum_ai::services::core::user::user_trading_preferences::UserTradingPreferences;
+use cerebrum_ai::types::{ArbitrageOpportunity, UserProfile};
 use std::collections::HashMap;
 
 /// Mock environment for testing service interactions
