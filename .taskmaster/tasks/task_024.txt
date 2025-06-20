@@ -1,0 +1,88 @@
+# Task ID: 24
+# Title: Improve Opportunity Generation & Display
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Refactor opportunity engine and Telegram listing to eliminate duplicates, integrate funding rates, validate profitability continuously, and add trade targets (SL/TP/current price & projected P/L).
+# Details:
+1. Modify opportunity generation service to group by ticker and update existing records on refresh instead of appending duplicates.
+2. Integrate per-exchange funding rate retrieval and include it in opportunity objects.
+3. Implement validity refresh logic on funding rate updates; mark opportunities invalid if thresholds not met.
+4. Add target calculation module that determines stop-loss, take-profit, current price, and projected P/L both % and $ using user trade size or default.
+5. Update Telegram /opportunities_list command formatter to show new enriched fields.
+6. Add feature flags for experimental funding-rate validation and target-calculation.
+7. Provide comprehensive unit & integration tests covering duplicates suppression, funding-rate data, validity refresh, and target calculations.
+
+# Test Strategy:
+
+
+# Subtasks:
+## 1. Audit Current Opportunity Generation System [done]
+### Dependencies: None
+### Description: Analyze existing opportunity generation code to understand current architecture, identify duplication issues, and map data flow
+### Details:
+1. Review src/services/core/opportunities/ module structure
+2. Identify where duplicates are created (likely in opportunity engine or storage)
+3. Map current data flow from market data to Telegram display
+4. Document current funding rate handling (if any)
+5. Identify mock/placeholder data usage
+6. Create baseline understanding for refactoring
+
+## 2. Implement Funding Rate Integration [done]
+### Dependencies: 24.1
+### Description: Add real-time funding rate retrieval for each exchange and integrate into opportunity objects
+### Details:
+1. Research official APIs for funding rates (Binance, OKX, Coinbase, Kraken)
+2. Create FundingRateService with per-exchange adapters
+3. Add funding rate fields to opportunity data structures
+4. Implement caching with appropriate TTL (funding rates update every 8 hours typically)
+5. Add error handling and fallback strategies
+6. Integrate with existing market data pipeline
+
+## 3. Refactor Opportunity Deduplication System [done]
+### Dependencies: 24.1
+### Description: Implement ticker-based grouping and update-in-place logic to eliminate duplicate opportunities
+### Details:
+1. Create OpportunityDeduplicator service
+2. Implement ticker-based grouping with exchange pair keys
+3. Add update-in-place logic for existing opportunities
+4. Implement opportunity expiration and cleanup
+5. Add concurrent-safe operations for high-throughput scenarios
+6. Integrate with existing opportunity storage layer
+
+## 4. Build Trade Target Calculator [done]
+### Dependencies: 24.2
+### Description: Create service to calculate stop-loss, take-profit, current price, and projected P/L for opportunities
+### Details:
+1. Research industry-standard risk management ratios (2:1, 3:1 risk/reward)
+2. Create TradeTargetCalculator service
+3. Implement stop-loss calculation based on volatility and spread
+4. Implement take-profit calculation with configurable risk/reward ratios
+5. Add P/L calculation in both percentage and dollar amounts
+6. Support user-specific trade sizes with sensible defaults
+7. Add validation for minimum/maximum position sizes
+
+## 5. Implement Opportunity Validity Engine [done]
+### Dependencies: 24.2, 24.3
+### Description: Create system to continuously validate opportunities based on funding rates and profitability thresholds
+### Details:
+1. Create OpportunityValidityEngine service
+2. Implement profitability threshold validation
+3. Add funding rate impact assessment
+4. Create validity refresh scheduler (every funding rate update)
+5. Implement opportunity status lifecycle (valid/invalid/expired)
+6. Add feature flags for validation sensitivity levels
+7. Integrate with notification system for status changes
+
+## 6. Update Telegram Opportunities Display [done]
+### Dependencies: 24.4, 24.5
+### Description: Enhance Telegram /opportunities_list command to show enriched opportunity data with funding rates and trade targets
+### Details:
+1. Update opportunity display formatter in Telegram commands
+2. Add funding rate display for each exchange
+3. Show validity status and refresh timestamps
+4. Display trade targets (SL/TP/current price/P&L)
+5. Improve formatting for mobile readability
+6. Add pagination for large opportunity lists
+7. Include confidence indicators and risk warnings
+

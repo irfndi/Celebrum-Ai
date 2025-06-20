@@ -1,0 +1,128 @@
+# Task ID: 29
+# Title: Fix Critical Production API Access & Database Issues
+# Status: pending
+# Dependencies: None
+# Priority: critical
+# Description: Critical production issues preventing proper data collection: Binance 451 geographic restrictions, Bybit 403 authentication errors, missing database tables, and wrangler secrets configuration. Strategic enhancements are working but limited by API access issues.
+# Details:
+Based on production logs analysis:
+
+**API Access Issues:**
+1. Binance API 451 errors: 'Service unavailable from a restricted location' - geographic restrictions
+2. Bybit API 403 errors: Authentication/permission issues
+3. Need proper API key configuration via wrangler secrets
+
+**Database Issues:**
+1. Missing table: 'no such table: opportunity_history' causing archival failures
+2. Need to create proper database schema for strategic enhancements
+
+**Configuration Issues:**
+1. Wrangler secrets not properly configured for API access
+2. Environment variables not being used for API authentication
+3. Need to update wrangler.toml for proper secret management
+
+**Evidence from logs:**
+- Strategic enhancements ARE working: '📊 Fetched 18 funding rates across 3 exchanges'
+- Funding integration working: '🔗 FUNDING INTEGRATION COMPLETE - Enhanced 6 existing opportunities'
+- Smart scoring working: '✅ SMART SCORING - Scored and sorted 6 opportunities'
+- Database archival failing: 'no such table: opportunity_history'
+- API access limited: Multiple 451/403 errors reducing data quality
+
+# Test Strategy:
+Deploy fixes and verify:
+1. All exchange APIs return 200 status codes
+2. Funding rates show real percentages in Telegram interface
+3. Database archival completes without errors
+4. Wrangler secrets are properly configured and accessible
+5. No more 451/403 API errors in production logs
+6. Strategic enhancements display real data to users
+
+# Subtasks:
+## 1. Configure Wrangler Secrets for API Authentication [in-progress]
+### Dependencies: None
+### Description: Set up proper API key management using wrangler secrets for Binance, Bybit, and CoinMarketCap APIs
+### Details:
+- Configure wrangler secrets: BINANCE_API_KEY, BINANCE_SECRET_KEY, BYBIT_API_KEY, BYBIT_SECRET_KEY, COINMARKETCAP_API_KEY
+- Update wrangler.toml to reference these secrets
+- Modify exchange service to use environment variables for authentication
+- Test secret access in production environment
+- Ensure secrets are properly encrypted and accessible to workers
+
+## 2. Fix Binance API Geographic Restrictions [pending]
+### Dependencies: 29.1
+### Description: Resolve Binance API 451 'Service unavailable from a restricted location' errors
+### Details:
+- Research Binance API geographic restrictions and compliance requirements
+- Implement proper API endpoint selection (binance.com vs binance.us)
+- Add fallback mechanisms for restricted regions
+- Configure proper headers and user agent for API requests
+- Test API access from Cloudflare Workers geographic locations
+- Implement graceful degradation when Binance is unavailable
+
+## 3. Fix Bybit API Authentication Issues [pending]
+### Dependencies: 29.1
+### Description: Resolve Bybit API 403 authentication errors and implement proper API key usage
+### Details:
+- Debug Bybit API authentication implementation
+- Verify API key permissions and account settings
+- Implement proper signature generation for authenticated endpoints
+- Add proper headers and timestamp handling for Bybit API
+- Test both public and private endpoint access
+- Implement retry logic with exponential backoff for auth failures
+
+## 4. Create Missing Database Tables and Schema [pending]
+### Dependencies: None
+### Description: Create opportunity_history table and other missing database schema for strategic enhancements
+### Details:
+- Create opportunity_history table with proper schema for ML analysis
+- Create funding_rates table for historical funding rate storage
+- Create opportunity_scores table for scoring engine data
+- Add proper indexes for performance optimization
+- Implement database migration scripts
+- Test table creation and data insertion in production D1 database
+
+## 5. Update Exchange Service for Environment Variable Authentication [pending]
+### Dependencies: 29.1
+### Description: Modify exchange service to properly use environment variables for API authentication
+### Details:
+- Update ExchangeService to read API keys from environment variables
+- Implement proper credential management for each exchange
+- Add authentication validation and error handling
+- Update all exchange-specific request methods to use proper auth
+- Implement credential rotation and refresh mechanisms
+- Add comprehensive logging for authentication status
+
+## 6. Fix Funding Rate Display Integration [pending]
+### Dependencies: 29.2, 29.3, 29.5
+### Description: Ensure real funding rates from strategic enhancements reach the Telegram interface
+### Details:
+- Debug why funding rates show 0.0000% in UI despite being fetched (logs show 18 rates fetched)
+- Trace data flow from funding rate manager to Telegram display
+- Verify ArbitrageOpportunity objects contain real funding rate data
+- Fix GroupedOpportunity conversion to preserve funding rate information
+- Test end-to-end funding rate display in Telegram interface
+- Add logging to track funding rate data through the display pipeline
+
+## 7. Implement Production-Ready Error Handling and Monitoring [pending]
+### Dependencies: 29.4, 29.5, 29.6
+### Description: Add comprehensive error handling, monitoring, and alerting for API and database issues
+### Details:
+- Implement circuit breakers for failing APIs
+- Add comprehensive error logging and monitoring
+- Create alerts for API failure rates and database errors
+- Implement graceful degradation when services are unavailable
+- Add health checks for all external dependencies
+- Create monitoring dashboard for API status and performance metrics
+
+## 8. End-to-End Production Testing and Validation [pending]
+### Dependencies: 29.7
+### Description: Comprehensive testing of all fixes in production environment
+### Details:
+- Deploy all fixes to production
+- Verify all exchange APIs return 200 status codes
+- Test funding rate display in Telegram interface shows real percentages
+- Validate database operations complete without errors
+- Monitor production logs for 24 hours to ensure stability
+- Verify strategic enhancements display real data to users
+- Document all configuration and deployment procedures
+

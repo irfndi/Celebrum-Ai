@@ -1,0 +1,11 @@
+# Task ID: 10
+# Title: Update Dev Webhook Test Script
+# Status: done
+# Dependencies: 9
+# Priority: medium
+# Description: Update the `scripts/dev/test_telegram_webhook.sh` script to align with the new production script, ensuring consistency in testing methodology between the two environments.
+# Details:
+
+
+# Test Strategy:
+

@@ -1,0 +1,49 @@
+# Task ID: 17
+# Title: Chaos Engineering Framework
+# Status: done
+# Dependencies: 16
+# Priority: high
+# Description: Build fault injection system for testing, automated chaos experiments, resilience testing for all failure modes, and recovery verification tests
+# Details:
+Create chaos testing framework with fault injection for KV unavailability, D1 connection failures, R2 access denial, pipeline disruption, and network partitioning. Include automated recovery verification suite and resilience metrics dashboard.
+
+# Test Strategy:
+All chaos scenarios execute successfully, system recovers automatically, metrics show resilience improvements, zero data loss during tests
+
+# Subtasks:
+## 1. Core Chaos Engineering Infrastructure [done]
+### Dependencies: None
+### Description: Build the foundational chaos engineering infrastructure including experiment definitions, execution engine, and safety mechanisms
+### Details:
+Create the core chaos framework with experiment scheduling, execution control, safety guards, and integration points for fault injection. Include experiment state management, rollback capabilities, and configuration validation.
+
+## 2. Storage System Fault Injection [done]
+### Dependencies: 17.1
+### Description: Implement fault injection mechanisms for KV, D1, and R2 storage systems including connection failures, timeouts, and data corruption simulation
+### Details:
+Build fault injection modules for each storage system: KV store unavailability, D1 database connection failures, R2 bucket access denial, timeout simulation, and controlled data corruption scenarios. Include gradual degradation and recovery patterns.
+
+## 3. Network & Resource Chaos Simulation [done]
+### Dependencies: 17.1
+### Description: Build network partition simulation, latency injection, and resource exhaustion testing for Worker environment constraints
+### Details:
+Implement network chaos including artificial latency, packet loss simulation, connection dropping, and resource exhaustion testing (memory limits, CPU throttling). Include Worker-specific constraints and Cloudflare edge network simulation.
+
+## 4. Automated Recovery Verification [done]
+### Dependencies: 17.2, 17.3
+### Description: Build automated systems to verify service recovery, data integrity, and system stability after chaos experiments
+### Details:
+Create recovery verification engine that validates system recovery, checks data consistency, verifies service functionality, and measures recovery time. Include automated rollback procedures and health validation workflows.
+
+## 5. Chaos Experiment Orchestration [done]
+### Dependencies: 17.4
+### Description: Create experiment scheduling, execution coordination, and chaos campaign management with safety controls
+### Details:
+Build orchestration system for managing multiple chaos experiments, scheduling campaigns, coordinating across services, implementing circuit breakers for experiment safety, and providing real-time experiment monitoring and control.
+
+## 6. Chaos Metrics & Integration Testing [done]
+### Dependencies: 17.5
+### Description: Build resilience metrics dashboard, integrate with monitoring systems, and create comprehensive chaos testing suite
+### Details:
+Create metrics collection for chaos experiments, resilience scoring, integration with existing monitoring/alerting systems, comprehensive testing suite for all chaos scenarios, and validation of zero data loss requirements.
+

@@ -1,0 +1,11 @@
+# Task ID: 12
+# Title: Set Up Production Telegram Webhook
+# Status: done
+# Dependencies: 9
+# Priority: high
+# Description: Run the `scripts/prod/setup-telegram-webhook.sh` script to configure the Telegram API to send webhook events to the production worker URL. This must be done before running the test script.
+# Details:
+
+
+# Test Strategy:
+

@@ -1,0 +1,93 @@
+# Task ID: 28
+# Title: Debug Strategic Enhancement Modules Not Working in Live System
+# Status: pending
+# Dependencies: None
+# Priority: critical
+# Description: Critical issue: Strategic enhancement modules (funding rate integration, historical data storage, smart sorting) are integrated in code but not working in production. All opportunities show 'Funding: coinbase 0.0000% | okx 0.0000%' and no enhanced features are visible.
+# Details:
+Root cause analysis needed for:
+1. Why funding rate detection returns 0.0000% for all pairs despite integration
+2. Why Binance API requires authentication for public endpoints (403 errors)
+3. Why strategic enhancement console logs are not appearing in production
+4. Why enhanced opportunity data is not being displayed to users
+5. Whether the strategic enhancement modules are being instantiated correctly
+
+Fix requirements:
+- Implement proper Binance API authentication with fallback to public endpoints
+- Debug funding rate manager to ensure it fetches real funding rate data from exchanges
+- Verify strategic enhancement module initialization and method calls
+- Add comprehensive logging to track data flow through strategic enhancements
+- Ensure enhanced opportunity data reaches the Telegram interface
+- Test end-to-end functionality from data collection to user display
+
+# Test Strategy:
+Deploy fixes and verify via Telegram interface that:
+1. Funding rates show real percentages (not 0.0000%)
+2. Opportunities are sorted by profit potential and freshness
+3. Historical data is being stored for ML analysis
+4. Strategic enhancement logs appear in production
+5. Enhanced opportunity data is displayed to users
+
+# Subtasks:
+## 1. Debug Funding Rate Manager Integration [in-progress]
+### Dependencies: None
+### Description: Investigate why funding rate manager returns 0.0000% for all pairs despite being integrated
+### Details:
+- Check if funding rate manager methods are being called in generate_global_opportunities
+- Verify funding rate API calls are being made to exchanges
+- Debug funding rate calculation and storage logic
+- Ensure funding rate data is properly integrated with arbitrage opportunities
+- Add comprehensive logging to track funding rate data flow
+
+## 2. Fix Binance API Authentication Issues [pending]
+### Dependencies: None
+### Description: Resolve 403 Forbidden errors preventing data collection from Binance exchange
+### Details:
+- Investigate why Binance public endpoints require authentication
+- Implement proper API key authentication for Binance
+- Add fallback logic for public endpoints when authentication fails
+- Ensure other exchanges (Coinbase, OKX, Bybit) continue working
+- Test API authentication in production environment
+
+## 3. Verify Strategic Enhancement Module Initialization [pending]
+### Dependencies: None
+### Description: Ensure strategic enhancement modules are properly instantiated and called in production
+### Details:
+- Verify FundingRateManager, HistoricalDataManager, OpportunityScoringEngine are created
+- Check if Arc<D1Database> is properly passed to modules
+- Ensure strategic enhancement methods are called in generate_global_opportunities
+- Add initialization logging to track module creation
+- Verify no compilation or runtime errors in module instantiation
+
+## 4. Add Comprehensive Strategic Enhancement Logging [pending]
+### Dependencies: None
+### Description: Implement detailed logging to track data flow through strategic enhancements
+### Details:
+- Add console_log statements for each strategic enhancement step
+- Log funding rate detection results and integration
+- Track opportunity scoring and sorting operations
+- Monitor historical data archival process
+- Log enhanced opportunity data before display
+- Ensure logs are visible in production via wrangler tail
+
+## 5. Validate Enhanced Data Reaches User Interface [pending]
+### Dependencies: None
+### Description: Ensure enhanced opportunity data with funding rates and smart sorting reaches Telegram interface
+### Details:
+- Trace data flow from strategic enhancement modules to Telegram display
+- Verify enhanced ArbitrageOpportunity objects contain funding rate data
+- Check if smart sorting is applied before sending to users
+- Ensure GroupedOpportunity conversion preserves enhanced data
+- Test end-to-end data flow from generation to user display
+
+## 6. Test End-to-End Strategic Enhancement Functionality [pending]
+### Dependencies: 28.1, 28.2, 28.3, 28.4, 28.5
+### Description: Comprehensive testing of strategic enhancements from data collection to user display
+### Details:
+- Deploy fixes and test via Telegram /opportunities_list command
+- Verify funding rates show real percentages (not 0.0000%)
+- Confirm opportunities are sorted by profit potential and freshness
+- Check that historical data is being stored for ML analysis
+- Validate strategic enhancement logs appear in production
+- Ensure enhanced opportunity data is displayed to users correctly
+

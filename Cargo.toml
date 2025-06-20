@@ -14,9 +14,6 @@ resolver = "2"
 [workspace.dependencies]
 getrandom = { version = "0.3.3", features = ["wasm_js"], default-features = false }
 
-[patch.crates-io]
-getrandom = { git = "https://github.com/rust-random/getrandom", tag = "v0.3.3", features = ["wasm_js"], default-features = false }
-
 [package]
 name = "cerebrum-ai"
 version = "0.1.0"
@@ -84,7 +81,7 @@ web-sys = { version = "0.3", features = [
   "HtmlElement",
   "Window",
 ] }
-getrandom = { version = "0.3.3", features = ["wasm_js"], default-features = false }
+getrandom = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

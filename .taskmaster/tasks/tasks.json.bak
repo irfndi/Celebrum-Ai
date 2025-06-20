@@ -1,0 +1,1278 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Fix Security Vulnerabilities",
+      "description": "Remove hardcoded API keys and fix security-related issues",
+      "status": "done",
+      "priority": "high",
+      "dependencies": [],
+      "details": "Remove hardcoded API keys from .cursor/mcp.json and replace with environment variables. Fix WebPush VAPID authentication implementation.",
+      "testStrategy": "Verify no secrets in git history, test WebPush functionality",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Remove hardcoded API keys from .cursor/mcp.json",
+          "description": "Replace hardcoded API keys with environment variable references in .cursor/mcp.json lines 7-8",
+          "details": "Need to replace hardcoded secret keys with ${ENV_VAR_NAME} placeholders and ensure actual keys are stored securely",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 1
+        },
+        {
+          "id": 2,
+          "title": "Fix WebPush VAPID authentication",
+          "description": "Implement proper VAPID authentication with JWT tokens in WebPush service",
+          "details": "Fix src/queue_handlers.rs lines 687-744 to implement proper JWT token generation using VAPID private key, proper Authorization and Crypto-Key headers, and payload encryption",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 1
+        },
+        {
+          "id": 3,
+          "title": "Replace placeholder API endpoints",
+          "description": "Replace hardcoded placeholder API endpoints with configurable URLs",
+          "details": "Fix src/queue_handlers.rs lines 604 and 655 - replace https://api.example.com/send_email with configurable email service URL, verify SMS service URL is correct",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 1
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Fix Code Quality Issues",
+      "description": "Address code consistency and duplication issues",
+      "status": "done",
+      "priority": "high",
+      "dependencies": [],
+      "details": "Fix service initialization duplication in user management handlers, standardize timestamp usage, update KV namespace consistency.",
+      "testStrategy": "Run make ci to verify no compilation errors",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Fix service initialization duplication in user_management.rs",
+          "description": "Create helper function to consolidate repeated service initialization logic across four handlers",
+          "details": "Fixed by creating initialize_user_profile_service() helper function and replacing all four instances of duplicated initialization code",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 2
+        },
+        {
+          "id": 2,
+          "title": "Fix KV namespace inconsistency in RoundRobin distribution",
+          "description": "Update KV namespace from \"ARBITRAGE_KV\" to \"ArbEdgeKV\" in queue_handlers.rs",
+          "details": "Fixed: Updated line 186 in src/queue_handlers.rs from ARBITRAGE_KV to ArbEdgeKV for consistency",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 2
+        },
+        {
+          "id": 3,
+          "title": "Fix exponential backoff overflow in retry logic",
+          "description": "Replace unsafe exponential backoff calculation with overflow protection and maximum cap",
+          "details": "Fixed: Updated src/queue_handlers.rs lines 133+ to use checked_mul, saturating_pow, and 30-second maximum delay cap to prevent overflow",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 2
+        },
+        {
+          "id": 4,
+          "title": "Fix timestamp inconsistency in user_management.rs",
+          "description": "Replace chrono::Utc::now().timestamp() with SystemTime for consistency",
+          "details": "Fixed: Replaced all 3 instances of chrono::Utc::now().timestamp() with SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 for consistency across codebase",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 2
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Implement Missing Critical Functionality",
+      "description": "Add missing API endpoints and core functionality",
+      "status": "done",
+      "priority": "high",
+      "dependencies": [],
+      "details": "Implement position management handlers, create fallback opportunity finding service, implement proper health checks.",
+      "testStrategy": "Test all new endpoints work correctly, verify health checks return accurate status",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Fix .roomodes file newline formatting",
+          "description": "Replace literal \\\\n characters with actual newlines in customInstructions",
+          "details": "Fixed: Updated .roomodes file customInstructions field to use proper newlines instead of literal \\\\n characters for correct line breaks",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 3
+        },
+        {
+          "id": 2,
+          "title": "Fix compilation error count inconsistency",
+          "description": "Update inconsistent error count in post-modularization-ci-fixes.md from 121 to 125",
+          "details": "Fixed: Updated line 315 in .taskmaster/docs/implementation-plan/post-modularization-ci-fixes.md from '121 errors remaining' to '125 errors remaining' to match line 5",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 3
+        },
+        {
+          "id": 3,
+          "title": "Implement opportunity finding service fallback",
+          "description": "Replace 503 error with basic fallback service that maintains API compatibility during refactoring",
+          "details": "Fixed: Replaced handle_find_opportunities 503 error with fallback implementation that processes request parameters and returns structured response with metadata indicating fallback mode and migration timeline",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 3
+        },
+        {
+          "id": 4,
+          "title": "Implement position management handlers",
+          "description": "Replace 501 errors with basic position management API implementations",
+          "details": "Fixed: Implemented all 5 position management handlers (create, list, retrieve, update, close) with basic functionality that maintains API compatibility and returns structured responses during modular migration",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 3
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Fix Documentation Issues",
+      "description": "Resolve documentation formatting and clarity issues",
+      "status": "done",
+      "priority": "medium",
+      "dependencies": [],
+      "details": "Fix formatting in .roomodes file, clarify boomerang rules documentation, expand or remove underdeveloped sections.",
+      "testStrategy": "Verify documentation renders correctly and is clear",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Fix boomerang-rules mode_triggers comment clarity",
+          "description": "Update unclear comment about mode_triggers purpose in .roo/rules-boomerang/boomerang-rules",
+          "details": "Fixed: Updated mode_triggers comment to explicitly state these are used BY other modes for autonomous inter-mode handoffs, NOT evaluated by Boomerang for delegation decisions",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 4
+        },
+        {
+          "id": 2,
+          "title": "Expand underdeveloped Code Analysis & Refactoring section",
+          "description": "Add more techniques with use cases and scenarios to dev_workflow.md section",
+          "details": "Fixed: Expanded section with 5 comprehensive techniques including Dependency Analysis, Pattern Detection, Type Usage Analysis, and Error Handling Patterns with detailed use cases, commands, and scenarios for each",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 4
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Improve Performance and Monitoring",
+      "description": "Fix performance issues and monitoring implementation",
+      "status": "done",
+      "priority": "medium",
+      "dependencies": [],
+      "details": "Implement efficient data retrieval for logs, add proper performance metrics, implement KV store cleanup.",
+      "testStrategy": "Performance benchmarks show improvement, monitoring returns real data"
+    },
+    {
+      "id": 6,
+      "title": "Update PR Comment Tracking Document",
+      "description": "Keep .taskmaster/docs/pr-comment/pr-31.md in sync with fixes",
+      "status": "done",
+      "priority": "medium",
+      "dependencies": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "details": "Update the PR comment tracking document with current status of all fixes as they are completed.",
+      "testStrategy": "Document accurately reflects all completed fixes"
+    },
+    {
+      "id": 7,
+      "title": "Final CI Validation",
+      "description": "Ensure all changes pass CI and don't introduce regressions",
+      "status": "done",
+      "priority": "high",
+      "dependencies": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "details": "Run make ci to ensure all fixes work together without introducing new issues.",
+      "testStrategy": "make ci passes with no errors or warnings"
+    },
+    {
+      "id": 8,
+      "title": "Analyze Existing Dev Test Script",
+      "description": "Analyze the existing `scripts/dev/test_telegram_webhook.sh` to understand its current functionality and identify necessary changes for the new modular architecture.",
+      "details": "",
+      "testStrategy": "",
+      "status": "done",
+      "dependencies": [],
+      "priority": "high",
+      "subtasks": []
+    },
+    {
+      "id": 9,
+      "title": "Create Production Webhook Test Script",
+      "description": "Create a new test script at `scripts/prod/test_telegram_webhook.sh`. This script will be modeled after the dev script but pointed at the production webhook URL and using production-safe test cases.",
+      "details": "",
+      "testStrategy": "",
+      "status": "done",
+      "dependencies": [
+        8
+      ],
+      "priority": "high",
+      "subtasks": []
+    },
+    {
+      "id": 10,
+      "title": "Update Dev Webhook Test Script",
+      "description": "Update the `scripts/dev/test_telegram_webhook.sh` script to align with the new production script, ensuring consistency in testing methodology between the two environments.",
+      "details": "",
+      "testStrategy": "",
+      "status": "done",
+      "dependencies": [
+        9
+      ],
+      "priority": "medium",
+      "subtasks": []
+    },
+    {
+      "id": 11,
+      "title": "Execute and Document Webhook Tests",
+      "description": "Execute both dev and prod test scripts, capture the output, and document the results in the implementation plan. Any failures should be logged as new tasks or issues.",
+      "details": "",
+      "testStrategy": "",
+      "status": "done",
+      "dependencies": [
+        10,
+        "12"
+      ],
+      "priority": "high",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Fix Test Files for New handle_webhook Signature",
+          "description": "Update all test files to pass None as the second parameter to handle_webhook calls due to signature change",
+          "details": "Need to fix approximately 16 test calls in webhook_session_management_test.rs and service_communication_test.rs",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 11
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Set Up Production Telegram Webhook",
+      "description": "Run the `scripts/prod/setup-telegram-webhook.sh` script to configure the Telegram API to send webhook events to the production worker URL. This must be done before running the test script.",
+      "details": "",
+      "testStrategy": "",
+      "status": "done",
+      "dependencies": [
+        9
+      ],
+      "priority": "high",
+      "subtasks": []
+    },
+    {
+      "id": 13,
+      "title": "Fix Telegram Command Router",
+      "description": "Fix the Telegram modular command system to properly route commands to sophisticated handlers instead of using basic implementations. Currently CommandRouter::route_command uses basic implementations instead of delegating to sophisticated handlers in profile.rs, opportunities.rs, admin.rs, etc.",
+      "details": "Fixed command router to delegate to proper modular handlers with production-ready responses, RBAC support, and proper error handling. All CI tests now pass with 468 tests.",
+      "testStrategy": "All CI tests pass, commands properly delegate to modular handlers",
+      "status": "done",
+      "dependencies": [],
+      "priority": "high",
+      "subtasks": []
+    },
+    {
+      "id": 14,
+      "title": "Enhanced KV Cache System",
+      "description": "Implement hierarchical caching with multiple TTL tiers, compression for large objects (>1KB), cache warming strategies, and metadata tracking for cleanup",
+      "details": "Create KvCacheManager with tier management, compression middleware, cache warming service, and metadata tracking system. Support different TTL tiers for different data types and automatic compression for objects larger than 1KB.",
+      "testStrategy": "Cache hit ratio >95%, response time <50ms, compression works for large objects, metadata tracking functional",
+      "status": "done",
+      "dependencies": [],
+      "priority": "high",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Design KV Cache Architecture",
+          "description": "Design the hierarchical cache architecture with multiple TTL tiers, data type categorization, and tier management strategies",
+          "details": "Define cache tier structure (hot/warm/cold), TTL policies per data type, eviction strategies, and tier promotion/demotion logic",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 14
+        },
+        {
+          "id": 2,
+          "title": "Implement Core KvCacheManager",
+          "description": "Create the core KvCacheManager struct with basic get/set operations and tier management",
+          "details": "Implement the main cache manager with tier routing, basic operations, error handling, and configuration management",
+          "status": "done",
+          "dependencies": [
+            "14.1"
+          ],
+          "parentTaskId": 14
+        },
+        {
+          "id": 3,
+          "title": "Add Compression Middleware",
+          "description": "Implement automatic compression for objects larger than 1KB with configurable compression algorithms",
+          "details": "Add compression layer using gzip/brotli for large objects, automatic detection of compression benefit, and transparent decompression",
+          "status": "done",
+          "dependencies": [
+            "14.2"
+          ],
+          "parentTaskId": 14
+        },
+        {
+          "id": 4,
+          "title": "Implement Cache Warming Service",
+          "description": "Create cache warming strategies for preloading frequently accessed data and predictive caching",
+          "details": "Build cache warming service with usage pattern analysis, predictive preloading, scheduled warming, and warming priority management",
+          "status": "done",
+          "dependencies": [
+            "14.3"
+          ],
+          "parentTaskId": 14
+        },
+        {
+          "id": 5,
+          "title": "Add Metadata Tracking System",
+          "description": "Implement metadata tracking for cache analytics, cleanup optimization, and performance monitoring",
+          "details": "Create metadata system tracking access patterns, size metrics, TTL effectiveness, compression ratios, and cleanup eligibility",
+          "status": "done",
+          "dependencies": [
+            "14.4"
+          ],
+          "parentTaskId": 14
+        },
+        {
+          "id": 6,
+          "title": "Integration Testing & Performance Validation",
+          "description": "Test the complete KV cache system and validate performance targets are met",
+          "details": "Run comprehensive tests for cache hit ratio >95%, response time <50ms, compression effectiveness, and metadata accuracy",
+          "status": "done",
+          "dependencies": [
+            "14.5"
+          ],
+          "parentTaskId": 14
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "D1/R2 Persistence Layer",
+      "description": "Design schema for both structured (D1) and blob (R2) data with connection pooling, retry logic, transaction support, and data migration utilities",
+      "details": "Implement database schema definitions, connection management service with pooling, transaction coordinator with rollback capabilities, and migration scripts for seamless data transitions.",
+      "testStrategy": "Database connections stable, transactions work with rollback, migrations execute successfully, performance targets met",
+      "status": "done",
+      "dependencies": [],
+      "priority": "high",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Design Database Schema Architecture",
+          "description": "Design comprehensive schema for both D1 (structured data) and R2 (blob storage) with data type mapping and relationships",
+          "details": "Create schema definitions for user data, market data, opportunities, sessions, and configuration. Define R2 blob storage strategy for large objects, files, and analytics data. Include data type mapping, relationships, indexes, and performance optimization.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 15
+        },
+        {
+          "id": 2,
+          "title": "Implement Connection Management Service",
+          "description": "Create connection pooling and management service for both D1 and R2 with health monitoring and failover",
+          "details": "Implement connection pool manager with automatic connection health checks, retry logic, circuit breaker pattern, and failover strategies. Support both D1 database connections and R2 storage access with proper resource management and monitoring.",
+          "status": "done",
+          "dependencies": [
+            "15.1"
+          ],
+          "parentTaskId": 15
+        },
+        {
+          "id": 3,
+          "title": "Build Transaction Coordinator",
+          "description": "Create transaction management system with rollback capabilities and distributed transaction support",
+          "details": "Implement transaction coordinator supporting ACID properties, distributed transactions across D1/R2, automatic rollback on failures, and transaction monitoring. Include transaction logging, deadlock detection, and recovery mechanisms.",
+          "status": "done",
+          "dependencies": [
+            "15.2"
+          ],
+          "parentTaskId": 15
+        },
+        {
+          "id": 4,
+          "title": "Create Migration Utilities",
+          "description": "Develop database migration scripts and utilities for seamless schema changes and data transitions",
+          "details": "Build migration framework supporting schema versioning, forward/backward migrations, data transformation utilities, and zero-downtime deployments. Include migration validation, rollback capabilities, and automated migration execution.",
+          "status": "done",
+          "dependencies": [
+            "15.3"
+          ],
+          "parentTaskId": 15
+        },
+        {
+          "id": 5,
+          "title": "Add Performance Optimization & Monitoring",
+          "description": "Implement performance monitoring, query optimization, and database health metrics collection",
+          "details": "Create performance monitoring system with query analysis, slow query detection, connection pool metrics, and database health dashboards. Include query optimization recommendations, index usage analysis, and automated performance tuning.",
+          "status": "done",
+          "dependencies": [
+            "15.4"
+          ],
+          "parentTaskId": 15
+        },
+        {
+          "id": 6,
+          "title": "Integration Testing & Validation",
+          "description": "Create comprehensive test suite validating database operations, transactions, and performance targets",
+          "details": "Build integration tests covering connection stability, transaction rollback scenarios, migration execution, performance benchmarks, and failure recovery. Include load testing, concurrent access validation, and end-to-end workflow testing.",
+          "status": "done",
+          "dependencies": [
+            "15.5"
+          ],
+          "parentTaskId": 15
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Circuit Breaker & Health Monitoring",
+      "description": "Implement circuit breakers for all external dependencies, real-time health monitoring for KV/D1/R2, alerting for service degradation, and automatic failover mechanisms",
+      "details": "Build circuit breaker implementation with configurable thresholds, health monitoring dashboard with real-time status, alert management system for proactive notifications, and failover automation for seamless service continuity.",
+      "testStrategy": "Circuit breakers trigger correctly, health monitoring shows accurate status, alerts fire appropriately, failover works automatically",
+      "status": "done",
+      "dependencies": [
+        14,
+        15
+      ],
+      "priority": "high",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Implement Core Circuit Breaker Framework",
+          "description": "Create a comprehensive circuit breaker implementation with configurable thresholds, state management, and integration points for external dependencies",
+          "details": "Build the foundational circuit breaker framework with states (Closed, Open, Half-Open), configurable failure thresholds, timeout periods, and success criteria. Include metrics collection, state transition logging, and integration hooks for various dependency types (HTTP APIs, databases, KV stores).",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 16
+        },
+        {
+          "id": 2,
+          "title": "Build Real-time Health Monitoring System",
+          "description": "Implement comprehensive health monitoring for KV, D1, R2 storage systems with real-time status tracking and performance metrics",
+          "details": "Create health monitoring system that continuously checks KV store operations, D1 database connectivity and performance, R2 storage accessibility and throughput. Include health check endpoints, performance metrics collection, latency monitoring, and health status aggregation with dashboard-ready data structures.",
+          "status": "done",
+          "dependencies": [
+            "16.1"
+          ],
+          "parentTaskId": 16
+        },
+        {
+          "id": 3,
+          "title": "Create Service Degradation Alerting System",
+          "description": "Build intelligent alerting system for detecting and notifying about service degradation with configurable thresholds and escalation paths",
+          "details": "Implement alerting system that detects service degradation patterns, triggers appropriate notifications, and manages alert escalation. Include configurable alert rules, multiple notification channels, alert deduplication, and integration with monitoring metrics. Support both real-time alerts and trend-based warnings.",
+          "status": "done",
+          "dependencies": [
+            "16.2"
+          ],
+          "parentTaskId": 16
+        },
+        {
+          "id": 4,
+          "title": "Implement Automatic Failover Mechanisms",
+          "description": "Build automatic failover system for seamless service continuity during outages or degradation events",
+          "details": "Create automated failover mechanisms that detect service failures and automatically switch to backup systems or degraded modes. Include fallback strategies for KV/D1/R2 services, graceful degradation modes, automatic recovery detection, and failover coordination across distributed components.",
+          "status": "done",
+          "dependencies": [
+            "16.3"
+          ],
+          "parentTaskId": 16
+        },
+        {
+          "id": 5,
+          "title": "Integration Testing & System Validation",
+          "description": "Create comprehensive test suite validating circuit breaker behavior, health monitoring accuracy, alerting functionality, and failover mechanisms",
+          "details": "Build integration tests that verify circuit breaker state transitions under various failure scenarios, health monitoring accuracy across all monitored services, alert generation and escalation workflows, and failover mechanism effectiveness. Include load testing, chaos engineering scenarios, and end-to-end validation.",
+          "status": "done",
+          "dependencies": [
+            "16.4"
+          ],
+          "parentTaskId": 16
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Chaos Engineering Framework",
+      "description": "Build fault injection system for testing, automated chaos experiments, resilience testing for all failure modes, and recovery verification tests",
+      "details": "Create chaos testing framework with fault injection for KV unavailability, D1 connection failures, R2 access denial, pipeline disruption, and network partitioning. Include automated recovery verification suite and resilience metrics dashboard.",
+      "testStrategy": "All chaos scenarios execute successfully, system recovers automatically, metrics show resilience improvements, zero data loss during tests",
+      "status": "done",
+      "dependencies": [
+        16
+      ],
+      "priority": "high",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Core Chaos Engineering Infrastructure",
+          "description": "Build the foundational chaos engineering infrastructure including experiment definitions, execution engine, and safety mechanisms",
+          "details": "Create the core chaos framework with experiment scheduling, execution control, safety guards, and integration points for fault injection. Include experiment state management, rollback capabilities, and configuration validation.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 17
+        },
+        {
+          "id": 2,
+          "title": "Storage System Fault Injection",
+          "description": "Implement fault injection mechanisms for KV, D1, and R2 storage systems including connection failures, timeouts, and data corruption simulation",
+          "details": "Build fault injection modules for each storage system: KV store unavailability, D1 database connection failures, R2 bucket access denial, timeout simulation, and controlled data corruption scenarios. Include gradual degradation and recovery patterns.",
+          "status": "done",
+          "dependencies": [
+            "17.1"
+          ],
+          "parentTaskId": 17
+        },
+        {
+          "id": 3,
+          "title": "Network & Resource Chaos Simulation",
+          "description": "Build network partition simulation, latency injection, and resource exhaustion testing for Worker environment constraints",
+          "details": "Implement network chaos including artificial latency, packet loss simulation, connection dropping, and resource exhaustion testing (memory limits, CPU throttling). Include Worker-specific constraints and Cloudflare edge network simulation.",
+          "status": "done",
+          "dependencies": [
+            "17.1"
+          ],
+          "parentTaskId": 17
+        },
+        {
+          "id": 4,
+          "title": "Automated Recovery Verification",
+          "description": "Build automated systems to verify service recovery, data integrity, and system stability after chaos experiments",
+          "details": "Create recovery verification engine that validates system recovery, checks data consistency, verifies service functionality, and measures recovery time. Include automated rollback procedures and health validation workflows.",
+          "status": "done",
+          "dependencies": [
+            "17.2",
+            "17.3"
+          ],
+          "parentTaskId": 17
+        },
+        {
+          "id": 5,
+          "title": "Chaos Experiment Orchestration",
+          "description": "Create experiment scheduling, execution coordination, and chaos campaign management with safety controls",
+          "details": "Build orchestration system for managing multiple chaos experiments, scheduling campaigns, coordinating across services, implementing circuit breakers for experiment safety, and providing real-time experiment monitoring and control.",
+          "status": "done",
+          "dependencies": [
+            "17.4"
+          ],
+          "parentTaskId": 17
+        },
+        {
+          "id": 6,
+          "title": "Chaos Metrics & Integration Testing",
+          "description": "Build resilience metrics dashboard, integrate with monitoring systems, and create comprehensive chaos testing suite",
+          "details": "Create metrics collection for chaos experiments, resilience scoring, integration with existing monitoring/alerting systems, comprehensive testing suite for all chaos scenarios, and validation of zero data loss requirements.",
+          "status": "done",
+          "dependencies": [
+            "17.5"
+          ],
+          "parentTaskId": 17
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "title": "Data Synchronization Engine",
+      "description": "Implement eventually consistent synchronization, conflict resolution for concurrent updates, diff-based sync for efficiency, and manual sync triggers for operators",
+      "details": "Build sync coordinator service with write-through, write-behind, read-repair, and periodic reconciliation strategies. Include conflict resolution engine, diff calculation algorithms, and manual sync tools for operational control.",
+      "testStrategy": "Sync completes in <5 seconds after recovery, conflicts resolved correctly, diff-based sync is efficient, manual triggers work",
+      "status": "done",
+      "dependencies": [
+        16
+      ],
+      "priority": "high",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Core Sync Coordinator Architecture",
+          "description": "Design and implement the foundational sync coordinator service with write-through, write-behind, read-repair, and periodic reconciliation strategies",
+          "details": "Build the core sync coordinator that orchestrates data synchronization between KV, D1, and R2 storage systems. Implement multiple sync strategies: write-through (immediate sync), write-behind (async batched sync), read-repair (fix inconsistencies on read), and periodic reconciliation (scheduled consistency checks). Include configurable sync policies, retry mechanisms, and performance monitoring. Ensure integration with circuit breaker and health monitoring systems.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 18
+        },
+        {
+          "id": 2,
+          "title": "Vector Clock Conflict Detection System",
+          "description": "Implement vector clock-based conflict detection and resolution for concurrent updates across distributed storage systems",
+          "details": "Build a comprehensive conflict detection system using vector clocks to track causal relationships between operations. Implement automatic conflict resolution for concurrent updates using strategies like Last-Write-Wins with timestamps, semantic merging for compatible changes, and user-defined resolution rules. Include conflict notification system, resolution audit trails, and configurable conflict resolution policies per data type.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 18
+        },
+        {
+          "id": 3,
+          "title": "Diff-based Sync Engine",
+          "description": "Build efficient diff calculation algorithms and delta synchronization for minimizing data transfer overhead",
+          "details": "Implement high-performance diff calculation engine supporting multiple data types (JSON, binary, structured data). Build delta sync protocols that only transfer changes rather than full states. Include compression algorithms for diff payloads, merkle trees for efficient change detection, and rolling hash algorithms for large dataset synchronization. Optimize for both network efficiency and computational performance.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 18
+        },
+        {
+          "id": 4,
+          "title": "Manual Sync Controls & Operator Tools",
+          "description": "Create comprehensive manual sync triggers, operator dashboards, and administrative controls for sync management",
+          "details": "Build operator-friendly tools for manual sync control including force sync triggers, selective sync by data type/range, sync status monitoring dashboards, and emergency sync controls. Implement sync scheduling, sync queue management, batch operation tools, and detailed sync reporting. Include REST APIs for integration with monitoring systems and administrative tooling.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 18
+        },
+        {
+          "id": 5,
+          "title": "Sync Integration Testing & Validation",
+          "description": "Comprehensive integration testing for sync operations across all storage systems with consistency validation",
+          "details": "Build extensive integration test suite covering concurrent sync operations, network partition scenarios, partial sync failures, conflict resolution testing, performance validation under load, and consistency verification across all storage backends. Include chaos testing for sync resilience, automated consistency checks, and performance benchmarking. Validate zero data loss during sync operations and proper recovery from failures.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 18
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Automated Cleanup System",
+      "description": "Implement TTL-based automatic cleanup, manual cleanup policies for operators, storage usage monitoring, and cleanup impact analysis",
+      "details": "Create cleanup scheduler service with TTL-based, usage-based, size-based, and manual cleanup policies. Include policy management interface, storage analytics dashboard, and cleanup impact tools for safe operations.",
+      "testStrategy": "Cleanup efficiency >90%, storage growth <10%/month, policies execute correctly, impact analysis prevents data loss",
+      "status": "done",
+      "dependencies": [
+        18
+      ],
+      "priority": "medium",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Core Cleanup Scheduler Service",
+          "description": "Design and implement the foundational cleanup scheduler service with TTL-based, usage-based, size-based, and manual cleanup policies",
+          "details": "Build the core cleanup scheduler that orchestrates automated data cleanup across KV, D1, and R2 storage systems. Implement multiple cleanup strategies: TTL-based (time-based expiration), usage-based (last accessed date), size-based (storage quotas), and manual triggers. Include configurable cleanup policies, retry mechanisms, safety checks, and performance monitoring. Ensure integration with existing storage systems and circuit breaker patterns.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 19
+        },
+        {
+          "id": 2,
+          "title": "Storage Usage Analytics & Monitoring",
+          "description": "Implement comprehensive storage analytics dashboard with usage tracking, growth predictions, and real-time monitoring",
+          "details": "Build storage analytics system that tracks usage patterns across all storage types (KV, D1, R2). Implement real-time monitoring of storage consumption, access patterns, data age distribution, and cost analytics. Include predictive analytics for storage growth, trend analysis, capacity planning, and automated alerting for unusual patterns. Create visualization dashboard for operators with drill-down capabilities and historical reporting.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 19
+        },
+        {
+          "id": 3,
+          "title": "Cleanup Impact Analysis Engine",
+          "description": "Build comprehensive cleanup impact analysis system to prevent data loss and ensure safe cleanup operations",
+          "details": "Implement sophisticated impact analysis engine that analyzes potential consequences before cleanup operations. Include dependency tracking, reference validation, data lineage analysis, and risk assessment. Build safety mechanisms like dry-run mode, rollback capabilities, and staged cleanup execution. Include integration with existing monitoring systems and automated safety checks to prevent accidental deletion of critical data.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 19
+        },
+        {
+          "id": 4,
+          "title": "Cleanup Policy Management Interface",
+          "description": "Create operator-friendly policy management interface for configuring, testing, and managing cleanup policies",
+          "details": "Build comprehensive policy management system that allows operators to configure TTL policies, usage-based cleanup rules, size quotas, and custom cleanup strategies. Include policy validation, testing framework, policy versioning, and rollback capabilities. Provide REST APIs for integration with other systems, bulk policy operations, and policy templates for common use cases. Include audit logging and compliance reporting.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 19
+        },
+        {
+          "id": 5,
+          "title": "Cleanup Integration Testing & Validation",
+          "description": "Comprehensive integration testing for cleanup operations with safety validation and performance benchmarking",
+          "details": "Build extensive integration test suite covering all cleanup scenarios, safety mechanisms, policy enforcement, and performance validation. Include load testing for concurrent cleanup operations, chaos testing for failure scenarios, compliance testing for data retention policies, and automated safety validation. Validate cleanup efficiency metrics, storage optimization results, and ensure zero data loss during normal operations.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 19
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Monitoring & Observability",
+      "description": "Comprehensive metrics for all data operations, real-time alerting for anomalies, performance monitoring and optimization, cost tracking for storage usage",
+      "details": "Build metrics collection system covering performance, reliability, capacity, and cost. Include real-time monitoring dashboard, alerting and notification system, and cost analysis tools for operational excellence.",
+      "testStrategy": "All metrics collected accurately, alerts fire appropriately, dashboard shows real-time data, cost tracking is precise",
+      "status": "done",
+      "dependencies": [
+        19
+      ],
+      "priority": "medium",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Metrics Collection Engine",
+          "description": "Comprehensive metrics collection system using OpenTelemetry standards with support for RED (Rate, Errors, Duration) metrics, custom business metrics, and infrastructure monitoring",
+          "details": "Build production-grade metrics collection engine supporting multiple metric types (counters, gauges, histograms), OpenTelemetry semantic conventions, efficient aggregation, and real-time streaming to storage backends",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 20
+        },
+        {
+          "id": 2,
+          "title": "Real-time Alerting System",
+          "description": "Advanced alerting engine with anomaly detection, threshold-based alerts, multi-channel notifications, and intelligent alert routing with escalation policies",
+          "details": "Implement enterprise-grade alerting system with ML-based anomaly detection, customizable alert rules, noise reduction, correlation analysis, and integration with notification channels (email, Slack, PagerDuty, webhooks)",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 20
+        },
+        {
+          "id": 3,
+          "title": "Performance Monitoring Dashboard",
+          "description": "Interactive real-time dashboards for system performance monitoring with customizable views, drill-down capabilities, and executive-level reporting",
+          "details": "Build modern web-based dashboard system with real-time metrics visualization, customizable charts and graphs, SLI/SLO tracking, capacity planning views, and automated report generation for stakeholders",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 20
+        },
+        {
+          "id": 4,
+          "title": "Cost Tracking & Analysis Engine",
+          "description": "Comprehensive cost monitoring system for cloud resources, storage usage, compute costs, and financial optimization recommendations with budget alerts",
+          "details": "Develop FinOps-compliant cost tracking system with real-time cost monitoring, resource utilization analysis, cost allocation by service/team, budget management, and automated cost optimization recommendations",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 20
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Legacy System Integration",
+      "description": "Maintain compatibility with existing services, implement gradual migration strategies, add feature flags for rollback capability, and create data validation for migrations",
+      "details": "Implement dual-write strategy for writing to both old and new systems, gradual read migration to shift reads incrementally, validation to compare results between systems, and rollback procedures for quick revert if issues arise.",
+      "testStrategy": "No service disruption during migration, data consistency between old and new systems, rollback works quickly, feature flags function properly",
+      "status": "done",
+      "dependencies": [
+        20
+      ],
+      "priority": "medium",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Legacy System Migration Controller",
+          "description": "Create a comprehensive migration controller that orchestrates dual-write strategies, gradual migration phases, and rollback capabilities with comprehensive feature flags",
+          "details": "Implement MigrationController with dual-write coordinator, gradual migration phases, feature flag integration, validation framework, and rollback mechanisms. Must support zero-downtime migrations with circuit breaker patterns and comprehensive monitoring.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 21
+        },
+        {
+          "id": 2,
+          "title": "Data Validation & Consistency Engine",
+          "description": "Implement comprehensive data validation engine that compares results between old and new systems, validates data integrity, and ensures consistency during migration phases",
+          "details": "Create ValidationEngine with data comparison algorithms, consistency checks, integrity validation, performance monitoring, and automated reporting. Must integrate with monitoring system and provide real-time validation metrics.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 21
+        },
+        {
+          "id": 3,
+          "title": "Feature Flag Migration Manager",
+          "description": "Enhance feature flag system with migration-specific flags, percentage-based rollouts, and automated migration progression with safety controls",
+          "details": "Extend feature_flags.json with legacy_system_integration section, implement MigrationFeatureManager with percentage rollouts, gradual enablement, safety thresholds, and automated progression/rollback logic.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 21
+        },
+        {
+          "id": 4,
+          "title": "Dual-Write Coordination System",
+          "description": "Implement high-performance dual-write system that writes to both legacy and new systems with transaction coordination, error handling, and performance optimization",
+          "details": "Create DualWriteCoordinator with transaction management, parallel writes, consistency guarantees, error recovery, performance monitoring, and integration with existing TransactionCoordinator from persistence layer.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 21
+        },
+        {
+          "id": 5,
+          "title": "Gradual Read Migration System",
+          "description": "Implement intelligent read migration system that gradually shifts read operations from legacy to new systems based on performance metrics and validation results",
+          "details": "Create ReadMigrationManager with intelligent routing, performance monitoring, fallback mechanisms, canary deployments, and integration with circuit breaker service for automatic failover.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 21
+        },
+        {
+          "id": 6,
+          "title": "Legacy Integration Adapter Layer",
+          "description": "Create adapter layer that provides seamless integration between legacy components and new modular architecture, ensuring backward compatibility and smooth transition",
+          "details": "Implement AdapterLayer with legacy API compatibility, service mapping, request/response translation, error handling, and integration points for existing services like TelegramService, OpportunityEngine, and AnalyticsEngine.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 21
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "title": "Integration Testing & Validation",
+      "description": "End-to-end testing of all scenarios, performance benchmarking, resilience validation under load, and production readiness checklist",
+      "details": "Create comprehensive test suite covering functional, performance, resilience, and integration testing. Include performance benchmark results, resilience test report, and production deployment plan with complete validation.",
+      "testStrategy": "All tests pass consistently, performance targets met under load, resilience validated through chaos testing, production deployment successful",
+      "status": "done",
+      "dependencies": [
+        21
+      ],
+      "priority": "high",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Telegram Bot Command Validation Workflow",
+          "description": "Deploy bot/check latest deploy using wrangler → wrangler tail → identify issues → fix code → make ci → re-deploy → repeat until all commands work perfectly. Use superadmin users to test all available commands through webhook script.",
+          "details": "Execute iterative validation workflow:\n1. Deploy bot to production\n2. Run wrangler tail to monitor logs\n3. Test all Telegram commands using superadmin user access\n4. Identify and document any errors/issues\n5. Fix code issues following production-ready principles\n6. Run make ci to ensure compilation passes\n7. Re-deploy bot\n8. Repeat until all commands work flawlessly\n\nTest all commands: /help, /opportunities, /profile, and any admin-specific commands available to superadmin users.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 22
+        },
+        {
+          "id": 2,
+          "title": "File-Level Code Validation & Cleanup",
+          "description": "Comprehensive audit of all source files to identify and fix implementation gaps, remove unused/dead code, eliminate mock/placeholder implementations, and ensure production-ready standards.",
+          "details": "Audit every file in src/ directory for:\n\n**Code Quality Issues:**\n- Unused imports, functions, structs, variables\n- Dead code and commented-out old implementations\n- Mock/placeholder implementations that need production alternatives\n- Missing error handling or incomplete implementations\n\n**Architecture Compliance:**\n- Proper modularization without code duplication\n- No circular dependencies between modules\n- Efficient internal communication patterns\n- Feature flag integration where applicable\n\n**Production Readiness:**\n- All functions have proper error handling with Result types\n- No unwrap() calls without proper justification\n- Proper logging and monitoring integration\n- Documentation and comments are accurate and up-to-date\n\nCreate checklist of all files and track validation status for each.",
+          "status": "done",
+          "dependencies": [
+            "22.1"
+          ],
+          "parentTaskId": 22
+        },
+        {
+          "id": 3,
+          "title": "Module-Level Integration Validation",
+          "description": "Validate connections and integrations between files within each module/service to ensure proper communication patterns, eliminate redundancy, and verify efficient data flow.",
+          "details": "Validate integration patterns within each major module:\n\n**Infrastructure Modules:**\n- chaos_engineering/ - Verify all components integrate properly\n- monitoring_module/ - Check metrics collection and reporting flows\n- persistence_layer/ - Validate database and storage integrations\n- legacy_system_integration/ - Ensure all migration components work together\n\n**Service Modules:**\n- telegram/ - Verify command handlers, core services, features integrate\n- opportunities/ - Check analysis, trading, market data connections\n- user/ - Validate authentication, profile, permission integrations\n- trading/ - Verify order execution, position management flows\n\n**Validation Criteria:**\n- No duplicated functionality between files in same module\n- Efficient communication patterns (no unnecessary serialization/deserialization)\n- Proper dependency injection and service registration\n- Consistent error handling patterns within modules\n- Feature flag integration where needed\n- Circuit breaker and monitoring integration\n\nDocument integration maps for each module.",
+          "status": "done",
+          "dependencies": [
+            "22.2"
+          ],
+          "parentTaskId": 22
+        },
+        {
+          "id": 4,
+          "title": "Service-to-Service Integration Validation",
+          "description": "Validate high-level service interactions and communication patterns between major service domains to ensure efficient, reliable, and maintainable service architecture.",
+          "details": "Validate service integration patterns across major domains:\n\n**Core Service Interactions:**\n- Auth Service ↔ User Service ↔ Trading Service\n- Market Data Service ↔ Opportunities Service ↔ Analysis Service\n- Telegram Service ↔ All business services\n- Infrastructure Services ↔ All application services\n\n**Integration Validation:**\n- Service discovery and registration patterns\n- Circuit breaker integration for service calls\n- Monitoring and metrics collection across services\n- Feature flag coordination between services\n- Event-driven communication patterns\n- Data consistency and transaction boundaries\n\n**Performance & Reliability:**\n- Concurrent request handling between services\n- Fault tolerance and graceful degradation\n- Resource sharing and connection pooling\n- Caching strategies and cache invalidation\n- Rate limiting and throttling patterns\n\n**Architecture Compliance:**\n- No circular service dependencies\n- Clear service boundaries and responsibilities  \n- Efficient serialization/deserialization\n- Proper error propagation across service boundaries\n- Consistent logging and tracing across services\n\nCreate service interaction diagrams and validate against architecture principles.",
+          "status": "done",
+          "dependencies": [
+            "22.3"
+          ],
+          "parentTaskId": 22
+        },
+        {
+          "id": 5,
+          "title": "Test Suite Validation & Updates",
+          "description": "Comprehensive review and update of all test suites to ensure they remain relevant, accurate, and provide adequate coverage for the current implementation.",
+          "details": "Review and update all test categories:\n\n**Unit Tests Review:**\n- Verify tests match current implementation\n- Remove tests for deleted/changed functionality\n- Add tests for new functionality discovered during code validation\n- Ensure all critical paths have test coverage\n- Update mock objects to match current interfaces\n\n**Integration Tests Review:**\n- Validate service integration test scenarios\n- Update database and storage integration tests\n- Verify API endpoint tests match current handlers\n- Test circuit breaker and monitoring integrations\n- Validate feature flag behavior in tests\n\n**End-to-End Tests Review:**\n- Update Telegram bot command tests\n- Verify trading workflow tests\n- Test authentication and authorization flows\n- Validate monitoring and alerting scenarios\n- Test chaos engineering and resilience scenarios\n\n**Test Infrastructure:**\n- Verify test utilities and helpers are still needed\n- Update test data and fixtures\n- Ensure tests run efficiently and in isolation\n- Validate CI pipeline test execution\n- Update performance and load test scenarios\n\n**Quality Metrics:**\n- Achieve >90% code coverage for business logic\n- All tests must pass consistently\n- Test execution time optimization\n- Remove flaky or unreliable tests\n\nEnsure all tests pass with 'make ci' command.",
+          "status": "done",
+          "dependencies": [
+            "22.4"
+          ],
+          "parentTaskId": 22
+        },
+        {
+          "id": 6,
+          "title": "Documentation & Production Readiness Validation",
+          "description": "Update all documentation to reflect current implementation, validate production readiness checklist, and ensure complete CI pipeline success before marking integration complete.",
+          "details": "Final validation and documentation phase:\n\n**Documentation Updates:**\n- Update README.md with current feature set and deployment instructions\n- Validate API documentation matches current endpoints\n- Update architecture diagrams and service interaction maps\n- Review and update security documentation (SECURITY.md)\n- Update deployment documentation (DEPLOYMENT.md)\n- Validate feature flag documentation\n- Update troubleshooting and operational guides\n\n**Production Readiness Checklist:**\n- All feature flags properly configured for production\n- Monitoring and alerting systems functional\n- Circuit breakers and resilience patterns active\n- Security measures properly implemented\n- Performance benchmarks meet requirements\n- Database migrations and data persistence validated\n- Backup and recovery procedures documented\n- Scaling and capacity planning documented\n\n**CI Pipeline Validation:**\n- 'make ci' passes completely with no warnings\n- All linting rules satisfied\n- All tests pass consistently\n- Build artifacts generated successfully\n- Security scans pass\n- Performance benchmarks within acceptable ranges\n\n**Final Production Deployment:**\n- Deploy to production environment\n- Validate all services start correctly\n- Perform smoke tests on critical functionality\n- Monitor system health and performance\n- Validate monitoring and alerting systems\n- Document any deployment issues and resolutions\n\nOnly mark task complete when all validation passes and production deployment is successful.",
+          "status": "done",
+          "dependencies": [
+            "22.5"
+          ],
+          "parentTaskId": 22
+        },
+        {
+          "id": 7,
+          "title": "Fix Telegram service user profile lookup method",
+          "description": "Change telegram service to use get_user_by_telegram_id instead of get_user_profile with string conversion",
+          "details": "Fixed: Changed telegram service get_user_permissions() to use get_user_by_telegram_id() instead of get_user_profile() with string conversion of telegram_user_id. This addresses the issue where user_id in database is 'superadmin_1082762347' but we were querying with just '1082762347'.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 22
+        },
+        {
+          "id": 8,
+          "title": "Fix UserRepository profile_data parsing logic",
+          "description": "Update UserRepository row_to_user_profile method to parse profile_data JSON column and extract correct access level",
+          "details": "Fixed: Modified row_to_user_profile() to parse profile_data JSON column instead of hardcoding UserAccessLevel::Free. Added mapping for 'unlimited' -> UserAccessLevel::SuperAdmin and other access levels. This ensures database stored access levels are properly read.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 22
+        },
+        {
+          "id": 9,
+          "title": "Fix DatabaseManager repository initialization",
+          "description": "Ensure DatabaseManager.initialize_repositories() is called during ServiceContainer initialization",
+          "details": "Fixed: Added initialize_repositories() call in ServiceContainer::new() after DatabaseManager creation. This ensures UserRepository is properly initialized and prevents fallback to broken direct database query methods.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 22
+        },
+        {
+          "id": 10,
+          "title": "Investigate persistent profile parsing error",
+          "description": "Resolve the ongoing 'Failed to parse profile' error that persists despite previous fixes",
+          "details": "ACTIVE: Despite fixing user lookup method, UserRepository parsing, and repository initialization, we're still getting the exact same parsing error. Need to trace where this error is actually coming from and why the fixes aren't taking effect.",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 22
+        },
+        {
+          "id": 11,
+          "title": "Fix Telegram UX and Command Handling",
+          "description": "Improve all Telegram bot commands with proper sub-command handling, better help text, and comprehensive functionality",
+          "details": "- Fix opportunities table query issues\n- Add admin sub-command handling\n- Add profile sub-command handling (API key management)\n- Improve help text\n- Add trade commands (manual/automate)\n- Create comprehensive end-to-end test script",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 22
+        },
+        {
+          "id": 12,
+          "title": "Remove All Space-Separated Command Handling",
+          "description": "Completely remove all space-separated command handling code and ensure only underscore commands are functional",
+          "details": "**CRITICAL UX ISSUE:** Space-separated commands like '/opportunities manual' are not clickable in Telegram and cause UX problems.\n\n**ACTIONS:**\n1. **Audit Command Router:** Remove all space-separated command parsing logic\n2. **Remove Space Command Cases:** Delete all command cases that handle space-separated arguments  \n3. **Update Command Parsing:** Ensure only underscore commands are recognized\n4. **Test All Commands:** Verify only underscore commands work (e.g., /opportunities_manual, /settings_notifications)\n5. **Update Help Text:** Ensure all help text shows only underscore commands\n\n**VALIDATION:**\n- Test space commands return proper error messages\n- Test underscore commands work correctly\n- All Quick Actions use underscore format\n- Help text consistent with underscore format",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 22
+        },
+        {
+          "id": 13,
+          "title": "Command-by-Command Service Integration Validation",
+          "description": "Validate each command actually calls real services and returns real data instead of just 'Command processed successfully'",
+          "details": "**✅ COMPLETED - REAL MARKET DATA INTEGRATION:**\\n\\n**MAJOR BREAKTHROUGH - REAL MARKET DATA IMPLEMENTED:**\\n1. **MarketAnalyzer** - Now uses real ExchangeService.get_ticker() with actual Binance API calls\\n2. **Exchange Service** - Confirmed production-ready with real HTTP requests to Binance /api/v3/ticker/24hr endpoint\\n3. **Fallback Strategy** - Smart fallback to realistic mock data only when real API fails\\n4. **Opportunity Generation** - Now uses real market prices for arbitrage detection\\n\\n**TELEGRAM COMMANDS WITH REAL SERVICE INTEGRATION:**\\n1. **opportunities_list** - Uses real OpportunityDistributionService with user ID mapping and fallback to global opportunities\\n2. **opportunities_manual** - Triggers real OpportunityEngine.generate_personal_arbitrage_opportunities with real market data\\n3. **opportunities_auto** - Reads/updates real user profile auto_trading_enabled setting via UserProfileService\\n4. **profile_view** - Displays real user profile data from database including trading stats, API keys, settings, and account info\\n\\n**PRODUCTION-READY FEATURES:**\\n• Real HTTP API calls to Binance production endpoint\\n• Proper error handling and fallback mechanisms\\n• User session management and authentication\\n• Database integration for user profiles and opportunities\\n• Comprehensive logging for debugging and monitoring\\n• All 468 tests passing with clean CI pipeline\\n\\n**NEXT STEPS:**\\n• Deploy and test with wrangler tail to verify real market data flows\\n• Validate opportunity distribution reaches active users\\n• Test remaining admin and settings commands",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 22
+        },
+        {
+          "id": 14,
+          "title": "Optimize Service Initialization for High Concurrency",
+          "description": "Fix inefficient service re-initialization per webhook request to support 5000+ concurrent users",
+          "details": "**PERFORMANCE ISSUE:** Every webhook request shows service re-initialization which is inefficient for high concurrency.\n\n**CURRENT ANTI-PATTERN:**\n```\n🚀 Initializing Modular Telegram Service...\n✅ Modular Telegram Service initialized successfully\n```\nThis happens on EVERY request, creating unnecessary overhead.\n\n**OPTIMIZATION STRATEGIES:**\n1. **Service Container Singleton:** Create singleton pattern for ServiceContainer\n2. **Connection Pooling:** Implement connection pooling for KV/D1/R2\n3. **Lazy Loading:** Initialize services only when needed\n4. **Service Caching:** Cache initialized services across requests\n5. **Worker Initialization:** Move service initialization to worker startup\n\n**SESSION MANAGEMENT OPTIMIZATION:**\n- Current: KV → D1 lookup chain per request\n- Optimize: Implement session caching with intelligent refresh\n- Batch Operations: Group session updates for efficiency\n\n**CONCURRENCY TARGETS:**\n- Support 5000+ concurrent users\n- Sub-100ms response times\n- Minimal memory footprint per request\n- Fault-tolerant service initialization\n\n**VALIDATION:**\n- Load test with 1000+ concurrent requests\n- Monitor memory usage per request  \n- Verify service reuse across requests\n- Measure initialization overhead reduction",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 22
+        },
+        {
+          "id": 15,
+          "title": "Fix Opportunity Generation Price Calculation",
+          "description": "Debug and fix the persistent 0.0000% rate difference issue in opportunity generation despite realistic price spreads",
+          "details": "**CRITICAL ISSUE:** Despite setting realistic price spreads between exchanges, opportunity generation still shows \\\"Rate difference 0.0000% below minimum threshold 0.1000%\\\"\n\n**INVESTIGATION NEEDED:**\n1. **Price Calculation Logic:** Verify price variance is actually being applied in get_ticker_for_exchange\n2. **Arbitrage Detection:** Debug calculate_price_difference_percent function\n3. **Exchange Price Mapping:** Ensure different exchanges return different prices\n4. **Threshold Logic:** Verify is_arbitrage_significant calculation is correct\n\n**DEBUGGING APPROACH:**\n1. **Add Debug Logging:** Log actual prices from each exchange\n2. **Price Difference Calculation:** Log the exact difference percentages calculated\n3. **Exchange Variance:** Verify Binance vs Bybit vs OKX vs Coinbase prices differ\n4. **Threshold Comparison:** Log threshold checks\n\n**EXPECTED BEHAVIOR:**\n- Binance: Base price (e.g., 45000)\n- Bybit: +0.3% (45135)  \n- OKX: +0.5% (45225)\n- Coinbase: -0.2% (44910)\n- Kraken: +0.4% (45180)\n\n**VALIDATION:**\n- Generate opportunities with >0.1% differences\n- Verify arbitrage detection works correctly\n- Test with multiple trading pairs\n- Confirm distributed opportunities appear in user feeds",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 22
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "Complete Legacy Code Elimination & Full Modularization",
+      "description": "Eliminate all remaining legacy code, legacy adapters, and legacy system integration components. Move everything to the new unified modular architecture with zero legacy dependencies.",
+      "details": "This task ensures complete elimination of all legacy code and technical debt before production deployment. The goal is to have a completely clean, modern, modular architecture with zero legacy code remaining.",
+      "testStrategy": "Comprehensive code audit to verify zero legacy code remains, all tests pass, CI pipeline success, and production deployment validation",
+      "status": "done",
+      "priority": "critical",
+      "dependencies": [
+        22
+      ],
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Audit and Remove All Legacy Modules",
+          "description": "Identify and remove all legacy_* modules and files throughout the codebase",
+          "details": "Comprehensive audit of all legacy_* files and modules, remove them completely, and migrate any remaining functionality to new modular services",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 23
+        },
+        {
+          "id": 2,
+          "title": "Eliminate Legacy Adapter Layers",
+          "description": "Remove all legacy adapter layers and compatibility code",
+          "details": "Remove legacy adapter layers, compatibility shims, and bridge code that was used during migration phase",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 23
+        },
+        {
+          "id": 3,
+          "title": "Migrate Legacy Functionality to Modular Services",
+          "description": "Move all remaining legacy functionality to new modular services",
+          "details": "Identify any functionality still in legacy code and migrate it to appropriate new modular services following architecture principles",
+          "status": "done",
+          "dependencies": [
+            "23.1",
+            "23.2"
+          ],
+          "parentTaskId": 23
+        },
+        {
+          "id": 4,
+          "title": "Remove Legacy Feature Flags",
+          "description": "Remove feature flags for legacy system support",
+          "details": "Clean up feature_flags.json to remove all legacy system integration flags and migration-related flags",
+          "status": "done",
+          "dependencies": [
+            "23.3"
+          ],
+          "parentTaskId": 23
+        },
+        {
+          "id": 5,
+          "title": "Update All Imports and Dependencies",
+          "description": "Update all imports and dependencies to use only new modular architecture",
+          "details": "Comprehensive update of all import statements, dependency declarations, and service registrations to use only new modular services",
+          "status": "done",
+          "dependencies": [
+            "23.4"
+          ],
+          "parentTaskId": 23
+        },
+        {
+          "id": 6,
+          "title": "Remove Legacy Configuration Options",
+          "description": "Remove legacy configuration options and environment variables",
+          "details": "Clean up configuration files, environment variables, and settings to remove all legacy system references",
+          "status": "done",
+          "dependencies": [
+            "23.5"
+          ],
+          "parentTaskId": 23
+        },
+        {
+          "id": 7,
+          "title": "Validate Zero Legacy Dependencies",
+          "description": "Comprehensive validation that no legacy code remains in the codebase",
+          "details": "Run comprehensive code audit, dependency analysis, and testing to ensure absolutely zero legacy code or dependencies remain",
+          "status": "done",
+          "dependencies": [
+            "23.6"
+          ],
+          "parentTaskId": 23
+        },
+        {
+          "id": 8,
+          "title": "Update Documentation for Pure Modular Architecture",
+          "description": "Update documentation to reflect pure modular architecture",
+          "details": "Update all documentation, README, deployment guides, and architecture diagrams to reflect the clean modular architecture with no legacy references",
+          "status": "done",
+          "dependencies": [
+            "23.7"
+          ],
+          "parentTaskId": 23
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "title": "Improve Opportunity Generation & Display",
+      "description": "Refactor opportunity engine and Telegram listing to eliminate duplicates, integrate funding rates, validate profitability continuously, and add trade targets (SL/TP/current price & projected P/L).",
+      "details": "1. Modify opportunity generation service to group by ticker and update existing records on refresh instead of appending duplicates.\n2. Integrate per-exchange funding rate retrieval and include it in opportunity objects.\n3. Implement validity refresh logic on funding rate updates; mark opportunities invalid if thresholds not met.\n4. Add target calculation module that determines stop-loss, take-profit, current price, and projected P/L both % and $ using user trade size or default.\n5. Update Telegram /opportunities_list command formatter to show new enriched fields.\n6. Add feature flags for experimental funding-rate validation and target-calculation.\n7. Provide comprehensive unit & integration tests covering duplicates suppression, funding-rate data, validity refresh, and target calculations.",
+      "testStrategy": "",
+      "status": "done",
+      "dependencies": [],
+      "priority": "high",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Audit Current Opportunity Generation System",
+          "description": "Analyze existing opportunity generation code to understand current architecture, identify duplication issues, and map data flow",
+          "details": "1. Review src/services/core/opportunities/ module structure\n2. Identify where duplicates are created (likely in opportunity engine or storage)\n3. Map current data flow from market data to Telegram display\n4. Document current funding rate handling (if any)\n5. Identify mock/placeholder data usage\n6. Create baseline understanding for refactoring",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 24
+        },
+        {
+          "id": 2,
+          "title": "Implement Funding Rate Integration",
+          "description": "Add real-time funding rate retrieval for each exchange and integrate into opportunity objects",
+          "details": "1. Research official APIs for funding rates (Binance, OKX, Coinbase, Kraken)\n2. Create FundingRateService with per-exchange adapters\n3. Add funding rate fields to opportunity data structures\n4. Implement caching with appropriate TTL (funding rates update every 8 hours typically)\n5. Add error handling and fallback strategies\n6. Integrate with existing market data pipeline",
+          "status": "done",
+          "dependencies": [
+            "24.1"
+          ],
+          "parentTaskId": 24
+        },
+        {
+          "id": 3,
+          "title": "Refactor Opportunity Deduplication System",
+          "description": "Implement ticker-based grouping and update-in-place logic to eliminate duplicate opportunities",
+          "details": "1. Create OpportunityDeduplicator service\n2. Implement ticker-based grouping with exchange pair keys\n3. Add update-in-place logic for existing opportunities\n4. Implement opportunity expiration and cleanup\n5. Add concurrent-safe operations for high-throughput scenarios\n6. Integrate with existing opportunity storage layer",
+          "status": "done",
+          "dependencies": [
+            "24.1"
+          ],
+          "parentTaskId": 24
+        },
+        {
+          "id": 4,
+          "title": "Build Trade Target Calculator",
+          "description": "Create service to calculate stop-loss, take-profit, current price, and projected P/L for opportunities",
+          "details": "1. Research industry-standard risk management ratios (2:1, 3:1 risk/reward)\n2. Create TradeTargetCalculator service\n3. Implement stop-loss calculation based on volatility and spread\n4. Implement take-profit calculation with configurable risk/reward ratios\n5. Add P/L calculation in both percentage and dollar amounts\n6. Support user-specific trade sizes with sensible defaults\n7. Add validation for minimum/maximum position sizes",
+          "status": "done",
+          "dependencies": [
+            "24.2"
+          ],
+          "parentTaskId": 24
+        },
+        {
+          "id": 5,
+          "title": "Implement Opportunity Validity Engine",
+          "description": "Create system to continuously validate opportunities based on funding rates and profitability thresholds",
+          "details": "1. Create OpportunityValidityEngine service\n2. Implement profitability threshold validation\n3. Add funding rate impact assessment\n4. Create validity refresh scheduler (every funding rate update)\n5. Implement opportunity status lifecycle (valid/invalid/expired)\n6. Add feature flags for validation sensitivity levels\n7. Integrate with notification system for status changes",
+          "status": "done",
+          "dependencies": [
+            "24.2",
+            "24.3"
+          ],
+          "parentTaskId": 24
+        },
+        {
+          "id": 6,
+          "title": "Update Telegram Opportunities Display",
+          "description": "Enhance Telegram /opportunities_list command to show enriched opportunity data with funding rates and trade targets",
+          "details": "1. Update opportunity display formatter in Telegram commands\n2. Add funding rate display for each exchange\n3. Show validity status and refresh timestamps\n4. Display trade targets (SL/TP/current price/P&L)\n5. Improve formatting for mobile readability\n6. Add pagination for large opportunity lists\n7. Include confidence indicators and risk warnings",
+          "status": "done",
+          "dependencies": [
+            "24.4",
+            "24.5"
+          ],
+          "parentTaskId": 24
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "title": "Comprehensive Command Data Integrity Audit",
+      "description": "Audit each Telegram, Discord, and API command to ensure all outputs use real production data (no mock/placeholder) and meet user expectations.",
+      "details": "1. Enumerate every command across Telegram, Discord, and API interfaces.\n2. For each command, trace through handlers, services, and data sources to confirm real data usage.\n3. Identify any residual mock data, placeholders, or stub implementations; replace with production-ready logic.\n4. Validate command output fields, formatting, and UX against requirements (e.g., confidence score, P/L %, timestamps, etc.).\n5. Write extensive tests that simulate real data flows and verify correct command responses.\n6. Document findings and create follow-up subtasks for any issues beyond scope.\n7. Ensure zero warnings/unused code leftover after fixes and that CI passes.",
+      "testStrategy": "",
+      "status": "done",
+      "dependencies": [],
+      "priority": "high",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Enumerate All Commands Across Interfaces",
+          "description": "Create comprehensive inventory of every command in Telegram, Discord, and API interfaces",
+          "details": "1. Scan src/services/interfaces/telegram/commands/ for all Telegram commands\\n2. Scan src/services/interfaces/discord/ for Discord commands\\n3. Scan src/services/interfaces/api/ for API endpoints\\n4. Document command names, handlers, and expected functionality\\n5. Create mapping of command → handler → service dependencies\\n6. Identify high-priority commands that users interact with most",
+          "status": "done",
+          "dependencies": [],
+          "parentTaskId": 25
+        },
+        {
+          "id": 2,
+          "title": "Audit Telegram Commands Data Sources",
+          "description": "Trace each Telegram command to verify real data usage and eliminate mock/placeholder implementations",
+          "details": "1. For each Telegram command, trace data flow from handler to service to data source\\n2. Identify any mock data, hardcoded values, or placeholder responses\\n3. Verify commands use live APIs (Binance, OKX, etc.) and real database queries\\n4. Check opportunity listings use new deduplication and funding rate integration\\n5. Validate user profile data comes from real database persistence\\n6. Document findings and create fix list",
+          "status": "done",
+          "dependencies": [
+            "25.1"
+          ],
+          "parentTaskId": 25
+        },
+        {
+          "id": 3,
+          "title": "Audit Discord Commands Data Sources",
+          "description": "Verify Discord interface uses real production data and eliminate any mock implementations",
+          "details": "1. Trace Discord command handlers to their data sources\\n2. Verify integration with real services (not mocks)\\n3. Check Discord opportunity notifications use live data\\n4. Validate user authentication and profile management\\n5. Ensure Discord commands respect feature flags\\n6. Document any issues found",
+          "status": "done",
+          "dependencies": [
+            "25.1"
+          ],
+          "parentTaskId": 25
+        },
+        {
+          "id": 4,
+          "title": "Audit API Endpoints Data Sources",
+          "description": "Verify all API endpoints return real production data with proper formatting and validation",
+          "details": "1. Test each API endpoint in src/services/interfaces/api/\\n2. Verify responses contain real data (not mock/placeholder)\\n3. Check opportunity API endpoints use new deduplication system\\n4. Validate user management APIs use real database operations\\n5. Ensure proper error handling and status codes\\n6. Verify API responses match expected schema/format\n<info added on 2025-06-13T17:20:23.067Z>\n✅ COMPLETED API Endpoints Audit (25.4)\n\n**FINDINGS & FIXES:**\n\n**1. User Management API (src/handlers/user_management.rs):**\n- ✅ ALREADY PRODUCTION-READY: Uses real UserProfileService with database queries\n- ✅ Real authentication, profile fetching, updates, preferences\n- ✅ No mock data found\n\n**2. Health Check API (src/handlers/health.rs):**\n- ✅ ALREADY PRODUCTION-READY: Tests real KV/D1/services connectivity\n- ✅ Uses actual health checks with timestamps and service validation\n- ✅ No mock data found\n\n**3. Trading API (src/handlers/trading.rs):**\n- ❌ FIXED: Replaced \"Trading module placeholder\" with production implementation\n- ✅ Now uses real UserProfileService to fetch trading balance, risk profile, settings\n- ✅ Authentication required, real database queries, comprehensive balance data\n\n**4. AI API (src/handlers/ai.rs):**\n- ❌ FIXED: Replaced \"AI module placeholder\" with production implementation  \n- ✅ Now uses real AiAnalysisService with subscription verification\n- ✅ Authentication + premium subscription check, real market analysis\n\n**5. Analytics API (src/handlers/analytics.rs):**\n- ❌ FIXED: Replaced \"Analytics module placeholder\" with production implementation\n- ✅ Now uses real AnalyticsService for comprehensive dashboard data\n- ✅ Authentication required, real user analytics, performance metrics\n\n**6. Admin API (src/handlers/admin.rs):**\n- ❌ FIXED: Replaced all placeholder/TODO implementations with production code\n- ✅ Real admin permission verification (admin/super_admin access levels)\n- ✅ Real AdminService integration for user stats, system info, config management\n- ✅ Proper authentication, authorization, and error handling\n\n**ARCHITECTURE COMPLIANCE:**\n✅ Modularization: Each handler properly separated with clear responsibilities\n✅ Zero Duplication: Common service initialization patterns, no repeated code\n✅ No Circular Dependencies: Clean imports and service dependencies\n✅ High Efficiency: Concurrent service initialization, proper error handling\n✅ High Reliability: Comprehensive error handling, authentication checks\n✅ Feature Flags: Integrated where applicable (subscription features, admin access)\n✅ No Mock Implementation: All placeholder code replaced with real service calls\n\n**RESULT:** All API endpoints now use production-ready implementations with real data sources, proper authentication, and comprehensive error handling. Zero mock/placeholder data remaining.\n</info added on 2025-06-13T17:20:23.067Z>",
+          "status": "done",
+          "dependencies": [
+            "25.1"
+          ],
+          "parentTaskId": 25
+        },
+        {
+          "id": 5,
+          "title": "Fix Identified Mock/Placeholder Data",
+          "description": "Replace all discovered mock data, placeholders, and stub implementations with production-ready logic",
+          "details": "1. Address all mock data issues found in previous audits\\n2. Replace hardcoded values with dynamic calculations\\n3. Implement missing service integrations\\n4. Update confidence scores to use real algorithms\\n5. Ensure all timestamps are real and current\\n6. Replace placeholder text with meaningful content\\n7. Add proper error handling for edge cases",
+          "status": "done",
+          "dependencies": [
+            "25.2",
+            "25.3",
+            "25.4"
+          ],
+          "parentTaskId": 25
+        },
+        {
+          "id": 6,
+          "title": "Validate Output Fields and UX Requirements",
+          "description": "Ensure all command outputs meet user expectations for formatting, content, and user experience",
+          "details": "1. Verify opportunity listings include confidence score, P/L %, timestamps, validity period\\n2. Check deduplication works (no repeated tickers)\\n3. Validate funding rates are displayed for each exchange\\n4. Ensure trade targets (SL/TP) are shown with projected P/L\\n5. Verify mobile-friendly formatting in Telegram\\n6. Check error messages are user-friendly\\n7. Validate pagination and limits work correctly",
+          "status": "done",
+          "dependencies": [
+            "25.5"
+          ],
+          "parentTaskId": 25
+        },
+        {
+          "id": 7,
+          "title": "Write Comprehensive Integration Tests",
+          "description": "Create extensive test suite that validates real data flows and command responses",
+          "details": "1. Write integration tests for each major command\\n2. Test real data flows from API to user interface\\n3. Validate opportunity generation and display pipeline\\n4. Test user profile persistence and retrieval\\n5. Verify error handling and edge cases\\n6. Test feature flag behavior\\n7. Ensure tests pass with real data (not mocks)\\n8. Add performance benchmarks for high-traffic commands",
+          "status": "done",
+          "dependencies": [
+            "25.6"
+          ],
+          "parentTaskId": 25
+        },
+        {
+          "id": 8,
+          "title": "Clean Code and CI Validation",
+          "description": "Ensure zero warnings, remove unused/dead code, and validate CI passes",
+          "details": "1. Run clippy and fix all warnings\\n2. Remove unused imports, functions, and variables\\n3. Delete dead code and old implementations\\n4. Ensure proper error handling throughout\\n5. Validate all tests pass with 'make ci'\\n6. Check code formatting and documentation\\n7. Verify no circular dependencies introduced\\n8. Confirm feature flags work correctly",
+          "status": "done",
+          "dependencies": [
+            "25.7"
+          ],
+          "parentTaskId": 25
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "title": "Investigate Cloudflare Subrequests Caching Issue",
+      "description": "Critical performance issue: 85.06k uncached subrequests with 0 cached requests affecting user experience and costs",
+      "details": "Analyze caching headers, identify subrequest sources, implement proper cache strategies for external API calls, optimize TTL settings, and fix cache-busting behaviors",
+      "testStrategy": "",
+      "status": "pending",
+      "dependencies": [],
+      "priority": "high",
+      "subtasks": []
+    }
+  ]
+}

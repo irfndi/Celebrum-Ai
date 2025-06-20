@@ -1,0 +1,69 @@
+# Task ID: 26
+# Title: Investigate Cloudflare Subrequests Caching Issue
+# Status: in-progress
+# Dependencies: None
+# Priority: high
+# Description: Critical performance issue: 85.06k uncached subrequests with 0 cached requests affecting user experience and costs
+# Details:
+Analyze caching headers, identify subrequest sources, implement proper cache strategies for external API calls, optimize TTL settings, and fix cache-busting behaviors
+
+# Test Strategy:
+
+
+# Subtasks:
+## 1. Analyze Current Cloudflare Caching Configuration [done]
+### Dependencies: None
+### Description: Review wrangler.toml, cache headers, and Cloudflare dashboard settings to understand current caching setup
+### Details:
+- Check cache rules in Cloudflare dashboard\n- Review wrangler.toml cache settings\n- Analyze response headers from production\n- Document current TTL settings\n- Check page rules and cache behavior
+
+## 2. Identify Source of Uncached Subrequests [in-progress]
+### Dependencies: None
+### Description: Use Cloudflare analytics and logs to identify which subrequests are causing the 85.06k uncached hits
+### Details:
+- Monitor wrangler tail logs for external API calls\n- Check Cloudflare analytics for subrequest patterns\n- Identify Binance API calls, exchange requests\n- Document frequency and timing of uncached requests\n- Analyze user behavior causing subrequests
+
+## 3. Review Exchange API Integration Caching [pending]
+### Dependencies: None
+### Description: Analyze how external exchange API calls are handled and implement proper caching strategies
+### Details:
+- Review Binance API client implementation\n- Check if responses have cache headers\n- Implement intelligent caching for market data\n- Add TTL for ticker/price data (30s-5min)\n- Cache funding rates for longer periods\n- Implement conditional requests (If-Modified-Since)
+
+## 4. Implement Enhanced KV Cache Layer [pending]
+### Dependencies: None
+### Description: Optimize the existing KV cache to reduce external subrequests and improve cache hit rates
+### Details:
+- Review enhanced_kv_cache module implementation\n- Add cache warming strategies\n- Implement intelligent cache invalidation\n- Add cache statistics and monitoring\n- Optimize cache keys and namespacing\n- Implement cache-aside pattern for external APIs
+
+## 5. Fix Response Headers for Edge Caching [pending]
+### Dependencies: None
+### Description: Add proper Cache-Control headers to enable Cloudflare edge caching for appropriate responses
+### Details:
+- Add Cache-Control headers to API responses\n- Implement different TTL for different endpoint types\n- Set proper ETags for cacheable content\n- Add Vary headers where needed\n- Implement cache tags for selective purging\n- Test cache behavior with different header combinations
+
+## 6. Monitor and Validate Caching Improvements [pending]
+### Dependencies: None
+### Description: Implement monitoring to track cache performance and validate that improvements are working
+### Details:
+- Add cache hit/miss metrics to monitoring\n- Create dashboard for cache performance\n- Monitor subrequest counts after changes\n- Set up alerts for cache degradation\n- Track cost impact of caching improvements\n- Validate cache behavior in production
+
+## 7. Check and implement Cloudflare Durable Objects [pending]
+### Dependencies: None
+### Description: Implement Cloudflare Durable Objects to manage cache state and improve performance
+### Details:
+- Review Durable Objects implementation\n- Add Durable Object for cache management\n- Implement cache invalidation logic\n- Add cache statistics and monitoring\n- Optimize Durable Object performance\n- Implement proper data synchronization
+
+## 8. Check data sync between Cloudflare Pipelines, Durable Objects, KV, D1 & R2 Buckets [pending]
+### Dependencies: None
+### Description: Ensure data is properly synchronized between Cloudflare services
+### Details:
+- Review data synchronization logic\n- Check if data is properly synced between services\n- Implement proper data synchronization logic\n- Add monitoring for data consistency\n- Implement proper data validation\n- Implement proper data backup and recovery
+- Check fault tolerance and recovery mechanisms for data synchronization, like if Cloudflare Pipelines down, then using other services, if all down direct using API calls for get market data with minimal database or cache usage.
+
+## 9. Investigate & Optimize the 5 minuts maintenanace window [pending]
+### Dependencies: None
+### Description: Ensure the 5 minuts maintenanace window is optimized for performance and cost
+### Details:
+- Change 5 minutes maintenance window to 30 minutes, or we have several tier maintenance windows, based on our data size and sync requirements.
+- Review when data must deleted from Cloudflare Pipelines, KV, D1, R2, Durable Objects, etc.
+- Review when data must sync/updated from Cloudflare Pipelines, KV, D1, R2, Durable Objects, etc.

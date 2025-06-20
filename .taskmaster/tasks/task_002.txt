@@ -1,0 +1,37 @@
+# Task ID: 2
+# Title: Fix Code Quality Issues
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Address code consistency and duplication issues
+# Details:
+Fix service initialization duplication in user management handlers, standardize timestamp usage, update KV namespace consistency.
+
+# Test Strategy:
+Run make ci to verify no compilation errors
+
+# Subtasks:
+## 1. Fix service initialization duplication in user_management.rs [done]
+### Dependencies: None
+### Description: Create helper function to consolidate repeated service initialization logic across four handlers
+### Details:
+Fixed by creating initialize_user_profile_service() helper function and replacing all four instances of duplicated initialization code
+
+## 2. Fix KV namespace inconsistency in RoundRobin distribution [done]
+### Dependencies: None
+### Description: Update KV namespace from "ARBITRAGE_KV" to "ArbEdgeKV" in queue_handlers.rs
+### Details:
+Fixed: Updated line 186 in src/queue_handlers.rs from ARBITRAGE_KV to ArbEdgeKV for consistency
+
+## 3. Fix exponential backoff overflow in retry logic [done]
+### Dependencies: None
+### Description: Replace unsafe exponential backoff calculation with overflow protection and maximum cap
+### Details:
+Fixed: Updated src/queue_handlers.rs lines 133+ to use checked_mul, saturating_pow, and 30-second maximum delay cap to prevent overflow
+
+## 4. Fix timestamp inconsistency in user_management.rs [done]
+### Dependencies: None
+### Description: Replace chrono::Utc::now().timestamp() with SystemTime for consistency
+### Details:
+Fixed: Replaced all 3 instances of chrono::Utc::now().timestamp() with SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 for consistency across codebase
+

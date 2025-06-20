@@ -1,0 +1,11 @@
+# Task ID: 13
+# Title: Fix Telegram Command Router
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Fix the Telegram modular command system to properly route commands to sophisticated handlers instead of using basic implementations. Currently CommandRouter::route_command uses basic implementations instead of delegating to sophisticated handlers in profile.rs, opportunities.rs, admin.rs, etc.
+# Details:
+Fixed command router to delegate to proper modular handlers with production-ready responses, RBAC support, and proper error handling. All CI tests now pass with 468 tests.
+
+# Test Strategy:
+All CI tests pass, commands properly delegate to modular handlers

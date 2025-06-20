@@ -1,0 +1,25 @@
+# Task ID: 4
+# Title: Fix Documentation Issues
+# Status: done
+# Dependencies: None
+# Priority: medium
+# Description: Resolve documentation formatting and clarity issues
+# Details:
+Fix formatting in .roomodes file, clarify boomerang rules documentation, expand or remove underdeveloped sections.
+
+# Test Strategy:
+Verify documentation renders correctly and is clear
+
+# Subtasks:
+## 1. Fix boomerang-rules mode_triggers comment clarity [done]
+### Dependencies: None
+### Description: Update unclear comment about mode_triggers purpose in .roo/rules-boomerang/boomerang-rules
+### Details:
+Fixed: Updated mode_triggers comment to explicitly state these are used BY other modes for autonomous inter-mode handoffs, NOT evaluated by Boomerang for delegation decisions
+
+## 2. Expand underdeveloped Code Analysis & Refactoring section [done]
+### Dependencies: None
+### Description: Add more techniques with use cases and scenarios to dev_workflow.md section
+### Details:
+Fixed: Expanded section with 5 comprehensive techniques including Dependency Analysis, Pattern Detection, Type Usage Analysis, and Error Handling Patterns with detailed use cases, commands, and scenarios for each
+

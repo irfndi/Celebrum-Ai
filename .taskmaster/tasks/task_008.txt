@@ -1,0 +1,11 @@
+# Task ID: 8
+# Title: Analyze Existing Dev Test Script
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Analyze the existing `scripts/dev/test_telegram_webhook.sh` to understand its current functionality and identify necessary changes for the new modular architecture.
+# Details:
+
+
+# Test Strategy:
+

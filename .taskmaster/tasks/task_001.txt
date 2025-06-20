@@ -1,0 +1,31 @@
+# Task ID: 1
+# Title: Fix Security Vulnerabilities
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Remove hardcoded API keys and fix security-related issues
+# Details:
+Remove hardcoded API keys from .cursor/mcp.json and replace with environment variables. Fix WebPush VAPID authentication implementation.
+
+# Test Strategy:
+Verify no secrets in git history, test WebPush functionality
+
+# Subtasks:
+## 1. Remove hardcoded API keys from .cursor/mcp.json [done]
+### Dependencies: None
+### Description: Replace hardcoded API keys with environment variable references in .cursor/mcp.json lines 7-8
+### Details:
+Need to replace hardcoded secret keys with ${ENV_VAR_NAME} placeholders and ensure actual keys are stored securely
+
+## 2. Fix WebPush VAPID authentication [done]
+### Dependencies: None
+### Description: Implement proper VAPID authentication with JWT tokens in WebPush service
+### Details:
+Fix src/queue_handlers.rs lines 687-744 to implement proper JWT token generation using VAPID private key, proper Authorization and Crypto-Key headers, and payload encryption
+
+## 3. Replace placeholder API endpoints [done]
+### Dependencies: None
+### Description: Replace hardcoded placeholder API endpoints with configurable URLs
+### Details:
+Fix src/queue_handlers.rs lines 604 and 655 - replace https://api.example.com/send_email with configurable email service URL, verify SMS service URL is correct
+
