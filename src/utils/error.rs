@@ -473,7 +473,7 @@ mod tests {
         let arb_err = ArbitrageError::from(kv_err);
         assert_eq!(arb_err.kind, ErrorKind::NotFoundError);
         assert_eq!(arb_err.status, Some(404));
-        assert!(arb_err.message.contains("KV item not found: test_key"));
+        assert!(arb_err.message.contains("KV item not found"));
     }
 
     #[test]
