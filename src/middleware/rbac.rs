@@ -86,6 +86,7 @@ pub async fn check_user_permissions(user_id: &str, required_tier: &str, env: &En
             types::SubscriptionTier::Basic => "Basic",
             types::SubscriptionTier::Premium => "Premium",
             types::SubscriptionTier::Pro => "Pro",
+            types::SubscriptionTier::Ultra => "Ultra",
             types::SubscriptionTier::Enterprise => "Enterprise",
             types::SubscriptionTier::Beta => "Beta",
         };

@@ -25,7 +25,9 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@arb-edge/shared": ["../shared/dist/index"],
+      "@arb-edge/shared/*": ["../shared/dist/*"]
     },
     "types": ["@cloudflare/workers-types"]
   },
@@ -38,4 +40,4 @@
     "**/*.test.ts",
     "**/*.spec.ts"
   ]
-} 
+}

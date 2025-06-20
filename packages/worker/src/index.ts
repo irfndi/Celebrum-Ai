@@ -9,6 +9,9 @@ import { ServiceRouter } from './services/router';
 import { HealthCheck } from './middleware/health';
 import { RateLimiter } from './middleware/rate-limit';
 import { ErrorHandler } from './middleware/error';
+import { AppError } from '@arb-edge/shared/errors';
+import { APP_NAME, APP_VERSION } from '@arb-edge/shared/constants';
+import { ApiResponse } from '@arb-edge/shared/types';
 
 // Cloudflare Worker Environment
 export interface Env {
@@ -102,7 +105,6 @@ const worker = {
   },
 };
 
-// Export types for other packages
-export type { Env };
+// Export app and worker
 export { app };
 export default worker;

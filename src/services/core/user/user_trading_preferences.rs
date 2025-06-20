@@ -3,6 +3,7 @@
 
 use crate::services::core::infrastructure::DatabaseManager;
 use crate::utils::{logger::Logger, ArbitrageError, ArbitrageResult};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -164,14 +165,7 @@ impl UserTradingPreferences {
     pub fn new_default(user_id: String) -> Self {
         let preference_id = format!("pref_{}", user_id);
 
-        // Use different timestamp generation for WASM vs native
-        #[cfg(target_arch = "wasm32")]
-        let now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = Utc::now().timestamp_millis() as u64;
 
         Self {
             preference_id,
@@ -207,17 +201,7 @@ impl UserTradingPreferences {
         self.technical_enabled = true;
 
         // Update timestamp
-        #[cfg(target_arch = "wasm32")]
-        {
-            self.updated_at = js_sys::Date::now() as u64;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.updated_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-        }
+        self.updated_at = Utc::now().timestamp_millis() as u64;
 
         Ok(())
     }
@@ -253,17 +237,7 @@ impl UserTradingPreferences {
         self.automation_scope = scope;
 
         // Update timestamp
-        #[cfg(target_arch = "wasm32")]
-        {
-            self.updated_at = js_sys::Date::now() as u64;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.updated_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-        }
+        self.updated_at = Utc::now().timestamp_millis() as u64;
 
         Ok(())
     }
@@ -444,16 +418,7 @@ impl UserTradingPreferencesService {
 
     /// Get current timestamp in milliseconds
     fn get_current_timestamp(&self) -> u64 {
-        #[cfg(target_arch = "wasm32")]
-        {
-            js_sys::Date::now() as u64
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64
+        Utc::now().timestamp_millis() as u64
         }
     }
 
@@ -536,17 +501,7 @@ impl UserTradingPreferencesService {
         }
 
         // Update timestamp
-        #[cfg(target_arch = "wasm32")]
-        {
-            preferences.updated_at = js_sys::Date::now() as u64;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            preferences.updated_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-        }
+        preferences.updated_at = Utc::now().timestamp_millis() as u64;
 
         self.update_preferences(&preferences).await?;
 
@@ -565,17 +520,7 @@ impl UserTradingPreferencesService {
         preferences.set_automation_level(level, scope)?;
 
         // Update timestamp
-        #[cfg(target_arch = "wasm32")]
-        {
-            preferences.updated_at = js_sys::Date::now() as u64;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            preferences.updated_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-        }
+        preferences.updated_at = Utc::now().timestamp_millis() as u64;
 
         self.update_preferences(&preferences).await?;
 
@@ -673,16 +618,7 @@ impl UserTradingPreferencesService {
         }
 
         // Update timestamp
-        #[cfg(target_arch = "wasm32")]
-        {
-            preferences.updated_at = js_sys::Date::now() as u64;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            preferences.updated_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
+        preferences.updated_at = Utc::now().timestamp_millis() as u64;
         }
 
         self.update_preferences(&preferences).await?;

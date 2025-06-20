@@ -4,6 +4,7 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use worker::Method;
+use chrono;
 
 use crate::services::core::user::user_exchange_api::RateLimitInfo;
 use crate::services::core::user::user_profile::UserProfileService;
@@ -477,32 +478,197 @@ impl ExchangeInterface for ExchangeService {
             exchange_id
         );
 
-        // For now, normalize symbol format for Binance (BTCUSDT format)
-        let normalized_symbol = symbol.replace("/", "").replace("-", "").to_uppercase();
-
-        // Log which exchange is being called to track the fix
+        // Route to the correct exchange based on exchange_id parameter
         match exchange_id.to_lowercase().as_str() {
             "binance" => {
-                log::debug!("✅ ROUTING - Calling Binance API for {}", normalized_symbol);
+                log::debug!("✅ ROUTING - Calling Binance API for {}", symbol);
+                self.get_binance_ticker(symbol).await
+            }
+            "bybit" => {
+                log::debug!("✅ ROUTING - Calling Bybit API for {}", symbol);
+                self.get_bybit_ticker(symbol).await
+            }
+            "coinbase" => {
+                log::debug!("✅ ROUTING - Calling Coinbase API for {}", symbol);
+                self.get_coinbase_ticker(symbol).await
+            }
+            "okx" => {
+                log::debug!("✅ ROUTING - Calling OKX API for {}", symbol);
+                self.get_okx_ticker(symbol).await
             }
             _ => {
-                log::warn!(
-                    "⚠️ UNSUPPORTED EXCHANGE - {} not implemented, falling back to Binance for {}",
+                log::error!(
+                    "❌ UNSUPPORTED EXCHANGE - {} not implemented for {}",
                     exchange_id,
-                    normalized_symbol
+                    symbol
                 );
+                Err(ArbitrageError::exchange_error(
+                    exchange_id,
+                    "Exchange not supported"
+                ))
             }
         }
+    }
 
-        // Implementation for getting ticker data (currently Binance only, but properly logged)
+    async fn get_markets(&self, _exchange_id: &str) -> ArbitrageResult<Vec<Market>> {
+        Err(ArbitrageError::not_implemented(
+            "get_markets not implemented".to_string(),
+        ))
+    }
+
+    async fn get_orderbook(
+        &self,
+        _exchange_id: &str,
+        _symbol: &str,
+        _limit: Option<u32>,
+    ) -> ArbitrageResult<OrderBook> {
+        Err(ArbitrageError::not_implemented(
+            "get_orderbook not implemented".to_string(),
+        ))
+    }
+
+    async fn fetch_funding_rates(
+        &self,
+        _exchange_id: &str,
+        _symbol: Option<&str>,
+    ) -> ArbitrageResult<Vec<Value>> {
+        Err(ArbitrageError::not_implemented(
+            "fetch_funding_rates not implemented".to_string(),
+        ))
+    }
+
+    async fn get_balance(
+        &self,
+        exchange_id: &str,
+        _credentials: &ExchangeCredentials,
+    ) -> ArbitrageResult<Value> {
+        Err(ArbitrageError::not_implemented(format!(
+            "get_balance not implemented for exchange: {}",
+            exchange_id
+        )))
+    }
+
+    async fn create_order(
+        &self,
+        exchange_id: &str,
+        _credentials: &ExchangeCredentials,
+        _symbol: &str,
+        _side: &str,
+        _amount: f64,
+        _price: Option<f64>,
+    ) -> ArbitrageResult<Order> {
+        Err(ArbitrageError::not_implemented(format!(
+            "create_order not implemented for exchange: {}",
+            exchange_id
+        )))
+    }
+
+    async fn cancel_order(
+        &self,
+        exchange_id: &str,
+        _credentials: &ExchangeCredentials,
+        _order_id: &str,
+        _symbol: &str,
+    ) -> ArbitrageResult<Order> {
+        Err(ArbitrageError::not_implemented(format!(
+            "cancel_order not implemented for exchange: {}",
+            exchange_id
+        )))
+    }
+
+    async fn get_open_orders(
+        &self,
+        exchange_id: &str,
+        _credentials: &ExchangeCredentials,
+        _symbol: Option<&str>,
+    ) -> ArbitrageResult<Vec<Order>> {
+        Err(ArbitrageError::not_implemented(format!(
+            "get_open_orders not implemented for exchange: {}",
+            exchange_id
+        )))
+    }
+
+    async fn get_open_positions(
+        &self,
+        exchange_id: &str,
+        _credentials: &ExchangeCredentials,
+        _symbol: Option<&str>,
+    ) -> ArbitrageResult<Vec<Position>> {
+        Err(ArbitrageError::not_implemented(format!(
+            "get_open_positions not implemented for exchange: {}",
+            exchange_id
+        )))
+    }
+
+    #[allow(dead_code)]
+    async fn set_leverage(
+        &self,
+        exchange_id: &str,
+        _credentials: &ExchangeCredentials,
+        _symbol: &str,
+        _leverage: u32,
+    ) -> ArbitrageResult<()> {
+        Err(ArbitrageError::not_implemented(format!(
+            "set_leverage not implemented for exchange: {}",
+            exchange_id
+        )))
+    }
+
+    #[allow(dead_code)]
+    async fn get_trading_fees(
+        &self,
+        exchange_id: &str,
+        _credentials: &ExchangeCredentials,
+        _symbol: &str,
+    ) -> ArbitrageResult<TradingFees> {
+        Err(ArbitrageError::not_implemented(format!(
+            "get_trading_fees not implemented for exchange: {}",
+            exchange_id
+        )))
+    }
+
+    #[allow(dead_code)]
+    async fn test_api_connection(
+        &self,
+        exchange_id: &str,
+        _api_key: &str,
+        _secret: &str,
+    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
+        Err(ArbitrageError::not_implemented(format!(
+            "API connection testing not implemented for exchange: {}. Use UserExchangeApiService for credential validation.",
+            exchange_id
+        )))
+    }
+
+    #[allow(dead_code)]
+    async fn test_api_connection_with_options(
+        &self,
+        exchange_id: &str,
+        _api_key: &str,
+        _secret: &str,
+        _leverage: Option<i32>,
+        _exchange_type: Option<&str>,
+    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
+        Err(ArbitrageError::not_implemented(format!(
+            "API connection testing with options not implemented for exchange: {}. Use UserExchangeApiService for credential validation.",
+            exchange_id
+        )))
+    }
+}
+
+impl ExchangeService {
+    /// Get ticker from Binance
+    async fn get_binance_ticker(&self, symbol: &str) -> ArbitrageResult<Ticker> {
+        // Normalize symbol format for Binance (BTCUSDT format)
+        let normalized_symbol = symbol.replace("/", "").replace("-", "").to_uppercase();
+        
         let endpoint = format!("/api/v3/ticker/24hr?symbol={}", normalized_symbol);
         let response = self
             .binance_request(&endpoint, Method::Get, None, None)
             .await?;
 
         log::debug!(
-            "✅ TICKER RESPONSE - Exchange: {}, Symbol: {}, Price: ${}",
-            exchange_id,
+            "✅ BINANCE TICKER - Symbol: {}, Price: ${}",
             normalized_symbol,
             response
                 .get("lastPrice")
@@ -584,6 +750,270 @@ impl ExchangeInterface for ExchangeService {
         })
     }
 
+    /// Get ticker from Bybit
+    async fn get_bybit_ticker(&self, symbol: &str) -> ArbitrageResult<Ticker> {
+        // Normalize symbol format for Bybit (BTCUSDT format)
+        let normalized_symbol = symbol.replace("/", "").replace("-", "").to_uppercase();
+        
+        let endpoint = format!("/v5/market/tickers?category=spot&symbol={}", normalized_symbol);
+        let response = self
+            .bybit_request_real(&endpoint, Method::Get, None, None)
+            .await?;
+
+        log::debug!(
+            "✅ BYBIT TICKER - Symbol: {}, Price: ${}",
+            normalized_symbol,
+            response
+                .get("result")
+                .and_then(|r| r.get("list"))
+                .and_then(|l| l.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|item| item.get("lastPrice"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("0")
+        );
+
+        // Parse Bybit response format
+        let ticker_data = response
+            .get("result")
+            .and_then(|r| r.get("list"))
+            .and_then(|l| l.as_array())
+            .and_then(|arr| arr.first())
+            .ok_or_else(|| ArbitrageError::api_error("Invalid Bybit ticker response".to_string()))?;
+
+        Ok(Ticker {
+            symbol: normalized_symbol,
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            datetime: chrono::Utc::now().to_rfc3339(),
+            high: ticker_data
+                .get("highPrice24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            low: ticker_data
+                .get("lowPrice24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            bid: ticker_data
+                .get("bid1Price")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            bid_volume: ticker_data
+                .get("bid1Size")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            ask: ticker_data
+                .get("ask1Price")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            ask_volume: ticker_data
+                .get("ask1Size")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            vwap: None,
+            open: ticker_data
+                .get("prevPrice24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            close: ticker_data
+                .get("lastPrice")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            last: ticker_data
+                .get("lastPrice")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            previous_close: ticker_data
+                .get("prevPrice24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            change: ticker_data
+                .get("price24hPcnt")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<f64>().ok())
+                .map(|p| p * 100.0), // Convert to percentage
+            percentage: ticker_data
+                .get("price24hPcnt")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<f64>().ok())
+                .map(|p| p * 100.0), // Convert to percentage
+            average: None,
+            base_volume: ticker_data
+                .get("volume24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            quote_volume: ticker_data
+                .get("turnover24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            volume: ticker_data
+                .get("volume24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            info: ticker_data.clone(),
+        })
+    }
+
+    /// Get ticker from Coinbase
+    async fn get_coinbase_ticker(&self, symbol: &str) -> ArbitrageResult<Ticker> {
+        // Normalize symbol format for Coinbase (BTC-USD format)
+        let normalized_symbol = symbol.replace("/", "-").to_uppercase();
+        
+        let endpoint = format!("/products/{}/ticker", normalized_symbol);
+        let response = self
+            .coinbase_request_real(&endpoint, Method::Get, None, None)
+            .await?;
+
+        log::debug!(
+            "✅ COINBASE TICKER - Symbol: {}, Price: ${}",
+            normalized_symbol,
+            response
+                .get("price")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0")
+        );
+
+        Ok(Ticker {
+            symbol: normalized_symbol,
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            datetime: chrono::Utc::now().to_rfc3339(),
+            high: response
+                .get("high")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            low: response
+                .get("low")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            bid: response
+                .get("bid")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            bid_volume: None,
+            ask: response
+                .get("ask")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            ask_volume: None,
+            vwap: None,
+            open: response
+                .get("open")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            close: response
+                .get("price")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            last: response
+                .get("price")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            previous_close: None,
+            change: None,
+            percentage: None,
+            average: None,
+            base_volume: response
+                .get("volume")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            quote_volume: None,
+            volume: response
+                .get("volume")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            info: response,
+        })
+    }
+
+    /// Get ticker from OKX
+    async fn get_okx_ticker(&self, symbol: &str) -> ArbitrageResult<Ticker> {
+        // Normalize symbol format for OKX (BTC-USDT format)
+        let normalized_symbol = symbol.replace("/", "-").to_uppercase();
+        
+        let endpoint = format!("/api/v5/market/ticker?instId={}", normalized_symbol);
+        let response = self
+            .okx_request_real(&endpoint, Method::Get, None, None)
+            .await?;
+
+        log::debug!(
+            "✅ OKX TICKER - Symbol: {}, Price: ${}",
+            normalized_symbol,
+            response
+                .get("data")
+                .and_then(|d| d.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|item| item.get("last"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("0")
+        );
+
+        // Parse OKX response format
+        let ticker_data = response
+            .get("data")
+            .and_then(|d| d.as_array())
+            .and_then(|arr| arr.first())
+            .ok_or_else(|| ArbitrageError::api_error("Invalid OKX ticker response".to_string()))?;
+
+        Ok(Ticker {
+            symbol: normalized_symbol,
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            datetime: chrono::Utc::now().to_rfc3339(),
+            high: ticker_data
+                .get("high24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            low: ticker_data
+                .get("low24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            bid: ticker_data
+                .get("bidPx")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            bid_volume: ticker_data
+                .get("bidSz")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            ask: ticker_data
+                .get("askPx")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            ask_volume: ticker_data
+                .get("askSz")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            vwap: None,
+            open: ticker_data
+                .get("open24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            close: ticker_data
+                .get("last")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            last: ticker_data
+                .get("last")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            previous_close: None,
+            change: None,
+            percentage: None,
+            average: None,
+            base_volume: ticker_data
+                .get("vol24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            quote_volume: ticker_data
+                .get("volCcy24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            volume: ticker_data
+                .get("vol24h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            info: ticker_data.clone(),
+        })
+    }
+
     async fn fetch_funding_rates(
         &self,
         exchange_id: &str,
@@ -617,6 +1047,7 @@ impl ExchangeInterface for ExchangeService {
         }
     }
 
+    #[allow(dead_code)]
     async fn get_markets(&self, exchange_id: &str) -> ArbitrageResult<Vec<Market>> {
         Err(ArbitrageError::not_implemented(format!(
             "Market listing not implemented for exchange: {}. Use exchange-specific APIs for market data.",
@@ -624,6 +1055,7 @@ impl ExchangeInterface for ExchangeService {
         )))
     }
 
+    #[allow(dead_code)]
     async fn get_orderbook(
         &self,
         exchange_id: &str,
@@ -636,122 +1068,8 @@ impl ExchangeInterface for ExchangeService {
         )))
     }
 
-    async fn get_balance(
-        &self,
-        _exchange_id: &str,
-        credentials: &ExchangeCredentials,
-    ) -> ArbitrageResult<Value> {
-        // Implementation for getting balance
-        let endpoint = "/api/v3/account";
-        let response = self
-            .binance_request(endpoint, Method::Get, None, Some(credentials))
-            .await?;
-        Ok(response)
-    }
-
-    async fn create_order(
-        &self,
-        exchange_id: &str,
-        _credentials: &ExchangeCredentials,
-        symbol: &str,
-        side: &str,
-        amount: f64,
-        price: Option<f64>,
-    ) -> ArbitrageResult<Order> {
-        Err(ArbitrageError::not_implemented(format!(
-            "Order creation not implemented for exchange: {} (symbol: {}, side: {}, amount: {}, price: {:?}). Use UserExchangeApiService for trading operations.",
-            exchange_id, symbol, side, amount, price
-        )))
-    }
-
-    async fn cancel_order(
-        &self,
-        exchange_id: &str,
-        _credentials: &ExchangeCredentials,
-        order_id: &str,
-        symbol: &str,
-    ) -> ArbitrageResult<Order> {
-        Err(ArbitrageError::not_implemented(format!(
-            "Order cancellation not implemented for exchange: {} (order_id: {}, symbol: {}). Use UserExchangeApiService for trading operations.",
-            exchange_id, order_id, symbol
-        )))
-    }
-
-    async fn get_open_orders(
-        &self,
-        exchange_id: &str,
-        _credentials: &ExchangeCredentials,
-        symbol: Option<&str>,
-    ) -> ArbitrageResult<Vec<Order>> {
-        Err(ArbitrageError::not_implemented(format!(
-            "Open orders fetching not implemented for exchange: {} (symbol: {:?}). Use UserExchangeApiService for account data.",
-            exchange_id, symbol
-        )))
-    }
-
-    async fn get_open_positions(
-        &self,
-        exchange_id: &str,
-        _credentials: &ExchangeCredentials,
-        symbol: Option<&str>,
-    ) -> ArbitrageResult<Vec<Position>> {
-        Err(ArbitrageError::not_implemented(format!(
-            "Position fetching not implemented for exchange: {} (symbol: {:?}). Use UserExchangeApiService for account data.",
-            exchange_id, symbol
-        )))
-    }
-
-    async fn set_leverage(
-        &self,
-        exchange_id: &str,
-        _credentials: &ExchangeCredentials,
-        symbol: &str,
-        leverage: u32,
-    ) -> ArbitrageResult<()> {
-        Err(ArbitrageError::not_implemented(format!(
-            "Leverage setting not implemented for exchange: {} (symbol: {}, leverage: {}). Use UserExchangeApiService for account management.",
-            exchange_id, symbol, leverage
-        )))
-    }
-
-    async fn get_trading_fees(
-        &self,
-        exchange_id: &str,
-        _credentials: &ExchangeCredentials,
-        symbol: &str,
-    ) -> ArbitrageResult<TradingFees> {
-        Err(ArbitrageError::not_implemented(format!(
-            "Trading fees fetching not implemented for exchange: {} (symbol: {}). Use exchange-specific APIs for fee information.",
-            exchange_id, symbol
-        )))
-    }
-
-    async fn test_api_connection(
-        &self,
-        exchange_id: &str,
-        _api_key: &str,
-        _secret: &str,
-    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
-        Err(ArbitrageError::not_implemented(format!(
-            "API connection testing not implemented for exchange: {}. Use UserExchangeApiService for credential validation.",
-            exchange_id
-        )))
-    }
-
-    async fn test_api_connection_with_options(
-        &self,
-        exchange_id: &str,
-        _api_key: &str,
-        _secret: &str,
-        _leverage: Option<i32>,
-        _exchange_type: Option<&str>,
-    ) -> ArbitrageResult<(bool, bool, Option<RateLimitInfo>)> {
-        Err(ArbitrageError::not_implemented(format!(
-            "API connection testing with options not implemented for exchange: {}. Use UserExchangeApiService for credential validation.",
-            exchange_id
-        )))
-    }
 }
+
 
 impl ExchangeService {
     /// Binance futures-specific request method
@@ -767,7 +1085,181 @@ impl ExchangeService {
             .await
     }
 
-    /// Bybit-specific request method
+    /// Real Bybit API request implementation
+    async fn bybit_request_real(
+        &self,
+        endpoint: &str,
+        method: Method,
+        params: Option<serde_json::Value>,
+        headers: Option<std::collections::HashMap<String, String>>,
+    ) -> ArbitrageResult<serde_json::Value> {
+        let base_url = "https://api.bybit.com";
+        let url = format!("{}{}", base_url, endpoint);
+        
+        log::debug!("🔄 BYBIT REQUEST - {:?} {}", method, url);
+        
+        let mut request_init = worker::RequestInit::new();
+        request_init.with_method(method.clone());
+        
+        // Set headers
+        let mut headers_obj = worker::Headers::new();
+        headers_obj.set("Content-Type", "application/json")?;
+        headers_obj.set("User-Agent", "ArbEdge/1.0")?;
+        
+        if let Some(custom_headers) = headers {
+            for (key, value) in custom_headers {
+                headers_obj.set(&key, &value)?;
+            }
+        }
+        
+        request_init.with_headers(headers_obj);
+        
+        // Set body for POST/PUT requests
+        if let Some(body) = params {
+            let body_str = serde_json::to_string(&body).map_err(|e| {
+                ArbitrageError::api_error(format!("Failed to serialize request body: {}", e))
+            })?;
+            request_init.with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body_str)));
+        }
+        
+        let request = worker::Request::new_with_init(&url, &request_init)?;
+        
+        let mut response = worker::Fetch::Request(request).send().await?;
+        
+        if response.status_code() != 200 {
+            return Err(ArbitrageError::api_error(format!(
+                "Bybit API error: HTTP {}",
+                response.status_code()
+            )));
+        }
+        
+        let text = response.text().await?;
+        let parsed: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+            ArbitrageError::api_error(format!("Failed to parse JSON response: {}", e))
+        })?;
+        
+        log::debug!("✅ BYBIT RESPONSE - Status: {}", response.status_code());
+        
+        Ok(parsed)
+    }
+    
+    /// Real Coinbase API request implementation
+    async fn coinbase_request_real(
+        &self,
+        endpoint: &str,
+        method: Method,
+        params: Option<serde_json::Value>,
+        headers: Option<std::collections::HashMap<String, String>>,
+    ) -> ArbitrageResult<serde_json::Value> {
+        let base_url = "https://api.exchange.coinbase.com";
+        let url = format!("{}{}", base_url, endpoint);
+        
+        log::debug!("🔄 COINBASE REQUEST - {:?} {}", method, url);
+        
+        let mut request_init = worker::RequestInit::new();
+        request_init.with_method(method.clone());
+        
+        // Set headers
+        let mut headers_obj = worker::Headers::new();
+        headers_obj.set("Content-Type", "application/json")?;
+        headers_obj.set("User-Agent", "ArbEdge/1.0")?;
+        
+        if let Some(custom_headers) = headers {
+            for (key, value) in custom_headers {
+                headers_obj.set(&key, &value)?;
+            }
+        }
+        
+        request_init.with_headers(headers_obj);
+        
+        // Set body for POST/PUT requests
+        if let Some(body) = params {
+            let body_str = serde_json::to_string(&body).map_err(|e| {
+                ArbitrageError::api_error(format!("Failed to serialize request body: {}", e))
+            })?;
+            request_init.with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body_str)));
+        }
+        
+        let request = worker::Request::new_with_init(&url, &request_init)?;
+        
+        let mut response = worker::Fetch::Request(request).send().await?;
+        
+        if response.status_code() != 200 {
+            return Err(ArbitrageError::api_error(format!(
+                "Coinbase API error: HTTP {}",
+                response.status_code()
+            )));
+        }
+        
+        let text = response.text().await?;
+        let parsed: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+            ArbitrageError::api_error(format!("Failed to parse JSON response: {}", e))
+        })?;
+        
+        log::debug!("✅ COINBASE RESPONSE - Status: {}", response.status_code());
+        
+        Ok(parsed)
+    }
+    
+    /// Real OKX API request implementation
+    async fn okx_request_real(
+        &self,
+        endpoint: &str,
+        method: Method,
+        params: Option<serde_json::Value>,
+        headers: Option<std::collections::HashMap<String, String>>,
+    ) -> ArbitrageResult<serde_json::Value> {
+        let base_url = "https://www.okx.com";
+        let url = format!("{}{}", base_url, endpoint);
+        
+        log::debug!("🔄 OKX REQUEST - {:?} {}", method, url);
+        
+        let mut request_init = worker::RequestInit::new();
+        request_init.with_method(method.clone());
+        
+        // Set headers
+        let mut headers_obj = worker::Headers::new();
+        headers_obj.set("Content-Type", "application/json")?;
+        headers_obj.set("User-Agent", "ArbEdge/1.0")?;
+        
+        if let Some(custom_headers) = headers {
+            for (key, value) in custom_headers {
+                headers_obj.set(&key, &value)?;
+            }
+        }
+        
+        request_init.with_headers(headers_obj);
+        
+        // Set body for POST/PUT requests
+        if let Some(body) = params {
+            let body_str = serde_json::to_string(&body).map_err(|e| {
+                ArbitrageError::api_error(format!("Failed to serialize request body: {}", e))
+            })?;
+            request_init.with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body_str)));
+        }
+        
+        let request = worker::Request::new_with_init(&url, &request_init)?;
+        
+        let mut response = worker::Fetch::Request(request).send().await?;
+        
+        if response.status_code() != 200 {
+            return Err(ArbitrageError::api_error(format!(
+                "OKX API error: HTTP {}",
+                response.status_code()
+            )));
+        }
+        
+        let text = response.text().await?;
+        let parsed: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+            ArbitrageError::api_error(format!("Failed to parse JSON response: {}", e))
+        })?;
+        
+        log::debug!("✅ OKX RESPONSE - Status: {}", response.status_code());
+        
+        Ok(parsed)
+    }
+    
+    /// Bybit-specific request method (legacy)
     async fn bybit_request(
         &self,
         endpoint: &str,

@@ -7,6 +7,7 @@ use crate::services::core::infrastructure::database_repositories::DatabaseManage
 use crate::services::core::user::user_trading_preferences::UserTradingPreferencesService;
 use crate::services::core::user::user_trading_preferences::{TradingFocus, UserTradingPreferences};
 use crate::utils::{logger::Logger, ArbitrageError, ArbitrageResult};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -36,13 +37,7 @@ pub struct PriceSeries {
 
 impl PriceSeries {
     pub fn new(trading_pair: String, exchange_id: String, timeframe: TimeFrame) -> Self {
-        #[cfg(target_arch = "wasm32")]
-        let now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = Utc::now().timestamp_millis() as u64;
 
         Self {
             trading_pair,
@@ -62,17 +57,7 @@ impl PriceSeries {
 
         self.data_points.insert(insertion_pos, point);
 
-        #[cfg(target_arch = "wasm32")]
-        {
-            self.last_updated = js_sys::Date::now() as u64;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.last_updated = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-        }
+        self.last_updated = Utc::now().timestamp_millis() as u64;
     }
 
     /// Get the latest price point
@@ -586,13 +571,7 @@ impl MarketAnalysisService {
 
     /// Evict expired cache entries based on TTL
     fn evict_expired_cache_entries(&mut self) {
-        #[cfg(target_arch = "wasm32")]
-        let now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = Utc::now().timestamp_millis() as u64;
 
         let expired_keys: Vec<String> = self
             .price_cache
@@ -654,13 +633,7 @@ impl MarketAnalysisService {
             serde_json::Value::Number(serde_json::Number::from(self.cache_ttl_ms)),
         );
 
-        #[cfg(target_arch = "wasm32")]
-        let now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = Utc::now().timestamp_millis() as u64;
 
         let expired_count = self
             .price_cache
@@ -1038,13 +1011,7 @@ impl MarketAnalysisService {
         let prices = series.price_values();
         let mut results = Vec::new();
 
-        #[cfg(target_arch = "wasm32")]
-        let now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = Utc::now().timestamp_millis() as u64;
 
         for &indicator in indicators {
             match indicator {

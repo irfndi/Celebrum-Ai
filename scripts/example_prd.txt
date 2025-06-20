@@ -1,0 +1,51 @@
+<context>
+# Overview  
+The product is a single Python automation script that runs in a Streamlit app. 
+[Provide a high-level overview of your product here. Explain what problem it solves and the name of app integrations required for the automation script.]
+
+# Core Features  
+[List and describe every function in your Python automation script. For each function, include:
+- What it does
+- Why it's important
+- The Python SDK names of app integrations related to this feature, such as HubSpot, Salesforce, Monday.com, Jira, etc.
+- The tool names required to work on the task, such as to get name of the correct SDK, to edit code, to add new files, etc.
+- How it works at a high level]
+
+# User Experience  
+[Describe the user journey and experience. Include:
+- Key user flows
+- UI/UX considerations in Streamlit app only]
+</context>
+<PRD>
+# Technical Architecture  
+[Outline the technical implementation details:
+- System components must be a single Python file, named 'app.py'
+- List of Python SDK names to be saved in 'requirements.txt' file. Do not need to setup development environment or install dependencies because they will be installed directly from the 'requirements.txt' file by USER.
+- No .env file required. Have input fields for API key and other authentication data to be manually input by USER instead
+- Data models
+- APIs and integrations
+- Infrastructure requirements]
+
+# Development Roadmap  
+[Break down the development process into phases:
+- MVP requirements
+- Future enhancements
+- Do not think about timelines whatsoever -- all that matters is scope and detailing exactly what needs to be build in each phase so it can later be cut up into tasks]
+
+# Logical Dependency Chain
+[Define the logical order of development:
+- Which features need to be built first (foundation)
+- Getting as quickly as possible to something usable/visible front end that works
+- Properly pacing and scoping each feature so it is atomic but can also be built upon and improved as development approaches]
+
+# Risks and Mitigations  
+[Identify potential risks and how they'll be addressed:
+- Technical challenges
+- Figuring out the MVP that we can build upon
+- Resource constraints]
+
+# Appendix  
+[Include any additional information:
+- Research findings
+- Technical specifications]
+</PRD>

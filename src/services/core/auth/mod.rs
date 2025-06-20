@@ -13,6 +13,12 @@ pub mod permissions;
 pub mod rbac;
 pub mod session;
 pub mod user_auth;
+pub mod rbac_config;
+pub mod api_access;
+pub mod trading_config;
+pub mod arbitrage_opportunities;
+pub mod technical_strategies;
+pub mod rbac_service;
 
 // Re-export main services and types
 pub use middleware::{AuthMethod, AuthMiddleware, AuthenticationResult, AuthorizationResult};
@@ -25,6 +31,12 @@ pub use user_auth::{
     AuthCredentials, InvitationBenefits, InvitationValidationResult, LoginResult, OnboardingStatus,
     TelegramUserInfo, UserAuthService,
 };
+pub use rbac_config::{RBACConfig, RBACConfigManager};
+pub use api_access::{ApiAccessManager, UserApiAccess};
+pub use trading_config::{TradingConfigManager, TradingSessionConfig};
+pub use arbitrage_opportunities::{ArbitrageOpportunityManager, ArbitrageOpportunity};
+pub use technical_strategies::{TechnicalStrategyManager, TechnicalStrategy};
+pub use rbac_service::{RBACService, UserAccessSummary, RBACOperationResult};
 
 use crate::services::core::user::session_management::SessionManagementService as SessionService;
 use crate::services::core::user::user_profile::UserProfileService;

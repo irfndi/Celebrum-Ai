@@ -1620,253 +1620,6 @@
             "parentTaskId": 27
           },
           {
-            "id": 26,
-            "title": "Fix Infrastructure Engine MetricsCollector References (3 errors)",
-            "description": "Remove remaining MetricsCollector dependencies from the Infrastructure Engine.",
-            "details": "The Infrastructure Engine has 3 compilation errors related to MetricsCollector. This subtask involves removing these specific dependencies to align with the simplified monitoring strategy.",
-            "status": "done",
-            "dependencies": [
-              18
-            ],
-            "parentTaskId": 27
-          },
-          {
-            "id": 270,
-            "title": "Simplify Infrastructure Manager Health Check Methods (8 errors)",
-            "description": "Address 8 compilation errors by simplifying health check methods in the Infrastructure Manager.",
-            "details": "The Infrastructure Manager's health check methods are still causing 8 compilation errors, likely due to their previous integration with the complex monitoring system. This subtask is to simplify these methods to return basic boolean or status indicators.",
-            "status": "done",
-            "dependencies": [
-              18
-            ],
-            "parentTaskId": 27
-          },
-          {
-            "id": 28,
-            "title": "Fix Automatic Failover Coordinator Alert Manager References (2 errors)",
-            "description": "Remove remaining Alert Manager references from the Automatic Failover Coordinator.",
-            "details": "The Automatic Failover Coordinator has 2 compilation errors related to the Alert Manager. This subtask is to remove these specific references.",
-            "status": "done",
-            "dependencies": [
-              18
-            ],
-            "parentTaskId": 27
-          },
-          {
-            "id": 29,
-            "title": "Resolve Service Health Check Method Mismatches (3 errors)",
-            "description": "Address 3 compilation errors related to general service health check method mismatches.",
-            "details": "There are 3 remaining compilation errors across various services due to health check method signature mismatches. This subtask is to identify and correct these inconsistencies to align with the new, simplified health check approach.",
-            "status": "done",
-            "dependencies": [
-              18
-            ],
-            "parentTaskId": 27
-          }
-        ]
-      },
-      {
-        "id": 28,
-        "title": "Debug Strategic Enhancement Modules Not Working in Live System",
-        "description": "Critical issue: Strategic enhancement modules (funding rate integration, historical data storage, smart sorting) are integrated in code but not working in production. All opportunities show 'Funding: coinbase 0.0000% | okx 0.0000%' and no enhanced features are visible.",
-        "details": "Root cause analysis needed for:\n1. Why funding rate detection returns 0.0000% for all pairs despite integration\n2. Why Binance API requires authentication for public endpoints (403 errors)\n3. Why strategic enhancement console logs are not appearing in production\n4. Why enhanced opportunity data is not being displayed to users\n5. Whether the strategic enhancement modules are being instantiated correctly\n\nFix requirements:\n- Implement proper Binance API authentication with fallback to public endpoints\n- Debug funding rate manager to ensure it fetches real funding rate data from exchanges\n- Verify strategic enhancement module initialization and method calls\n- Add comprehensive logging to track data flow through strategic enhancements\n- Ensure enhanced opportunity data reaches the Telegram interface\n- Test end-to-end functionality from data collection to user display",
-        "testStrategy": "Deploy fixes and verify via Telegram interface that:\n1. Funding rates show real percentages (not 0.0000%)\n2. Opportunities are sorted by profit potential and freshness\n3. Historical data is being stored for ML analysis\n4. Strategic enhancement logs appear in production\n5. Enhanced opportunity data is displayed to users",
-        "status": "done",
-        "dependencies": [],
-        "priority": "critical",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Debug Funding Rate Manager Integration",
-            "description": "Investigate why funding rate manager returns 0.0000% for all pairs despite being integrated",
-            "details": "- Check if funding rate manager methods are being called in generate_global_opportunities\n- Verify funding rate API calls are being made to exchanges\n- Debug funding rate calculation and storage logic\n- Ensure funding rate data is properly integrated with arbitrage opportunities\n- Add comprehensive logging to track funding rate data flow",
-            "status": "done",
-            "dependencies": [],
-            "parentTaskId": 28
-          },
-          {
-            "id": 2,
-            "title": "Fix Binance API Authentication Issues",
-            "description": "Resolve 403 Forbidden errors preventing data collection from Binance exchange",
-            "details": "- Investigate why Binance public endpoints require authentication\n- Implement proper API key authentication for Binance\n- Add fallback logic for public endpoints when authentication fails\n- Ensure other exchanges (Coinbase, OKX, Bybit) continue working\n- Test API authentication in production environment",
-            "status": "done",
-            "dependencies": [],
-            "parentTaskId": 28
-          },
-          {
-            "id": 3,
-            "title": "Verify Strategic Enhancement Module Initialization",
-            "description": "Ensure strategic enhancement modules are properly instantiated and called in production",
-            "details": "- Verify FundingRateManager, HistoricalDataManager, OpportunityScoringEngine are created\n- Check if Arc<D1Database> is properly passed to modules\n- Ensure strategic enhancement methods are called in generate_global_opportunities\n- Add initialization logging to track module creation\n- Verify no compilation or runtime errors in module instantiation",
-            "status": "done",
-            "dependencies": [],
-            "parentTaskId": 28
-          },
-          {
-            "id": 4,
-            "title": "Add Comprehensive Strategic Enhancement Logging",
-            "description": "Implement detailed logging to track data flow through strategic enhancements",
-            "details": "- Add console_log statements for each strategic enhancement step\n- Log funding rate detection results and integration\n- Track opportunity scoring and sorting operations\n- Monitor historical data archival process\n- Log enhanced opportunity data before display\n- Ensure logs are visible in production via wrangler tail",
-            "status": "done",
-            "dependencies": [],
-            "parentTaskId": 28
-          },
-          {
-            "id": 5,
-            "title": "Validate Enhanced Data Reaches User Interface",
-            "description": "Ensure enhanced opportunity data with funding rates and smart sorting reaches Telegram interface",
-            "details": "- Trace data flow from strategic enhancement modules to Telegram display\n- Verify enhanced ArbitrageOpportunity objects contain funding rate data\n- Check if smart sorting is applied before sending to users\n- Ensure GroupedOpportunity conversion preserves enhanced data\n- Test end-to-end data flow from generation to user display",
-            "status": "done",
-            "dependencies": [],
-            "parentTaskId": 28
-          },
-          {
-            "id": 6,
-            "title": "Test End-to-End Strategic Enhancement Functionality",
-            "description": "Comprehensive testing of strategic enhancements from data collection to user display",
-            "details": "- Deploy fixes and test via Telegram /opportunities_list command\n- Verify funding rates show real percentages (not 0.0000%)\n- Confirm opportunities are sorted by profit potential and freshness\n- Check that historical data is being stored for ML analysis\n- Validate strategic enhancement logs appear in production\n- Ensure enhanced opportunity data is displayed to users correctly",
-            "status": "done",
-            "dependencies": [
-              "28.1",
-              "28.2",
-              "28.3",
-              "28.4",
-              "28.5"
-            ],
-            "parentTaskId": 28
-          }
-        ]
-      },
-      {
-        "id": 29,
-        "title": "Fix Critical Production API Access & Database Issues",
-        "description": "Critical production issues preventing proper data collection: Binance 451 geographic restrictions, Bybit 403 authentication errors, missing database tables, and wrangler secrets configuration. Strategic enhancements are working but limited by API access issues.",
-        "details": "Based on production logs analysis:\n\n**API Access Issues:**\n1. Binance API 451 errors: 'Service unavailable from a restricted location' - geographic restrictions\n2. Bybit API 403 errors: Authentication/permission issues\n3. Need proper API key configuration via wrangler secrets\n\n**Database Issues:**\n1. Missing table: 'no such table: opportunity_history' causing archival failures\n2. Need to create proper database schema for strategic enhancements\n\n**Configuration Issues:**\n1. Wrangler secrets not properly configured for API access\n2. Environment variables not being used for API authentication\n3. Need to update wrangler.toml for proper secret management\n\n**Evidence from logs:**\n- Strategic enhancements ARE working: '📊 Fetched 18 funding rates across 3 exchanges'\n- Funding integration working: '🔗 FUNDING INTEGRATION COMPLETE - Enhanced 6 existing opportunities'\n- Smart scoring working: '✅ SMART SCORING - Scored and sorted 6 opportunities'\n- Database archival failing: 'no such table: opportunity_history'\n- API access limited: Multiple 451/403 errors reducing data quality",
-        "testStrategy": "Deploy fixes and verify:\n1. All exchange APIs return 200 status codes\n2. Funding rates show real percentages in Telegram interface\n3. Database archival completes without errors\n4. Wrangler secrets are properly configured and accessible\n5. No more 451/403 API errors in production logs\n6. Strategic enhancements display real data to users",
-        "status": "done",
-        "dependencies": [],
-        "priority": "critical",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Configure Wrangler Secrets for API Authentication",
-            "description": "Set up proper API key management using wrangler secrets for Binance, Bybit, and CoinMarketCap APIs",
-            "details": "- Configure wrangler secrets: BINANCE_API_KEY, BINANCE_SECRET_KEY, BYBIT_API_KEY, BYBIT_SECRET_KEY, COINMARKETCAP_API_KEY\n- Update wrangler.toml to reference these secrets\n- Modify exchange service to use environment variables for authentication\n- Test secret access in production environment\n- Ensure secrets are properly encrypted and accessible to workers",
-            "status": "done",
-            "dependencies": [],
-            "parentTaskId": 29
-          },
-          {
-            "id": 2,
-            "title": "Fix Binance API Geographic Restrictions",
-            "description": "Resolve Binance API 451 'Service unavailable from a restricted location' errors",
-            "details": "- Research Binance API geographic restrictions and compliance requirements\n- Implement proper API endpoint selection (binance.com vs binance.us)\n- Add fallback mechanisms for restricted regions\n- Configure proper headers and user agent for API requests\n- Test API access from Cloudflare Workers geographic locations\n- Implement graceful degradation when Binance is unavailable",
-            "status": "done",
-            "dependencies": [
-              "29.1"
-            ],
-            "parentTaskId": 29
-          },
-          {
-            "id": 3,
-            "title": "Fix Bybit API Authentication Issues",
-            "description": "Resolve Bybit API 403 authentication errors and implement proper API key usage",
-            "details": "- Debug Bybit API authentication implementation\n- Verify API key permissions and account settings\n- Implement proper signature generation for authenticated endpoints\n- Add proper headers and timestamp handling for Bybit API\n- Test both public and private endpoint access\n- Implement retry logic with exponential backoff for auth failures",
-            "status": "done",
-            "dependencies": [
-              "29.1"
-            ],
-            "parentTaskId": 29
-          },
-          {
-            "id": 4,
-            "title": "Create Missing Database Tables and Schema",
-            "description": "Create opportunity_history table and other missing database schema for strategic enhancements",
-            "details": "- Create opportunity_history table with proper schema for ML analysis\n- Create funding_rates table for historical funding rate storage\n- Create opportunity_scores table for scoring engine data\n- Add proper indexes for performance optimization\n- Implement database migration scripts\n- Test table creation and data insertion in production D1 database",
-            "status": "done",
-            "dependencies": [],
-            "parentTaskId": 29
-          },
-          {
-            "id": 5,
-            "title": "Update Exchange Service for Environment Variable Authentication",
-            "description": "Modify exchange service to properly use environment variables for API authentication",
-            "details": "- Update ExchangeService to read API keys from environment variables\n- Implement proper credential management for each exchange\n- Add authentication validation and error handling\n- Update all exchange-specific request methods to use proper auth\n- Implement credential rotation and refresh mechanisms\n- Add comprehensive logging for authentication status",
-            "status": "done",
-            "dependencies": [
-              "29.1"
-            ],
-            "parentTaskId": 29
-          },
-          {
-            "id": 6,
-            "title": "Fix Funding Rate Display Integration",
-            "description": "Ensure real funding rates from strategic enhancements reach the Telegram interface",
-            "details": "- Debug why funding rates show 0.0000% in UI despite being fetched (logs show 18 rates fetched)\n- Trace data flow from funding rate manager to Telegram display\n- Verify ArbitrageOpportunity objects contain real funding rate data\n- Fix GroupedOpportunity conversion to preserve funding rate information\n- Test end-to-end funding rate display in Telegram interface\n- Add logging to track funding rate data through the display pipeline",
-            "status": "done",
-            "dependencies": [
-              "29.2",
-              "29.3",
-              "29.5"
-            ],
-            "parentTaskId": 29
-          },
-          {
-            "id": 7,
-            "title": "Implement Production-Ready Error Handling and Monitoring",
-            "description": "Add comprehensive error handling, monitoring, and alerting for API and database issues",
-            "details": "- Implement circuit breakers for failing APIs\n- Add comprehensive error logging and monitoring\n- Create alerts for API failure rates and database errors\n- Implement graceful degradation when services are unavailable\n- Add health checks for all external dependencies\n- Create monitoring dashboard for API status and performance metrics",
-            "status": "done",
-            "dependencies": [
-              "29.4",
-              "29.5",
-              "29.6"
-            ],
-            "parentTaskId": 29
-          },
-          {
-            "id": 8,
-            "title": "End-to-End Production Testing and Validation",
-            "description": "Comprehensive testing of all fixes in production environment",
-            "details": "- Deploy all fixes to production\n- Verify all exchange APIs return 200 status codes\n- Test funding rate display in Telegram interface shows real percentages\n- Validate database operations complete without errors\n- Monitor production logs for 24 hours to ensure stability\n- Verify strategic enhancements display real data to users\n- Document all configuration and deployment procedures",
-            "status": "done",
-            "dependencies": [
-              "29.7"
-            ],
-            "parentTaskId": 29
-          }
-        ]
-      },
-      {
-        "id": 30,
-        "title": "Refactor Core Services for Improved Modularity and Maintainability",
-        "description": "Refactor the core application services, with a focus on the infrastructure and opportunity modules, to improve modularity, reduce code fragmentation, and enhance long-term maintainability. The goal is to create a more cohesive and scalable architecture while preserving all existing functionality.",
-        "details": "This refactoring effort will involve consolidating fragmented code, clarifying service boundaries, and applying established design patterns to create a cleaner architecture. Key areas of focus will be the `infrastructure` and `opportunity` services. All changes must adhere to our core principles of modularity, zero duplication, and high maintainability. Existing functionality must be fully preserved.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "critical",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Analyze Existing Code Structure",
-            "description": "Analyze the current state of the `infrastructure` and `opportunity` services to identify specific areas of code fragmentation, duplication, and unclear service boundaries. Document the findings to guide the refactoring process.",
-            "details": "Completed analysis of both infrastructure and opportunities directories. Found significant fragmentation, duplication (caching, circuit breakers), and scattered logic. A detailed refactoring plan has been formulated to address these issues by consolidating modules and clarifying responsibilities.",
-            "status": "done",
-            "dependencies": [],
-            "parentTaskId": 30
-          },
-          {
-            "id": 2,
-            "title": "Refactor Infrastructure Services",
-            "description": "Consolidate core infrastructure components. This may involve merging related services (e.g., logging, error handling), clarifying service boundaries, and ensuring a single point of entry for infrastructure-related functionality.",
-            "details": "",
-            "status": "done",
-            "dependencies": [
-              "30.1"
-            ],
-            "parentTaskId": 30
-          },
-          {
             "id": 3,
             "title": "Refactor Opportunity Services",
             "description": "Restructure the opportunity-related services for better cohesion. This will involve consolidating the logic from `OpportunityEngine`, `EnhancedOpportunityEngine`, and `DynamicPairDiscoveryService` into a unified and more maintainable module.",
@@ -1917,7 +1670,7 @@
         "id": 31,
         "title": "Fix Telegram Webhook Hang & Code Consistency Audit",
         "description": "Investigate Cloudflare Workers runtime cancellations on /telegram/webhook, implement a production-ready fix, and audit Telegram modules for consistency after recent refactor.",
-        "status": "pending",
+        "status": "deferred",
         "priority": "critical",
         "dependencies": [],
         "details": "Steps:\n1. Reproduce the hang via wrangler tail.\n2. Profile ModularTelegramService initialization and request path; ensure no mutex guards are held across await points.\n3. Implement timeout safeguards and defensive error handling.\n4. Write integration test hitting /telegram/webhook asserting 200 response within 250 ms.\n5. Audit Telegram modules & ServiceContainer for any leftover inconsistencies; fix.\n6. Deploy, run wrangler tail for 24 h, confirm zero runtime cancellations.\n7. Update docs and close task.",
@@ -2339,8 +2092,8 @@
             "dependencies": [
               1
             ],
-            "details": "Create a shared package in the monorepo that contains common types and utility functions. Configure each service to depend on this shared package, allowing for centralized management of shared code and reducing duplication. ([fazalerabbi.medium.com](https://fazalerabbi.medium.com/monorepo-using-pnpm-workspaces-cb23ed332127?utm_source=openai))",
-            "status": "pending",
+            "details": "Create a shared package in the monorepo that contains common types and utility functions. Configure each service to depend on this shared package, allowing for centralized management of shared code and reducing duplication. ([fazalerabbi.medium.com](https://fazalerabbi.medium.com/monorepo-using-pnpm-workspaces-cb23ed332127?utm_source=openai))\n\n**COMPLETED:** Successfully implemented shared package integration across the monorepo:\n- Created packages/shared/ with comprehensive types, utilities, constants, and error handling\n- Integrated shared package in packages/worker/ and packages/telegram-bot/\n- Fixed TypeScript configuration issues with path mappings\n- Resolved module resolution errors and duplicate export conflicts\n- Achieved zero code duplication by centralizing common functionality\n- All packages build successfully with clean CI pipeline\n- Production-ready with proper type safety and consistent imports",
+            "status": "done",
             "testStrategy": "Develop unit tests for the shared types and utilities, and ensure that all services correctly import and utilize the shared package without issues."
           }
         ]
@@ -2583,7 +2336,7 @@
     ],
     "metadata": {
       "created": "2025-06-15T03:20:03.984Z",
-      "updated": "2025-06-19T08:20:36.550Z",
+      "updated": "2025-06-20T13:40:05.890Z",
       "description": "Tasks for master context"
     }
   }

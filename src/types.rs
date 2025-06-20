@@ -145,24 +145,29 @@ impl PartialEq<ExchangeIdEnum> for String {
     }
 }
 
-/// User access levels for RBAC system
+/// Simplified User access levels for RBAC system
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UserAccessLevel {
+    // Core simplified roles
+    Free,       // Basic access with limited features
+    Pro,        // Enhanced features with moderate limits
+    Ultra,      // Premium features with high limits
+    Admin,      // Administrative access to system management
+    SuperAdmin, // Full system access and control
+    
+    // Legacy support (deprecated - will be migrated)
     Guest,
-    Free,
     Registered,
     Verified,
     Paid,
     Premium,
-    Admin,
-    SuperAdmin,
-    BetaUser, // Added based on test errors
+    BetaUser,
     FreeWithoutAPI,
     FreeWithAPI,
     SubscriptionWithAPI,
-    Basic, // Added to resolve compilation error
-    User,  // Added to resolve compilation error
+    Basic,
+    User,
 }
 
 /// Alias for UserAccessLevel for contexts where UserRole is more semantically appropriate.
@@ -170,31 +175,75 @@ pub enum UserAccessLevel {
 pub type UserRole = UserAccessLevel;
 
 impl UserAccessLevel {
+    /// Check if user can perform trading operations
     pub fn can_trade(&self) -> bool {
         matches!(
             self,
-            UserAccessLevel::Verified
-                | UserAccessLevel::Paid
-                | UserAccessLevel::Premium
+            // Core simplified roles
+            UserAccessLevel::Pro
+                | UserAccessLevel::Ultra
                 | UserAccessLevel::Admin
                 | UserAccessLevel::SuperAdmin
+                // Legacy support
+                | UserAccessLevel::Verified
+                | UserAccessLevel::Paid
+                | UserAccessLevel::Premium
                 | UserAccessLevel::FreeWithAPI
                 | UserAccessLevel::SubscriptionWithAPI
         )
     }
 
+    /// Check if user can use AI features
     pub fn can_use_ai(&self) -> bool {
         matches!(
             self,
-            UserAccessLevel::Premium
+            // Core simplified roles
+            UserAccessLevel::Ultra
                 | UserAccessLevel::Admin
                 | UserAccessLevel::SuperAdmin
+                // Legacy support
+                | UserAccessLevel::Premium
                 | UserAccessLevel::SubscriptionWithAPI
         )
     }
 
+    /// Check if user can use AI analysis features
     pub fn can_use_ai_analysis(&self) -> bool {
         self.can_use_ai()
+    }
+
+    /// Get maximum concurrent trades allowed
+    pub fn get_max_concurrent_trades(&self) -> u32 {
+        match self {
+            UserAccessLevel::Free => 1,
+            UserAccessLevel::Pro => 3,
+            UserAccessLevel::Ultra => 10,
+            UserAccessLevel::Admin | UserAccessLevel::SuperAdmin => 50,
+            // Legacy defaults
+            _ => 1,
+        }
+    }
+
+    /// Get maximum leverage allowed
+    pub fn get_max_leverage(&self) -> f64 {
+        match self {
+            UserAccessLevel::Free => 2.0,
+            UserAccessLevel::Pro => 5.0,
+            UserAccessLevel::Ultra => 20.0,
+            UserAccessLevel::Admin | UserAccessLevel::SuperAdmin => 100.0,
+            // Legacy defaults
+            _ => 2.0,
+        }
+    }
+
+    /// Check if user has admin privileges
+    pub fn is_admin(&self) -> bool {
+        matches!(self, UserAccessLevel::Admin | UserAccessLevel::SuperAdmin)
+    }
+
+    /// Check if user has super admin privileges
+    pub fn is_super_admin(&self) -> bool {
+        matches!(self, UserAccessLevel::SuperAdmin)
     }
 
     pub fn get_daily_opportunity_limits(&self) -> (u32, u32) {
@@ -1993,43 +2042,33 @@ impl fmt::Display for PositionAction {
     }
 }
 
-/// User subscription tier - Simplified for group/channel focus
+/// User subscription tier - Simplified RBAC system
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum SubscriptionTier {
-    // Core subscription types
+    // Core simplified subscription tiers
     #[default]
-    Free, // Free tier - basic features
-    Paid, // Paid tier - enhanced features
-    Beta, // Beta tier for invited users
+    Free,  // Free tier - basic features with limitations
+    Pro,   // Pro tier - enhanced features with moderate limits
+    Ultra, // Ultra tier - premium features with high limits
+    Beta,  // Beta tier for invited users (testing new features)
 
     // Admin levels
     Admin,      // Group/Channel admin
-    SuperAdmin, // System admin
+    SuperAdmin, // System admin with full system access
 
-    // Legacy support (will be migrated)
+    // Legacy support (deprecated - will be migrated)
+    Paid,
     Basic,
     Premium,
-    Pro,
     Enterprise,
 }
 
 impl SubscriptionTier {
+    /// Get opportunity limits based on subscription tier
     pub fn get_opportunity_limits(&self) -> UserOpportunityLimits {
         match self {
-            SubscriptionTier::Beta => UserOpportunityLimits {
-                // Assuming Beta has similar limits to Paid
-                daily_global_opportunities: 100,
-                daily_technical_opportunities: 50,
-                daily_ai_opportunities: 25,
-                hourly_rate_limit: 20,
-                can_receive_realtime: true,
-                delay_seconds: 60,
-                arbitrage_received_today: 0,
-                technical_received_today: 0,
-                current_arbitrage_count: 0,
-                current_technical_count: 0,
-            },
+            // Core simplified tiers
             SubscriptionTier::Free => UserOpportunityLimits {
                 daily_global_opportunities: 10,
                 daily_technical_opportunities: 5,
@@ -2042,10 +2081,47 @@ impl SubscriptionTier {
                 current_arbitrage_count: 0,
                 current_technical_count: 0,
             },
+            SubscriptionTier::Pro => UserOpportunityLimits {
+                daily_global_opportunities: 50,
+                daily_technical_opportunities: 25,
+                daily_ai_opportunities: 10,
+                hourly_rate_limit: 10,
+                can_receive_realtime: true,
+                delay_seconds: 120, // 2 minutes delay
+                arbitrage_received_today: 0,
+                technical_received_today: 0,
+                current_arbitrage_count: 0,
+                current_technical_count: 0,
+            },
+            SubscriptionTier::Ultra => UserOpportunityLimits {
+                daily_global_opportunities: 200,
+                daily_technical_opportunities: 100,
+                daily_ai_opportunities: 50,
+                hourly_rate_limit: 30,
+                can_receive_realtime: true,
+                delay_seconds: 30, // 30 seconds delay
+                arbitrage_received_today: 0,
+                technical_received_today: 0,
+                current_arbitrage_count: 0,
+                current_technical_count: 0,
+            },
+            SubscriptionTier::Beta => UserOpportunityLimits {
+                daily_global_opportunities: 100,
+                daily_technical_opportunities: 50,
+                daily_ai_opportunities: 25,
+                hourly_rate_limit: 20,
+                can_receive_realtime: true,
+                delay_seconds: 60,
+                arbitrage_received_today: 0,
+                technical_received_today: 0,
+                current_arbitrage_count: 0,
+                current_technical_count: 0,
+            },
+            // Legacy support
             SubscriptionTier::Paid => UserOpportunityLimits {
                 daily_global_opportunities: 100,
                 daily_technical_opportunities: 50,
-                daily_ai_opportunities: 25, // AI enabled if admin provides keys
+                daily_ai_opportunities: 25,
                 hourly_rate_limit: 20,
                 can_receive_realtime: true,
                 delay_seconds: 60,
@@ -2128,15 +2204,18 @@ impl SubscriptionTier {
 impl std::fmt::Display for SubscriptionTier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
+            // Core simplified tiers
             SubscriptionTier::Free => "Free",
-            SubscriptionTier::Paid => "Paid",
+            SubscriptionTier::Pro => "Pro",
+            SubscriptionTier::Ultra => "Ultra",
+            SubscriptionTier::Beta => "Beta",
             SubscriptionTier::Admin => "Admin",
             SubscriptionTier::SuperAdmin => "SuperAdmin",
+            // Legacy support
+            SubscriptionTier::Paid => "Paid",
             SubscriptionTier::Basic => "Basic",
             SubscriptionTier::Premium => "Premium",
-            SubscriptionTier::Pro => "Pro",
             SubscriptionTier::Enterprise => "Enterprise",
-            SubscriptionTier::Beta => "Beta",
         };
         write!(f, "{}", s)
     }
