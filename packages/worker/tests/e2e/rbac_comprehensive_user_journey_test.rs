@@ -98,6 +98,7 @@ fn create_rbac_test_user(
         SubscriptionTier::Basic => UserAccessLevel::Basic,
         SubscriptionTier::Premium => UserAccessLevel::Premium,
         SubscriptionTier::Pro => UserAccessLevel::Premium, // Map Pro to Premium
+        SubscriptionTier::Ultra => UserAccessLevel::Premium, // Map Ultra to Premium
         SubscriptionTier::Enterprise => UserAccessLevel::Premium, // Map Enterprise to Premium
         SubscriptionTier::Admin => UserAccessLevel::Admin,
         SubscriptionTier::SuperAdmin => UserAccessLevel::SuperAdmin,

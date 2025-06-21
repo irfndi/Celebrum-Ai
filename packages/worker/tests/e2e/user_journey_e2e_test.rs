@@ -560,6 +560,7 @@ mod user_journey_e2e_tests {
                     SubscriptionTier::Paid => true,                        // All opportunities
                     SubscriptionTier::Admin => true,                       // All opportunities
                     SubscriptionTier::Pro => true,                         // All opportunities
+                    SubscriptionTier::Ultra => true,                       // All opportunities
                     SubscriptionTier::Premium
                     | SubscriptionTier::Enterprise
                     | SubscriptionTier::SuperAdmin => true, // All opportunities

@@ -1105,7 +1105,7 @@ impl ExchangeService {
         request_init.with_method(method.clone());
 
         // Set headers
-        let mut headers_obj = worker::Headers::new();
+        let headers_obj = worker::Headers::new();
         headers_obj.set("Content-Type", "application/json")?;
         headers_obj.set("User-Agent", "ArbEdge/1.0")?;
 
@@ -1163,7 +1163,7 @@ impl ExchangeService {
         request_init.with_method(method.clone());
 
         // Set headers
-        let mut headers_obj = worker::Headers::new();
+        let headers_obj = worker::Headers::new();
         headers_obj.set("Content-Type", "application/json")?;
         headers_obj.set("User-Agent", "ArbEdge/1.0")?;
 
@@ -1221,7 +1221,7 @@ impl ExchangeService {
         request_init.with_method(method.clone());
 
         // Set headers
-        let mut headers_obj = worker::Headers::new();
+        let headers_obj = worker::Headers::new();
         headers_obj.set("Content-Type", "application/json")?;
         headers_obj.set("User-Agent", "ArbEdge/1.0")?;
 
@@ -1320,7 +1320,7 @@ impl ExchangeService {
             request_init.with_method(method.clone());
 
             // Add headers for Binance API
-            let mut headers = worker::Headers::new();
+            let headers = worker::Headers::new();
             headers.set("User-Agent", "ArbEdge/1.0")?;
             headers.set("Content-Type", "application/json")?;
             request_init.with_headers(headers);

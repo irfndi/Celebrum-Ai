@@ -270,7 +270,7 @@ impl CoinMarketCapService {
     async fn fetch_quotes_by_symbol(&self, symbols: &str) -> ArbitrageResult<Vec<CmcQuoteData>> {
         let url = format!("{}/cryptocurrency/quotes/latest", self.config.base_url);
 
-        let mut headers = Headers::new();
+        let headers = Headers::new();
         headers.set("X-CMC_PRO_API_KEY", &self.config.api_key)?;
         headers.set("Accept", "application/json")?;
 
@@ -308,7 +308,7 @@ impl CoinMarketCapService {
     async fn fetch_global_metrics(&self) -> ArbitrageResult<CmcGlobalMetrics> {
         let url = format!("{}/global-metrics/quotes/latest", self.config.base_url);
 
-        let mut headers = Headers::new();
+        let headers = Headers::new();
         headers.set("X-CMC_PRO_API_KEY", &self.config.api_key)?;
         headers.set("Accept", "application/json")?;
 
