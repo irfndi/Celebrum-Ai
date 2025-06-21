@@ -25,18 +25,80 @@ install: ## Install all dependencies (Rust + TypeScript packages)
 	@pnpm install
 	@echo "📦 Setting up Rust toolchain..."
 	@rustup component add clippy rustfmt
+	@rustup target add wasm32-unknown-unknown
 
+# TypeScript package commands
 build-packages: ## Build all TypeScript packages
 	@echo "🔨 Building TypeScript packages..."
 	@pnpm run build
+
+build-db: ## Build database package
+	@echo "🔨 Building database package..."
+	@pnpm --filter @arb-edge/db run build
+
+build-shared: ## Build shared package
+	@echo "🔨 Building shared package..."
+	@pnpm --filter @arb-edge/shared run build
+
+build-telegram-bot: ## Build telegram bot package
+	@echo "🔨 Building telegram bot package..."
+	@pnpm --filter @arb-edge/telegram-bot run build
+
+build-web: ## Build web package
+	@echo "🔨 Building web package..."
+	@pnpm --filter @arb-edge/web run build
+
+build-worker: ## Build worker package
+	@echo "🔨 Building worker package..."
+	@pnpm --filter @arb-edge/worker run build
 
 test-packages: ## Test all TypeScript packages
 	@echo "🧪 Testing TypeScript packages..."
 	@pnpm run test
 
+test-db: ## Test database package
+	@echo "🧪 Testing database package..."
+	@pnpm --filter @arb-edge/db run test
+
+test-shared: ## Test shared package
+	@echo "🧪 Testing shared package..."
+	@pnpm --filter @arb-edge/shared run test
+
+test-telegram-bot: ## Test telegram bot package
+	@echo "🧪 Testing telegram bot package..."
+	@pnpm --filter @arb-edge/telegram-bot run test
+
+test-web: ## Test web package
+	@echo "🧪 Testing web package..."
+	@pnpm --filter @arb-edge/web run test
+
+test-worker: ## Test worker package
+	@echo "🧪 Testing worker package..."
+	@pnpm --filter @arb-edge/worker run test
+
 lint-packages: ## Lint all TypeScript packages
 	@echo "🔍 Linting TypeScript packages..."
 	@pnpm run lint
+
+lint-db: ## Lint database package
+	@echo "🔍 Linting database package..."
+	@pnpm --filter @arb-edge/db run lint
+
+lint-shared: ## Lint shared package
+	@echo "🔍 Linting shared package..."
+	@pnpm --filter @arb-edge/shared run lint
+
+lint-telegram-bot: ## Lint telegram bot package
+	@echo "🔍 Linting telegram bot package..."
+	@pnpm --filter @arb-edge/telegram-bot run lint
+
+lint-web: ## Lint web package
+	@echo "🔍 Linting web package..."
+	@pnpm --filter @arb-edge/web run lint
+
+lint-worker: ## Lint worker package
+	@echo "🔍 Linting worker package..."
+	@pnpm --filter @arb-edge/worker run lint
 
 # Testing commands
 test: ## Run all tests
@@ -80,18 +142,53 @@ build-wasm-release: ## Build release for WASM target
 	@echo "🎯 Building WASM (release)..."
 	@cargo build --target wasm32-unknown-unknown --release
 
-# Code quality commands
-fmt: ## Format code
-	@echo "🎨 Formatting code..."
-	@cargo fmt --verbose
+# Development commands
+dev: ## Start development servers for all packages
+	@echo "🚀 Starting development servers..."
+	@pnpm run dev
 
-fmt-check: ## Check code formatting
-	@echo "🎨 Checking code formatting..."
+dev-worker: ## Start worker development server
+	@echo "🚀 Starting worker development server..."
+	@pnpm --filter @arb-edge/worker run dev
+
+dev-web: ## Start web development server
+	@echo "🚀 Starting web development server..."
+	@pnpm --filter @arb-edge/web run dev
+
+dev-telegram-bot: ## Start telegram bot development server
+	@echo "🚀 Starting telegram bot development server..."
+	@pnpm --filter @arb-edge/telegram-bot run dev
+
+# Deployment commands
+deploy: ## Deploy all packages
+	@echo "🚀 Deploying all packages..."
+	@pnpm run deploy
+
+deploy-worker: ## Deploy worker package
+	@echo "🚀 Deploying worker package..."
+	@pnpm --filter @arb-edge/worker run deploy
+
+deploy-web: ## Deploy web package
+	@echo "🚀 Deploying web package..."
+	@pnpm --filter @arb-edge/web run deploy
+
+# Code quality commands
+fmt: ## Format code (Rust + TypeScript)
+	@echo "🎨 Formatting Rust code..."
+	@cargo fmt --verbose
+	@echo "🎨 Formatting TypeScript code..."
+	@pnpm run format
+
+fmt-check: ## Check code formatting (Rust + TypeScript)
+	@echo "🎨 Checking Rust code formatting..."
 	@cargo fmt --all --verbose -- --check
+	@echo "🎨 Checking TypeScript code formatting..."
+	@pnpm run format:check
 
 fmt-fix: ## Auto-fix code formatting then run CI
 	@echo "🎨 Auto-fixing code formatting..."
 	@cargo fmt --verbose
+	@pnpm run format
 	@echo "🔄 Running CI pipeline..."
 	@$(MAKE) ci-pipeline
 
@@ -184,10 +281,67 @@ local-ci: ## Run local CI validation (mirrors GitHub CI exactly)
 full-check: ## Run comprehensive code quality checks
 	@./scripts/ci/full-check.sh
 
-# Utility commands
-clean: ## Clean build artifacts
-	@echo "🧹 Cleaning..."
+# Clean commands
+clean: ## Clean all build artifacts (Rust + TypeScript)
+	@echo "🧹 Cleaning Rust build artifacts..."
 	@cargo clean
+	@echo "🧹 Cleaning TypeScript build artifacts..."
+	@pnpm run clean
+
+clean-rust: ## Clean Rust build artifacts only
+	@echo "🧹 Cleaning Rust build artifacts..."
+	@cargo clean
+
+clean-packages: ## Clean TypeScript package build artifacts
+	@echo "🧹 Cleaning TypeScript build artifacts..."
+	@pnpm run clean
+
+clean-db: ## Clean database package build artifacts
+	@echo "🧹 Cleaning database package..."
+	@pnpm --filter @arb-edge/db run clean
+
+clean-shared: ## Clean shared package build artifacts
+	@echo "🧹 Cleaning shared package..."
+	@pnpm --filter @arb-edge/shared run clean
+
+clean-telegram-bot: ## Clean telegram bot package build artifacts
+	@echo "🧹 Cleaning telegram bot package..."
+	@pnpm --filter @arb-edge/telegram-bot run clean
+
+clean-web: ## Clean web package build artifacts
+	@echo "🧹 Cleaning web package..."
+	@pnpm --filter @arb-edge/web run clean
+
+clean-worker: ## Clean worker package build artifacts
+	@echo "🧹 Cleaning worker package..."
+	@pnpm --filter @arb-edge/worker run clean
+
+# Type checking commands
+typecheck: ## Run TypeScript type checking for all packages
+	@echo "🔍 Running TypeScript type checking..."
+	@pnpm run typecheck
+
+typecheck-db: ## Run TypeScript type checking for database package
+	@echo "🔍 Type checking database package..."
+	@pnpm --filter @arb-edge/db run typecheck
+
+typecheck-shared: ## Run TypeScript type checking for shared package
+	@echo "🔍 Type checking shared package..."
+	@pnpm --filter @arb-edge/shared run typecheck
+
+typecheck-telegram-bot: ## Run TypeScript type checking for telegram bot package
+	@echo "🔍 Type checking telegram bot package..."
+	@pnpm --filter @arb-edge/telegram-bot run typecheck
+
+typecheck-web: ## Run TypeScript type checking for web package
+	@echo "🔍 Type checking web package..."
+	@pnpm --filter @arb-edge/web run typecheck
+
+typecheck-worker: ## Run TypeScript type checking for worker package
+	@echo "🔍 Type checking worker package..."
+	@pnpm --filter @arb-edge/worker run typecheck
+
+# Utility commands
 
 check: ## Quick build check
 	@echo "🔍 Quick build check..."

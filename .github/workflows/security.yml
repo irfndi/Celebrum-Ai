@@ -1,0 +1,385 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run security audit daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      auto_fix:
+        description: 'Automatically fix security issues'
+        required: false
+        default: 'false'
+        type: boolean
+      fail_on_issues:
+        description: 'Fail the workflow if security issues are found'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10'
+
+jobs:
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: Install additional tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+      
+      - name: Run security check
+        id: security_check
+        run: |
+          # Determine arguments based on inputs
+          ARGS="--verbose"
+          
+          if [[ "${{ github.event.inputs.auto_fix }}" == "true" ]]; then
+            ARGS="$ARGS --fix"
+          fi
+          
+          if [[ "${{ github.event.inputs.fail_on_issues }}" == "true" ]] || [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            ARGS="$ARGS --fail-on-issues"
+          fi
+          
+          # Run security check
+          ./scripts/security/check.sh $ARGS --format json
+        continue-on-error: true
+      
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports-${{ github.run_number }}
+          path: .security-reports/
+          retention-days: 30
+      
+      - name: Parse security results
+        id: parse_results
+        if: always()
+        run: |
+          # Find the latest JSON report
+          LATEST_REPORT=$(find .security-reports -name "security-report-*.json" | sort -r | head -1)
+          
+          if [[ -f "$LATEST_REPORT" ]]; then
+            echo "Found security report: $LATEST_REPORT"
+            
+            # Extract key metrics
+            TOTAL_VULNS=$(jq -r '.summary.total_vulnerabilities // 0' "$LATEST_REPORT")
+            CRITICAL_VULNS=$(jq -r '.summary.critical_vulnerabilities // 0' "$LATEST_REPORT")
+            HIGH_VULNS=$(jq -r '.summary.high_vulnerabilities // 0' "$LATEST_REPORT")
+            CODE_ISSUES=$(jq -r '.summary.total_code_issues // 0' "$LATEST_REPORT")
+            CODE_ERRORS=$(jq -r '.summary.code_errors // 0' "$LATEST_REPORT")
+            
+            echo "total_vulnerabilities=$TOTAL_VULNS" >> $GITHUB_OUTPUT
+            echo "critical_vulnerabilities=$CRITICAL_VULNS" >> $GITHUB_OUTPUT
+            echo "high_vulnerabilities=$HIGH_VULNS" >> $GITHUB_OUTPUT
+            echo "total_code_issues=$CODE_ISSUES" >> $GITHUB_OUTPUT
+            echo "code_errors=$CODE_ERRORS" >> $GITHUB_OUTPUT
+            
+            # Determine overall status
+            if [[ "$CRITICAL_VULNS" -gt 0 ]] || [[ "$CODE_ERRORS" -gt 0 ]]; then
+              echo "status=critical" >> $GITHUB_OUTPUT
+            elif [[ "$TOTAL_VULNS" -gt 0 ]] || [[ "$CODE_ISSUES" -gt 0 ]]; then
+              echo "status=warning" >> $GITHUB_OUTPUT
+            else
+              echo "status=success" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No security report found"
+            echo "status=unknown" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ steps.parse_results.outputs.status }}';
+            const totalVulns = '${{ steps.parse_results.outputs.total_vulnerabilities }}';
+            const criticalVulns = '${{ steps.parse_results.outputs.critical_vulnerabilities }}';
+            const highVulns = '${{ steps.parse_results.outputs.high_vulnerabilities }}';
+            const codeIssues = '${{ steps.parse_results.outputs.total_code_issues }}';
+            const codeErrors = '${{ steps.parse_results.outputs.code_errors }}';
+            
+            let emoji, statusText, color;
+            
+            switch(status) {
+              case 'critical':
+                emoji = '🚨';
+                statusText = 'Critical Issues Found';
+                color = '#dc3545';
+                break;
+              case 'warning':
+                emoji = '⚠️';
+                statusText = 'Issues Found';
+                color = '#ffc107';
+                break;
+              case 'success':
+                emoji = '✅';
+                statusText = 'No Issues Found';
+                color = '#28a745';
+                break;
+              default:
+                emoji = '❓';
+                statusText = 'Status Unknown';
+                color = '#6c757d';
+            }
+            
+            const body = `## ${emoji} Security Audit Results
+            
+            **Status:** ${statusText}
+            
+            ### 📊 Summary
+            
+            | Category | Count |
+            |----------|-------|
+            | Total Vulnerabilities | ${totalVulns} |
+            | Critical Vulnerabilities | ${criticalVulns} |
+            | High Vulnerabilities | ${highVulns} |
+            | Code Security Issues | ${codeIssues} |
+            | Code Security Errors | ${codeErrors} |
+            
+            ### 🔍 Details
+            
+            ${status === 'critical' ? '⚠️ **Critical security issues detected!** Please review and fix before merging.' : ''}
+            ${status === 'warning' ? '⚠️ **Security issues detected.** Please review the findings.' : ''}
+            ${status === 'success' ? '✅ **No security issues detected.** Great job!' : ''}
+            
+            ### 📋 Next Steps
+            
+            ${criticalVulns > 0 || codeErrors > 0 ? '- 🚨 **Fix critical issues immediately**' : ''}
+            ${totalVulns > 0 ? '- 🔧 Run \`pnpm run security:audit:fix\` to auto-fix dependency issues' : ''}
+            ${codeIssues > 0 ? '- 🔧 Run \`pnpm run security:scan --fix\` to auto-fix code issues' : ''}
+            - 📊 Download detailed reports from the workflow artifacts
+            - 🔄 Re-run security checks after fixes
+            
+            ---
+            
+            <details>
+            <summary>🔧 How to run security checks locally</summary>
+            
+            \`\`\`bash
+            # Run full security check
+            pnpm run security:check
+            
+            # Run with auto-fix
+            pnpm run security:check --fix
+            
+            # Generate HTML report
+            pnpm run security:report --format html --open
+            \`\`\`
+            
+            </details>`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+      
+      - name: Create security issue
+        if: steps.parse_results.outputs.status == 'critical' && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const criticalVulns = '${{ steps.parse_results.outputs.critical_vulnerabilities }}';
+            const codeErrors = '${{ steps.parse_results.outputs.code_errors }}';
+            
+            const title = `🚨 Critical Security Issues Detected - ${new Date().toISOString().split('T')[0]}`;
+            
+            const body = `## 🚨 Critical Security Issues Detected
+            
+            Our automated security scan has detected critical security issues that require immediate attention.
+            
+            ### 📊 Summary
+            
+            - **Critical Vulnerabilities:** ${criticalVulns}
+            - **Code Security Errors:** ${codeErrors}
+            - **Scan Date:** ${new Date().toISOString()}
+            
+            ### 🔧 Immediate Actions Required
+            
+            1. **Review the security reports** in the latest workflow run
+            2. **Fix critical vulnerabilities** using \`pnpm run security:audit:fix\`
+            3. **Address code security errors** identified in the scan
+            4. **Re-run security checks** to verify fixes
+            
+            ### 📋 Workflow Run
+            
+            - **Run ID:** ${{ github.run_id }}
+            - **Workflow:** ${{ github.workflow }}
+            - **Repository:** ${{ github.repository }}
+            
+            ### 🔗 Quick Links
+            
+            - [View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            - [Download Security Reports](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            
+            ---
+            
+            **This issue was automatically created by the security audit workflow.**`;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'critical', 'automated']
+            });
+      
+      - name: Fail workflow if critical issues found
+        if: steps.parse_results.outputs.status == 'critical' && (github.event.inputs.fail_on_issues == 'true' || github.event_name == 'pull_request')
+        run: |
+          echo "❌ Critical security issues found. Failing workflow."
+          echo "Critical vulnerabilities: ${{ steps.parse_results.outputs.critical_vulnerabilities }}"
+          echo "Code security errors: ${{ steps.parse_results.outputs.code_errors }}"
+          exit 1
+      
+      - name: Security check summary
+        if: always()
+        run: |
+          echo "## Security Audit Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.parse_results.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Total Vulnerabilities | ${{ steps.parse_results.outputs.total_vulnerabilities }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Critical Vulnerabilities | ${{ steps.parse_results.outputs.critical_vulnerabilities }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| High Vulnerabilities | ${{ steps.parse_results.outputs.high_vulnerabilities }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Security Issues | ${{ steps.parse_results.outputs.total_code_issues }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Security Errors | ${{ steps.parse_results.outputs.code_errors }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📊 Detailed reports are available in the workflow artifacts." >> $GITHUB_STEP_SUMMARY
+
+  # Separate job for Snyk scanning (if token is available)
+  snyk-scan:
+    name: Snyk Security Scan
+    runs-on: ubuntu-latest
+    if: vars.SNYK_TOKEN != ''
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=package.json
+      
+      - name: Upload Snyk results to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: snyk.sarif
+
+  # CodeQL analysis for additional security scanning
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript' ]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"

@@ -1,0 +1,10 @@
+ WARN  GET https://registry.npmjs.org/oxlint error (ETIMEDOUT). Will retry in 10 seconds. 2 retries left.
+{
+  "tailwindcss": {
+    "current": "3.4.17",
+    "latest": "4.1.10",
+    "wanted": "3.4.17",
+    "isDeprecated": false,
+    "dependencyType": "dependencies"
+  }
+}

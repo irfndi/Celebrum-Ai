@@ -230,6 +230,8 @@ impl MockUserAccessService {
             }
             UserAccessLevel::Paid
             | UserAccessLevel::Premium
+            | UserAccessLevel::Pro
+            | UserAccessLevel::Ultra
             | UserAccessLevel::Admin
             | UserAccessLevel::SuperAdmin
             | UserAccessLevel::BetaUser

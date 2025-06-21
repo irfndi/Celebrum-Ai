@@ -14,7 +14,7 @@
   "dependencies": {
     "@arb-edge/shared": "workspace:*",
     "@hono/node-server": "^1.14.4",
-    "hono": "^4.8.1"
+    "hono": "^4.8.2"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.43",

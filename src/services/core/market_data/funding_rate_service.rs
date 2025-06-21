@@ -109,19 +109,4 @@ impl FundingRateService {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    // ExchangeService + worker Env are intentionally not imported in unit tests
-    // to keep the test lightweight and avoid unused-import warnings.
-
-    #[tokio::test]
-    async fn test_cache_key() {
-        let key = FundingRateService::cache_key(&ExchangeIdEnum::Binance, "BTCUSDT");
-        assert_eq!(key, "funding_rate:binance:BTCUSDT");
-    }
-
-    // Integration tests for live exchanges are excluded from CI to avoid rate limits.
-    // Provide a mocked ExchangeService if necessary.  The service intentionally avoids
-    // any mock implementation in production code paths.
-}
+// Tests have been moved to packages/worker/tests/market_data/funding_rate_service_test.rs

@@ -1,0 +1,9 @@
+{
+  "tailwindcss": {
+    "current": "3.4.17",
+    "latest": "4.1.10",
+    "wanted": "3.4.17",
+    "isDeprecated": false,
+    "dependencyType": "dependencies"
+  }
+}

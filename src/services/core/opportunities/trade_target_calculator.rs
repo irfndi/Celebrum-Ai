@@ -72,15 +72,4 @@ impl TradeTargetCalculator {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_calculation() {
-        let targets = TradeTargetCalculator::calculate(10_000.0, None, None).unwrap();
-        assert_eq!(targets.stop_loss_price, 10_000.0 * 0.99);
-        assert_eq!(targets.take_profit_price, 10_000.0 * 1.02);
-        assert!((targets.projected_pl_usd - 2.0).abs() < f64::EPSILON);
-    }
-}
+// Tests have been moved to packages/worker/tests/trading/trade_target_calculator_test.rs

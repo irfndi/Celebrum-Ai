@@ -1,0 +1,10 @@
+ WARN  GET https://registry.npmjs.org/@changesets%2Fcli error (ETIMEDOUT). Will retry in 10 seconds. 2 retries left.
+ WARN  GET https://registry.npmjs.org/@types%2Fnode error (ETIMEDOUT). Will retry in 10 seconds. 2 retries left.
+ WARN  GET https://registry.npmjs.org/@typescript-eslint%2Feslint-plugin error (ETIMEDOUT). Will retry in 10 seconds. 2 retries left.
+ WARN  GET https://registry.npmjs.org/@typescript-eslint%2Fparser error (ETIMEDOUT). Will retry in 10 seconds. 2 retries left.
+ WARN  GET https://registry.npmjs.org/eslint error (ETIMEDOUT). Will retry in 10 seconds. 2 retries left.
+ WARN  GET https://registry.npmjs.org/eslint-plugin-security error (ETIMEDOUT). Will retry in 10 seconds. 2 retries left.
+ WARN  GET https://registry.npmjs.org/oxlint error (ETIMEDOUT). Will retry in 10 seconds. 2 retries left.
+ WARN  GET https://registry.npmjs.org/typescript error (ETIMEDOUT). Will retry in 10 seconds. 2 retries left.
+ WARN  GET https://registry.npmjs.org/wrangler error (ETIMEDOUT). Will retry in 10 seconds. 2 retries left.
+{}

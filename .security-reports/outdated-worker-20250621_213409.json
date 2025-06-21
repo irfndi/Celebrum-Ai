@@ -1,0 +1,3 @@
+ WARN  GET https://registry.npmjs.org/tsup error (ECONNRESET). Will retry in 10 seconds. 2 retries left.
+ WARN  GET https://registry.npmjs.org/typescript error (ECONNRESET). Will retry in 10 seconds. 2 retries left.
+{}

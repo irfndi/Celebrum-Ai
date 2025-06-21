@@ -176,42 +176,4 @@ impl UserActivityService {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_activity_recording() {
-        // Test activity recording logic
-        let user_id = "test_user_123";
-        let activity_type = "command_executed";
-        let metadata = serde_json::json!({"command": "/start"});
-
-        // In a real test, we'd mock the services
-        // For now, just validate the data structures
-        assert!(!user_id.is_empty());
-        assert!(!activity_type.is_empty());
-        assert!(metadata.is_object());
-    }
-
-    #[tokio::test]
-    async fn test_message_analytics() {
-        // Test message analytics structure
-        let analytics = MessageAnalytics {
-            message_id: "msg_123".to_string(),
-            chat_id: 123456789,
-            user_id: Some("user_123".to_string()),
-            message_type: "command".to_string(),
-            command: Some("/start".to_string()),
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-            response_time_ms: 150,
-            success: true,
-            error_message: None,
-            metadata: serde_json::json!({}),
-        };
-
-        assert_eq!(analytics.message_type, "command");
-        assert!(analytics.success);
-        assert!(analytics.response_time_ms > 0);
-    }
-}
+// Tests have been moved to packages/worker/tests/user/user_activity_test.rs
