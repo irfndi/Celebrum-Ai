@@ -146,25 +146,29 @@ impl UserAccessService {
         let access_level = user_profile.get_access_level();
 
         let has_access = match (access_level, feature) {
+            // Legacy roles mapped to Free tier
             (UserAccessLevel::Guest, "view_opportunities") => true,
             (UserAccessLevel::Guest, _) => false,
             (UserAccessLevel::Registered, "basic_trading") => true,
             (UserAccessLevel::Registered, "view_opportunities") => true,
-            (UserAccessLevel::Verified, _) => true,
-            (UserAccessLevel::Premium, _) => true,
-            (UserAccessLevel::Admin, _) => true,
-            (UserAccessLevel::SuperAdmin, _) => true,
             (UserAccessLevel::FreeWithoutAPI, "view_opportunities") => true,
             (UserAccessLevel::FreeWithoutAPI, _) => false,
             (UserAccessLevel::FreeWithAPI, "basic_trading") => true,
             (UserAccessLevel::FreeWithAPI, "view_opportunities") => true,
-            (UserAccessLevel::SubscriptionWithAPI, _) => true,
+            (UserAccessLevel::User, "basic_trading") => true,
+            (UserAccessLevel::User, "view_opportunities") => true,
             (UserAccessLevel::Free, "view_opportunities") => true,
             (UserAccessLevel::Free, _) => false,
-            (UserAccessLevel::Paid, _) => true, // Assuming Paid has access to all features listed for Verified/Premium
-            // Add other UserAccessLevel variants if they have specific feature access rules
-            // For now, default unlisted levels to false or true based on general access
-            _ => false, // Default to false for any unhandled combinations
+            // Legacy roles mapped to Ultra tier
+            (UserAccessLevel::Verified, _) => true,
+            (UserAccessLevel::Premium, _) => true,
+            (UserAccessLevel::Paid, _) => true,
+            (UserAccessLevel::SubscriptionWithAPI, _) => true,
+            (UserAccessLevel::BetaUser, _) => true,
+            (UserAccessLevel::Admin, _) => true,
+            (UserAccessLevel::SuperAdmin, _) => true,
+            // Default to false for any unhandled combinations
+            _ => false,
         };
 
         Ok(has_access)
@@ -450,34 +454,27 @@ impl UserAccessService {
         _required_exchanges: &[ExchangeIdEnum],
     ) -> ArbitrageResult<String> {
         let reason = match access_level {
-            UserAccessLevel::Guest => {
-                if !access_level.can_access_feature("basic_trading") {
-                    "Guest users cannot access trading features. Please register to continue."
+            // Legacy roles mapped to Free tier
+            UserAccessLevel::Guest
+            | UserAccessLevel::Registered
+            | UserAccessLevel::FreeWithoutAPI
+            | UserAccessLevel::FreeWithAPI
+            | UserAccessLevel::User
+            | UserAccessLevel::Free => {
+                if !limits.can_receive_arbitrage() {
+                    "Daily opportunity limit reached. Please upgrade to Pro for unlimited access."
                 } else {
-                    "Access granted for guest user."
+                    "Please upgrade to Pro to access enhanced features."
                 }
             }
-            UserAccessLevel::Free => {
-                if !access_level.can_access_feature("ai_analysis_byok") {
-                    "Free users need to provide their own AI API keys for enhanced features."
-                } else {
-                    "Access granted for free user with BYOK."
-                }
-            }
-            UserAccessLevel::Registered => {
-                if limits.can_receive_arbitrage() {
-                    "Access granted for registered user."
-                } else {
-                    "Daily opportunity limit reached for registered user."
-                }
-            }
-            UserAccessLevel::Paid => {
-                if !access_level.can_access_feature("ai_analysis_enhanced") {
-                    "Paid user access to enhanced AI features."
-                } else {
-                    "Full access granted for paid user."
-                }
-            }
+            // Legacy roles mapped to Ultra tier
+            UserAccessLevel::Verified
+            | UserAccessLevel::Premium
+            | UserAccessLevel::Paid
+            | UserAccessLevel::SubscriptionWithAPI
+            | UserAccessLevel::BetaUser
+            | UserAccessLevel::Admin
+            | UserAccessLevel::SuperAdmin => "This feature is available with your current plan.",
             _ => "Access level evaluation completed.",
         };
 
@@ -502,50 +499,53 @@ mod tests {
 
     #[test]
     fn test_user_access_level_limits() {
-        let free_without_api = UserAccessLevel::FreeWithoutAPI;
-        let free_with_api = UserAccessLevel::FreeWithAPI;
-        let subscription_with_api = UserAccessLevel::SubscriptionWithAPI;
+        let free_tier = UserAccessLevel::Free;
+        let pro_tier = UserAccessLevel::Pro;
+        let ultra_tier = UserAccessLevel::Ultra;
 
         // Test daily limits
-        assert_eq!(free_without_api.get_daily_opportunity_limits(), (0, 0));
-        assert_eq!(free_with_api.get_daily_opportunity_limits(), (10, 10));
+        assert_eq!(free_tier.get_daily_opportunity_limits(), (0, 0));
         assert_eq!(
-            subscription_with_api.get_daily_opportunity_limits(),
+            pro_tier.get_daily_opportunity_limits(),
+            (u32::MAX, u32::MAX)
+        );
+        assert_eq!(
+            ultra_tier.get_daily_opportunity_limits(),
             (u32::MAX, u32::MAX)
         );
 
         // Test trading capability
-        assert!(!free_without_api.can_trade());
-        assert!(free_with_api.can_trade());
-        assert!(subscription_with_api.can_trade());
+        assert!(!free_tier.can_trade());
+        assert!(pro_tier.can_trade());
+        assert!(ultra_tier.can_trade());
 
         // Test real-time opportunities
-        assert!(!free_without_api.gets_realtime_opportunities());
-        assert!(!free_with_api.gets_realtime_opportunities());
-        assert!(subscription_with_api.gets_realtime_opportunities());
+        assert!(!free_tier.gets_realtime_opportunities());
+        assert!(pro_tier.gets_realtime_opportunities());
+        assert!(ultra_tier.gets_realtime_opportunities());
 
         // Test delay
-        assert_eq!(free_without_api.get_opportunity_delay_seconds(), 0);
-        assert_eq!(free_with_api.get_opportunity_delay_seconds(), 300);
-        assert_eq!(subscription_with_api.get_opportunity_delay_seconds(), 0);
+        assert_eq!(free_tier.get_opportunity_delay_seconds(), 300);
+        assert_eq!(pro_tier.get_opportunity_delay_seconds(), 5);
+        assert_eq!(ultra_tier.get_opportunity_delay_seconds(), 0);
     }
 
     #[test]
     fn test_user_opportunity_limits() {
         let user_id = "test_user".to_string();
-        let access_level = UserAccessLevel::FreeWithAPI;
+        let access_level = UserAccessLevel::Pro;
 
         // Test private context
         let mut limits = UserOpportunityLimits::new(user_id.clone(), &access_level, false);
-        assert_eq!(limits.daily_global_opportunities, 10);
-        assert_eq!(limits.daily_technical_opportunities, 5);
-        assert!(!limits.can_receive_realtime);
+        assert_eq!(limits.daily_global_opportunities, 500); // Pro tier gets high limits
+        assert_eq!(limits.daily_technical_opportunities, 250); // Pro tier gets 250 technical
+        assert!(limits.can_receive_realtime); // Pro tier gets realtime
 
         // Test group context (reduced limits for groups)
         let group_limits = UserOpportunityLimits::new(user_id, &access_level, true);
-        assert_eq!(group_limits.daily_global_opportunities, 5); // Reduced for groups
-        assert_eq!(group_limits.daily_technical_opportunities, 2); // Reduced for groups
-        assert!(!group_limits.can_receive_realtime);
+        assert_eq!(group_limits.daily_global_opportunities, 250); // Reduced for groups (500/2)
+        assert_eq!(group_limits.daily_technical_opportunities, 125); // Reduced for groups (250/2)
+        assert!(group_limits.can_receive_realtime);
 
         // Test receiving opportunities
         assert!(limits.can_receive_arbitrage());
@@ -558,8 +558,8 @@ mod tests {
 
         // Test remaining opportunities
         let (remaining_arb, remaining_tech) = limits.get_remaining_opportunities();
-        assert_eq!(remaining_arb, 9);
-        assert_eq!(remaining_tech, 4);
+        assert_eq!(remaining_arb, 499);
+        assert_eq!(remaining_tech, 249);
     }
 
     #[test]

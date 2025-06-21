@@ -1621,7 +1621,7 @@ impl DatabaseManager {
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string()),
                 subscription_tier: crate::types::SubscriptionTier::Free, // Default, will be parsed from row
-                access_level: crate::types::UserAccessLevel::User,       // Default
+                access_level: crate::types::UserAccessLevel::Free,       // Default
                 subscription: crate::types::Subscription::default(),
                 preferences: crate::types::UserPreferences::default(),
                 api_keys: Vec::new(), // Will be parsed from row if present

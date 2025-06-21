@@ -12,6 +12,7 @@ use crate::services::{
     UserTradingPreferencesService,
 };
 use crate::utils::{logger::Logger, ArbitrageError, ArbitrageResult};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -393,13 +394,7 @@ impl OpportunityCategorizationService {
         let enhanced_metadata = self.generate_enhanced_metadata(&opportunity, &categories);
 
         // Get current timestamp
-        #[cfg(target_arch = "wasm32")]
-        let now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = Utc::now().timestamp_millis() as u64;
 
         Ok(CategorizedOpportunity {
             base_opportunity: opportunity,
@@ -466,13 +461,7 @@ impl OpportunityCategorizationService {
         self.evict_stale_cache_entries();
 
         // Get current timestamp
-        #[cfg(target_arch = "wasm32")]
-        let now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = Utc::now().timestamp_millis() as u64;
 
         // Check if we have a valid cached entry (cache TTL: 1 hour = 3600000 ms)
         {
@@ -529,13 +518,7 @@ impl OpportunityCategorizationService {
     /// Evict stale entries from the user preferences cache
     /// Removes entries older than 1 hour to prevent unbounded memory growth
     fn evict_stale_cache_entries(&self) {
-        #[cfg(target_arch = "wasm32")]
-        let now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = Utc::now().timestamp_millis() as u64;
 
         // Remove entries older than 1 hour
         const CACHE_TTL_MS: u64 = 3600000; // 1 hour
@@ -591,19 +574,7 @@ impl OpportunityCategorizationService {
             .await?;
 
         // Update cache with new preferences
-        let now = {
-            #[cfg(target_arch = "wasm32")]
-            {
-                js_sys::Date::now() as u64
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64
-            }
-        };
+        let now = Utc::now().timestamp_millis() as u64;
 
         {
             if let Ok(mut cache) = self.user_prefs_cache.lock() {
@@ -639,17 +610,7 @@ impl OpportunityCategorizationService {
         }
 
         // Update timestamp
-        #[cfg(target_arch = "wasm32")]
-        {
-            user_prefs.updated_at = js_sys::Date::now() as u64;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            user_prefs.updated_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-        }
+        user_prefs.updated_at = Utc::now().timestamp_millis() as u64;
 
         self.update_user_opportunity_preferences(&user_prefs).await
     }

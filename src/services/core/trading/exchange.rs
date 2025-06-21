@@ -1,10 +1,10 @@
 // src/services/exchange.rs
 
+use chrono;
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use worker::Method;
-use chrono;
 
 use crate::services::core::user::user_exchange_api::RateLimitInfo;
 use crate::services::core::user::user_profile::UserProfileService;
@@ -504,7 +504,7 @@ impl ExchangeInterface for ExchangeService {
                 );
                 Err(ArbitrageError::exchange_error(
                     exchange_id,
-                    "Exchange not supported"
+                    "Exchange not supported",
                 ))
             }
         }
@@ -661,7 +661,7 @@ impl ExchangeService {
     async fn get_binance_ticker(&self, symbol: &str) -> ArbitrageResult<Ticker> {
         // Normalize symbol format for Binance (BTCUSDT format)
         let normalized_symbol = symbol.replace("/", "").replace("-", "").to_uppercase();
-        
+
         let endpoint = format!("/api/v3/ticker/24hr?symbol={}", normalized_symbol);
         let response = self
             .binance_request(&endpoint, Method::Get, None, None)
@@ -754,8 +754,11 @@ impl ExchangeService {
     async fn get_bybit_ticker(&self, symbol: &str) -> ArbitrageResult<Ticker> {
         // Normalize symbol format for Bybit (BTCUSDT format)
         let normalized_symbol = symbol.replace("/", "").replace("-", "").to_uppercase();
-        
-        let endpoint = format!("/v5/market/tickers?category=spot&symbol={}", normalized_symbol);
+
+        let endpoint = format!(
+            "/v5/market/tickers?category=spot&symbol={}",
+            normalized_symbol
+        );
         let response = self
             .bybit_request_real(&endpoint, Method::Get, None, None)
             .await?;
@@ -779,7 +782,9 @@ impl ExchangeService {
             .and_then(|r| r.get("list"))
             .and_then(|l| l.as_array())
             .and_then(|arr| arr.first())
-            .ok_or_else(|| ArbitrageError::api_error("Invalid Bybit ticker response".to_string()))?;
+            .ok_or_else(|| {
+                ArbitrageError::api_error("Invalid Bybit ticker response".to_string())
+            })?;
 
         Ok(Ticker {
             symbol: normalized_symbol,
@@ -857,7 +862,7 @@ impl ExchangeService {
     async fn get_coinbase_ticker(&self, symbol: &str) -> ArbitrageResult<Ticker> {
         // Normalize symbol format for Coinbase (BTC-USD format)
         let normalized_symbol = symbol.replace("/", "-").to_uppercase();
-        
+
         let endpoint = format!("/products/{}/ticker", normalized_symbol);
         let response = self
             .coinbase_request_real(&endpoint, Method::Get, None, None)
@@ -928,7 +933,7 @@ impl ExchangeService {
     async fn get_okx_ticker(&self, symbol: &str) -> ArbitrageResult<Ticker> {
         // Normalize symbol format for OKX (BTC-USDT format)
         let normalized_symbol = symbol.replace("/", "-").to_uppercase();
-        
+
         let endpoint = format!("/api/v5/market/ticker?instId={}", normalized_symbol);
         let response = self
             .okx_request_real(&endpoint, Method::Get, None, None)
@@ -1067,9 +1072,7 @@ impl ExchangeService {
             exchange_id, symbol
         )))
     }
-
 }
-
 
 impl ExchangeService {
     /// Binance futures-specific request method
@@ -1095,25 +1098,25 @@ impl ExchangeService {
     ) -> ArbitrageResult<serde_json::Value> {
         let base_url = "https://api.bybit.com";
         let url = format!("{}{}", base_url, endpoint);
-        
+
         log::debug!("🔄 BYBIT REQUEST - {:?} {}", method, url);
-        
+
         let mut request_init = worker::RequestInit::new();
         request_init.with_method(method.clone());
-        
+
         // Set headers
         let mut headers_obj = worker::Headers::new();
         headers_obj.set("Content-Type", "application/json")?;
         headers_obj.set("User-Agent", "ArbEdge/1.0")?;
-        
+
         if let Some(custom_headers) = headers {
             for (key, value) in custom_headers {
                 headers_obj.set(&key, &value)?;
             }
         }
-        
+
         request_init.with_headers(headers_obj);
-        
+
         // Set body for POST/PUT requests
         if let Some(body) = params {
             let body_str = serde_json::to_string(&body).map_err(|e| {
@@ -1121,28 +1124,28 @@ impl ExchangeService {
             })?;
             request_init.with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body_str)));
         }
-        
+
         let request = worker::Request::new_with_init(&url, &request_init)?;
-        
+
         let mut response = worker::Fetch::Request(request).send().await?;
-        
+
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
                 "Bybit API error: HTTP {}",
                 response.status_code()
             )));
         }
-        
+
         let text = response.text().await?;
         let parsed: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
             ArbitrageError::api_error(format!("Failed to parse JSON response: {}", e))
         })?;
-        
+
         log::debug!("✅ BYBIT RESPONSE - Status: {}", response.status_code());
-        
+
         Ok(parsed)
     }
-    
+
     /// Real Coinbase API request implementation
     async fn coinbase_request_real(
         &self,
@@ -1153,25 +1156,25 @@ impl ExchangeService {
     ) -> ArbitrageResult<serde_json::Value> {
         let base_url = "https://api.exchange.coinbase.com";
         let url = format!("{}{}", base_url, endpoint);
-        
+
         log::debug!("🔄 COINBASE REQUEST - {:?} {}", method, url);
-        
+
         let mut request_init = worker::RequestInit::new();
         request_init.with_method(method.clone());
-        
+
         // Set headers
         let mut headers_obj = worker::Headers::new();
         headers_obj.set("Content-Type", "application/json")?;
         headers_obj.set("User-Agent", "ArbEdge/1.0")?;
-        
+
         if let Some(custom_headers) = headers {
             for (key, value) in custom_headers {
                 headers_obj.set(&key, &value)?;
             }
         }
-        
+
         request_init.with_headers(headers_obj);
-        
+
         // Set body for POST/PUT requests
         if let Some(body) = params {
             let body_str = serde_json::to_string(&body).map_err(|e| {
@@ -1179,28 +1182,28 @@ impl ExchangeService {
             })?;
             request_init.with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body_str)));
         }
-        
+
         let request = worker::Request::new_with_init(&url, &request_init)?;
-        
+
         let mut response = worker::Fetch::Request(request).send().await?;
-        
+
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
                 "Coinbase API error: HTTP {}",
                 response.status_code()
             )));
         }
-        
+
         let text = response.text().await?;
         let parsed: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
             ArbitrageError::api_error(format!("Failed to parse JSON response: {}", e))
         })?;
-        
+
         log::debug!("✅ COINBASE RESPONSE - Status: {}", response.status_code());
-        
+
         Ok(parsed)
     }
-    
+
     /// Real OKX API request implementation
     async fn okx_request_real(
         &self,
@@ -1211,25 +1214,25 @@ impl ExchangeService {
     ) -> ArbitrageResult<serde_json::Value> {
         let base_url = "https://www.okx.com";
         let url = format!("{}{}", base_url, endpoint);
-        
+
         log::debug!("🔄 OKX REQUEST - {:?} {}", method, url);
-        
+
         let mut request_init = worker::RequestInit::new();
         request_init.with_method(method.clone());
-        
+
         // Set headers
         let mut headers_obj = worker::Headers::new();
         headers_obj.set("Content-Type", "application/json")?;
         headers_obj.set("User-Agent", "ArbEdge/1.0")?;
-        
+
         if let Some(custom_headers) = headers {
             for (key, value) in custom_headers {
                 headers_obj.set(&key, &value)?;
             }
         }
-        
+
         request_init.with_headers(headers_obj);
-        
+
         // Set body for POST/PUT requests
         if let Some(body) = params {
             let body_str = serde_json::to_string(&body).map_err(|e| {
@@ -1237,28 +1240,28 @@ impl ExchangeService {
             })?;
             request_init.with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body_str)));
         }
-        
+
         let request = worker::Request::new_with_init(&url, &request_init)?;
-        
+
         let mut response = worker::Fetch::Request(request).send().await?;
-        
+
         if response.status_code() != 200 {
             return Err(ArbitrageError::api_error(format!(
                 "OKX API error: HTTP {}",
                 response.status_code()
             )));
         }
-        
+
         let text = response.text().await?;
         let parsed: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
             ArbitrageError::api_error(format!("Failed to parse JSON response: {}", e))
         })?;
-        
+
         log::debug!("✅ OKX RESPONSE - Status: {}", response.status_code());
-        
+
         Ok(parsed)
     }
-    
+
     /// Bybit-specific request method (legacy)
     async fn bybit_request(
         &self,

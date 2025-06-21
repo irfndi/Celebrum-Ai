@@ -1,5 +1,6 @@
 use crate::types::{ArbitrageOpportunity, CommandPermission};
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -355,13 +356,7 @@ impl AiBetaIntegrationService {
         // self.update_ai_metrics(ai_score);
 
         // Track this prediction as active - use the opportunity's ID directly
-        #[cfg(target_arch = "wasm32")]
-        let _now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let _now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let _now = Utc::now().timestamp_millis() as u64;
 
         // Use the opportunity's existing ID, or generate one if empty
         let prediction_id = if enhanced.base_opportunity.id.is_empty() {
@@ -414,13 +409,7 @@ impl AiBetaIntegrationService {
 
     /// Analyze market sentiment for a trading pair with cache expiration
     async fn analyze_market_sentiment(&self, pair: &str) -> MarketSentiment {
-        #[cfg(target_arch = "wasm32")]
-        let _now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let _now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let _now = Utc::now().timestamp_millis() as u64;
 
         // Evict expired entries before checking cache
         // self.evict_expired_sentiment_cache(now);
@@ -767,26 +756,12 @@ impl AiBetaIntegrationService {
         }
 
         // Update timestamp
-        #[cfg(target_arch = "wasm32")]
-        {
-            self.ai_model_metrics.lock().unwrap().last_updated = js_sys::Date::now() as u64;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.ai_model_metrics.lock().unwrap().last_updated =
-                chrono::Utc::now().timestamp_millis() as u64;
-        }
+        self.ai_model_metrics.lock().unwrap().last_updated = Utc::now().timestamp_millis() as u64;
     }
 
     /// Clean up stale predictions older than specified age
     pub fn cleanup_stale_predictions(&self, max_age_hours: u64) {
-        #[cfg(target_arch = "wasm32")]
-        let _now = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let _now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let _now = Utc::now().timestamp_millis() as u64;
 
         let max_age_ms = max_age_hours * 60 * 60 * 1000; // Convert hours to milliseconds
 

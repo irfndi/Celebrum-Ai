@@ -148,7 +148,7 @@ export const REGEX = {
     USERNAME: /^[a-zA-Z0-9_]{3,20}$/,
     PASSWORD: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/,
     CRYPTO_ADDRESS: /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$|^0x[a-fA-F0-9]{40}$/,
-    SYMBOL: /^[A-Z]{2,10}[/\-]?[A-Z]{2,10}$/,
+    SYMBOL: /^[A-Z]{2,10}[/-]?[A-Z]{2,10}$/,
     TELEGRAM_USERNAME: /^@[a-zA-Z0-9_]{5,32}$/,
 };
 // Color Schemes

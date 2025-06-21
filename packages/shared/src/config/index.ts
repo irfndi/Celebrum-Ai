@@ -253,7 +253,7 @@ export const VALIDATION_RULES = {
   SYMBOL: {
     MIN_LENGTH: 3,
     MAX_LENGTH: 20,
-    PATTERN: /^[A-Z]{2,10}[/\-]?[A-Z]{2,10}$/,
+    PATTERN: /^[A-Z]{2,10}[/-]?[A-Z]{2,10}$/,
   },
   AMOUNT: {
     MIN: 0.00000001,

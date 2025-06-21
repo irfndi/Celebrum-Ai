@@ -8,7 +8,7 @@
 //! - Dynamic permission assignment
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
-use crate::types::{UserAccessLevel, UserProfile, UserRole};
+use crate::types::{UserAccessLevel, UserProfile};
 use crate::ArbitrageResult;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -145,15 +145,15 @@ impl RBACService {
     fn get_daily_opportunity_limit(&self, user_profile: &UserProfile) -> i32 {
         // Role-based limits
         let role_limit = match user_profile.access_level {
-            // Assuming access_level is UserRole enum
-            UserRole::SuperAdmin => 999,           // Unlimited
-            UserRole::Admin => 999,                // Unlimited
-            UserAccessLevel::Paid => 999,          // Unlimited
-            UserAccessLevel::Basic => 10,          // Basic limit
-            UserAccessLevel::FreeWithoutAPI => 10, // Basic limit for Free tier without API access
-            UserAccessLevel::Free => 3,            // Free limit with API access
-            // Add other roles if they exist, e.g. UserRole::Registered
-            _ => 3, // Default to free limit for any other roles
+            UserAccessLevel::SuperAdmin => 999, // Unlimited
+            UserAccessLevel::Admin => 999,      // Unlimited
+            UserAccessLevel::Ultra => 999,      // Unlimited
+            UserAccessLevel::Pro => 100,        // High limit
+            UserAccessLevel::Free => 3,         // Free limit
+            // Legacy support - map to new roles
+            UserAccessLevel::Paid | UserAccessLevel::Premium => 999, // Map to Ultra
+            UserAccessLevel::Basic | UserAccessLevel::FreeWithoutAPI => 10, // Map to Free
+            _ => 3,                                                  // Default to free limit
         };
 
         // Subscription-based limits
@@ -266,9 +266,33 @@ impl RoleManager {
             ],
         );
 
-        // Premium - Premium user permissions
+        // Ultra - Ultra user permissions
         role_permissions.insert(
-            UserAccessLevel::Premium,
+            UserAccessLevel::Ultra,
+            vec![
+                // Trading features
+                "trading.manual".to_string(),
+                "trading.automated".to_string(),
+                "trading.advanced".to_string(),
+                // Opportunities
+                "opportunities.unlimited".to_string(),
+                "opportunities.realtime".to_string(),
+                "opportunities.priority".to_string(),
+                // AI features
+                "ai.enhanced".to_string(),
+                "ai.custom".to_string(),
+                "ai.unlimited".to_string(),
+                // Analytics
+                "analytics.advanced".to_string(),
+                "analytics.export".to_string(),
+                // Beta features
+                "beta.access".to_string(),
+            ],
+        );
+
+        // Pro - Pro user permissions
+        role_permissions.insert(
+            UserAccessLevel::Pro,
             vec![
                 // Trading features
                 "trading.manual".to_string(),
@@ -283,22 +307,6 @@ impl RoleManager {
                 "analytics.advanced".to_string(),
                 // Beta features
                 "beta.access".to_string(),
-            ],
-        );
-
-        // Basic - Basic user permissions
-        role_permissions.insert(
-            UserAccessLevel::FreeWithoutAPI,
-            vec![
-                // Trading features
-                "trading.manual".to_string(),
-                // Opportunities
-                "opportunities.limited".to_string(),
-                "opportunities.delayed".to_string(),
-                // AI features
-                "ai.basic".to_string(),
-                // Analytics
-                "analytics.basic".to_string(),
             ],
         );
 

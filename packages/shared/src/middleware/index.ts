@@ -188,10 +188,12 @@ export const authMiddleware = (options?: {
 
       req.user = user;
       next();
-    } catch (_error) {
+    } catch (error) {
       if (config.required) {
         throw new AuthenticationError('Token verification failed');
       }
+      // Log error for debugging if needed
+      console.debug('Auth middleware error:', error);
       next();
     }
   };

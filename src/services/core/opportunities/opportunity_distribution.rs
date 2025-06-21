@@ -1463,6 +1463,7 @@ impl OpportunityDistributionService {
             SubscriptionTier::Admin => 7.0,
             SubscriptionTier::SuperAdmin => 7.0,
             SubscriptionTier::Beta => 1.5, // Beta tier gets slightly higher priority than Free
+            SubscriptionTier::Ultra => 8.0, // Ultra tier gets highest priority
         };
 
         Ok(priority)

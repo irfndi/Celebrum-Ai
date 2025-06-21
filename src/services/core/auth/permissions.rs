@@ -110,6 +110,7 @@ impl PermissionChecker {
             SubscriptionTier::Pro => "pro",
             SubscriptionTier::Enterprise => "enterprise",
             SubscriptionTier::Beta => "beta",
+            SubscriptionTier::Ultra => "ultra",
         };
         let has_access = self.check_feature_access(subscription_tier_str, feature);
         let limit_reached = self.check_daily_limit_reached(user_profile, feature).await;

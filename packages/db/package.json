@@ -9,7 +9,7 @@
       "import": "./dist/index.js"
     },
     "./schema": {
-      "types": "./dist/schema/index.d.ts", 
+      "types": "./dist/schema/index.d.ts",
       "import": "./dist/schema/index.js"
     },
     "./migrations": {
@@ -32,14 +32,14 @@
     "up": "drizzle-kit up"
   },
   "dependencies": {
-    "drizzle-orm": "^0.44.2",
-    "@cloudflare/workers-types": "^4.20250619.0"
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "drizzle-orm": "catalog:"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.31.1",
+    "@types/node": "^24.0.3",
+    "drizzle-kit": "catalog:",
     "oxlint": "^1.2.0",
-    "typescript": "^5.8.3",
-    "@types/node": "^22.10.2"
+    "typescript": "^5.8.3"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -52,4 +52,4 @@
     "d1",
     "sqlite"
   ]
-} 
+}

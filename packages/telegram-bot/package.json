@@ -27,12 +27,12 @@
   "dependencies": {
     "@arb-edge/db": "workspace:*",
     "@arb-edge/shared": "workspace:*",
-    "@cloudflare/workers-types": "^4.20250106.0"
+    "@cloudflare/workers-types": "^4.20250620.0"
   },
   "devDependencies": {
+    "@types/node": "^24.0.3",
     "oxlint": "^1.2.0",
-    "typescript": "^5.7.3",
-    "@types/node": "^22.10.2"
+    "typescript": "^5.8.3"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -45,4 +45,4 @@
     "workers",
     "arbitrage"
   ]
-} 
+}

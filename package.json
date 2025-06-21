@@ -45,11 +45,11 @@
     "deploy:prod": "pnpm --parallel run deploy:prod"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.4",
-    "@types/node": "^20.19.1",
+    "@changesets/cli": "^2.29.5",
+    "@types/node": "^24.0.3",
     "oxlint": "^1.2.0",
     "typescript": "^5.8.3",
-    "wrangler": "^4.20.3"
+    "wrangler": "^4.20.5"
   },
   "keywords": [
     "monorepo",

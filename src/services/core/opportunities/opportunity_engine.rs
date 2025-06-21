@@ -736,7 +736,7 @@ mod tests {
             username: Some("testuser".to_string()),
             email: Some("test@example.com".to_string()),
             subscription_tier: SubscriptionTier::Free,
-            access_level: UserAccessLevel::Registered,
+            access_level: UserAccessLevel::Free,
             is_active: true,
             created_at: Utc::now().timestamp_millis() as u64,
             last_login: None,

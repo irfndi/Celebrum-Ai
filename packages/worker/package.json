@@ -13,17 +13,17 @@
   },
   "dependencies": {
     "@arb-edge/shared": "workspace:*",
-    "hono": "^4.6.11",
-    "@hono/node-server": "^1.13.7"
+    "@hono/node-server": "^1.14.4",
+    "hono": "^4.8.1"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.43",
+    "@cloudflare/workers-types": "^4.20250620.0",
     "@types/node": "catalog:",
-    "@cloudflare/workers-types": "^4.20241218.0",
+    "miniflare": "^4.20250617.3",
+    "tsup": "^8.5.0",
     "typescript": "catalog:",
-    "wrangler": "catalog:",
-    "tsup": "^8.3.5",
-    "vitest": "^2.1.8",
-    "miniflare": "^3.20241218.0",
-    "@cloudflare/vitest-pool-workers": "^0.5.15"
+    "vitest": "^3.2.4",
+    "wrangler": "catalog:"
   }
 }

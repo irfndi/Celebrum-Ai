@@ -419,7 +419,6 @@ impl UserTradingPreferencesService {
     /// Get current timestamp in milliseconds
     fn get_current_timestamp(&self) -> u64 {
         Utc::now().timestamp_millis() as u64
-        }
     }
 
     /// Update user trading preferences
@@ -619,7 +618,6 @@ impl UserTradingPreferencesService {
 
         // Update timestamp
         preferences.updated_at = Utc::now().timestamp_millis() as u64;
-        }
 
         self.update_preferences(&preferences).await?;
 

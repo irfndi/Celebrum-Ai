@@ -4,7 +4,7 @@ use crate::types::*;
 use worker::{console_log, Request, Response, RouteContext};
 
 /// Handle incoming webhook requests
-pub async fn handle_webhook(req: Request, _ctx: RouteContext<()>) -> worker::Result<Response> {
+pub async fn handle_webhook(mut req: Request, _ctx: RouteContext<()>) -> worker::Result<Response> {
     // Parse the incoming update
     let update: TelegramUpdate = req.json().await?;
 

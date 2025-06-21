@@ -220,7 +220,7 @@ impl TechnicalStrategyManager {
     /// Create new technical strategy manager
     pub fn new() -> Self {
         console_log!("📊 Initializing Technical Strategy Manager...");
-        
+
         let mut manager = Self {
             rbac_manager: RBACConfigManager::new(),
             strategies: HashMap::new(),
@@ -230,7 +230,26 @@ impl TechnicalStrategyManager {
             feature_flag_manager: Some(FeatureFlagManager::default()),
             marketplace_strategies: HashMap::new(),
         };
-        
+
+        manager.init_access_configs();
+        manager.init_marketplace_strategies();
+        manager
+    }
+
+    /// Create with custom RBAC manager
+    pub fn with_rbac_manager(rbac_manager: RBACConfigManager) -> Self {
+        console_log!("📊 Initializing Technical Strategy Manager with custom RBAC...");
+
+        let mut manager = Self {
+            rbac_manager,
+            strategies: HashMap::new(),
+            strategy_versions: HashMap::new(),
+            user_access: HashMap::new(),
+            access_configs: HashMap::new(),
+            feature_flag_manager: Some(FeatureFlagManager::default()),
+            marketplace_strategies: HashMap::new(),
+        };
+
         manager.init_access_configs();
         manager.init_marketplace_strategies();
         manager
@@ -396,14 +415,19 @@ impl TechnicalStrategyManager {
             performance: None,
             yaml_content: self.generate_sample_yaml(),
             metadata: HashMap::new(),
-            tags: vec!["beginner".to_string(), "sma".to_string(), "crossover".to_string()],
+            tags: vec![
+                "beginner".to_string(),
+                "sma".to_string(),
+                "crossover".to_string(),
+            ],
             is_public: true,
             download_count: 0,
             rating: 4.2,
             rating_count: 15,
         };
-        
-        self.marketplace_strategies.insert(basic_strategy.id.clone(), basic_strategy);
+
+        self.marketplace_strategies
+            .insert(basic_strategy.id.clone(), basic_strategy);
     }
 
     /// Generate sample YAML content
@@ -458,7 +482,8 @@ risk_management:
   position_sizing: "percentage"
   risk_per_trade: 1.0  # percentage
   correlation_limit: 0.7
-"#.to_string()
+"#
+        .to_string()
     }
 
     /// Register user for strategy access
@@ -470,7 +495,7 @@ risk_management:
     ) {
         let user_access = UserStrategyAccess {
             user_id: user_id.to_string(),
-            role,
+            role: role.clone(),
             subscription_tier,
             created_strategies: 0,
             active_strategies: 0,
@@ -480,9 +505,9 @@ risk_management:
             last_backtest: 0,
             strategy_performance_avg: 0.0,
         };
-        
+
         self.user_access.insert(user_id.to_string(), user_access);
-        
+
         console_log!(
             "📝 Registered user '{}' for strategy access with role: {:?}",
             user_id,
@@ -505,38 +530,53 @@ risk_management:
             }
         }
 
-        // Get user access info
-        let user_access = self.user_access
-            .get_mut(user_id)
-            .ok_or_else(|| "User not registered for strategy access".to_string())?;
-        
-        // Get access configuration
-        let access_config = self.get_access_config(&user_access.role)?;
-        
+        // Get user access info and clone necessary data to avoid borrow conflicts
+        let (user_role, created_strategies) = {
+            let user_access = self
+                .user_access
+                .get(user_id)
+                .ok_or_else(|| "User not registered for strategy access".to_string())?;
+            (user_access.role.clone(), user_access.created_strategies)
+        };
+
+        // Check RBAC permissions for strategy creation
+        if !self
+            .rbac_manager
+            .check_permission(&user_role, "create_strategies")
+        {
+            return Err("User does not have RBAC permission to create strategies".to_string());
+        }
+
+        // Get access configuration and clone it to avoid borrow conflicts
+        let access_config = self.get_access_config(&user_role)?.clone();
+
         // Check if user can create strategies
         if !access_config.can_create_strategies {
             return Err("User does not have permission to create strategies".to_string());
         }
-        
+
         // Check strategy limit
-        if user_access.created_strategies >= access_config.max_strategies {
+        if created_strategies >= access_config.max_strategies {
             return Err("Maximum strategy limit reached".to_string());
         }
-        
+
         // Parse and validate YAML
         let strategy_data = self.parse_yaml_strategy(yaml_content)?;
-        
+
         // Check complexity level access
-        if !access_config.allowed_complexity_levels.contains(&strategy_data.complexity) {
+        if !access_config
+            .allowed_complexity_levels
+            .contains(&strategy_data.complexity)
+        {
             return Err(format!(
                 "User does not have access to {:?} complexity strategies",
                 strategy_data.complexity
             ));
         }
-        
+
         // Generate strategy ID
         let strategy_id = format!("user_{}_{}", user_id, Utc::now().timestamp_millis() as u64);
-        
+
         // Create strategy
         let strategy = TechnicalStrategy {
             id: strategy_id.clone(),
@@ -548,7 +588,7 @@ risk_management:
             updated_at: Utc::now().timestamp_millis() as u64,
             status: StrategyStatus::Draft,
             complexity: strategy_data.complexity,
-            required_role: user_access.role.clone(),
+            required_role: user_role.clone(),
             symbols: strategy_data.symbols,
             timeframes: strategy_data.timeframes,
             rules: strategy_data.rules,
@@ -563,10 +603,10 @@ risk_management:
             rating: 0.0,
             rating_count: 0,
         };
-        
+
         // Store strategy
         self.strategies.insert(strategy_id.clone(), strategy);
-        
+
         // Initialize version history
         let initial_version = StrategyVersion {
             version: "1.0.0".to_string(),
@@ -577,20 +617,24 @@ risk_management:
             performance: None,
             is_stable: false,
         };
-        
-        self.strategy_versions.insert(strategy_id.clone(), vec![initial_version]);
-        
+
+        self.strategy_versions
+            .insert(strategy_id.clone(), vec![initial_version]);
+
         // Update user access
-        user_access.created_strategies += 1;
-        user_access.last_strategy_creation = Utc::now().timestamp_millis() as u64;
-        
+        {
+            let user_access = self.user_access.get_mut(user_id).unwrap();
+            user_access.created_strategies += 1;
+            user_access.last_strategy_creation = Utc::now().timestamp_millis() as u64;
+        }
+
         console_log!(
             "✅ Created strategy '{}' for user: {} (total: {})",
             strategy_name,
             user_id,
-            user_access.created_strategies
+            created_strategies + 1
         );
-        
+
         Ok(strategy_id)
     }
 
@@ -626,21 +670,23 @@ risk_management:
 
     /// Get user strategies
     pub fn get_user_strategies(&self, user_id: &str) -> Result<Vec<&TechnicalStrategy>, String> {
-        let user_access = self.user_access
+        let _user_access = self
+            .user_access
             .get(user_id)
             .ok_or_else(|| "User not registered".to_string())?;
-        
-        let strategies: Vec<&TechnicalStrategy> = self.strategies
+
+        let strategies: Vec<&TechnicalStrategy> = self
+            .strategies
             .values()
             .filter(|strategy| strategy.author == user_id)
             .collect();
-        
+
         console_log!(
             "📊 Retrieved {} strategies for user: {}",
             strategies.len(),
             user_id
         );
-        
+
         Ok(strategies)
     }
 
@@ -650,42 +696,50 @@ risk_management:
         user_id: &str,
         complexity_filter: Option<StrategyComplexity>,
     ) -> Result<Vec<&TechnicalStrategy>, String> {
-        let user_access = self.user_access
-            .get(user_id)
-            .ok_or_else(|| "User not registered".to_string())?;
-        
-        let access_config = self.get_access_config(&user_access.role)?;
-        
+        let user_role = {
+            let user_access = self
+                .user_access
+                .get(user_id)
+                .ok_or_else(|| "User not registered".to_string())?;
+            user_access.role.clone()
+        };
+
+        let access_config = self.get_access_config(&user_role)?.clone();
+
         if !access_config.can_access_marketplace {
             return Err("User does not have marketplace access".to_string());
         }
-        
-        let mut strategies: Vec<&TechnicalStrategy> = self.marketplace_strategies
+
+        let mut strategies: Vec<&TechnicalStrategy> = self
+            .marketplace_strategies
             .values()
             .filter(|strategy| {
                 // Check if user has access to this complexity level
-                access_config.allowed_complexity_levels.contains(&strategy.complexity)
+                access_config
+                    .allowed_complexity_levels
+                    .contains(&strategy.complexity)
             })
             .collect();
-        
+
         // Apply complexity filter if provided
         if let Some(complexity) = complexity_filter {
             strategies.retain(|strategy| strategy.complexity == complexity);
         }
-        
+
         // Sort by rating and download count
         strategies.sort_by(|a, b| {
-            b.rating.partial_cmp(&a.rating)
+            b.rating
+                .partial_cmp(&a.rating)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| b.download_count.cmp(&a.download_count))
         });
-        
+
         console_log!(
             "🏪 Retrieved {} marketplace strategies for user: {}",
             strategies.len(),
             user_id
         );
-        
+
         Ok(strategies)
     }
 
@@ -697,26 +751,31 @@ risk_management:
         new_yaml_content: &str,
         changelog: &str,
     ) -> Result<String, String> {
-        // Get strategy
-        let strategy = self.strategies
-            .get_mut(strategy_id)
-            .ok_or_else(|| "Strategy not found".to_string())?;
-        
+        // Check strategy exists and ownership
+        let (strategy_author, current_version) = {
+            let strategy = self
+                .strategies
+                .get(strategy_id)
+                .ok_or_else(|| "Strategy not found".to_string())?;
+            (strategy.author.clone(), strategy.version.clone())
+        };
+
         // Check ownership
-        if strategy.author != user_id {
+        if strategy_author != user_id {
             return Err("User does not own this strategy".to_string());
         }
-        
+
         // Parse new version
         let strategy_data = self.parse_yaml_strategy(new_yaml_content)?;
-        
+
         // Generate new version number
-        let versions = self.strategy_versions
+        let _versions = self
+            .strategy_versions
             .get(strategy_id)
             .ok_or_else(|| "Strategy versions not found".to_string())?;
-        
-        let new_version = self.increment_version(&strategy.version);
-        
+
+        let new_version = self.increment_version(&current_version);
+
         // Create new version
         let version = StrategyVersion {
             version: new_version.clone(),
@@ -727,26 +786,29 @@ risk_management:
             performance: None,
             is_stable: false,
         };
-        
+
         // Update strategy
-        strategy.version = new_version.clone();
-        strategy.updated_at = Utc::now().timestamp_millis() as u64;
-        strategy.yaml_content = new_yaml_content.to_string();
-        strategy.rules = strategy_data.rules;
-        strategy.risk_management = strategy_data.risk_management;
-        
+        {
+            let strategy = self.strategies.get_mut(strategy_id).unwrap();
+            strategy.version = new_version.clone();
+            strategy.updated_at = Utc::now().timestamp_millis() as u64;
+            strategy.yaml_content = new_yaml_content.to_string();
+            strategy.rules = strategy_data.rules;
+            strategy.risk_management = strategy_data.risk_management;
+        }
+
         // Add version to history
         self.strategy_versions
             .get_mut(strategy_id)
             .unwrap()
             .push(version);
-        
+
         console_log!(
             "🔄 Updated strategy '{}' to version: {}",
             strategy_id,
             new_version
         );
-        
+
         Ok(new_version)
     }
 
@@ -767,44 +829,69 @@ risk_management:
 
     /// Get access configuration for role
     fn get_access_config(&self, role: &UserAccessLevel) -> Result<&StrategyAccessConfig, String> {
-        let role_key = match role {
+        let tier_name = match role {
             UserAccessLevel::Free => "free",
             UserAccessLevel::Pro => "pro",
             UserAccessLevel::Ultra => "ultra",
             UserAccessLevel::Admin => "admin",
             UserAccessLevel::SuperAdmin => "superadmin",
-            // Legacy role mapping
-            UserAccessLevel::Paid | UserAccessLevel::Premium => "pro",
+            // Legacy support - map to new tiers
+            UserAccessLevel::Paid | UserAccessLevel::Premium => "ultra",
+            UserAccessLevel::Basic | UserAccessLevel::FreeWithoutAPI => "free",
             _ => "free",
         };
-        
+
         self.access_configs
-            .get(role_key)
+            .get(tier_name)
             .ok_or_else(|| format!("Access configuration not found for role: {:?}", role))
     }
 
     /// Get user strategy statistics
     pub fn get_user_stats(&self, user_id: &str) -> Result<UserStrategyStats, String> {
-        let user_access = self.user_access
-            .get(user_id)
-            .ok_or_else(|| "User not found".to_string())?;
-        
-        let access_config = self.get_access_config(&user_access.role)?;
-        
+        let (
+            user_role,
+            user_subscription_tier,
+            created_strategies,
+            active_strategies,
+            total_backtests,
+            concurrent_backtests,
+            strategy_performance_avg,
+            last_strategy_creation,
+            last_backtest,
+        ) = {
+            let user_access = self
+                .user_access
+                .get(user_id)
+                .ok_or_else(|| "User not found".to_string())?;
+            (
+                user_access.role.clone(),
+                user_access.subscription_tier.clone(),
+                user_access.created_strategies,
+                user_access.active_strategies,
+                user_access.total_backtests,
+                user_access.concurrent_backtests,
+                user_access.strategy_performance_avg,
+                user_access.last_strategy_creation,
+                user_access.last_backtest,
+            )
+        };
+
+        let access_config = self.get_access_config(&user_role)?;
+
         Ok(UserStrategyStats {
             user_id: user_id.to_string(),
-            role: user_access.role.clone(),
-            subscription_tier: user_access.subscription_tier.clone(),
+            role: user_role,
+            subscription_tier: user_subscription_tier,
             max_strategies: access_config.max_strategies,
-            created_strategies: user_access.created_strategies,
+            created_strategies,
             max_active_strategies: access_config.max_active_strategies,
-            active_strategies: user_access.active_strategies,
-            total_backtests: user_access.total_backtests,
+            active_strategies,
+            total_backtests,
             max_concurrent_backtests: access_config.max_concurrent_backtests,
-            concurrent_backtests: user_access.concurrent_backtests,
-            average_performance: user_access.strategy_performance_avg,
-            last_strategy_creation: user_access.last_strategy_creation,
-            last_backtest: user_access.last_backtest,
+            concurrent_backtests,
+            average_performance: strategy_performance_avg,
+            last_strategy_creation,
+            last_backtest,
         })
     }
 }

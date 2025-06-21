@@ -9,9 +9,7 @@ import { ServiceRouter } from './services/router';
 import { HealthCheck } from './middleware/health';
 import { RateLimiter } from './middleware/rate-limit';
 import { ErrorHandler } from './middleware/error';
-import { AppError } from '@arb-edge/shared/errors';
-import { APP_NAME, APP_VERSION } from '@arb-edge/shared/constants';
-import { ApiResponse } from '@arb-edge/shared/types';
+// Removed unused imports: AppError, APP_NAME, APP_VERSION, ApiResponse
 
 // Cloudflare Worker Environment
 export interface Env {

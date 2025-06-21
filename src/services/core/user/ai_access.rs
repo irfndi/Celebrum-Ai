@@ -114,6 +114,11 @@ impl AIAccessService {
             UserAccessLevel::FreeWithoutAPI => AIAccessLevel::FreeWithoutAI,
             UserAccessLevel::FreeWithAPI => AIAccessLevel::FreeWithAI,
             UserAccessLevel::SubscriptionWithAPI => AIAccessLevel::SubscriptionWithAI,
+            // Legacy role mappings
+            UserAccessLevel::Guest | UserAccessLevel::Registered | UserAccessLevel::Verified => {
+                AIAccessLevel::FreeWithAI
+            }
+            UserAccessLevel::BetaUser | UserAccessLevel::User => AIAccessLevel::FreeWithAI,
             UserAccessLevel::Premium => AIAccessLevel::PremiumAI,
             UserAccessLevel::SuperAdmin => AIAccessLevel::EnterpriseAI,
             _ => AIAccessLevel::FreeWithoutAI, // Default for all other access levels

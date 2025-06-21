@@ -321,6 +321,9 @@ impl AccessManager {
             SubscriptionTier::Beta => {
                 opportunities.truncate(3); // Beta tier gets limited opportunities during testing
             }
+            SubscriptionTier::Ultra => {
+                // Ultra tier - full access (no truncation)
+            }
         }
 
         Ok(opportunities)
@@ -509,7 +512,7 @@ mod tests {
             username: Some("testuser".to_string()),
             email: Some("test@example.com".to_string()),
             subscription_tier: tier.clone(),
-            access_level: UserAccessLevel::Registered,
+            access_level: UserAccessLevel::Free,
             is_active: true,
             is_beta_active: false,
             created_at: chrono::Utc::now().timestamp_millis() as u64,

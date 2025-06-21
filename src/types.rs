@@ -155,7 +155,7 @@ pub enum UserAccessLevel {
     Ultra,      // Premium features with high limits
     Admin,      // Administrative access to system management
     SuperAdmin, // Full system access and control
-    
+
     // Legacy support (deprecated - will be migrated)
     Guest,
     Registered,
@@ -248,20 +248,27 @@ impl UserAccessLevel {
 
     pub fn get_daily_opportunity_limits(&self) -> (u32, u32) {
         match self {
-            UserAccessLevel::FreeWithoutAPI => (0, 0),
-            UserAccessLevel::FreeWithAPI => (10, 10),
-            UserAccessLevel::SubscriptionWithAPI => (u32::MAX, u32::MAX),
+            // New simplified tiers
+            UserAccessLevel::Free => (0, 0),
+            UserAccessLevel::Pro => (u32::MAX, u32::MAX),
+            UserAccessLevel::Ultra => (u32::MAX, u32::MAX),
+            UserAccessLevel::Admin | UserAccessLevel::SuperAdmin => (u32::MAX, u32::MAX),
+
+            // Legacy roles mapped to new tiers
+            // Free tier equivalents
             UserAccessLevel::Guest
-            | UserAccessLevel::Free
             | UserAccessLevel::Registered
-            | UserAccessLevel::Verified => (0, 0),
-            UserAccessLevel::Paid
+            | UserAccessLevel::FreeWithoutAPI
+            | UserAccessLevel::FreeWithAPI
+            | UserAccessLevel::User
+            | UserAccessLevel::Basic => (0, 0),
+
+            // Ultra tier equivalents
+            UserAccessLevel::Verified
             | UserAccessLevel::Premium
-            | UserAccessLevel::Admin
-            | UserAccessLevel::SuperAdmin
+            | UserAccessLevel::Paid
+            | UserAccessLevel::SubscriptionWithAPI
             | UserAccessLevel::BetaUser => (u32::MAX, u32::MAX),
-            UserAccessLevel::Basic => (10, 10), // Assuming Basic has similar limits to FreeWithAPI for now
-            UserAccessLevel::User => (10, 10),  // Similar to Registered users
         }
     }
 
@@ -271,6 +278,8 @@ impl UserAccessLevel {
             UserAccessLevel::SubscriptionWithAPI
                 | UserAccessLevel::Paid
                 | UserAccessLevel::Premium
+                | UserAccessLevel::Pro
+                | UserAccessLevel::Ultra
                 | UserAccessLevel::Admin
                 | UserAccessLevel::SuperAdmin
         )
@@ -294,35 +303,53 @@ impl UserAccessLevel {
 
     pub fn max_opportunities_per_day(&self) -> u32 {
         match self {
-            UserAccessLevel::Guest => 3,
-            UserAccessLevel::Free | UserAccessLevel::FreeWithoutAPI => 5,
-            UserAccessLevel::Registered => 10,
-            UserAccessLevel::Verified => 20,
-            UserAccessLevel::Paid | UserAccessLevel::FreeWithAPI => 50,
-            UserAccessLevel::Premium => 100,
+            // New simplified tiers
+            UserAccessLevel::Free => 5,
+            UserAccessLevel::Pro => 500,
+            UserAccessLevel::Ultra => u32::MAX,
             UserAccessLevel::Admin | UserAccessLevel::SuperAdmin => u32::MAX,
+
+            // Legacy roles mapped to new tiers
+            // Free tier equivalents (lower limits for legacy free roles)
+            UserAccessLevel::Guest => 3,
+            UserAccessLevel::Registered => 10,
+            UserAccessLevel::FreeWithoutAPI => 5,
+            UserAccessLevel::FreeWithAPI => 50,
+            UserAccessLevel::User => 10,
+            UserAccessLevel::Basic => 20,
+
+            // Ultra tier equivalents (high limits for legacy premium roles)
+            UserAccessLevel::Verified => 20,
+            UserAccessLevel::Premium => 100,
+            UserAccessLevel::Paid => 50,
             UserAccessLevel::SubscriptionWithAPI => 200,
-            UserAccessLevel::BetaUser => 100, // Assuming Beta has similar limits to Premium
-            UserAccessLevel::Basic => 20, // Assuming Basic has similar limits to Verified for now
-            UserAccessLevel::User => 10,  // Similar to Registered users
+            UserAccessLevel::BetaUser => 100,
         }
     }
 
     pub fn get_opportunity_delay_seconds(&self) -> u64 {
         match self {
-            UserAccessLevel::Guest => 600,        // 10 minutes
-            UserAccessLevel::Free => 300,         // 5 minutes
-            UserAccessLevel::FreeWithoutAPI => 0, // No delay for FreeWithoutAPI
-            UserAccessLevel::Registered => 120,   // 2 minutes
-            UserAccessLevel::Verified => 60,      // 1 minute
-            UserAccessLevel::Paid => 30,          // 30 seconds
-            UserAccessLevel::FreeWithAPI => 300, // 5 minutes - free users with API get longer delay
-            UserAccessLevel::Premium => 10,      // 10 seconds
+            // New simplified tiers
+            UserAccessLevel::Free => 300, // 5 minutes
+            UserAccessLevel::Pro => 5,    // 5 seconds
+            UserAccessLevel::Ultra => 0,  // No delay
             UserAccessLevel::Admin | UserAccessLevel::SuperAdmin => 0, // No delay
-            UserAccessLevel::SubscriptionWithAPI => 0, // 5 seconds changed to 0 to match test
-            UserAccessLevel::BetaUser => 10,     // Assuming Beta has similar delay to Premium
-            UserAccessLevel::Basic => 60, // Assuming Basic has similar delay to Verified for now
-            UserAccessLevel::User => 120, // Similar to Registered users
+
+            // Legacy roles mapped to new tiers
+            // Free tier equivalents (higher delays)
+            UserAccessLevel::Guest => 600,        // 10 minutes
+            UserAccessLevel::Registered => 120,   // 2 minutes
+            UserAccessLevel::FreeWithoutAPI => 0, // No delay for FreeWithoutAPI (special case)
+            UserAccessLevel::FreeWithAPI => 300,  // 5 minutes
+            UserAccessLevel::User => 120,         // 2 minutes
+            UserAccessLevel::Basic => 60,         // 1 minute
+
+            // Ultra tier equivalents (lower delays)
+            UserAccessLevel::Verified => 60,           // 1 minute
+            UserAccessLevel::Premium => 10,            // 10 seconds
+            UserAccessLevel::Paid => 30,               // 30 seconds
+            UserAccessLevel::SubscriptionWithAPI => 0, // No delay
+            UserAccessLevel::BetaUser => 10,           // 10 seconds
         }
     }
 
@@ -344,6 +371,8 @@ impl std::fmt::Display for UserAccessLevel {
             UserAccessLevel::Verified => "verified",
             UserAccessLevel::Paid => "paid",
             UserAccessLevel::Premium => "premium",
+            UserAccessLevel::Pro => "pro",
+            UserAccessLevel::Ultra => "ultra",
             UserAccessLevel::Admin => "admin",
             UserAccessLevel::SuperAdmin => "super_admin",
             UserAccessLevel::BetaUser => "beta_user",
@@ -1539,50 +1568,38 @@ impl UserOpportunityLimits {
 
     pub fn new(_user_id: String, access_level: &UserAccessLevel, is_group_context: bool) -> Self {
         let base_limits = match access_level {
+            // New simplified tiers
             UserAccessLevel::Free => UserOpportunityLimits {
                 daily_global_opportunities: 10,
                 daily_technical_opportunities: 5,
-                daily_ai_opportunities: 5, // AI opportunities with BYOK
+                daily_ai_opportunities: 5,
                 hourly_rate_limit: 3,
                 can_receive_realtime: false,
-                delay_seconds: 300, // 5 minutes delay
+                delay_seconds: 300,
                 arbitrage_received_today: 0,
                 technical_received_today: 0,
                 current_arbitrage_count: 0,
                 current_technical_count: 0,
             },
-            UserAccessLevel::BetaUser => UserOpportunityLimits {
-                // Assuming Beta has similar limits to Paid
-                daily_global_opportunities: 100,
-                daily_technical_opportunities: 50,
-                daily_ai_opportunities: 25,
-                hourly_rate_limit: 20,
+            UserAccessLevel::Pro => UserOpportunityLimits {
+                daily_global_opportunities: 500,
+                daily_technical_opportunities: 250,
+                daily_ai_opportunities: 100,
+                hourly_rate_limit: 50,
                 can_receive_realtime: true,
-                delay_seconds: 60,
+                delay_seconds: 5,
                 arbitrage_received_today: 0,
                 technical_received_today: 0,
                 current_arbitrage_count: 0,
                 current_technical_count: 0,
             },
-            UserAccessLevel::Basic => UserOpportunityLimits {
-                daily_global_opportunities: 10,
-                daily_technical_opportunities: 5,
-                daily_ai_opportunities: 5, // AI opportunities with BYOK
-                hourly_rate_limit: 3,
-                can_receive_realtime: false,
-                delay_seconds: 300, // 5 minutes delay
-                arbitrage_received_today: 0,
-                technical_received_today: 0,
-                current_arbitrage_count: 0,
-                current_technical_count: 0,
-            },
-            UserAccessLevel::Paid => UserOpportunityLimits {
-                daily_global_opportunities: 100,
-                daily_technical_opportunities: 50,
-                daily_ai_opportunities: 25, // BYOK & AI enabled if admin provides keys
-                hourly_rate_limit: 20,
+            UserAccessLevel::Ultra => UserOpportunityLimits {
+                daily_global_opportunities: u32::MAX,
+                daily_technical_opportunities: u32::MAX,
+                daily_ai_opportunities: u32::MAX,
+                hourly_rate_limit: u32::MAX,
                 can_receive_realtime: true,
-                delay_seconds: 60,
+                delay_seconds: 0,
                 arbitrage_received_today: 0,
                 technical_received_today: 0,
                 current_arbitrage_count: 0,
@@ -1601,98 +1618,37 @@ impl UserOpportunityLimits {
                 current_technical_count: 0,
             },
 
-            // Legacy support - map to simplified tiers
-            UserAccessLevel::Guest => UserOpportunityLimits {
-                daily_global_opportunities: 2,
-                daily_technical_opportunities: 1,
-                daily_ai_opportunities: 0,
-                hourly_rate_limit: 1,
-                can_receive_realtime: false,
-                delay_seconds: 600,
-                arbitrage_received_today: 0,
-                technical_received_today: 0,
-                current_arbitrage_count: 0,
-                current_technical_count: 0,
-            },
-            UserAccessLevel::Registered => UserOpportunityLimits {
-                daily_global_opportunities: 10,
-                daily_technical_opportunities: 5,
-                daily_ai_opportunities: 2,
-                hourly_rate_limit: 3,
-                can_receive_realtime: false,
-                delay_seconds: 300,
-                arbitrage_received_today: 0,
-                technical_received_today: 0,
-                current_arbitrage_count: 0,
-                current_technical_count: 0,
-            },
-            UserAccessLevel::Verified => UserOpportunityLimits {
-                daily_global_opportunities: 50,
-                daily_technical_opportunities: 25,
-                daily_ai_opportunities: 10,
-                hourly_rate_limit: 10,
-                can_receive_realtime: true,
-                delay_seconds: 60,
-                arbitrage_received_today: 0,
-                technical_received_today: 0,
-                current_arbitrage_count: 0,
-                current_technical_count: 0,
-            },
-            UserAccessLevel::Premium => UserOpportunityLimits {
-                daily_global_opportunities: 200,
-                daily_technical_opportunities: 100,
-                daily_ai_opportunities: 50,
-                hourly_rate_limit: 30,
-                can_receive_realtime: true,
-                delay_seconds: 10,
-                arbitrage_received_today: 0,
-                technical_received_today: 0,
-                current_arbitrage_count: 0,
-                current_technical_count: 0,
-            },
-            UserAccessLevel::FreeWithoutAPI => UserOpportunityLimits {
-                daily_global_opportunities: 5,
-                daily_technical_opportunities: 2,
-                daily_ai_opportunities: 0,
-                hourly_rate_limit: 2,
-                can_receive_realtime: false,
-                delay_seconds: 300,
-                arbitrage_received_today: 0,
-                technical_received_today: 0,
-                current_arbitrage_count: 0,
-                current_technical_count: 0,
-            },
-            UserAccessLevel::FreeWithAPI => UserOpportunityLimits {
+            // Legacy roles - Free tier equivalents
+            UserAccessLevel::Guest
+            | UserAccessLevel::Registered
+            | UserAccessLevel::FreeWithoutAPI
+            | UserAccessLevel::FreeWithAPI
+            | UserAccessLevel::User
+            | UserAccessLevel::Basic => UserOpportunityLimits {
                 daily_global_opportunities: 10,
                 daily_technical_opportunities: 5,
                 daily_ai_opportunities: 5,
-                hourly_rate_limit: 5,
-                can_receive_realtime: false,
-                delay_seconds: 120,
-                arbitrage_received_today: 0,
-                technical_received_today: 0,
-                current_arbitrage_count: 0,
-                current_technical_count: 0,
-            },
-            UserAccessLevel::SubscriptionWithAPI => UserOpportunityLimits {
-                daily_global_opportunities: 100,
-                daily_technical_opportunities: 50,
-                daily_ai_opportunities: 25,
-                hourly_rate_limit: 20,
-                can_receive_realtime: true,
-                delay_seconds: 30,
-                arbitrage_received_today: 0,
-                technical_received_today: 0,
-                current_arbitrage_count: 0,
-                current_technical_count: 0,
-            },
-            UserAccessLevel::User => UserOpportunityLimits {
-                daily_global_opportunities: 10,
-                daily_technical_opportunities: 5,
-                daily_ai_opportunities: 2,
                 hourly_rate_limit: 3,
                 can_receive_realtime: false,
                 delay_seconds: 300,
+                arbitrage_received_today: 0,
+                technical_received_today: 0,
+                current_arbitrage_count: 0,
+                current_technical_count: 0,
+            },
+
+            // Legacy roles - Ultra tier equivalents
+            UserAccessLevel::Verified
+            | UserAccessLevel::Premium
+            | UserAccessLevel::Paid
+            | UserAccessLevel::SubscriptionWithAPI
+            | UserAccessLevel::BetaUser => UserOpportunityLimits {
+                daily_global_opportunities: u32::MAX,
+                daily_technical_opportunities: u32::MAX,
+                daily_ai_opportunities: u32::MAX,
+                hourly_rate_limit: u32::MAX,
+                can_receive_realtime: true,
+                delay_seconds: 0,
                 arbitrage_received_today: 0,
                 technical_received_today: 0,
                 current_arbitrage_count: 0,
@@ -2048,7 +2004,7 @@ impl fmt::Display for PositionAction {
 pub enum SubscriptionTier {
     // Core simplified subscription tiers
     #[default]
-    Free,  // Free tier - basic features with limitations
+    Free, // Free tier - basic features with limitations
     Pro,   // Pro tier - enhanced features with moderate limits
     Ultra, // Ultra tier - premium features with high limits
     Beta,  // Beta tier for invited users (testing new features)
@@ -2163,18 +2119,6 @@ impl SubscriptionTier {
                 hourly_rate_limit: 20,
                 can_receive_realtime: true,
                 delay_seconds: 10, // 10 seconds delay
-                arbitrage_received_today: 0,
-                technical_received_today: 0,
-                current_arbitrage_count: 0,
-                current_technical_count: 0,
-            },
-            SubscriptionTier::Pro => UserOpportunityLimits {
-                daily_global_opportunities: 500,
-                daily_technical_opportunities: 200,
-                daily_ai_opportunities: 100,
-                hourly_rate_limit: 50,
-                can_receive_realtime: true,
-                delay_seconds: 0, // No delay
                 arbitrage_received_today: 0,
                 technical_received_today: 0,
                 current_arbitrage_count: 0,

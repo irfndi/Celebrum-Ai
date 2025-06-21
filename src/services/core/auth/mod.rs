@@ -8,35 +8,35 @@
 //! - Beta access control
 //! - API key authentication
 
+pub mod api_access;
+pub mod arbitrage_opportunities;
 pub mod middleware;
 pub mod permissions;
 pub mod rbac;
-pub mod session;
-pub mod user_auth;
 pub mod rbac_config;
-pub mod api_access;
-pub mod trading_config;
-pub mod arbitrage_opportunities;
-pub mod technical_strategies;
 pub mod rbac_service;
+pub mod session;
+pub mod technical_strategies;
+pub mod trading_config;
+pub mod user_auth;
 
 // Re-export main services and types
+pub use api_access::{ApiAccessManager, UserApiAccess};
+pub use arbitrage_opportunities::{ArbitrageOpportunity, ArbitrageOpportunityManager};
 pub use middleware::{AuthMethod, AuthMiddleware, AuthenticationResult, AuthorizationResult};
 pub use permissions::{AccessValidator, FeatureAccessSummary, FeatureGate, PermissionChecker};
-pub use rbac::{PermissionManager, RBACService, RoleManager};
+pub use rbac::{PermissionManager, RoleManager};
+pub use rbac_config::{RBACConfig, RBACConfigManager};
+pub use rbac_service::{RBACOperationResult, RBACService, UserAccessSummary};
 pub use session::{
     AuthSessionService, SessionManager, SessionStats, SessionValidationResult, SessionValidator,
 };
+pub use technical_strategies::{TechnicalStrategy, TechnicalStrategyManager};
+pub use trading_config::{TradingConfigManager, TradingSessionConfig};
 pub use user_auth::{
     AuthCredentials, InvitationBenefits, InvitationValidationResult, LoginResult, OnboardingStatus,
     TelegramUserInfo, UserAuthService,
 };
-pub use rbac_config::{RBACConfig, RBACConfigManager};
-pub use api_access::{ApiAccessManager, UserApiAccess};
-pub use trading_config::{TradingConfigManager, TradingSessionConfig};
-pub use arbitrage_opportunities::{ArbitrageOpportunityManager, ArbitrageOpportunity};
-pub use technical_strategies::{TechnicalStrategyManager, TechnicalStrategy};
-pub use rbac_service::{RBACService, UserAccessSummary, RBACOperationResult};
 
 use crate::services::core::user::session_management::SessionManagementService as SessionService;
 use crate::services::core::user::user_profile::UserProfileService;
@@ -63,7 +63,7 @@ impl AuthService {
         console_log!("🔐 Initializing Production Authentication Service...");
 
         // Create services without external dependencies
-        let rbac_service = RBACService::new_standalone().await?;
+        let rbac_service = RBACService::new();
         let permission_checker = PermissionChecker::new_standalone().await?;
 
         console_log!("✅ Production Authentication Service initialized successfully");
@@ -114,7 +114,7 @@ impl AuthService {
     }
 
     /// Get user permissions based on real user profile
-    pub async fn get_user_permissions(&self, user_id: &str) -> ArbitrageResult<Vec<String>> {
+    pub async fn get_user_permissions(&mut self, user_id: &str) -> ArbitrageResult<Vec<String>> {
         console_log!("👑 Getting permissions for user: {}", user_id);
 
         // Get user profile from provider
@@ -129,11 +129,11 @@ impl AuthService {
             ));
         };
 
-        let user_permissions = self
+        let user_access_summary = self
             .rbac_service
-            .get_user_permissions(&user_profile)
-            .await?;
-        Ok(user_permissions.permissions)
+            .get_user_access_summary(&user_profile.user_id)
+            .map_err(ArbitrageError::validation_error)?;
+        Ok(user_access_summary.permissions)
     }
 
     /// Validate user access with real data
@@ -175,7 +175,7 @@ impl AuthService {
     }
 
     /// Validate session using session provider
-    pub async fn validate_session(&self, session_id: &str) -> ArbitrageResult<UserContext> {
+    pub async fn validate_session(&mut self, session_id: &str) -> ArbitrageResult<UserContext> {
         console_log!("🔍 Validating session: {}", session_id);
 
         // Validate session using provider

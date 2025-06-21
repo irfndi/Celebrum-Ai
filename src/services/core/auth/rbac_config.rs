@@ -7,7 +7,7 @@
 //! - Feature flag integration
 //! - Group and channel access control
 
-use crate::types::{SubscriptionTier, UserAccessLevel};
+use crate::types::UserAccessLevel;
 use crate::utils::feature_flags::FeatureFlagManager;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,8 +16,8 @@ use worker::console_log;
 /// API access configuration separate from user roles
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiAccessConfig {
-    pub exchange_api_required: u32,     // Minimum exchange APIs required
-    pub exchange_api_recommended: u32,  // Recommended exchange APIs
+    pub exchange_api_required: u32,    // Minimum exchange APIs required
+    pub exchange_api_recommended: u32, // Recommended exchange APIs
     pub ai_api_enabled: bool,          // AI API access enabled
     pub ai_api_required: bool,         // AI API required for features
 }
@@ -356,29 +356,36 @@ impl RBACConfig {
 
     /// Initialize feature flags
     fn init_feature_flags(&mut self) {
-        self.feature_flags.insert("rbac.simplified_roles".to_string(), true);
-        self.feature_flags.insert("rbac.api_access_management".to_string(), true);
-        self.feature_flags.insert("rbac.trading_limits".to_string(), true);
-        self.feature_flags.insert("rbac.group_access_control".to_string(), true);
-        self.feature_flags.insert("rbac.yaml_strategies".to_string(), true);
-        self.feature_flags.insert("rbac.enhanced_logging".to_string(), true);
+        self.feature_flags
+            .insert("rbac.simplified_roles".to_string(), true);
+        self.feature_flags
+            .insert("rbac.api_access_management".to_string(), true);
+        self.feature_flags
+            .insert("rbac.trading_limits".to_string(), true);
+        self.feature_flags
+            .insert("rbac.group_access_control".to_string(), true);
+        self.feature_flags
+            .insert("rbac.yaml_strategies".to_string(), true);
+        self.feature_flags
+            .insert("rbac.enhanced_logging".to_string(), true);
     }
 
     /// Get permissions for a specific role
     pub fn get_role_permissions(&self, role: &UserAccessLevel) -> Vec<String> {
-        let role_key = match role {
+        let tier_name = match role {
             UserAccessLevel::Free => "free",
             UserAccessLevel::Pro => "pro",
             UserAccessLevel::Ultra => "ultra",
             UserAccessLevel::Admin => "admin",
             UserAccessLevel::SuperAdmin => "superadmin",
-            // Legacy role mapping
-            UserAccessLevel::Paid | UserAccessLevel::Premium => "pro",
+            // Legacy support - map to new tiers
+            UserAccessLevel::Paid | UserAccessLevel::Premium => "ultra",
+            UserAccessLevel::Basic | UserAccessLevel::FreeWithoutAPI => "free",
             _ => "free",
         };
 
         self.role_permissions
-            .get(role_key)
+            .get(tier_name)
             .cloned()
             .unwrap_or_default()
     }
@@ -392,14 +399,15 @@ impl RBACConfig {
             UserAccessLevel::Admin => "admin",
             UserAccessLevel::SuperAdmin => "superadmin",
             // Legacy role mapping
-            UserAccessLevel::Paid | UserAccessLevel::Premium => "pro",
+            UserAccessLevel::Paid | UserAccessLevel::Premium => "ultra",
+            UserAccessLevel::Basic | UserAccessLevel::FreeWithoutAPI => "free",
             _ => "free",
         };
 
         self.api_access
             .get(role_key)
             .cloned()
-            .unwrap_or_else(|| ApiAccessConfig {
+            .unwrap_or(ApiAccessConfig {
                 exchange_api_required: 0,
                 exchange_api_recommended: 1,
                 ai_api_enabled: false,
@@ -416,14 +424,15 @@ impl RBACConfig {
             UserAccessLevel::Admin => "admin",
             UserAccessLevel::SuperAdmin => "superadmin",
             // Legacy role mapping
-            UserAccessLevel::Paid | UserAccessLevel::Premium => "pro",
+            UserAccessLevel::Paid | UserAccessLevel::Premium => "ultra",
+            UserAccessLevel::Basic | UserAccessLevel::FreeWithoutAPI => "free",
             _ => "free",
         };
 
         self.trading_limits
             .get(role_key)
             .cloned()
-            .unwrap_or_else(|| TradingConfig {
+            .unwrap_or(TradingConfig {
                 max_concurrent_trades: 1,
                 max_leverage: 2.0,
                 max_position_size_percent: 10.0,
@@ -442,7 +451,8 @@ impl RBACConfig {
             UserAccessLevel::Admin => "admin",
             UserAccessLevel::SuperAdmin => "superadmin",
             // Legacy role mapping
-            UserAccessLevel::Paid | UserAccessLevel::Premium => "pro",
+            UserAccessLevel::Paid | UserAccessLevel::Premium => "ultra",
+            UserAccessLevel::Basic | UserAccessLevel::FreeWithoutAPI => "free",
             _ => "free",
         };
 
@@ -507,7 +517,7 @@ impl RBACConfigManager {
     /// Create new RBAC configuration manager
     pub fn new() -> Self {
         console_log!("🔧 Initializing RBAC Configuration Manager...");
-        
+
         Self {
             config: RBACConfig::default(),
             feature_flag_manager: Some(FeatureFlagManager::default()),
@@ -517,7 +527,7 @@ impl RBACConfigManager {
     /// Create with custom configuration
     pub fn with_config(config: RBACConfig) -> Self {
         console_log!("🔧 Initializing RBAC Configuration Manager with custom config...");
-        
+
         Self {
             config,
             feature_flag_manager: Some(FeatureFlagManager::default()),
@@ -536,7 +546,8 @@ impl RBACConfigManager {
 
     /// Check if user has permission
     pub fn check_permission(&self, role: &UserAccessLevel, permission: &str) -> bool {
-        self.config.validate_access(role, permission, self.feature_flag_manager.as_ref())
+        self.config
+            .validate_access(role, permission, self.feature_flag_manager.as_ref())
     }
 
     /// Get comprehensive user access summary

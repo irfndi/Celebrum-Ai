@@ -120,6 +120,7 @@ pub fn check_subscription_tier_permission(
         types::SubscriptionTier::Admin => 5,
         types::SubscriptionTier::SuperAdmin => 6,
         types::SubscriptionTier::Beta => 0, // Or appropriate level for Beta users
+        types::SubscriptionTier::Ultra => 7, // Ultra tier gets highest level
     };
 
     let required_level = match required_tier {
