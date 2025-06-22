@@ -33,7 +33,8 @@ export function isValidTelegramId(id: number | string): boolean {
 }
 
 export function isValidEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  // More specific regex to prevent ReDoS attacks
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   return emailRegex.test(email);
 }
 
@@ -451,7 +452,8 @@ export function slugify(text: string): string {
     .toLowerCase()
     .trim()
     .replace(/[^\w\s-]/g, '')
-    .replace(/[\s_-]+/g, '-')
+    .replace(/[\s_-]/g, '-')
+    .replace(/-{2,}/g, '-')
     .replace(/^-+|-+$/g, '');
 }
 

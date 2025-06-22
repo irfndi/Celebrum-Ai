@@ -26,7 +26,8 @@ export function isValidTelegramId(id) {
     return Number.isInteger(numId) && numId > 0;
 }
 export function isValidEmail(email) {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // More specific regex to prevent ReDoS attacks
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     return emailRegex.test(email);
 }
 export function isValidSymbol(symbol) {
@@ -375,7 +376,8 @@ export function slugify(text) {
         .toLowerCase()
         .trim()
         .replace(/[^\w\s-]/g, '')
-        .replace(/[\s_-]+/g, '-')
+        .replace(/[\s_-]/g, '-')
+        .replace(/-{2,}/g, '-')
         .replace(/^-+|-+$/g, '');
 }
 export function truncate(text, length) {
