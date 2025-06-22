@@ -1,6 +1,6 @@
 use crate::services::core::ai::ai_intelligence::{
-    AiIntelligenceConfig, AiOpportunityEnhancement, AiRiskAssessment, AiPerformanceInsights,
-    ParameterSuggestion, AiPortfolioAnalysis, TradingFocus
+    AiIntelligenceConfig, AiOpportunityEnhancement, AiPerformanceInsights, AiPortfolioAnalysis,
+    AiRiskAssessment, ParameterSuggestion, TradingFocus,
 };
 use crate::services::core::analysis::market_analysis::{
     OpportunityType, RiskLevel, TimeHorizon, TradingOpportunity,

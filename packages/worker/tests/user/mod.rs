@@ -1,9 +1,9 @@
-pub mod group_management_test;
-pub mod session_management_test;
-pub mod user_activity_test;
-pub mod user_profile_test;
-pub mod user_trading_preferences_test;
 pub mod ai_access_test;
 pub mod dynamic_config_test;
+pub mod group_management_test;
+pub mod session_management_test;
 pub mod user_access_test;
+pub mod user_activity_test;
 pub mod user_exchange_api_test;
+pub mod user_profile_test;
+pub mod user_trading_preferences_test;

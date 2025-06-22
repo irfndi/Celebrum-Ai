@@ -3,8 +3,13 @@
 
 #[cfg(test)]
 mod tests {
-    use cerebrum_ai::services::core::opportunities::cache_manager::{OpportunityDataCache, CachePrefixes};
-    use cerebrum_ai::types::{ArbitrageOpportunity, TechnicalOpportunity, ArbitrageType, ExchangeIdEnum, TechnicalRiskLevel, TechnicalSignalType};
+    use cerebrum_ai::services::core::opportunities::cache_manager::{
+        CachePrefixes, OpportunityDataCache,
+    };
+    use cerebrum_ai::types::{
+        ArbitrageOpportunity, ArbitrageType, ExchangeIdEnum, TechnicalOpportunity,
+        TechnicalRiskLevel, TechnicalSignalType,
+    };
 
     fn create_test_arbitrage_opportunity() -> ArbitrageOpportunity {
         let buy_exchange_enum = ExchangeIdEnum::Binance;

@@ -1,5 +1,5 @@
 use crate::services::core::infrastructure::unified_financial_services::{
-    UnifiedFinancialServicesConfig, BalanceTrackerConfig, FundAnalyzerConfig, FundAnalyzer
+    BalanceTrackerConfig, FundAnalyzer, FundAnalyzerConfig, UnifiedFinancialServicesConfig,
 };
 use std::collections::HashMap;
 

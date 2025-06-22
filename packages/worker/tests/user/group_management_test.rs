@@ -1,6 +1,6 @@
+use crate::services::core::ai::types::*;
 use crate::services::core::user::group_management::*;
 use crate::services::core::user::types::*;
-use crate::services::core::ai::types::*;
 
 #[tokio::test]
 async fn test_group_registration() {

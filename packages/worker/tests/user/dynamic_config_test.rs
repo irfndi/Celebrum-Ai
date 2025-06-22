@@ -1,21 +1,21 @@
-use std::collections::HashMap;
+use crate::common::errors::{ArbitrageError, ArbitrageResult};
+use crate::services::core::user::dynamic_config::{
+    ComplianceResult, ConfigCategory, ConfigParameter, ConfigPreset, ConfigValidationResult,
+    DynamicConfigService, DynamicConfigTemplate, ParameterType, RiskLevel, SubscriptionTier,
+    ValidationError, ValidationErrorType, ValidationRules,
+};
 use chrono::Utc;
 use serde_json;
-use crate::services::core::user::dynamic_config::{
-    DynamicConfigService, DynamicConfigTemplate, ConfigParameter, ParameterType,
-    ValidationRules, ConfigCategory, ConfigPreset, RiskLevel, SubscriptionTier,
-    ConfigValidationResult, ValidationError, ValidationErrorType, ComplianceResult,
-};
-use crate::common::errors::{ArbitrageError, ArbitrageResult};
+use std::collections::HashMap;
 
 #[tokio::test]
 async fn test_dynamic_config_service_functionality() {
     let service = DynamicConfigService::new();
-    
+
     // Test template creation
     let risk_template = create_test_risk_management_template();
     let strategy_template = create_test_trading_strategy_template();
-    
+
     // Test parameter validation
     let mut parameter_values = HashMap::new();
     parameter_values.insert(
@@ -28,14 +28,10 @@ async fn test_dynamic_config_service_functionality() {
             .map(serde_json::Value::Number)
             .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0))),
     );
-    
-    let validation_result = validate_parameters_against_template(
-        &risk_template,
-        &parameter_values,
-        "test_user",
-    )
-    .await;
-    
+
+    let validation_result =
+        validate_parameters_against_template(&risk_template, &parameter_values, "test_user").await;
+
     assert!(validation_result.is_ok());
     let result = validation_result.unwrap();
     assert!(result.is_valid);
@@ -46,17 +42,17 @@ async fn test_template_validation_logic() {
     // Test valid template
     let valid_template = create_test_risk_management_template();
     assert!(validate_template_structure(&valid_template).is_ok());
-    
+
     // Test invalid template with empty name
     let mut invalid_template = valid_template.clone();
     invalid_template.name = String::new();
     assert!(validate_template_structure(&invalid_template).is_err());
-    
+
     // Test invalid template with no parameters
     let mut invalid_template = create_test_risk_management_template();
     invalid_template.parameters.clear();
     assert!(validate_template_structure(&invalid_template).is_err());
-    
+
     // Test parameter validation with valid preset
     let template = create_test_risk_management_template();
     let mut parameter_values = HashMap::new();
@@ -70,7 +66,7 @@ async fn test_template_validation_logic() {
             .map(serde_json::Value::Number)
             .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0))),
     );
-    
+
     let valid_preset = ConfigPreset {
         preset_id: "test_preset".to_string(),
         name: "Test Preset".to_string(),
@@ -82,7 +78,7 @@ async fn test_template_validation_logic() {
         created_at: Utc::now().timestamp_millis() as u64,
         is_system_preset: false,
     };
-    
+
     // Test validation
     let validation_result = validate_parameters_against_template(
         &template,
@@ -90,7 +86,7 @@ async fn test_template_validation_logic() {
         "test_user",
     )
     .await;
-    
+
     assert!(validation_result.is_ok());
     let result = validation_result.unwrap();
     assert!(result.is_valid);
@@ -196,7 +192,7 @@ async fn validate_parameters_against_template(
 ) -> ArbitrageResult<ConfigValidationResult> {
     let mut errors = Vec::new();
     let warnings = Vec::new();
-    
+
     // Validate each required parameter
     for param in &template.parameters {
         if param.is_required && !parameter_values.contains_key(&param.key) {
@@ -207,7 +203,7 @@ async fn validate_parameters_against_template(
                 suggested_value: Some(param.default_value.clone()),
             });
         }
-        
+
         if let Some(value) = parameter_values.get(&param.key) {
             // Basic type validation
             match &param.parameter_type {
@@ -218,10 +214,7 @@ async fn validate_parameters_against_template(
                                 errors.push(ValidationError {
                                     parameter_key: param.key.clone(),
                                     error_type: ValidationErrorType::OutOfRange,
-                                    message: format!(
-                                        "Value {} is below minimum {}",
-                                        num, min_val
-                                    ),
+                                    message: format!("Value {} is below minimum {}", num, min_val),
                                     suggested_value: Some(if min_val.is_finite() {
                                         serde_json::Number::from_f64(*min_val)
                                             .map(serde_json::Value::Number)
@@ -237,10 +230,7 @@ async fn validate_parameters_against_template(
                                 errors.push(ValidationError {
                                     parameter_key: param.key.clone(),
                                     error_type: ValidationErrorType::OutOfRange,
-                                    message: format!(
-                                        "Value {} is above maximum {}",
-                                        num, max_val
-                                    ),
+                                    message: format!("Value {} is above maximum {}", num, max_val),
                                     suggested_value: if max_val.is_finite() {
                                         serde_json::Number::from_f64(*max_val)
                                             .map(serde_json::Value::Number)
@@ -290,7 +280,7 @@ async fn validate_parameters_against_template(
             }
         }
     }
-    
+
     let compliance_result = ComplianceResult {
         risk_compliance: true,         // Would implement actual risk checks
         subscription_compliance: true, // Assuming user is premium for testing
@@ -298,7 +288,7 @@ async fn validate_parameters_against_template(
         regulatory_compliance: true,
         compliance_notes: Vec::new(),
     };
-    
+
     Ok(ConfigValidationResult {
         is_valid: errors.is_empty(),
         errors,
@@ -313,12 +303,12 @@ fn validate_template_structure(template: &DynamicConfigTemplate) -> ArbitrageRes
             "Template name cannot be empty",
         ));
     }
-    
+
     if template.parameters.is_empty() {
         return Err(ArbitrageError::validation_error(
             "Template must have at least one parameter",
         ));
     }
-    
+
     Ok(())
 }

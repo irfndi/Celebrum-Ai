@@ -1,5 +1,5 @@
 use crate::services::core::infrastructure::persistence_layer::database_manager::{
-    DatabaseManagerConfig, RepositoryRegistry, RepositoryRegistration, DatabaseHealthSummary
+    DatabaseHealthSummary, DatabaseManagerConfig, RepositoryRegistration, RepositoryRegistry,
 };
 use crate::services::core::infrastructure::shared_types::current_timestamp_ms;
 use std::collections::HashMap;

@@ -1,10 +1,8 @@
+use crate::error::{ArbitrageError, ArbitrageResult};
 use crate::services::core::auth::session::AuthSessionService;
 use crate::services::core::user::session_management::SessionManagementService as ActualSessionManagementService;
-use crate::types::{
-    EnhancedSessionState, EnhancedUserSession, SessionAnalytics, SessionConfig,
-};
 use crate::services::core::ServiceContainer;
-use crate::error::{ArbitrageResult, ArbitrageError};
+use crate::types::{EnhancedSessionState, EnhancedUserSession, SessionAnalytics, SessionConfig};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc; // Use parking_lot's Mutex for WASM compatibility

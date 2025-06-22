@@ -1,7 +1,7 @@
 use crate::services::core::ai::ai_integration::{
-    AiIntegrationConfig, AiProvider, AiAnalysisRequest, AiAnalysisResponse
+    AiAnalysisRequest, AiAnalysisResponse, AiIntegrationConfig, AiProvider,
 };
-use crate::services::core::user::user_api_key::{UserApiKey, ApiKeyProvider};
+use crate::services::core::user::user_api_key::{ApiKeyProvider, UserApiKey};
 use serde_json::json;
 use std::collections::HashMap;
 

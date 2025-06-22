@@ -1,8 +1,5 @@
-use crate::services::core::analysis::market_analysis::{OpportunityType, RiskLevel, TradingOpportunity};
-use crate::types::*;
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
+use std::collections::HashMap;
 
 // ============= CONFIGURATION =============
 
@@ -107,11 +104,76 @@ pub struct AiPortfolioAnalysis {
 // ============= HELPER DATA STRUCTURES =============
 
 #[derive(Debug, Clone)]
-struct PerformanceData {
+#[allow(dead_code)]
+pub struct PerformanceData {
     total_trades: u32,
     win_rate: f64,
     average_pnl: f64,
     _total_pnl: f64,
+}
+
+// ============= SERVICE IMPLEMENTATION =============
+
+#[derive(Debug, Clone)]
+pub struct AiIntelligenceService {
+    pub config: AiIntelligenceConfig,
+}
+
+impl AiIntelligenceService {
+    pub fn new(config: AiIntelligenceConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn with_default_config() -> Self {
+        Self {
+            config: AiIntelligenceConfig::default(),
+        }
+    }
+
+    pub fn calculate_concentration_risk(
+        &self,
+        positions: &[crate::types::ArbitragePosition],
+    ) -> f64 {
+        if positions.is_empty() {
+            0.0
+        } else {
+            let total_value: f64 = positions.iter().filter_map(|p| p.calculated_size_usd).sum();
+            let max_position = positions
+                .iter()
+                .filter_map(|p| p.calculated_size_usd)
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(0.0);
+
+            if total_value > 0.0 {
+                max_position / total_value
+            } else {
+                0.0
+            }
+        }
+    }
+
+    pub fn calculate_diversification_score(
+        &self,
+        positions: &[crate::types::ArbitragePosition],
+    ) -> f64 {
+        if positions.len() <= 1 {
+            0.2
+        } else if positions.len() >= 5 {
+            0.8
+        } else {
+            0.4 + (positions.len() as f64 * 0.1)
+        }
+    }
+
+    pub fn calculate_automation_readiness(&self, performance_data: &PerformanceData) -> f64 {
+        if performance_data.win_rate > 0.7 && performance_data.total_trades > 50 {
+            0.8
+        } else if performance_data.win_rate > 0.6 && performance_data.total_trades > 20 {
+            0.6
+        } else {
+            0.3
+        }
+    }
 }
 
 // Tests have been moved to packages/worker/tests/ai/ai_intelligence_test.rs

@@ -1,5 +1,7 @@
 use cerebrum_ai::services::core::opportunities::access_manager::*;
-use cerebrum_ai::types::{UserConfiguration, UserProfile, SubscriptionTier, UserAccessLevel, ExchangeIdEnum};
+use cerebrum_ai::types::{
+    ExchangeIdEnum, SubscriptionTier, UserAccessLevel, UserConfiguration, UserProfile,
+};
 use std::str::FromStr;
 
 #[cfg(test)]
