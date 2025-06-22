@@ -8,6 +8,7 @@
 //! - Dynamic permission assignment
 
 use crate::services::core::infrastructure::service_container::ServiceContainer;
+use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::{UserAccessLevel, UserProfile};
 use crate::ArbitrageResult;
 use std::collections::HashMap;
@@ -18,22 +19,25 @@ use worker::console_log;
 pub struct RBACService {
     role_manager: RoleManager,
     permission_manager: PermissionManager,
-    // TODO: Add user profile service dependency injection when needed
+    #[allow(dead_code)]
+    user_profile_service: Option<Arc<UserProfileService>>,
 }
 
 impl RBACService {
     /// Create new RBAC service
-    pub async fn new(_service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
+    pub async fn new(service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
         console_log!("👑 Initializing RBAC Service...");
 
         let role_manager = RoleManager::new();
         let permission_manager = PermissionManager::new();
+        let user_profile_service = service_container.user_profile_service.clone();
 
         console_log!("✅ RBAC Service initialized successfully");
 
         Ok(Self {
             role_manager,
             permission_manager,
+            user_profile_service,
         })
     }
 
@@ -49,6 +53,7 @@ impl RBACService {
         Ok(Self {
             role_manager,
             permission_manager,
+            user_profile_service: None,
         })
     }
 

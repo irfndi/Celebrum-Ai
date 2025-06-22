@@ -14,11 +14,12 @@ use crate::types::{
 };
 use crate::utils::{ArbitrageError, ArbitrageResult};
 use std::sync::Arc;
-use worker::console_log;
+use worker::{console_log, D1Database};
 
 /// User Authentication Service
 pub struct UserAuthService {
     service_container: Arc<ServiceContainer>,
+    d1_service: Arc<D1Database>,
 }
 
 impl UserAuthService {
@@ -26,10 +27,13 @@ impl UserAuthService {
     pub async fn new(service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
         console_log!("👤 Initializing User Authentication Service...");
 
+        let d1_service = service_container.database_manager.get_database();
+
         console_log!("✅ User Authentication Service initialized successfully");
 
         Ok(Self {
             service_container: service_container.clone(),
+            d1_service,
         })
     }
 
@@ -57,7 +61,8 @@ impl UserAuthService {
 
         // Apply invitation code benefits if provided
         if let Some(ref code) = invitation_code {
-            self.apply_invitation_benefits(&mut new_profile, code)?;
+            self.apply_invitation_benefits(&mut new_profile, code)
+                .await?;
         }
 
         // Save the new profile
@@ -151,7 +156,7 @@ impl UserAuthService {
     }
 
     /// Apply invitation code benefits to profile
-    fn apply_invitation_benefits(
+    async fn apply_invitation_benefits(
         &self,
         profile: &mut UserProfile,
         invitation_code: &str,
@@ -161,32 +166,99 @@ impl UserAuthService {
             invitation_code
         );
 
-        // TODO: Implement proper invitation code validation and benefits
-        // For now, apply basic beta access for any valid invitation code
+        if invitation_code.is_empty() {
+            return Ok(());
+        }
 
-        if !invitation_code.is_empty() {
-            // Grant beta access for 180 days
-            profile.is_beta_active = true;
-            profile.beta_expires_at =
-                Some((chrono::Utc::now() + chrono::Duration::days(180)).timestamp_millis() as u64);
+        // Validate invitation code and get benefits
+        let validation_result = self.validate_invitation_code(invitation_code).await?;
 
-            // Update subscription for beta users (assuming a Beta tier or specific logic)
-            // This might involve changing profile.subscription.tier and profile.subscription.daily_opportunity_limit
-            // For now, let's assume a Beta tier exists and set it.
-            // If SubscriptionTier::Beta doesn't exist, this will need adjustment.
-            profile.subscription = Subscription::new(SubscriptionTier::Beta);
-            // The daily_opportunity_limit is now set within Subscription::new based on tier
+        if !validation_result.is_valid {
+            return Err(ArbitrageError::validation_error(
+                validation_result
+                    .error_message
+                    .unwrap_or("Invalid invitation code".to_string()),
+            ));
+        }
 
-            // Update preferences for beta users
-            profile.preferences.has_beta_features_enabled = Some(true);
+        if let Some(benefits) = validation_result.benefits {
+            // Apply beta access if included in benefits
+            if benefits.beta_access {
+                profile.is_beta_active = true;
+                profile.beta_expires_at = Some(
+                    (chrono::Utc::now()
+                        + chrono::Duration::days(benefits.beta_duration_days as i64))
+                    .timestamp_millis() as u64,
+                );
+
+                // Update subscription tier for beta users
+                profile.subscription = Subscription::new(SubscriptionTier::Beta);
+
+                // Override daily opportunity limit if specified in benefits
+                if benefits.daily_opportunity_limit > 0 {
+                    profile.subscription.daily_opportunity_limit =
+                        Some(benefits.daily_opportunity_limit as u32);
+                }
+            }
+
+            // Update preferences for invitation code users
+            profile.preferences.has_beta_features_enabled = Some(benefits.beta_access);
             profile.preferences.applied_invitation_code = Some(invitation_code.to_string());
 
+            // Store special features in profile metadata
+            if !benefits.special_features.is_empty() {
+                let metadata = serde_json::json!({
+                    "invitation_features": benefits.special_features
+                });
+                profile.profile_metadata = Some(serde_json::to_string(&metadata)?);
+            }
+
             console_log!(
-                "✅ Beta access granted to user {} via invitation code",
-                profile.user_id
+                "✅ Invitation benefits applied to user {} via code {}: beta_access={}, duration={} days, daily_limit={}",
+                profile.user_id,
+                invitation_code,
+                benefits.beta_access,
+                benefits.beta_duration_days,
+                benefits.daily_opportunity_limit
             );
         }
 
+        Ok(())
+    }
+
+    /// Create a new invitation code (admin function)
+    pub async fn create_invitation_code(
+        &self,
+        code: &str,
+        benefits: &InvitationBenefits,
+        max_uses: Option<u32>,
+        expires_at: Option<u64>,
+        created_by: &str,
+    ) -> ArbitrageResult<()> {
+        let benefits_json = serde_json::to_string(benefits)?;
+        let now = chrono::Utc::now().timestamp_millis() as u64;
+
+        let stmt = self.d1_service.prepare(
+            "INSERT INTO invitation_codes 
+             (code, is_active, max_uses, current_uses, benefits_json, expires_at, created_by, created_at)
+             VALUES (?, 1, ?, 0, ?, ?, ?, ?)"
+        );
+
+        stmt.bind(&[
+            code.into(),
+            max_uses.unwrap_or(0).into(),
+            benefits_json.into(),
+            expires_at.unwrap_or(0).into(),
+            created_by.into(),
+            now.into(),
+        ])?
+        .run()
+        .await
+        .map_err(|e| {
+            ArbitrageError::database_error(format!("Failed to create invitation code: {}", e))
+        })?;
+
+        console_log!("✅ Created invitation code: {}", code);
         Ok(())
     }
 
@@ -233,9 +305,6 @@ impl UserAuthService {
     ) -> ArbitrageResult<InvitationValidationResult> {
         console_log!("🎫 Validating invitation code: {}", invitation_code);
 
-        // TODO: Implement proper invitation code validation
-        // For now, accept any non-empty code as valid
-
         if invitation_code.is_empty() {
             return Ok(InvitationValidationResult {
                 is_valid: false,
@@ -244,21 +313,79 @@ impl UserAuthService {
             });
         }
 
-        // Mock validation - in real implementation, check against database
-        let benefits = InvitationBenefits {
-            beta_access: true,
-            beta_duration_days: 180,
-            daily_opportunity_limit: 10,
-            special_features: vec!["beta_access".to_string(), "priority_support".to_string()],
-        };
+        // Check invitation code in database
+        let stmt = self.d1_service.prepare(
+            "SELECT code, is_active, max_uses, current_uses, benefits_json, expires_at, created_by 
+             FROM invitation_codes 
+             WHERE code = ? AND is_active = 1",
+        );
 
-        console_log!("✅ Invitation code validated: {}", invitation_code);
+        let result = stmt
+            .bind(&[invitation_code.into()])?
+            .first::<serde_json::Value>(None)
+            .await;
 
-        Ok(InvitationValidationResult {
-            is_valid: true,
-            benefits: Some(benefits),
-            error_message: None,
-        })
+        match result {
+            Ok(Some(row)) => {
+                let max_uses = row["max_uses"].as_u64().unwrap_or(0);
+                let current_uses = row["current_uses"].as_u64().unwrap_or(0);
+                let expires_at = row["expires_at"].as_u64().unwrap_or(0);
+                let now = chrono::Utc::now().timestamp_millis() as u64;
+
+                // Check if code is expired
+                if expires_at > 0 && expires_at < now {
+                    return Ok(InvitationValidationResult {
+                        is_valid: false,
+                        benefits: None,
+                        error_message: Some("Invitation code has expired".to_string()),
+                    });
+                }
+
+                // Check if code has reached max uses
+                if max_uses > 0 && current_uses >= max_uses {
+                    return Ok(InvitationValidationResult {
+                        is_valid: false,
+                        benefits: None,
+                        error_message: Some("Invitation code has reached maximum uses".to_string()),
+                    });
+                }
+
+                // Parse benefits from JSON
+                let benefits_json = row["benefits_json"].as_str().unwrap_or("{}");
+                let benefits: InvitationBenefits = serde_json::from_str(benefits_json)
+                    .unwrap_or_else(|_| InvitationBenefits {
+                        beta_access: true,
+                        beta_duration_days: 180,
+                        daily_opportunity_limit: 10,
+                        special_features: vec!["beta_access".to_string()],
+                    });
+
+                // Increment usage count
+                let update_stmt = self.d1_service.prepare(
+                    "UPDATE invitation_codes SET current_uses = current_uses + 1, last_used_at = ? WHERE code = ?"
+                );
+                let _ = update_stmt
+                    .bind(&[now.into(), invitation_code.into()])?
+                    .run()
+                    .await;
+
+                console_log!("✅ Invitation code validated: {}", invitation_code);
+
+                Ok(InvitationValidationResult {
+                    is_valid: true,
+                    benefits: Some(benefits),
+                    error_message: None,
+                })
+            }
+            _ => {
+                console_log!("❌ Invalid invitation code: {}", invitation_code);
+                Ok(InvitationValidationResult {
+                    is_valid: false,
+                    benefits: None,
+                    error_message: Some("Invalid invitation code".to_string()),
+                })
+            }
+        }
     }
 
     /// Get user onboarding status
@@ -402,7 +529,7 @@ pub struct InvitationValidationResult {
 }
 
 /// Invitation benefits
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InvitationBenefits {
     pub beta_access: bool,
     pub beta_duration_days: i32,

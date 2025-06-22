@@ -151,13 +151,25 @@ impl AuthSessionService {
             .await?;
         let has_active_session = active_session_option.is_some();
 
-        // TODO: Get more detailed session statistics from SessionManagementService
-        // If active_session_option is Some(details), we could use details to populate more fields.
-        let stats = SessionStats {
-            has_active_session,
-            total_sessions: 1,                            // TODO: Get actual count
-            last_login: chrono::Utc::now(),               // TODO: Get actual last login
-            session_duration: chrono::Duration::hours(1), // TODO: Get actual duration
+        // Get detailed session statistics from SessionManagementService
+        let stats = if let Some(session) = &active_session_option {
+            let session_duration_ms = session.last_activity_at - session.started_at;
+            let session_duration = chrono::Duration::milliseconds(session_duration_ms as i64);
+
+            SessionStats {
+                has_active_session,
+                total_sessions: 1, // Could be enhanced to count all user sessions
+                last_login: chrono::DateTime::from_timestamp_millis(session.started_at as i64)
+                    .unwrap_or_else(chrono::Utc::now),
+                session_duration,
+            }
+        } else {
+            SessionStats {
+                has_active_session: false,
+                total_sessions: 0,
+                last_login: chrono::Utc::now(),
+                session_duration: chrono::Duration::zero(),
+            }
         };
 
         console_log!("✅ Session stats retrieved for user: {}", user_id);
@@ -202,8 +214,8 @@ impl SessionValidator {
 
         Ok(SessionValidationResult {
             is_valid: true,
-            session_info: Some(session_info),
-            user_id: session_id.to_string(), // TODO: Extract actual user_id
+            session_info: Some(session_info.clone()),
+            user_id: session_info.user_id,
         })
     }
 

@@ -12,21 +12,87 @@ export interface ApiResponse<T = unknown> {
 
 // User Role and Status Enums
 export const UserRole = {
-  FREE: 'free',
-  PRO: 'pro', 
-  ULTRA: 'ultra',
-  ADMIN: 'admin',
-  SUPERADMIN: 'superadmin'
-} as const;
+  FREE: 'free' as const,
+  PRO: 'pro' as const,
+  ULTRA: 'ultra' as const,
+  ADMIN: 'admin' as const,
+  SUPERADMIN: 'superadmin' as const
+};
 
 export const UserStatus = {
-  ACTIVE: 'active',
-  SUSPENDED: 'suspended',
-  BANNED: 'banned'
-} as const;
+  ACTIVE: 'active' as const,
+  SUSPENDED: 'suspended' as const,
+  BANNED: 'banned' as const
+};
+
+export const SubscriptionTier = {
+  FREE: 'free' as const,
+  PRO: 'pro' as const,
+  ULTRA: 'ultra' as const,
+  ENTERPRISE: 'enterprise' as const
+};
 
 export type UserRoleType = typeof UserRole[keyof typeof UserRole];
 export type UserStatusType = typeof UserStatus[keyof typeof UserStatus];
+export type SubscriptionTierType = typeof SubscriptionTier[keyof typeof SubscriptionTier];
+
+// RBAC Permission Types
+export const Permission = {
+  // Basic permissions
+  READ_PROFILE: 'read:profile' as const,
+  UPDATE_PROFILE: 'update:profile' as const,
+  
+  // Trading permissions
+  TRADE_MANUAL: 'trade:manual' as const,
+  TRADE_AUTO: 'trade:auto' as const,
+  TRADE_VIEW_POSITIONS: 'trade:view_positions' as const,
+  TRADE_MANAGE_CONFIG: 'trade:manage_config' as const,
+  
+  // API permissions
+  API_EXCHANGE_ACCESS: 'api:exchange_access' as const,
+  API_AI_ACCESS: 'api:ai_access' as const,
+  API_MANAGE_KEYS: 'api:manage_keys' as const,
+  
+  // Opportunity permissions
+  OPPORTUNITY_VIEW: 'opportunity:view' as const,
+  OPPORTUNITY_EXECUTE: 'opportunity:execute' as const,
+  OPPORTUNITY_CREATE_ALERTS: 'opportunity:create_alerts' as const,
+  
+  // Strategy permissions
+  STRATEGY_VIEW: 'strategy:view' as const,
+  STRATEGY_CREATE: 'strategy:create' as const,
+  STRATEGY_EXECUTE: 'strategy:execute' as const,
+  STRATEGY_BACKTEST: 'strategy:backtest' as const,
+  
+  // Admin permissions
+  ADMIN_USER_MANAGEMENT: 'admin:user_management' as const,
+  ADMIN_SYSTEM_CONFIG: 'admin:system_config' as const,
+  ADMIN_VIEW_ANALYTICS: 'admin:view_analytics' as const,
+  ADMIN_MANAGE_FEATURES: 'admin:manage_features' as const,
+  
+  // Super admin permissions
+  SUPERADMIN_FULL_ACCESS: 'superadmin:full_access' as const
+};
+
+export type PermissionType = typeof Permission[keyof typeof Permission];
+
+// Risk Management Types
+export const RiskLevel = {
+  LOW: 'low' as const,
+  MEDIUM: 'medium' as const,
+  HIGH: 'high' as const
+};
+
+export const PositionSizingMethod = {
+  FIXED_AMOUNT: 'fixed_amount' as const,
+  PERCENTAGE_OF_PORTFOLIO: 'percentage_of_portfolio' as const,
+  KELLY_FORMULA: 'kelly_formula' as const,
+  VOLATILITY_BASED: 'volatility_based' as const,
+  RISK_PARITY: 'risk_parity' as const
+};
+
+export type RiskLevelType = typeof RiskLevel[keyof typeof RiskLevel];
+export type PositionSizingMethodType = typeof PositionSizingMethod[keyof typeof PositionSizingMethod];
 
 // User Types
 export const UserSchema = z.object({
@@ -178,6 +244,151 @@ export const ArbitrageOpportunitySchema = z.object({
 });
 
 export type ArbitrageOpportunity = z.infer<typeof ArbitrageOpportunitySchema>;
+
+// RBAC and Trading Configuration Types
+export const RiskManagementConfigSchema = z.object({
+  maxDailyLossPercent: z.number().min(0).max(100),
+  maxDrawdownPercent: z.number().min(0).max(100),
+  positionSizingMethod: z.enum(['fixed_amount', 'percentage_of_portfolio', 'kelly_formula', 'volatility_based', 'risk_parity']),
+  stopLossRequired: z.boolean(),
+  takeProfitRecommended: z.boolean(),
+  trailingStopEnabled: z.boolean(),
+  riskRewardRatioMin: z.number().min(0),
+});
+
+export const TradingConfigSchema = z.object({
+  userId: z.string(),
+  role: z.enum(['free', 'pro', 'ultra', 'admin', 'superadmin']),
+  percentagePerTrade: z.number().min(0).max(100),
+  maxConcurrentTrades: z.number().min(1).max(50),
+  maxLeverage: z.number().min(1).max(100),
+  stopLoss: z.number().optional(),
+  takeProfit: z.number().optional(),
+  riskTolerance: z.enum(['low', 'medium', 'high']),
+  autoTradingEnabled: z.boolean(),
+  manualTradingEnabled: z.boolean(),
+  riskManagement: RiskManagementConfigSchema,
+  lastUpdated: z.number(),
+});
+
+export const ApiAccessSchema = z.object({
+  userId: z.string(),
+  role: z.enum(['free', 'pro', 'ultra', 'admin', 'superadmin']),
+  exchangeApis: z.array(z.object({
+    exchangeId: z.string(),
+    apiKey: z.string(),
+    secretKey: z.string(),
+    passphrase: z.string().optional(),
+    sandbox: z.boolean().default(false),
+    permissions: z.array(z.string()),
+    isActive: z.boolean().default(true),
+    lastUsed: z.number().optional(),
+  })),
+  aiApis: z.array(z.object({
+    provider: z.string(),
+    apiKey: z.string(),
+    model: z.string().optional(),
+    maxTokens: z.number().optional(),
+    isActive: z.boolean().default(true),
+    lastUsed: z.number().optional(),
+  })),
+  limits: z.object({
+    maxExchangeApis: z.number(),
+    maxAiApis: z.number(),
+    dailyRequestLimit: z.number(),
+    hourlyRequestLimit: z.number(),
+  }),
+  usage: z.object({
+    dailyRequests: z.number().default(0),
+    hourlyRequests: z.number().default(0),
+    totalRequests: z.number().default(0),
+    lastReset: z.number(),
+  }),
+  lastUpdated: z.number(),
+});
+
+export const OpportunityLimitsSchema = z.object({
+  dailyLimit: z.number(),
+  dailyUsed: z.number(),
+  hourlyLimit: z.number(),
+  hourlyUsed: z.number(),
+  totalAccessed: z.number(),
+  successRate: z.number().min(0).max(1),
+});
+
+export const StrategyLimitsSchema = z.object({
+  maxStrategies: z.number(),
+  createdStrategies: z.number(),
+  maxActiveStrategies: z.number(),
+  activeStrategies: z.number(),
+  maxConcurrentBacktests: z.number(),
+  concurrentBacktests: z.number(),
+});
+
+export const UserAccessSummarySchema = z.object({
+  userId: z.string(),
+  role: z.enum(['free', 'pro', 'ultra', 'admin', 'superadmin']),
+  subscriptionTier: z.enum(['free', 'pro', 'ultra', 'enterprise']),
+  permissions: z.array(z.string()),
+  apiAccess: ApiAccessSchema,
+  tradingConfig: TradingConfigSchema.optional(),
+  opportunityLimits: OpportunityLimitsSchema,
+  strategyLimits: StrategyLimitsSchema,
+  featureFlags: z.record(z.boolean()),
+  lastUpdated: z.number(),
+});
+
+export const TechnicalStrategySchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  version: z.string(),
+  yamlConfig: z.string(), // YAML strategy configuration
+  isActive: z.boolean().default(false),
+  indicators: z.array(z.object({
+    name: z.string(),
+    parameters: z.record(z.any()),
+    timeframe: z.string(),
+  })),
+  conditions: z.array(z.object({
+    type: z.enum(['entry', 'exit', 'stop_loss', 'take_profit']),
+    logic: z.string(),
+    parameters: z.record(z.any()),
+  })),
+  riskManagement: RiskManagementConfigSchema,
+  backtestResults: z.array(z.object({
+    id: z.string(),
+    startDate: z.string(),
+    endDate: z.string(),
+    totalReturn: z.number(),
+    sharpeRatio: z.number(),
+    maxDrawdown: z.number(),
+    winRate: z.number(),
+    totalTrades: z.number(),
+    createdAt: z.number(),
+  })).optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+export const RBACOperationResultSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  data: z.any().optional(),
+  timestamp: z.number(),
+  errors: z.array(z.string()).optional(),
+});
+
+// Export inferred types
+export type RiskManagementConfig = z.infer<typeof RiskManagementConfigSchema>;
+export type TradingConfig = z.infer<typeof TradingConfigSchema>;
+export type ApiAccess = z.infer<typeof ApiAccessSchema>;
+export type OpportunityLimits = z.infer<typeof OpportunityLimitsSchema>;
+export type StrategyLimits = z.infer<typeof StrategyLimitsSchema>;
+export type UserAccessSummary = z.infer<typeof UserAccessSummarySchema>;
+export type TechnicalStrategy = z.infer<typeof TechnicalStrategySchema>;
+export type RBACOperationResult = z.infer<typeof RBACOperationResultSchema>;
 
 // Telegram Bot Types
 export interface TelegramUser {

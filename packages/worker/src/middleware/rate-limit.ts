@@ -9,7 +9,7 @@ export class RateLimiter {
   private readonly windowSize = 60; // 1 minute window
   private readonly defaultLimit = 60; // requests per minute
   
-  constructor(private kv: KVNamespace) {}
+  constructor(protected kv: KVNamespace) {}
 
   /**
    * Handle rate limiting middleware

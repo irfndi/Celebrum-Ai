@@ -158,8 +158,27 @@ impl RBACService {
             .get_user_api_access(user_id)
             .unwrap_or(&default_api_access);
 
-        // Get trading configuration - convert to session config if needed
-        let trading_config = None; // TODO: Convert TradingConfig to TradingSessionConfig or get from sessions
+        // Get trading configuration from trading config manager
+        let trading_config = self
+            .trading_config_manager
+            .get_user_sessions(user_id)
+            .first()
+            .map(|session| TradingSessionConfig {
+                session_id: session.session_id.clone(),
+                user_id: session.user_id.clone(),
+                role: session.role.clone(),
+                active_trades: session.active_trades,
+                max_concurrent_trades: session.max_concurrent_trades,
+                current_leverage: session.current_leverage,
+                max_leverage: session.max_leverage,
+                total_position_size_percent: session.total_position_size_percent,
+                max_position_size_percent: session.max_position_size_percent,
+                risk_management: session.risk_management.clone(),
+                auto_trading_enabled: session.auto_trading_enabled,
+                manual_trading_enabled: session.manual_trading_enabled,
+                session_start_time: session.session_start_time,
+                last_activity: session.last_activity,
+            });
 
         // Get opportunity limits
         let opportunity_stats = self
@@ -602,11 +621,64 @@ impl RBACService {
         self.user_sessions.len()
     }
 
-    /// Cleanup expired sessions (placeholder for future implementation)
+    /// Cleanup expired sessions
     pub fn cleanup_expired_sessions(&mut self) {
-        // In a real implementation, this would check session expiration times
-        // and remove expired sessions
-        console_log!("🧹 Session cleanup completed");
+        let now = Utc::now().timestamp() as u64;
+        let mut expired_sessions = Vec::new();
+
+        // Collect expired session IDs (sessions older than 24 hours)
+        for (user_id, session_info) in self.user_sessions.iter() {
+            if session_info.last_updated + 86400 <= now {
+                expired_sessions.push(user_id.clone());
+            }
+        }
+
+        // Remove expired sessions
+        let mut removed_count = 0;
+        for user_id in expired_sessions {
+            if self.user_sessions.remove(&user_id).is_some() {
+                removed_count += 1;
+                console_log!("🗑️ Removed expired session for user: {}", user_id);
+            }
+        }
+
+        if removed_count > 0 {
+            console_log!(
+                "🧹 Session cleanup completed: {} expired sessions removed",
+                removed_count
+            );
+        } else {
+            console_log!("🧹 Session cleanup completed: no expired sessions found");
+        }
+    }
+
+    /// Schedule periodic cleanup of expired sessions
+    pub fn schedule_cleanup(&mut self) {
+        // This method can be called periodically to clean up expired sessions
+        // In a production environment, this could be triggered by a cron job or timer
+        self.cleanup_expired_sessions();
+    }
+
+    /// Get session statistics
+    pub fn get_session_statistics(&self) -> serde_json::Value {
+        let now = Utc::now().timestamp() as u64;
+        let mut active_count = 0;
+        let mut expired_count = 0;
+
+        for session_info in self.user_sessions.values() {
+            if session_info.last_updated + 86400 > now {
+                active_count += 1;
+            } else {
+                expired_count += 1;
+            }
+        }
+
+        serde_json::json!({
+            "total_sessions": self.user_sessions.len(),
+            "active_sessions": active_count,
+            "expired_sessions": expired_count,
+            "timestamp": now
+        })
     }
 }
 

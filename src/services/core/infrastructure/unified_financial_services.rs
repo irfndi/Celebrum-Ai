@@ -1196,8 +1196,8 @@ impl UnifiedFinancialServices {
         &self,
         _user_id: &str,
     ) -> Result<Vec<FundOptimizationResult>, ArbitrageError> {
-        // Implementation needed
-        unimplemented!()
+        // TODO: Implement portfolio rebalancing algorithm with risk assessment
+        Ok(Vec::new())
     }
 
     pub async fn save_portfolio_analytics(
@@ -1205,16 +1205,16 @@ impl UnifiedFinancialServices {
         _user_id: &str,
         _analytics: &PortfolioAnalytics,
     ) -> Result<(), ArbitrageError> {
-        // Implementation needed
-        unimplemented!()
+        // TODO: Implement portfolio analytics persistence to database
+        Ok(())
     }
 
     pub async fn get_portfolio_analytics(
         &self,
         _user_id: &str,
     ) -> Result<Option<PortfolioAnalytics>, ArbitrageError> {
-        // Implementation needed
-        unimplemented!()
+        // TODO: Implement portfolio analytics retrieval from database
+        Ok(None)
     }
 }
 

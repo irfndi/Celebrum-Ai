@@ -9,31 +9,42 @@
 use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::types::{SubscriptionTier, UserAccessLevel, UserProfile, UserRole};
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use serde_json;
 use std::sync::Arc;
-use worker::console_log;
+use worker::{console_log, kv::KvStore, D1Database};
 
 /// Permission Checker Service
 pub struct PermissionChecker {
-    // Add actual configuration or remove struct entirely
+    kv_service: KvStore,
+    d1_service: Arc<D1Database>,
 }
 
 impl PermissionChecker {
     /// Create new permission checker
-    pub async fn new(_service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
+    pub async fn new(service_container: &Arc<ServiceContainer>) -> ArbitrageResult<Self> {
         console_log!("🔍 Initializing Permission Checker...");
+
+        let kv_service = service_container.data_access_layer.get_kv_store().clone();
+        let d1_service = service_container.database_manager.get_database();
 
         console_log!("✅ Permission Checker initialized successfully");
 
-        Ok(Self {})
+        Ok(Self {
+            kv_service,
+            d1_service,
+        })
     }
 
     /// Create new permission checker without service container dependency
+    /// Note: This method creates a mock instance for testing purposes only
     pub async fn new_standalone() -> ArbitrageResult<Self> {
         console_log!("🔍 Initializing Standalone Permission Checker...");
 
         console_log!("✅ Standalone Permission Checker initialized successfully");
 
-        Ok(Self {})
+        // This is a mock implementation for testing
+        // In production, always use new() with proper service container
+        Err(ArbitrageError::validation_error("PermissionChecker::new_standalone() is not supported in production. Use new() with ServiceContainer instead.".to_string()))
     }
 
     /// Check if user has specific permission
@@ -283,9 +294,6 @@ impl PermissionChecker {
 
     /// Check if daily limit is reached for feature
     async fn check_daily_limit_reached(&self, user_profile: &UserProfile, feature: &str) -> bool {
-        // For now, implement basic limit checking
-        // TODO: Integrate with actual usage tracking service
-
         match feature {
             "opportunities" => {
                 // Check opportunity limit
@@ -296,12 +304,94 @@ impl PermissionChecker {
                 if daily_limit >= 999 {
                     false // Unlimited
                 } else {
-                    // TODO: Check actual daily usage
-                    false // For now, assume not reached
+                    // Check actual daily usage from analytics
+                    self.get_daily_usage_count(&user_profile.user_id, "opportunities")
+                        .await
+                        .unwrap_or(0)
+                        >= daily_limit
                 }
             }
             _ => false, // No limits for other features
         }
+    }
+
+    /// Get daily usage count for a specific feature
+    async fn get_daily_usage_count(&self, user_id: &str, feature: &str) -> ArbitrageResult<u32> {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let cache_key = format!("daily_usage:{}:{}:{}", user_id, feature, today);
+
+        // Try to get from KV cache first
+        if let Some(cached_count) = self.kv_service.get(&cache_key).text().await? {
+            if let Ok(count) = cached_count.parse::<u32>() {
+                return Ok(count);
+            }
+        }
+
+        // Fallback to D1 database query
+        let stmt = self.d1_service.prepare(
+            "SELECT usage_count FROM daily_usage_tracking 
+             WHERE user_id = ? AND feature = ? AND date = ?",
+        );
+
+        let result = stmt
+            .bind(&[user_id.into(), feature.into(), today.into()])?
+            .first::<serde_json::Value>(None)
+            .await;
+
+        match result {
+            Ok(Some(row)) => {
+                let count = row["usage_count"].as_u64().unwrap_or(0) as u32;
+                // Cache the result for 1 hour
+                let _ = self
+                    .kv_service
+                    .put(&cache_key, count.to_string())?
+                    .expiration_ttl(3600)
+                    .execute()
+                    .await;
+                Ok(count)
+            }
+            _ => Ok(0), // No usage recorded yet today
+        }
+    }
+
+    /// Record usage for a feature (called when user performs an action)
+    pub async fn record_feature_usage(&self, user_id: &str, feature: &str) -> ArbitrageResult<()> {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let cache_key = format!("daily_usage:{}:{}:{}", user_id, feature, today);
+
+        // Increment in D1 database
+        let stmt = self.d1_service.prepare(
+            "INSERT INTO daily_usage_tracking (user_id, feature, date, usage_count, updated_at)
+             VALUES (?, ?, ?, 1, ?)
+             ON CONFLICT(user_id, feature, date) 
+             DO UPDATE SET usage_count = usage_count + 1, updated_at = ?",
+        );
+
+        let now = chrono::Utc::now().timestamp();
+        stmt.bind(&[
+            user_id.into(),
+            feature.into(),
+            today.into(),
+            now.into(),
+            now.into(),
+        ])?
+        .run()
+        .await
+        .map_err(|e| ArbitrageError::database_error(format!("Failed to record usage: {}", e)))?;
+
+        // Update cache
+        let new_count = self
+            .get_daily_usage_count(user_id, feature)
+            .await
+            .unwrap_or(1);
+        let _ = self
+            .kv_service
+            .put(&cache_key, new_count.to_string())?
+            .expiration_ttl(3600)
+            .execute()
+            .await;
+
+        Ok(())
     }
 
     /// Check if beta access is expired

@@ -9,6 +9,7 @@ import { ServiceRouter } from './services/router';
 import { HealthCheck } from './middleware/health';
 import { RateLimiter } from './middleware/rate-limit';
 import { ErrorHandler } from './middleware/error';
+import rbacRoutes from './routes/rbac';
 // Removed unused imports: AppError, APP_NAME, APP_VERSION, ApiResponse
 
 // Cloudflare Worker Environment
@@ -72,6 +73,9 @@ const serviceRouter = new ServiceRouter();
 // Web interface routes (static assets and pages)
 app.route('/web/*', serviceRouter.webHandler());
 app.route('/', serviceRouter.webHandler()); // Root redirects to web
+
+// RBAC routes (must come before generic API routes)
+app.route('/rbac', rbacRoutes);
 
 // API routes
 app.route('/api/*', serviceRouter.apiHandler());

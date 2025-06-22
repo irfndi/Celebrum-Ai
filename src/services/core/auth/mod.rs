@@ -38,10 +38,12 @@ pub use user_auth::{
     TelegramUserInfo, UserAuthService,
 };
 
+use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::services::core::user::session_management::SessionManagementService as SessionService;
 use crate::services::core::user::user_profile::UserProfileService;
 use crate::types::UserProfile;
 use crate::utils::{ArbitrageError, ArbitrageResult};
+use std::sync::Arc;
 
 use worker::console_log;
 
@@ -55,6 +57,7 @@ pub struct AuthService {
     permission_checker: PermissionChecker,
     user_profile_provider: Option<UserProfileService>,
     session_provider: Option<SessionService>,
+    service_container: Option<Arc<ServiceContainer>>,
 }
 
 impl AuthService {
@@ -73,7 +76,14 @@ impl AuthService {
             permission_checker,
             user_profile_provider: None,
             session_provider: None,
+            service_container: None,
         })
+    }
+
+    /// Set service container for dependency injection
+    pub fn set_service_container(&mut self, container: Arc<ServiceContainer>) {
+        self.service_container = Some(container);
+        console_log!("✅ Service container injected into auth service");
     }
 
     /// Set user profile provider for dependency injection
@@ -192,7 +202,22 @@ impl AuthService {
         }
 
         // Extract user ID from session (assuming session_id format)
-        let user_id = session_id.to_string(); // TODO: Implement proper session-to-user mapping
+        // Get user_id from session validation
+        let service_container = self.service_container.as_ref().ok_or_else(|| {
+            ArbitrageError::service_unavailable("Service container not configured")
+        })?;
+        let session_validator = SessionValidator::new(service_container).await?;
+        let validation_result = session_validator
+            .validate_and_get_context(session_id)
+            .await?;
+
+        if !validation_result.is_valid {
+            return Err(ArbitrageError::authentication_error(
+                "Invalid session".to_string(),
+            ));
+        }
+
+        let user_id = validation_result.user_id;
 
         // Get user profile
         let user_profile = if let Some(provider) = &self.user_profile_provider {
@@ -209,6 +234,10 @@ impl AuthService {
         // Get user permissions
         let permissions = self.get_user_permissions(&user_id).await?;
 
+        // Extract created_at before moving user_profile
+        let created_at = chrono::DateTime::from_timestamp_millis(user_profile.created_at as i64)
+            .unwrap_or_else(chrono::Utc::now);
+
         console_log!("✅ Session validation successful: {}", session_id);
 
         Ok(UserContext {
@@ -216,7 +245,7 @@ impl AuthService {
             session_info: SessionInfo {
                 session_id: session_id.to_string(),
                 user_id,
-                created_at: chrono::Utc::now(), // TODO: Get actual creation time
+                created_at,
                 expires_at: chrono::Utc::now() + chrono::Duration::days(7),
                 last_activity: chrono::Utc::now(),
             },

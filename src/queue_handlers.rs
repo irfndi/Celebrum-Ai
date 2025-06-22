@@ -14,6 +14,8 @@ use reqwest;
 
 use std::sync::Arc;
 
+#[cfg(not(target_arch = "wasm32"))]
+use web_push::*;
 use worker::console_log;
 use worker::*;
 
@@ -448,53 +450,63 @@ async fn process_notification_message(
             }
         }
         DeliveryMethod::Push => {
-            let d1 = _env.d1("ArbEdgeD1").map_err(|e| {
-                crate::utils::ArbitrageError::configuration_error(format!(
-                    "Failed to access D1 database for WebPush delivery: {}",
-                    e
-                ))
-            })?;
-
-            let query = "SELECT webpush_endpoint, webpush_p256dh, webpush_auth FROM user_profiles WHERE user_id = ?";
-            let stmt = d1.prepare(query);
-            let result = stmt
-                .bind(&[message.user_id.clone().into()])
-                .map_err(|e| {
-                    crate::utils::ArbitrageError::database_error(format!(
-                        "Failed to bind WebPush query: {}",
-                        e
-                    ))
-                })?
-                .first::<serde_json::Value>(None)
-                .await
-                .map_err(|e| {
-                    crate::utils::ArbitrageError::database_error(format!(
-                        "Failed to query user WebPush data: {}",
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let d1 = _env.d1("ArbEdgeD1").map_err(|e| {
+                    crate::utils::ArbitrageError::configuration_error(format!(
+                        "Failed to access D1 database for WebPush delivery: {}",
                         e
                     ))
                 })?;
 
-            if let Some(data) = result {
-                let endpoint = data.get("webpush_endpoint").and_then(|v| v.as_str());
-                let p256dh = data.get("webpush_p256dh").and_then(|v| v.as_str());
-                let auth = data.get("webpush_auth").and_then(|v| v.as_str());
+                let query = "SELECT webpush_endpoint, webpush_p256dh, webpush_auth FROM user_profiles WHERE user_id = ?";
+                let stmt = d1.prepare(query);
+                let result = stmt
+                    .bind(&[message.user_id.clone().into()])
+                    .map_err(|e| {
+                        crate::utils::ArbitrageError::database_error(format!(
+                            "Failed to bind WebPush query: {}",
+                            e
+                        ))
+                    })?
+                    .first::<serde_json::Value>(None)
+                    .await
+                    .map_err(|e| {
+                        crate::utils::ArbitrageError::database_error(format!(
+                            "Failed to query user WebPush data: {}",
+                            e
+                        ))
+                    })?;
 
-                if let (Some(endpoint), Some(p256dh), Some(auth)) = (endpoint, p256dh, auth) {
-                    let webpush_service = initialize_webpush_service(_env).await?;
-                    webpush_service
-                        .send_notification(endpoint, p256dh, auth, &message.message)
-                        .await?;
+                if let Some(data) = result {
+                    let endpoint = data.get("webpush_endpoint").and_then(|v| v.as_str());
+                    let p256dh = data.get("webpush_p256dh").and_then(|v| v.as_str());
+                    let auth = data.get("webpush_auth").and_then(|v| v.as_str());
+
+                    if let (Some(endpoint), Some(p256dh), Some(auth)) = (endpoint, p256dh, auth) {
+                        let webpush_service = initialize_webpush_service(_env).await?;
+                        webpush_service
+                            .send_notification(endpoint, p256dh, auth, &message.message)
+                            .await?;
+                    } else {
+                        return Err(crate::utils::ArbitrageError::configuration_error(format!(
+                            "Incomplete WebPush subscription data for user: {}",
+                            message.user_id
+                        )));
+                    }
                 } else {
                     return Err(crate::utils::ArbitrageError::configuration_error(format!(
-                        "Incomplete WebPush subscription data for user: {}",
+                        "User not found: {}",
                         message.user_id
                     )));
                 }
-            } else {
-                return Err(crate::utils::ArbitrageError::configuration_error(format!(
-                    "User not found: {}",
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                console_log!(
+                    "WebPush notifications not supported in WASM target for user: {}",
                     message.user_id
-                )));
+                );
             }
         }
         DeliveryMethod::InApp => {
@@ -628,10 +640,11 @@ async fn initialize_email_service(env: &Env) -> ArbitrageResult<EmailService> {
 }
 
 /// Initialize WebPush service from environment
+#[cfg(not(target_arch = "wasm32"))]
 async fn initialize_webpush_service(env: &Env) -> ArbitrageResult<WebPushService> {
     let vapid_private_key = env.secret("VAPID_PRIVATE_KEY")?.to_string();
     let vapid_public_key = env.var("VAPID_PUBLIC_KEY")?.to_string();
-    Ok(WebPushService::new(vapid_private_key, vapid_public_key))
+    WebPushService::new(vapid_private_key, vapid_public_key)
 }
 
 pub struct EmailService {
@@ -702,38 +715,40 @@ impl EmailService {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct WebPushService {
-    _vapid_private_key: String,
-    _vapid_public_key: String,
-    client: reqwest::Client,
+    vapid_private_key: String,
+    #[allow(dead_code)]
+    vapid_public_key: String,
+    client: IsahcWebPushClient,
 }
 
-// TODO: CRITICAL SECURITY ISSUE - WebPush VAPID authentication not implemented
-// This implementation is missing:
-// - JWT token generation using VAPID private key
-// - Proper Authorization and Crypto-Key header
-// - Payload encryption using p256dh and auth key
-// - Full VAPID protocol implementation
-// Current implementation will fail with most push service
-
+#[cfg(not(target_arch = "wasm32"))]
 impl WebPushService {
-    pub fn new(vapid_private_key: String, vapid_public_key: String) -> Self {
-        Self {
-            _vapid_private_key: vapid_private_key,
-            _vapid_public_key: vapid_public_key,
-            client: reqwest::Client::new(),
-        }
+    pub fn new(vapid_private_key: String, vapid_public_key: String) -> ArbitrageResult<Self> {
+        let client = IsahcWebPushClient::new().map_err(|e| {
+            ArbitrageError::service_error(format!("Failed to create WebPush client: {}", e))
+        })?;
+
+        Ok(Self {
+            vapid_private_key,
+            vapid_public_key,
+            client,
+        })
     }
 
     pub async fn send_notification(
         &self,
         endpoint: &str,
-        _p256dh: &str,
-        _auth: &str,
+        p256dh: &str,
+        auth: &str,
         content: &str,
     ) -> ArbitrageResult<()> {
         let endpoint_owned = endpoint.to_string();
         let content_owned = content.to_string();
+        let p256dh_owned = p256dh.to_string();
+        let auth_owned = auth.to_string();
+        let vapid_private_key = self.vapid_private_key.clone();
 
         send_with_retry(
             || async {
@@ -743,6 +758,28 @@ impl WebPushService {
                     short_endpoint
                 );
 
+                // Create subscription info from browser push subscription
+                let subscription_info =
+                    SubscriptionInfo::new(&endpoint_owned, &p256dh_owned, &auth_owned);
+
+                // Create VAPID signature from private key with subscription info
+                let mut sig_builder =
+                    VapidSignatureBuilder::from_base64(&vapid_private_key, &subscription_info)
+                        .map_err(|e| {
+                            ArbitrageError::service_error(format!(
+                                "Failed to create VAPID signature builder: {}",
+                                e
+                            ))
+                        })?;
+
+                // Add required claims
+                sig_builder.add_claim("sub", "mailto:admin@arbedge.com");
+
+                let vapid_signature = sig_builder.build().map_err(|e| {
+                    ArbitrageError::service_error(format!("Failed to build VAPID signature: {}", e))
+                })?;
+
+                // Create notification payload
                 let payload = serde_json::json!({
                     "title": "ArbEdge Notification",
                     "body": content_owned.clone(),
@@ -750,41 +787,34 @@ impl WebPushService {
                     "badge": "/badge-72x72.png"
                 });
 
-                let response = self
-                    .client
-                    .post(&endpoint_owned)
-                    .header("Content-Type", "application/json")
-                    .header("TTL", "86400")
-                    .json(&payload)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        ArbitrageError::network_error(format!("Web push request failed: {}", e))
-                    })?;
+                let payload_bytes = serde_json::to_vec(&payload).map_err(|e| {
+                    ArbitrageError::service_error(format!("Failed to serialize payload: {}", e))
+                })?;
 
-                if response.status().is_success() {
-                    console_log!(
-                        "Web push notification sent successfully to endpoint starting with: {}",
-                        short_endpoint
-                    );
-                    Ok(())
-                } else {
-                    let status = response.status();
-                    let error_body = response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "Unknown error body".to_string());
-                    console_error!(
-                        "Failed to send web push to {}: Status {}, Body: {}",
-                        short_endpoint,
-                        status,
-                        error_body
-                    );
-                    Err(ArbitrageError::service_error(format!(
-                        "Web push service failed: {} - {}",
-                        status, error_body
-                    )))
-                }
+                // Build web push message with encryption and VAPID authentication
+                let mut builder = WebPushMessageBuilder::new(&subscription_info);
+                builder.set_payload(ContentEncoding::Aes128Gcm, &payload_bytes);
+                builder.set_vapid_signature(vapid_signature);
+                builder.set_ttl(86400); // 24 hours TTL
+
+                let message = builder.build().map_err(|e| {
+                    ArbitrageError::service_error(format!(
+                        "Failed to build web push message: {}",
+                        e
+                    ))
+                })?;
+
+                // Send the notification
+                self.client.send(message).await.map_err(|e| {
+                    console_error!("Failed to send web push to {}: {}", short_endpoint, e);
+                    ArbitrageError::service_error(format!("Web push service failed: {}", e))
+                })?;
+
+                console_log!(
+                    "Web push notification sent successfully to endpoint starting with: {}",
+                    short_endpoint
+                );
+                Ok(())
             },
             3,
         )

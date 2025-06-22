@@ -66,3 +66,5 @@ dev-debug.log
 # Added by Claude Task Master
 tasks.json
 tasks/ 
+
+.security-reports

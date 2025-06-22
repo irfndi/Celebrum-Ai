@@ -1702,6 +1702,11 @@ impl DatabaseManager {
         self.db.prepare(sql)
     }
 
+    /// Get the underlying D1 database
+    pub fn get_database(&self) -> Arc<worker::D1Database> {
+        self.db.clone()
+    }
+
     /// Store configuration template (Dynamic Config Service compatibility)
     pub async fn store_config_template(&self, template: &serde_json::Value) -> ArbitrageResult<()> {
         // For now, store as a generic configuration template
