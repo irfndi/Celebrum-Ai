@@ -186,6 +186,16 @@ jobs:
       contents: read
       security-events: write
 
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['rust', 'javascript-typescript']
+        include:
+          - language: rust
+            setup-rust: true
+          - language: javascript-typescript
+            setup-node: true
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -193,21 +203,44 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: rust
+          languages: ${{ matrix.language }}
+          config-file: ./.github/codeql/codeql-config.yml
+          queries: security-extended,security-and-quality
         env:
           CODEQL_ENABLE_EXPERIMENTAL_FEATURES: true
 
       - name: Setup Rust
+        if: matrix.setup-rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Add WASM target
+        if: matrix.setup-rust
         run: rustup target add wasm32-unknown-unknown
+
+      - name: Setup Node.js
+        if: matrix.setup-node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        if: matrix.setup-node
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+          run_install: false
+
+      - name: Install dependencies
+        if: matrix.setup-node
+        run: pnpm install --frozen-lockfile
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
 
   deploy:
     name: Deploy to Cloudflare

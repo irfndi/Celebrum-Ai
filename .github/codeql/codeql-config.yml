@@ -1,0 +1,49 @@
+name: "ArbEdge CodeQL Configuration"
+
+# Disable default setup to use custom configuration
+disable-default-path-filters: false
+
+# Language-specific configurations
+languages:
+  - javascript-typescript
+  - actions
+  - python
+  - rust
+
+# Query suites to run
+queries:
+  - uses: security-extended
+  - uses: security-and-quality
+
+# Paths to include in analysis
+paths:
+  - src/
+  - packages/
+  - scripts/
+  - .github/
+
+# Paths to exclude from analysis
+paths-ignore:
+  - "**/*.test.ts"
+  - "**/*.test.js"
+  - "**/node_modules/"
+  - "**/target/"
+  - "**/.astro/"
+  - "**/dist/"
+  - "**/build/"
+  - "**/*.d.ts"
+  - "docs/"
+  - "migrations/"
+
+# Build configuration
+build:
+  # Commands to run before analysis
+  commands:
+    - "pnpm install --frozen-lockfile"
+    - "cargo build --release"
+
+# External libraries configuration
+external-repository-filters:
+  - exclude:
+      - "**/node_modules/**"
+      - "**/target/**"

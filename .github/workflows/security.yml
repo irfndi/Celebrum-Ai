@@ -339,47 +339,6 @@ jobs:
         with:
           sarif_file: snyk.sarif
 
-  # CodeQL analysis for additional security scanning
-  codeql:
-    name: CodeQL Analysis
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [ 'javascript' ]
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: ${{ matrix.language }}
-          queries: security-extended,security-and-quality
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
-          run_install: false
-      
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:${{matrix.language}}"
+  # Note: CodeQL analysis is now handled by dedicated workflows:
+  # - ci.yml: Rust and JavaScript-TypeScript analysis
+  # - codeql.yml: Advanced security scanning for JavaScript-TypeScript and GitHub Actions
