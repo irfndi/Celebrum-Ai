@@ -331,7 +331,7 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --severity-threshold=high --file=pnpm-lock.yaml
+          args: --severity-threshold=high --package-manager=pnpm
       
       - name: Upload Snyk results to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
