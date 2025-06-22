@@ -13,12 +13,12 @@ on:
       auto_fix:
         description: 'Automatically fix security issues'
         required: false
-        default: 'false'
+        default: false
         type: boolean
       fail_on_issues:
         description: 'Fail the workflow if security issues are found'
         required: false
-        default: 'true'
+        default: true
         type: boolean
 
 env:
