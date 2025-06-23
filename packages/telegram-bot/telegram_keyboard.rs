@@ -1,4 +1,4 @@
-use crate::services::core::user::user_profile::UserProfileService;
+// UserProfileService import removed - not available in this package scope
 use crate::types::CommandPermission;
 use super::{UserInfo, UserPermissions};
 use crate::{log_error, log_warn};

@@ -168,6 +168,7 @@ name = "arb-edge-telegram-bot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "chrono",
  "console_error_panic_hook",
  "console_log",
@@ -488,6 +489,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
+ "arb-edge-telegram-bot",
  "async-trait",
  "base64 0.22.1",
  "chrono",

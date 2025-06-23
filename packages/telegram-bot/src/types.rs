@@ -1,27 +1,8 @@
 //! Types for Telegram Bot
 
 use serde::{Deserialize, Serialize};
-use worker::Env;
 
-/// Configuration for Telegram Bot
-#[derive(Debug, Clone)]
-pub struct TelegramConfig {
-    pub bot_token: String,
-    pub webhook_url: Option<String>,
-}
-
-impl TelegramConfig {
-    pub fn from_env(env: &Env) -> worker::Result<Self> {
-        let bot_token = env.var("TELEGRAM_BOT_TOKEN")?.to_string();
-
-        let webhook_url = env.var("TELEGRAM_WEBHOOK_URL").ok().map(|v| v.to_string());
-
-        Ok(Self {
-            bot_token,
-            webhook_url,
-        })
-    }
-}
+// TelegramConfig is now defined in core::bot_client to avoid duplication
 
 /// Telegram Update structure
 #[derive(Debug, Deserialize, Serialize)]

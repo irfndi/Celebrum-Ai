@@ -1,52 +1,29 @@
-mod handlers;
+mod integrations;
 mod types;
 mod utils;
+mod handlers;
 
-use crate::handlers::handle_webhook;
-use crate::types::*;
-use worker::{event, Env, Request, Response, Result, RouteContext, Router};
+// Include core module from parent directory
+#[path = "../core/mod.rs"]
+mod core;
 
-/// Main Telegram Bot wrapper
+use worker::{Request, Response, Result, RouteContext};
+
+// Re-export handle_webhook for external use
+pub use crate::handlers::handle_webhook;
+
+/// Main Telegram Bot wrapper with modular command routing
 #[derive(Clone)]
 pub struct TelegramBot {
-    config: TelegramConfig,
+    // For now, we'll use the existing handlers module
 }
 
 impl TelegramBot {
-    pub fn new(env: &Env) -> worker::Result<Self> {
-        let config = TelegramConfig::from_env(env)?;
-        Ok(Self { config })
-    }
-
-    pub async fn handle_webhook(
-        &self,
-        req: Request,
-        ctx: RouteContext<()>,
-    ) -> worker::Result<Response> {
-        handle_webhook(req, ctx).await
+    pub fn new(_env: &Env) -> worker::Result<Self> {
+        console_log!("🔧 Initializing TelegramBot with modular command routing");
+        Ok(Self {})
     }
 }
 
-#[event(fetch)]
-pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {
-    utils::set_panic_hook();
-    utils::init_logger();
-
-    // Initialize telegram bot
-    let bot = TelegramBot::new(&env)?;
-
-    // Route the request
-    Router::new()
-        .post_async("/webhook", move |req, ctx| {
-            let bot = bot.clone();
-            async move { bot.handle_webhook(req, ctx).await }
-        })
-        .get("/health", |_, _| Response::ok("Telegram Bot is healthy"))
-        .run(req, env)
-        .await
-}
-
-#[event(start)]
-pub fn start() {
-    console_log!("🤖 ArbEdge Telegram Bot starting...");
-}
+// Note: Event handlers removed to avoid symbol conflicts
+// This package is used as a library by the main worker

@@ -37,11 +37,11 @@ pub async fn main(req: Request, env: worker::Env, _ctx: worker::Context) -> Resu
     // Route based on path
     Router::new()
         // === TELEGRAM BOT WEBHOOK ===
-        .post_async("/telegram/webhook", |_req, _ctx| async move {
-            // TODO: Implement proper telegram webhook integration
-            // For now, return a simple response
-            console_log!("Telegram webhook received");
-            Ok(Response::ok("Telegram webhook received").unwrap())
+        .post_async("/telegram/webhook", |req, ctx| async move {
+            console_log!("📱 Telegram webhook received");
+
+            // Delegate to telegram bot handler
+            arb_edge_telegram_bot::handle_webhook(req, ctx).await
         })
         // === CORE API ROUTES ===
         // Health check endpoint

@@ -304,7 +304,7 @@ impl MessageHandler {
         const MAX_MESSAGE_LENGTH: usize = 4096;
 
         if text.len() > MAX_MESSAGE_LENGTH {
-            return Err(TelegramError::API(format!(
+            return Err(TelegramError::Api(format!(
                 "Message too long: {} characters (max: {})",
                 text.len(),
                 MAX_MESSAGE_LENGTH

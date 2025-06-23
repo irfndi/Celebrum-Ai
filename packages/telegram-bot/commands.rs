@@ -6,7 +6,6 @@
 //! - Beta feature access
 //! - Command type (admin, user, trading, etc.)
 
-use crate::services::core::infrastructure::service_container::ServiceContainer;
 use crate::types::UserAccessLevel;
 use crate::core::bot_client::{TelegramError, TelegramResult};
 use std::sync::Arc;

@@ -2332,11 +2332,112 @@
             "testStrategy": "End-to-end testing of the entire system, including CI/CD workflows."
           }
         ]
+      },
+      {
+        "id": 40,
+        "title": "Fix Production Telegram Bot Commands",
+        "description": "Implement proper command routing for the Telegram bot, integrate with existing handlers, and test with production webhook using wrangler tail monitoring.",
+        "details": "1. Review the current command routing implementation in `packages/telegram-bot/` to identify gaps in functionality. 2. Implement proper command routing logic to delegate commands to modular handlers (e.g., `profile.rs`, `opportunities.rs`, `admin.rs`). 3. Ensure integration with the main worker by updating the `ModularTelegramService` to handle command execution seamlessly. 4. Add error handling and logging for command execution failures. 5. Test the implementation locally using the production webhook URL. 6. Monitor the bot's performance in production using `wrangler tail` to ensure commands are processed correctly.",
+        "testStrategy": "1. Verify command routing by sending test commands via the Telegram bot and confirming they reach the correct handlers. 2. Check error handling by simulating invalid commands and ensuring proper responses. 3. Monitor production logs via `wrangler tail` to confirm successful command execution and identify any issues. 4. Perform a regression test to ensure existing functionality remains unaffected.",
+        "status": "pending",
+        "dependencies": [
+          12,
+          13
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Review Current Command Routing Implementation",
+            "description": "Analyze the existing command routing logic in `packages/telegram-bot/` to identify gaps and areas for improvement.",
+            "dependencies": [],
+            "details": "Examine the current implementation to understand how commands are routed and processed. Identify missing features, inefficiencies, or bugs.",
+            "status": "done",
+            "testStrategy": "Manual review of code and comparison with expected command routing behavior."
+          },
+          {
+            "id": 2,
+            "title": "Design Modular Command Routing Logic",
+            "description": "Design a modular command routing system to delegate commands to specific handlers (e.g., `profile.rs`, `opportunities.rs`, `admin.rs`).",
+            "dependencies": [
+              1
+            ],
+            "details": "Create a design document or outline for how commands will be routed to modular handlers. Ensure the design supports easy addition of new commands.",
+            "status": "done",
+            "testStrategy": "Review design with team members for feedback and approval."
+          },
+          {
+            "id": 3,
+            "title": "Implement Command Routing Logic",
+            "description": "Develop the command routing logic based on the design, ensuring commands are correctly delegated to their respective handlers.",
+            "dependencies": [
+              2
+            ],
+            "details": "Write the code to route commands to modular handlers. Use a clear and maintainable structure, such as a command registry or factory pattern.",
+            "status": "done",
+            "testStrategy": "Unit tests for individual command routing cases."
+          },
+          {
+            "id": 4,
+            "title": "Update ModularTelegramService Integration",
+            "description": "Integrate the new command routing logic with the main worker by updating the `ModularTelegramService`.",
+            "dependencies": [
+              3
+            ],
+            "details": "Modify `ModularTelegramService` to use the new command routing logic. Ensure seamless execution of commands within the worker context.",
+            "status": "done",
+            "testStrategy": "Integration tests to verify command execution within the worker."
+          },
+          {
+            "id": 5,
+            "title": "Add Error Handling and Logging",
+            "description": "Implement robust error handling and logging for command execution failures.",
+            "dependencies": [
+              4
+            ],
+            "details": "Add try-catch blocks or equivalent error handling around command execution. Log errors and relevant context for debugging.",
+            "status": "done",
+            "testStrategy": "Test error scenarios and verify logs are generated correctly."
+          },
+          {
+            "id": 6,
+            "title": "Test Locally with Production Webhook",
+            "description": "Test the implementation locally using the production webhook URL to simulate real-world conditions.",
+            "dependencies": [
+              5
+            ],
+            "details": "Configure the local environment to use the production webhook URL. Test all commands to ensure they work as expected.",
+            "status": "done",
+            "testStrategy": "Manual testing of all commands locally, verifying responses and behavior."
+          },
+          {
+            "id": 7,
+            "title": "Deploy to Production",
+            "description": "Deploy the updated Telegram bot to production, ensuring the new command routing is active.",
+            "dependencies": [
+              6
+            ],
+            "details": "Use the deployment pipeline to push changes to production. Verify the deployment was successful.",
+            "status": "in-progress",
+            "testStrategy": "Check deployment logs and status to confirm successful update."
+          },
+          {
+            "id": 8,
+            "title": "Monitor Production Performance",
+            "description": "Monitor the bot's performance in production using `wrangler tail` to ensure commands are processed correctly.",
+            "dependencies": [
+              7
+            ],
+            "details": "Use `wrangler tail` to watch live logs. Verify commands are being routed and executed correctly in production.",
+            "status": "pending",
+            "testStrategy": "Observe live logs and respond to any issues that arise."
+          }
+        ]
       }
     ],
     "metadata": {
       "created": "2025-06-15T03:20:03.984Z",
-      "updated": "2025-06-22T11:33:01.127Z",
+      "updated": "2025-06-22T17:42:30.034Z",
       "description": "Tasks for master context"
     }
   }

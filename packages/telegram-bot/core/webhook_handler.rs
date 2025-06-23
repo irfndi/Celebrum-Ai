@@ -9,17 +9,22 @@
 //! - Error handling
 
 use crate::core::bot_client::{TelegramError, TelegramResult};
+use crate::core::command_router::{CommandRouter, CommandContext, UserPermissions};
+use crate::handlers::initialize_command_handlers;
 use serde_json::Value;
 use worker::console_log;
+use chrono;
 
 /// Telegram webhook update processor
 pub struct WebhookHandler {
-    // Future: Add dependencies for command routing, user management, etc.
+    command_router: CommandRouter,
 }
 
 impl WebhookHandler {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            command_router: initialize_command_handlers(),
+        }
     }
 
     /// Process incoming webhook update
@@ -53,13 +58,13 @@ impl WebhookHandler {
             .get("chat")
             .and_then(|c| c.get("id"))
             .and_then(|id| id.as_i64())
-            .ok_or_else(|| TelegramError::API("Missing chat ID".to_string()))?;
+            .ok_or_else(|| TelegramError::Api("Missing chat ID".to_string()))?;
 
         let user_id = message
             .get("from")
             .and_then(|f| f.get("id"))
             .and_then(|id| id.as_i64())
-            .ok_or_else(|| TelegramError::API("Missing user ID".to_string()))?;
+            .ok_or_else(|| TelegramError::Api("Missing user ID".to_string()))?;
 
         console_log!("💬 Message from user {} in chat {}", user_id, chat_id);
 
@@ -121,24 +126,72 @@ impl WebhookHandler {
             chat_id
         );
 
-        // Parse command and arguments
+        // Validate command input
+        if command.is_empty() {
+            console_log!("❌ Empty command received from user {} in chat {}", user_id, chat_id);
+            return Ok("❌ Invalid command. Please use /help to see available commands.".to_string());
+        }
+
+        if command.len() > 256 {
+            console_log!("❌ Command too long ({} chars) from user {} in chat {}", command.len(), user_id, chat_id);
+            return Ok("❌ Command too long. Please use shorter commands.".to_string());
+        }
+
+        // Parse command and arguments with error handling
         let parts: Vec<&str> = command.split_whitespace().collect();
         let cmd = parts.first().unwrap_or(&"");
-        let args = &parts[1..];
+        let args: Vec<&str> = parts[1..].to_vec();
 
-        match *cmd {
-            "/start" => self.handle_start_command(chat_id, user_id, args).await,
-            "/help" => self.handle_help_command(chat_id, user_id, args).await,
-            "/opportunities" => {
-                self.handle_opportunities_command(chat_id, user_id, args)
-                    .await
+        // Log command parsing details
+        console_log!("📝 Parsed command: '{}' with {} args from user {}", cmd, args.len(), user_id);
+
+        // Create command context with error handling
+        let user_permissions = match self.get_user_permissions(user_id).await {
+            Ok(permissions) => permissions,
+            Err(e) => {
+                console_log!("⚠️ Failed to get user permissions for user {}: {:?}, using defaults", user_id, e);
+                UserPermissions {
+                    is_admin: false,
+                    is_premium: false,
+                    user_level: 1,
+                }
             }
-            "/balance" => self.handle_balance_command(chat_id, user_id, args).await,
-            "/settings" => self.handle_settings_command(chat_id, user_id, args).await,
-            "/admin" => self.handle_admin_command(chat_id, user_id, args).await,
-            _ => {
-                console_log!("❓ Unknown command: {}", cmd);
-                Ok(format!("Unknown command: {}", cmd))
+        };
+
+        let context = CommandContext {
+            user_permissions,
+            message_data: serde_json::json!({
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "command": command,
+                "timestamp": chrono::Utc::now().timestamp()
+            }),
+            bot_token: String::new(), // TODO: Get actual bot token from config
+        };
+
+        // Route command through the command router with comprehensive error handling
+        match self.command_router
+            .route_command(cmd, chat_id, user_id, &args, &context)
+            .await
+        {
+            Ok(response) => {
+                console_log!("✅ Command '{}' executed successfully for user {}", cmd, user_id);
+                Ok(response)
+            }
+            Err(e) => {
+                console_log!("❌ Command '{}' failed for user {} in chat {}: {:?}", cmd, user_id, chat_id, e);
+                
+                // Log error details for debugging
+                self.log_command_error(cmd, user_id, chat_id, &e).await;
+                
+                // Return user-friendly error message
+                match e {
+                    TelegramError::Api(msg) => Ok(format!("❌ Command failed: {}", msg)),
+                    TelegramError::Http(_) => Ok("❌ Network error occurred. Please try again later.".to_string()),
+                    TelegramError::Json(_) => Ok("❌ Data processing error. Please try again.".to_string()),
+                    TelegramError::Timeout => Ok("❌ Command timed out. Please try again.".to_string()),
+                    TelegramError::RateLimit => Ok("❌ Too many requests. Please wait a moment and try again.".to_string()),
+                }
             }
         }
     }
@@ -157,33 +210,190 @@ impl WebhookHandler {
             chat_id
         );
 
+        // Validate text input
+        if text.is_empty() {
+            console_log!("⚠️ Empty text message from user {} in chat {}", user_id, chat_id);
+            return Ok("I received an empty message. How can I help you?".to_string());
+        }
+
+        if text.len() > 4096 {
+            console_log!("⚠️ Text message too long ({} chars) from user {} in chat {}", text.len(), user_id, chat_id);
+            return Ok("Your message is too long. Please send shorter messages.".to_string());
+        }
+
+        // Log message processing
+        console_log!("📝 Processing regular text ({} chars) from user {}", text.len(), user_id);
+
         // TODO: Implement natural language processing
-        // For now, just echo the message
-        Ok(format!("Received: {}", text))
+        // For now, provide helpful guidance
+        let response = if text.to_lowercase().contains("help") {
+            "I can help you with cryptocurrency arbitrage opportunities! Use /help to see all available commands.".to_string()
+        } else if text.to_lowercase().contains("price") || text.to_lowercase().contains("arbitrage") {
+            "To check arbitrage opportunities, use the /opportunities command.".to_string()
+        } else if text.to_lowercase().contains("balance") {
+            "To check your balance, use the /balance command.".to_string()
+        } else {
+            format!("I understand you said: \"{}\". Use /help to see what I can do for you!", text)
+        };
+
+        console_log!("✅ Regular text processed successfully for user {}", user_id);
+        Ok(response)
     }
 
     /// Handle callback query (inline button press)
     async fn handle_callback_query(&self, callback_query: &Value) -> TelegramResult<String> {
-        let _query_id = callback_query
+        // Extract and validate callback query data with comprehensive error handling
+        let query_id = callback_query
             .get("id")
             .and_then(|id| id.as_str())
-            .ok_or_else(|| TelegramError::API("Missing callback query ID".to_string()))?;
+            .ok_or_else(|| {
+                console_log!("❌ Missing callback query ID in payload: {:?}", callback_query);
+                TelegramError::Api("Missing callback query ID".to_string())
+            })?;
 
         let user_id = callback_query
             .get("from")
             .and_then(|f| f.get("id"))
             .and_then(|id| id.as_i64())
-            .ok_or_else(|| TelegramError::API("Missing user ID".to_string()))?;
+            .ok_or_else(|| {
+                console_log!("❌ Missing or invalid user ID in callback query: {:?}", callback_query);
+                TelegramError::Api("Missing user ID".to_string())
+            })?;
+
+        let chat_id = callback_query
+            .get("message")
+            .and_then(|m| m.get("chat"))
+            .and_then(|c| c.get("id"))
+            .and_then(|id| id.as_i64())
+            .unwrap_or(user_id); // Fallback to user_id for private chats
 
         let data = callback_query
             .get("data")
             .and_then(|d| d.as_str())
             .unwrap_or("");
 
-        console_log!("🔘 Callback query: '{}' from user {}", data, user_id);
+        console_log!("🔘 Callback query: '{}' from user {} in chat {} (query_id: {})", data, user_id, chat_id, query_id);
 
-        // TODO: Route to appropriate callback handler
-        Ok(format!("Callback query '{}' processed", data))
+        // Validate callback data
+        if data.is_empty() {
+            console_log!("⚠️ Empty callback data from user {}", user_id);
+            return Ok("Invalid button data received.".to_string());
+        }
+
+        if data.len() > 64 {
+            console_log!("⚠️ Callback data too long ({} chars) from user {}", data.len(), user_id);
+            return Ok("Button data too long.".to_string());
+        }
+
+        // Process callback query with error handling
+        match self.process_callback_data(data, user_id, chat_id).await {
+            Ok(response) => {
+                console_log!("✅ Callback query '{}' processed successfully for user {}", data, user_id);
+                Ok(response)
+            }
+            Err(e) => {
+                console_log!("❌ Callback query '{}' failed for user {}: {:?}", data, user_id, e);
+                
+                // Log error details
+                self.log_callback_error(data, user_id, chat_id, &e).await;
+                
+                Ok("❌ Failed to process button action. Please try again.".to_string())
+            }
+        }
+    }
+
+    /// Get user permissions with error handling
+    async fn get_user_permissions(&self, user_id: i64) -> TelegramResult<UserPermissions> {
+        // TODO: Implement actual user permission lookup from database
+        // For now, return default permissions with some basic logic
+        
+        console_log!("🔍 Getting permissions for user {}", user_id);
+        
+        // Placeholder logic - in production, this would query a database
+        let permissions = UserPermissions {
+            is_admin: false, // TODO: Check admin list
+            is_premium: false, // TODO: Check subscription status
+            user_level: 1, // TODO: Get actual user level
+        };
+        
+        Ok(permissions)
+    }
+
+    /// Process callback data with error handling
+    async fn process_callback_data(
+        &self,
+        data: &str,
+        user_id: i64,
+        chat_id: i64,
+    ) -> TelegramResult<String> {
+        console_log!("🔄 Processing callback data: '{}' for user {}", data, user_id);
+        
+        // Parse callback data (format: "action:param1:param2")
+        let parts: Vec<&str> = data.split(':').collect();
+        let action = parts.first().copied().unwrap_or("");
+        let params = &parts[1..];
+        
+        match action {
+            "refresh" => Ok("🔄 Data refreshed!".to_string()),
+            "settings" => Ok("⚙️ Opening settings...".to_string()),
+            "help" => Ok("📋 Use /help to see all commands.".to_string()),
+            _ => {
+                console_log!("❓ Unknown callback action: '{}' from user {}", action, user_id);
+                Ok(format!("❓ Unknown action: {}", action))
+            }
+        }
+    }
+
+    /// Log command execution errors for debugging
+    async fn log_command_error(
+        &self,
+        command: &str,
+        user_id: i64,
+        chat_id: i64,
+        error: &TelegramError,
+    ) {
+        let error_details = match error {
+            TelegramError::Api(msg) => format!("API Error: {}", msg),
+            TelegramError::Http(e) => format!("HTTP Error: {:?}", e),
+            TelegramError::Json(e) => format!("JSON Error: {:?}", e),
+            TelegramError::Timeout => "Timeout Error".to_string(),
+            TelegramError::RateLimit => "Rate Limit Error".to_string(),
+        };
+        
+        console_log!(
+            "🚨 COMMAND_ERROR | Command: {} | User: {} | Chat: {} | Error: {} | Timestamp: {}",
+            command,
+            user_id,
+            chat_id,
+            error_details,
+            chrono::Utc::now().to_rfc3339()
+        );
+    }
+
+    /// Log callback query errors for debugging
+    async fn log_callback_error(
+        &self,
+        data: &str,
+        user_id: i64,
+        chat_id: i64,
+        error: &TelegramError,
+    ) {
+        let error_details = match error {
+            TelegramError::Api(msg) => format!("API Error: {}", msg),
+            TelegramError::Http(e) => format!("HTTP Error: {:?}", e),
+            TelegramError::Json(e) => format!("JSON Error: {:?}", e),
+            TelegramError::Timeout => "Timeout Error".to_string(),
+            TelegramError::RateLimit => "Rate Limit Error".to_string(),
+        };
+        
+        console_log!(
+            "🚨 CALLBACK_ERROR | Data: {} | User: {} | Chat: {} | Error: {} | Timestamp: {}",
+            data,
+            user_id,
+            chat_id,
+            error_details,
+            chrono::Utc::now().to_rfc3339()
+        );
     }
 
     /// Handle inline query
@@ -191,13 +401,13 @@ impl WebhookHandler {
         let _query_id = inline_query
             .get("id")
             .and_then(|id| id.as_str())
-            .ok_or_else(|| TelegramError::API("Missing inline query ID".to_string()))?;
+            .ok_or_else(|| TelegramError::Api("Missing inline query ID".to_string()))?;
 
         let user_id = inline_query
             .get("from")
             .and_then(|f| f.get("id"))
             .and_then(|id| id.as_i64())
-            .ok_or_else(|| TelegramError::API("Missing user ID".to_string()))?;
+            .ok_or_else(|| TelegramError::Api("Missing user ID".to_string()))?;
 
         let query = inline_query
             .get("query")
@@ -221,7 +431,7 @@ impl WebhookHandler {
             .get("from")
             .and_then(|f| f.get("id"))
             .and_then(|id| id.as_i64())
-            .ok_or_else(|| TelegramError::API("Missing user ID".to_string()))?;
+            .ok_or_else(|| TelegramError::Api("Missing user ID".to_string()))?;
 
         console_log!(
             "✅ Chosen inline result: '{}' from user {}",
@@ -259,79 +469,7 @@ impl WebhookHandler {
         Ok("Location message processed".to_string())
     }
 
-    // Command handlers (placeholders for now)
-    async fn handle_start_command(
-        &self,
-        chat_id: i64,
-        user_id: i64,
-        _args: &[&str],
-    ) -> TelegramResult<String> {
-        console_log!("🚀 Start command from user {} in chat {}", user_id, chat_id);
-        Ok("Welcome to ArbEdge! Use /help to see available commands.".to_string())
-    }
-
-    async fn handle_help_command(
-        &self,
-        chat_id: i64,
-        user_id: i64,
-        _args: &[&str],
-    ) -> TelegramResult<String> {
-        console_log!("❓ Help command from user {} in chat {}", user_id, chat_id);
-        Ok("Available commands:\n/start - Start the bot\n/help - Show this help\n/opportunities - View opportunities\n/balance - Check balance\n/settings - User settings".to_string())
-    }
-
-    async fn handle_opportunities_command(
-        &self,
-        chat_id: i64,
-        user_id: i64,
-        _args: &[&str],
-    ) -> TelegramResult<String> {
-        console_log!(
-            "💰 Opportunities command from user {} in chat {}",
-            user_id,
-            chat_id
-        );
-        Ok("Opportunities feature not implemented yet".to_string())
-    }
-
-    async fn handle_balance_command(
-        &self,
-        chat_id: i64,
-        user_id: i64,
-        _args: &[&str],
-    ) -> TelegramResult<String> {
-        console_log!(
-            "💳 Balance command from user {} in chat {}",
-            user_id,
-            chat_id
-        );
-        Ok("Balance feature not implemented yet".to_string())
-    }
-
-    async fn handle_settings_command(
-        &self,
-        chat_id: i64,
-        user_id: i64,
-        _args: &[&str],
-    ) -> TelegramResult<String> {
-        console_log!(
-            "⚙️ Settings command from user {} in chat {}",
-            user_id,
-            chat_id
-        );
-        Ok("Settings feature not implemented yet".to_string())
-    }
-
-    async fn handle_admin_command(
-        &self,
-        chat_id: i64,
-        user_id: i64,
-        _args: &[&str],
-    ) -> TelegramResult<String> {
-        console_log!("👑 Admin command from user {} in chat {}", user_id, chat_id);
-        // TODO: Check if user is admin
-        Ok("Admin feature not implemented yet".to_string())
-    }
+    // Command handling is now delegated to the CommandRouter and individual handlers
 }
 
 impl Default for WebhookHandler {

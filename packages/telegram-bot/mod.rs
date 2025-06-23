@@ -22,7 +22,7 @@ pub use commands::CommandRouter;
 // Export the new modular service and types - defined below in this file
 // Note: These are defined later in this file
 
-use crate::services::core::infrastructure::service_container::ServiceContainer;
+// ServiceContainer import removed - not available in this package scope
 // Imports removed as they are now used directly from ServiceContainer
 use crate::core::bot_client::{TelegramError, TelegramResult};
 use serde_json::Value;
@@ -63,13 +63,13 @@ impl ModularTelegramService {
         let bot_token = env
             .secret("TELEGRAM_BOT_TOKEN")
             .map_err(|_| {
-                TelegramError::API("TELEGRAM_BOT_TOKEN secret not found".to_string())
+                TelegramError::Api("TELEGRAM_BOT_TOKEN secret not found".to_string())
             })?
             .to_string();
 
         let chat_id = env
             .var("TELEGRAM_CHAT_ID")
-            .map_err(|_| TelegramError::API("TELEGRAM_CHAT_ID not found".to_string()))?
+            .map_err(|_| TelegramError::Api("TELEGRAM_CHAT_ID not found".to_string()))?
             .to_string();
 
         let is_test_mode = env
@@ -165,7 +165,7 @@ impl ModularTelegramService {
             return self.extract_user_from_callback(callback_query);
         }
 
-        Err(TelegramError::API(
+        Err(TelegramError::Api(
             "No user information found in update".to_string(),
         ))
     }
@@ -174,17 +174,17 @@ impl ModularTelegramService {
     fn extract_user_from_message(&self, message: &Value) -> TelegramResult<UserInfo> {
         let user = message
             .get("from")
-            .ok_or_else(|| TelegramError::API("No user in message".to_string()))?;
+            .ok_or_else(|| TelegramError::Api("No user in message".to_string()))?;
 
         let chat = message
             .get("chat")
-            .ok_or_else(|| TelegramError::API("No chat in message".to_string()))?;
+            .ok_or_else(|| TelegramError::Api("No chat in message".to_string()))?;
 
         Ok(UserInfo {
             user_id: user
                 .get("id")
                 .and_then(|id| id.as_i64())
-                .ok_or_else(|| TelegramError::API("Invalid user ID".to_string()))?,
+                .ok_or_else(|| TelegramError::Api("Invalid user ID".to_string()))?,
             username: user
                 .get("username")
                 .and_then(|u| u.as_str())
@@ -196,7 +196,7 @@ impl ModularTelegramService {
             chat_id: chat
                 .get("id")
                 .and_then(|id| id.as_i64())
-                .ok_or_else(|| TelegramError::API("Invalid chat ID".to_string()))?,
+                .ok_or_else(|| TelegramError::Api("Invalid chat ID".to_string()))?,
             chat_type: chat
                 .get("type")
                 .and_then(|t| t.as_str())
@@ -209,21 +209,21 @@ impl ModularTelegramService {
     fn extract_user_from_callback(&self, callback_query: &Value) -> TelegramResult<UserInfo> {
         let user = callback_query
             .get("from")
-            .ok_or_else(|| TelegramError::API("No user in callback query".to_string()))?;
+            .ok_or_else(|| TelegramError::Api("No user in callback query".to_string()))?;
 
         let message = callback_query
             .get("message")
-            .ok_or_else(|| TelegramError::API("No message in callback query".to_string()))?;
+            .ok_or_else(|| TelegramError::Api("No message in callback query".to_string()))?;
 
         let chat = message
             .get("chat")
-            .ok_or_else(|| TelegramError::API("No chat in callback message".to_string()))?;
+            .ok_or_else(|| TelegramError::Api("No chat in callback message".to_string()))?;
 
         Ok(UserInfo {
             user_id: user
                 .get("id")
                 .and_then(|id| id.as_i64())
-                .ok_or_else(|| TelegramError::API("Invalid user ID".to_string()))?,
+                .ok_or_else(|| TelegramError::Api("Invalid user ID".to_string()))?,
             username: user
                 .get("username")
                 .and_then(|u| u.as_str())
@@ -235,7 +235,7 @@ impl ModularTelegramService {
             chat_id: chat
                 .get("id")
                 .and_then(|id| id.as_i64())
-                .ok_or_else(|| TelegramError::API("Invalid chat ID".to_string()))?,
+                .ok_or_else(|| TelegramError::Api("Invalid chat ID".to_string()))?,
             chat_type: chat
                 .get("type")
                 .and_then(|t| t.as_str())
@@ -257,7 +257,7 @@ impl ModularTelegramService {
 
         if has_session.is_none() {
             console_log!("⚠️ No active session for user {}", user_info.user_id);
-            return Err(TelegramError::API("No active session".to_string()));
+            return Err(TelegramError::Api("No active session".to_string()));
         }
 
         // Update session activity
@@ -275,14 +275,14 @@ impl ModularTelegramService {
             self.service_container
                 .user_profile_service()
                 .ok_or_else(|| {
-                    TelegramError::API("User profile service not available".to_string())
+                    TelegramError::Api("User profile service not available".to_string())
                 })?;
 
         // Get user profile using telegram_user_id lookup instead of user_id string conversion
         let user_profile = user_profile_service
             .get_user_by_telegram_id(user_info.user_id)
             .await?
-            .ok_or_else(|| TelegramError::API("User profile not found".to_string()))?;
+            .ok_or_else(|| TelegramError::Api("User profile not found".to_string()))?;
 
         // Extract permissions from profile
         let permissions = UserPermissions {
