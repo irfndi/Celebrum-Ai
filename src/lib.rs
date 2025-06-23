@@ -2,6 +2,9 @@ use std::sync::Arc;
 use worker::console_log;
 use worker::*;
 
+// External crate imports
+extern crate arb_edge_telegram_bot;
+
 // Time constants for improved readability
 
 // Request validation structs will be added when needed

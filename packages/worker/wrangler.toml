@@ -1,42 +1,43 @@
-name = "arb-edge-worker"
+name = "arb-edge"
 main = "dist/index.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2024-05-18"
+
+[site]
+bucket = "../../packages/web/dist"
 compatibility_flags = ["nodejs_compat"]
 
-# Worker configuration
-[env.development]
-name = "arb-edge-worker-dev"
-route = { pattern = "dev.arb-edge.com/*", zone_name = "arb-edge.com" }
-
-[env.staging]
-name = "arb-edge-worker-staging"
-route = { pattern = "staging.arb-edge.com/*", zone_name = "arb-edge.com" }
-
-[env.production]
-name = "arb-edge-worker"
-route = { pattern = "arb-edge.com/*", zone_name = "arb-edge.com" }
 
 # KV Namespaces
 [[kv_namespaces]]
 binding = "ArbEdgeKV"
-preview_id = "preview_kv_namespace_id"
-id = "production_kv_namespace_id"
+id = "1018c576bf664c15afe0c53d85df8ed0"
+preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
 
 [[kv_namespaces]]
 binding = "PROD_BOT_MARKET_CACHE"
-preview_id = "preview_market_cache_id"
-id = "production_market_cache_id"
+id = "c5b936f1c0eb4f50ae9519f64bd3c5d9"
+preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
 
 [[kv_namespaces]]
 binding = "PROD_BOT_SESSION_STORE"
-preview_id = "preview_session_store_id"
-id = "production_session_store_id"
+id = "d090d03b365b4619800d96ad1da5ac8c"
+preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
 
 # D1 Database
 [[d1_databases]]
 binding = "ArbEdgeD1"
-database_name = "arb-edge-db"
-database_id = "your-d1-database-id"
+database_name = "prod-arb-edge"
+database_id = "879bf844-93b2-433d-9319-6e6065bbfdfd"
+migrations_dir = "../db/sql/migrations"
+
+# R2 Buckets
+[[r2_buckets]]
+binding = "ArbEdgeR2"
+bucket_name = "prod-arb-edge"
+
+[[r2_buckets]]
+binding = "ArbEdgeR2_Analytics"
+bucket_name = "prod-arb-edge-analytics"
 
 # Environment Variables
 [vars]
@@ -44,10 +45,10 @@ ENVIRONMENT = "production"
 LOG_LEVEL = "info"
 RATE_LIMIT_REQUESTS_PER_MINUTE = "60"
 CACHE_TTL_SECONDS = "300"
-SUPER_ADMIN_USER_ID = "admin"
-EXCHANGES = "binance,coinbase,kraken"
-ARBITRAGE_THRESHOLD = "0.5"
-TELEGRAM_CHAT_ID = "your-telegram-chat-id"
+SUPER_ADMIN_USER_ID = "1082762347"
+EXCHANGES = "binance,bybit,okx,bitget"
+ARBITRAGE_THRESHOLD = "0.001"
+TELEGRAM_CHAT_ID = "1082762347"
 TELEGRAM_TEST_MODE = "false"
 
 # Service URLs for routing
@@ -57,6 +58,9 @@ DISCORD_BOT_SERVICE_URL = "https://discord-bot.arb-edge.com"
 TELEGRAM_BOT_SERVICE_URL = "https://telegram-bot.arb-edge.com"
 
 # Development environment overrides
+#[env.development]
+#name = "arb-edge"
+
 [env.development.vars]
 ENVIRONMENT = "development"
 LOG_LEVEL = "debug"
@@ -68,28 +72,46 @@ DISCORD_BOT_SERVICE_URL = "http://localhost:3001"
 TELEGRAM_BOT_SERVICE_URL = "http://localhost:3002"
 
 # Staging environment overrides
-[env.staging.vars]
-ENVIRONMENT = "staging"
-LOG_LEVEL = "info"
-RATE_LIMIT_REQUESTS_PER_MINUTE = "90"
-TELEGRAM_TEST_MODE = "true"
-WEB_SERVICE_URL = "https://web-staging.arb-edge.com"
-API_SERVICE_URL = "https://api-staging.arb-edge.com"
-DISCORD_BOT_SERVICE_URL = "https://discord-bot-staging.arb-edge.com"
-TELEGRAM_BOT_SERVICE_URL = "https://telegram-bot-staging.arb-edge.com"
+#[env.staging]
+#name = "arb-edge"
+
+#[env.staging.vars]
+#ENVIRONMENT = "staging"
+#LOG_LEVEL = "info"
+##RATE_LIMIT_REQUESTS_PER_MINUTE = "90"
+#TELEGRAM_TEST_MODE = "true"
+#WEB_SERVICE_URL = "https://web-staging.arb-edge.com"
+#API_SERVICE_URL = "https://api-staging.arb-edge.com"
+#DISCORD_BOT_SERVICE_URL = "https://discord-bot-staging.arb-edge.com"
+#TELEGRAM_BOT_SERVICE_URL = "https://telegram-bot-staging.arb-edge.com"
+
+# Production environment
+[env.production]
+name = "arb-edge"
 
 # Build configuration
 [build]
 command = "pnpm run build"
 
+# Cron Triggers - Optimized Tiered Maintenance System
+[triggers]
+# Tier 1: High-frequency tasks (every 5 minutes) - critical operations
+# Tier 2: Medium-frequency tasks (every 30 minutes) - routine maintenance  
+# Tier 3: Low-frequency tasks (every 6 hours) - deep cleanup
+crons = ["*/5 * * * *", "*/30 * * * *", "0 */6 * * *"]
+
 # Miniflare configuration for local development
-[miniflare]
+[dev.miniflare]
 kv_persist = true
 d1_persist = true
 
 # Limits and performance
 [limits]
-cpu_ms = 50
+cpu_ms = 30000  # 30 seconds max CPU time
+
+logpush = true
+[observability.logs]
+enabled = true
 
 # Analytics and monitoring
 [[analytics_engine_datasets]]

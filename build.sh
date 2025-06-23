@@ -37,4 +37,4 @@ worker-build --release
 echo "✅ Build completed successfully!"
 
 # Note: For faster CI builds, consider caching ~/.cargo/registry and ~/.cargo/git
-# in your CI pipeline (e.g., GitHub Actions cache action) 
+# in your CI pipeline (e.g., GitHub Actions cache action)

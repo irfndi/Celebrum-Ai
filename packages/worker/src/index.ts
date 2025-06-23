@@ -6,6 +6,7 @@ import { secureHeaders } from 'hono/secure-headers';
 import { timing } from 'hono/timing';
 import { RouteHandler } from './routes/handler';
 import { ServiceRouter } from './services/router';
+import { CronHandler } from './services/cron';
 import { HealthCheck } from './middleware/health';
 import { RateLimiter } from './middleware/rate-limit';
 import { ErrorHandler } from './middleware/error';
@@ -49,7 +50,7 @@ app.use('*', timing());
 app.use('*', prettyJSON());
 app.use('*', secureHeaders());
 app.use('*', cors({
-  origin: ['https://arb-edge.com', 'https://*.arb-edge.com'],
+  origin: ['https://arb-edge.com', 'https://*.arb-edge.com', 'https://arb-edge.irfandimarsya.workers.dev'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   credentials: true,
@@ -70,9 +71,7 @@ app.get('/health', async (c) => {
 // Service routing based on path patterns
 const serviceRouter = new ServiceRouter();
 
-// Web interface routes (static assets and pages)
-app.route('/web/*', serviceRouter.webHandler());
-app.route('/', serviceRouter.webHandler()); // Root redirects to web
+
 
 // RBAC routes (must come before generic API routes)
 app.route('/rbac', rbacRoutes);
@@ -82,8 +81,8 @@ app.route('/api/*', serviceRouter.apiHandler());
 app.route('/v1/*', serviceRouter.apiHandler()); // Legacy API support
 
 // Bot webhook routes
-app.route('/webhook/telegram/*', serviceRouter.telegramBotHandler());
-app.route('/webhook/discord/*', serviceRouter.discordBotHandler());
+app.route('/telegram/webhook', serviceRouter.telegramBotHandler());
+app.route('/discord/webhook', serviceRouter.discordBotHandler());
 
 // Admin routes
 app.route('/admin/*', serviceRouter.adminHandler());
@@ -104,6 +103,10 @@ app.onError((err, c) => {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     return app.fetch(request, env, ctx);
+  },
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    const cronHandler = new CronHandler(env);
+    await cronHandler.handle(event, ctx);
   },
 };
 

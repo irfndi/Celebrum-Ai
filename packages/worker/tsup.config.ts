@@ -9,7 +9,8 @@ export default defineConfig({
   minify: true,
   sourcemap: true,
   dts: false,
-  external: ['@cloudflare/workers-types'],
+  noExternal: ['@arb-edge/telegram-bot', '@arb-edge/web', '@arb-edge/shared'],
+  external: ['cloudflare:workers'],
   esbuildOptions(options) {
     options.conditions = ['worker', 'browser'];
   },

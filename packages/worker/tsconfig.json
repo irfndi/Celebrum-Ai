@@ -11,12 +11,32 @@
     "declaration": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["@cloudflare/workers-types"],
+    "types": [
+      "@cloudflare/workers-types"
+    ],
     "paths": {
-      "@arb-edge/shared": ["../shared/dist/index"],
-      "@arb-edge/shared/*": ["../shared/dist/*"]
+      "@arb-edge/shared": [
+        "../shared/dist/index"
+      ],
+      "@arb-edge/shared/*": [
+        "../shared/dist/*"
+      ],
+      "@arb-edge/telegram-bot": [
+        "../telegram-bot/dist/index"
+      ],
+      "@arb-edge/telegram-bot/*": [
+        "../telegram-bot/dist/*"
+      ],
+      "@arb-edge/web": [
+        "../web/dist/_worker.js"
+      ]
     }
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

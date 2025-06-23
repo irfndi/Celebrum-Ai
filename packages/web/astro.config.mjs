@@ -1,18 +1,9 @@
 // @ts-check
-import { defineConfig } from 'astro/config';
-import node from '@astrojs/node';
-import tailwind from '@astrojs/tailwind';
+import tailwind from "@astrojs/tailwind";
+import { defineConfig } from "astro/config";
 
 // https://astro.build/config
 export default defineConfig({
-  integrations: [tailwind()],
-  output: 'static',
-  build: {
-    format: 'directory'
-  },
-  vite: {
-    define: {
-      'process.env': process.env
-    }
-  }
+  output: "static",
+  integrations: [tailwind()]
 });

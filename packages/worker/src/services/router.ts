@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+
 import type { Env } from '../index';
 
 /**
@@ -6,71 +7,7 @@ import type { Env } from '../index';
  * based on URL patterns and service availability
  */
 export class ServiceRouter {
-  /**
-   * Handle web interface requests
-   * Routes to static assets and web pages
-   */
-  webHandler() {
-    const webApp = new Hono<{ Bindings: Env }>();
-    
-    // Static assets (CSS, JS, images)
-    webApp.get('/assets/*', async (c) => {
-      const url = new URL(c.req.url);
-      const assetPath = url.pathname.replace('/web', '');
-      
-      // In production, this would proxy to a CDN or static hosting
-      // For now, return a placeholder response
-      return new Response('Static asset placeholder', {
-        headers: {
-          'Content-Type': this.getContentType(assetPath),
-          'Cache-Control': 'public, max-age=31536000', // 1 year cache
-        },
-      });
-    });
-    
-    // Web pages
-    webApp.get('/*', async (c) => {
-      const url = new URL(c.req.url);
-      const path = url.pathname.replace('/web', '') || '/';
-      
-      // Route to appropriate web service
-      if (c.env.WEB_SERVICE_URL) {
-        const targetUrl = new URL(path, c.env.WEB_SERVICE_URL);
-        const fetchOptions: RequestInit = {
-          method: c.req.method,
-          headers: c.req.header(),
-        };
-        
-        if (c.req.method !== 'GET') {
-          fetchOptions.body = await c.req.arrayBuffer();
-        }
-        
-        return fetch(targetUrl.toString(), fetchOptions);
-      }
-      
-      // Fallback: serve basic HTML
-      return c.html(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>ArbEdge - Arbitrage Trading Platform</title>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-        </head>
-        <body>
-          <h1>ArbEdge Trading Platform</h1>
-          <p>Welcome to the ArbEdge arbitrage trading platform.</p>
-          <nav>
-            <a href="/api/health">API Health</a> |
-            <a href="/admin">Admin Panel</a>
-          </nav>
-        </body>
-        </html>
-      `);
-    });
-    
-    return webApp;
-  }
+
   
   /**
    * Handle API requests
@@ -108,7 +45,7 @@ export class ServiceRouter {
       
       // Fallback: basic API response
       return c.json({
-        service: 'arb-edge-api',
+        service: 'celebrum-ai-api',
         version: '1.0.0',
         path: path,
         method: c.req.method,
@@ -128,7 +65,7 @@ export class ServiceRouter {
     
     telegramApp.all('/*', async (c) => {
       const url = new URL(c.req.url);
-      const path = url.pathname.replace('/webhook/telegram', '');
+      const path = url.pathname.replace('/telegram/webhook', '');
       
       // Route to Telegram bot service
       if (c.env.TELEGRAM_BOT_SERVICE_URL) {
@@ -145,13 +82,20 @@ export class ServiceRouter {
         return fetch(targetUrl.toString(), fetchOptions);
       }
       
-      // Fallback: acknowledge webhook
-      return c.json({
-        ok: true,
-        service: 'telegram-bot',
-        message: 'Webhook received',
-        timestamp: new Date().toISOString(),
-      });
+      // Directly handle the webhook using the TypeScript package
+      try {
+        const { processTelegramUpdate, initializeDefaultHandlers } = await import('@arb-edge/telegram-bot');
+        initializeDefaultHandlers();
+        const update = await c.req.json();
+        const response = await processTelegramUpdate(update, { env: c.env, ctx: c.executionCtx });
+        if (response) {
+          return c.json(response);
+        }
+        return c.json({ ok: true });
+      } catch (error) {
+        console.error('Error handling Telegram webhook:', error);
+        return c.json({ ok: false, error: 'Failed to process webhook' }, 500);
+      }
     });
     
     return telegramApp;

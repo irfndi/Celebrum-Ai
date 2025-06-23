@@ -140,11 +140,8 @@ pub async fn verify_admin_access(env: &Env, user_id: &str) -> Result<bool> {
 }
 
 /// Get admin statistics from sophisticated admin service
-pub async fn get_admin_statistics(env: &Env) -> Result<AdminStatistics> {
+pub fn get_admin_statistics() -> Result<AdminStatistics> {
     console_log!("📊 Fetching admin statistics");
-
-    // Initialize admin services
-    let _kv_store = env.kv("ArbEdgeKV")?;
 
     // For now, return mock statistics
     // TODO: Integrate with actual SimpleAdminService from src/services/core/admin
@@ -158,7 +155,7 @@ pub async fn get_admin_statistics(env: &Env) -> Result<AdminStatistics> {
 }
 
 /// Get user balance data
-pub async fn get_user_balance(_env: &Env, user_id: &str) -> Result<BalanceData> {
+pub async fn get_user_balance(user_id: &str) -> Result<BalanceData> {
     console_log!("💰 Fetching balance for user: {}", user_id);
 
     // For now, return mock balance data

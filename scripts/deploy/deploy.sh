@@ -86,45 +86,13 @@ deploy_worker() {
     echo -e "${GREEN}✅ Worker deployed to ${env}${NC}"
 }
 
-deploy_web() {
-    local env=${1:-development}
-    echo -e "${GREEN}🌐 Deploying Web to ${env}...${NC}"
-    
-    cd packages/web
-    
-    # Build the web application
-    pnpm run build
-    
-    # Deploy based on environment
-    case "$env" in
-        "production")
-            # Deploy to production (implement your deployment strategy)
-            echo -e "${YELLOW}📝 Production web deployment not configured yet${NC}"
-            ;;
-        "staging")
-            # Deploy to staging (implement your deployment strategy)
-            echo -e "${YELLOW}📝 Staging web deployment not configured yet${NC}"
-            ;;
-        "development")
-            # Deploy to development (implement your deployment strategy)
-            echo -e "${YELLOW}📝 Development web deployment not configured yet${NC}"
-            ;;
-        *)
-            echo -e "${RED}❌ Unknown environment: $env${NC}"
-            exit 1
-            ;;
-    esac
-    
-    cd ../..
-    echo -e "${GREEN}✅ Web deployed to ${env}${NC}"
-}
+
 
 deploy_all() {
     local env=${1:-development}
     echo -e "${GREEN}🚀 Deploying all packages to ${env}...${NC}"
     
     deploy_worker "$env"
-    deploy_web "$env"
     
     echo -e "${GREEN}✅ All packages deployed to ${env}${NC}"
 }
@@ -168,9 +136,7 @@ case "$PACKAGE" in
     "worker")
         deploy_worker "$ENVIRONMENT"
         ;;
-    "web")
-        deploy_web "$ENVIRONMENT"
-        ;;
+
     "all")
         deploy_all "$ENVIRONMENT"
         ;;

@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@arb-edge/db": "workspace:*",
+    "@astrojs/cloudflare": "^12.6.0",
     "@astrojs/node": "^9.2.2",
     "@astrojs/tailwind": "^6.0.2",
     "astro": "^5.10.0",
