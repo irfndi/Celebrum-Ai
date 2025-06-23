@@ -2,8 +2,8 @@
 //!
 //! Handles the /settings command for user preferences configuration
 
-use crate::core::command_router::{CommandHandler, CommandContext, UserPermissions};
 use crate::core::bot_client::TelegramResult;
+use crate::core::command_router::{CommandContext, CommandHandler, UserPermissions};
 use async_trait::async_trait;
 use worker::console_log;
 
@@ -15,42 +15,42 @@ impl SettingsHandler {
     }
 
     /// Generate settings menu with current user preferences
-    fn generate_settings_menu(&self, user_id: i64) -> String {
+    fn generate_settings_menu(&self, _user_id: i64) -> String {
         // TODO: Fetch actual user settings from database
         // For now, return mock settings
-        
+
         let mut settings = String::from("⚙️ **Your Settings**\n\n");
-        
+
         settings.push_str("**📊 Notification Preferences:**\n");
         settings.push_str("• Opportunity Alerts: ✅ Enabled\n");
         settings.push_str("• Price Alerts: ❌ Disabled\n");
         settings.push_str("• Trade Confirmations: ✅ Enabled\n");
         settings.push_str("• Daily Summary: ✅ Enabled\n\n");
-        
+
         settings.push_str("**💰 Trading Preferences:**\n");
         settings.push_str("• Minimum Profit Threshold: 2.0%\n");
         settings.push_str("• Maximum Trade Size: $1,000\n");
         settings.push_str("• Auto-Trading: ❌ Disabled\n");
         settings.push_str("• Risk Level: Medium\n\n");
-        
+
         settings.push_str("**🌍 Display Preferences:**\n");
         settings.push_str("• Currency: USD\n");
         settings.push_str("• Timezone: UTC\n");
         settings.push_str("• Language: English\n\n");
-        
+
         settings.push_str("**🔐 Security Settings:**\n");
         settings.push_str("• Two-Factor Auth: ✅ Enabled\n");
         settings.push_str("• API Access: ❌ Disabled\n");
         settings.push_str("• Session Timeout: 24 hours\n\n");
-        
+
         settings.push_str("💡 **How to modify settings:**\n");
         settings.push_str("Use `/settings <category> <setting> <value>` to change settings\n\n");
-        
+
         settings.push_str("**Examples:**\n");
         settings.push_str("• `/settings notifications alerts off` - Disable opportunity alerts\n");
         settings.push_str("• `/settings trading threshold 3.0` - Set minimum profit to 3%\n");
         settings.push_str("• `/settings display currency EUR` - Change currency to EUR\n");
-        
+
         settings
     }
 }
@@ -64,36 +64,44 @@ impl CommandHandler for SettingsHandler {
         args: &[&str],
         _context: &CommandContext,
     ) -> TelegramResult<String> {
-        console_log!("⚙️ Processing /settings command for user {} in chat {}", user_id, chat_id);
+        console_log!(
+            "⚙️ Processing /settings command for user {} in chat {}",
+            user_id,
+            chat_id
+        );
 
         // If no arguments, show current settings
         if args.is_empty() {
             return Ok(self.generate_settings_menu(user_id));
         }
-        
+
         // Parse setting modification arguments
         if args.len() < 3 {
-            return Ok(
-                "❌ **Invalid settings command format**\n\n\
+            return Ok("❌ **Invalid settings command format**\n\n\
                 💡 **Usage:** `/settings <category> <setting> <value>`\n\n\
                 **Categories:** notifications, trading, display, security\n\n\
                 **Examples:**\n\
                 • `/settings notifications alerts on`\n\
                 • `/settings trading threshold 2.5`\n\
                 • `/settings display currency EUR`\n\n\
-                Use `/settings` without arguments to see current settings.".to_string()
-            );
+                Use `/settings` without arguments to see current settings."
+                .to_string());
         }
-        
+
         let category = args[0].to_lowercase();
         let setting = args[1].to_lowercase();
         let value = args[2..].join(" ");
-        
-        console_log!("🔧 Updating setting: {} -> {} = {}", category, setting, value);
-        
+
+        console_log!(
+            "🔧 Updating setting: {} -> {} = {}",
+            category,
+            setting,
+            value
+        );
+
         // TODO: Implement actual settings update logic
         // For now, return confirmation message
-        
+
         match category.as_str() {
             "notifications" => {
                 match setting.as_str() {
@@ -122,7 +130,7 @@ impl CommandHandler for SettingsHandler {
                 match setting.as_str() {
                     "threshold" => {
                         if let Ok(threshold) = value.parse::<f64>() {
-                            if threshold >= 0.1 && threshold <= 10.0 {
+                            if (0.1..=10.0).contains(&threshold) {
                                 Ok(format!(
                                     "✅ **Setting Updated**\n\n\
                                     💰 Minimum profit threshold: {:.1}%\n\n\
@@ -138,7 +146,7 @@ impl CommandHandler for SettingsHandler {
                     }
                     "maxsize" => {
                         if let Ok(max_size) = value.replace(['$', ','], "").parse::<f64>() {
-                            if max_size >= 100.0 && max_size <= 100000.0 {
+                            if (100.0..=100000.0).contains(&max_size) {
                                 Ok(format!(
                                     "✅ **Setting Updated**\n\n\
                                     💵 Maximum trade size: ${:.0}\n\n\

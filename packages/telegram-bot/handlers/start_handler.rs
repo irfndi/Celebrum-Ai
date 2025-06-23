@@ -2,8 +2,8 @@
 //!
 //! Handles the /start command for user onboarding
 
-use crate::core::command_router::{CommandHandler, CommandContext, UserPermissions};
 use crate::core::bot_client::TelegramResult;
+use crate::core::command_router::{CommandContext, CommandHandler, UserPermissions};
 use async_trait::async_trait;
 use worker::console_log;
 
@@ -24,7 +24,11 @@ impl CommandHandler for StartHandler {
         _args: &[&str],
         _context: &CommandContext,
     ) -> TelegramResult<String> {
-        console_log!("🚀 Processing /start command for user {} in chat {}", user_id, chat_id);
+        console_log!(
+            "🚀 Processing /start command for user {} in chat {}",
+            user_id,
+            chat_id
+        );
 
         let welcome_message = format!(
             "🎯 **Welcome to ArbEdge!**\n\n\

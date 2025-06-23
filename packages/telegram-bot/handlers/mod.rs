@@ -18,52 +18,36 @@ pub use opportunities_handler::OpportunitiesHandler;
 pub use settings_handler::SettingsHandler;
 pub use start_handler::StartHandler;
 
-use crate::core::command_router::{CommandHandler, CommandRouter};
+use crate::core::command_router::CommandRouter;
 use worker::console_log;
 
 /// Initialize and register all command handlers
 pub fn initialize_command_handlers() -> CommandRouter {
     console_log!("🔧 Initializing command handlers...");
-    
+
     let mut router = CommandRouter::new();
-    
+
     // Register basic commands
     router.register_handler(Box::new(StartHandler::new()));
     router.register_handler(Box::new(HelpHandler::new()));
-    
+
     // Register trading commands
     router.register_handler(Box::new(OpportunitiesHandler::new()));
     router.register_handler(Box::new(BalanceHandler::new()));
-    
+
     // Register user commands
     router.register_handler(Box::new(SettingsHandler::new()));
-    
+
     // Register admin commands
     router.register_handler(Box::new(AdminHandler::new()));
-    
+
     console_log!("✅ Command handlers initialized successfully");
     console_log!("📋 Registered commands: {:?}", router.get_command_names());
-    
+
     router
 }
 
-/// Get a list of all available command names
-pub fn get_available_commands() -> Vec<&'static str> {
-    vec![
-        "start",
-        "help", 
-        "opportunities",
-        "balance",
-        "settings",
-        "admin",
-    ]
-}
-
-/// Check if a command is valid
-pub fn is_valid_command(command: &str) -> bool {
-    let clean_command = command.strip_prefix('/').unwrap_or(command);
-    get_available_commands().contains(&clean_command)
-}
+// Removed unused functions get_available_commands and is_valid_command
 
 #[cfg(test)]
 mod tests {
@@ -94,7 +78,7 @@ mod tests {
     async fn test_handler_initialization() {
         let router = initialize_command_handlers();
         let command_names = router.get_command_names();
-        
+
         assert!(command_names.contains(&"start".to_string()));
         assert!(command_names.contains(&"help".to_string()));
         assert!(command_names.contains(&"opportunities".to_string()));

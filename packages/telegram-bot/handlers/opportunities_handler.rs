@@ -2,12 +2,12 @@
 //!
 //! Handles the /opportunities command to show arbitrage opportunities
 
-use crate::core::command_router::{CommandHandler, CommandContext, UserPermissions};
-use crate::core::bot_client::{TelegramResult, TelegramError};
+use crate::core::bot_client::{TelegramError, TelegramResult};
+use crate::core::command_router::{CommandContext, CommandHandler, UserPermissions};
 use async_trait::async_trait;
-use worker::console_log;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use worker::console_log;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbitrageOpportunity {
@@ -24,6 +24,7 @@ pub struct ArbitrageOpportunity {
 }
 
 #[derive(Debug, Default, Clone)]
+#[allow(dead_code)]
 pub struct OpportunityFilters {
     pub base_currency: Option<String>,
     pub quote_currency: Option<String>,
@@ -41,7 +42,10 @@ impl OpportunitiesHandler {
     }
 
     /// Format opportunity data for display
-    async fn get_opportunities(&self, filters: &OpportunityFilters) -> TelegramResult<Vec<ArbitrageOpportunity>> {
+    async fn get_opportunities(
+        &self,
+        filters: &OpportunityFilters,
+    ) -> TelegramResult<Vec<ArbitrageOpportunity>> {
         // TODO: Replace with actual API call to arbitrage service
         // For now, return mock data that respects filters
         let mut opportunities = vec![
@@ -105,7 +109,7 @@ impl OpportunitiesHandler {
         }
 
         let mut response = String::from("💰 **Current Arbitrage Opportunities**\n\n");
-        
+
         // Show warning about invalid arguments if any
         if !invalid_args.is_empty() {
             response.push_str(&format!(
@@ -113,14 +117,14 @@ impl OpportunitiesHandler {
                 invalid_args.join(", ")
             ));
         }
-        
+
         for (i, opp) in opportunities.iter().enumerate().take(5) {
             response.push_str(&format!(
-                "{}. **{}/{}**\n"
-                "   📈 Buy: {} @ ${:.4}\n"
-                "   📉 Sell: {} @ ${:.4}\n"
-                "   💵 Profit: {:.2}% (${:.2})\n"
-                "   📊 Volume: ${:.0}\n\n",
+                "{}. **{}/{}**\n\
+                   📈 Buy: {} @ ${:.4}\n\
+                   📉 Sell: {} @ ${:.4}\n\
+                   💵 Profit: {:.2}% (${:.2})\n\
+                   📊 Volume: ${:.0}\n\n",
                 i + 1,
                 opp.base_currency,
                 opp.quote_currency,
@@ -135,7 +139,10 @@ impl OpportunitiesHandler {
         }
 
         if opportunities.len() > 5 {
-            response.push_str(&format!("\n📋 Showing top 5 of {} opportunities.\n", opportunities.len()));
+            response.push_str(&format!(
+                "\n📋 Showing top 5 of {} opportunities.\n",
+                opportunities.len()
+            ));
         }
 
         response.push_str("\n💡 **Usage Tips:**\n");
@@ -157,18 +164,29 @@ impl CommandHandler for OpportunitiesHandler {
         args: &[&str],
         _context: &CommandContext,
     ) -> TelegramResult<String> {
-        console_log!("💰 Processing /opportunities command for user {} in chat {} with {} args", user_id, chat_id, args.len());
+        console_log!(
+            "💰 Processing /opportunities command for user {} in chat {} with {} args",
+            user_id,
+            chat_id,
+            args.len()
+        );
 
         // Validate arguments length
         if args.len() > 10 {
-            console_log!("⚠️ Too many arguments ({}) provided by user {}", args.len(), user_id);
-            return Ok("❌ Too many arguments. Use /help opportunities for usage information.".to_string());
+            console_log!(
+                "⚠️ Too many arguments ({}) provided by user {}",
+                args.len(),
+                user_id
+            );
+            return Ok(
+                "❌ Too many arguments. Use /help opportunities for usage information.".to_string(),
+            );
         }
 
         // Parse optional filters from arguments with error handling
         let mut filters = OpportunityFilters::default();
         let mut invalid_args = Vec::new();
-        
+
         for arg in args {
             match arg.to_lowercase().as_str() {
                 "btc" | "bitcoin" => {
@@ -200,21 +218,39 @@ impl CommandHandler for OpportunitiesHandler {
 
         // Warn about invalid arguments but continue processing
         if !invalid_args.is_empty() {
-            console_log!("⚠️ Invalid arguments ignored: {:?} from user {}", invalid_args, user_id);
+            console_log!(
+                "⚠️ Invalid arguments ignored: {:?} from user {}",
+                invalid_args,
+                user_id
+            );
         }
 
-        console_log!("🔍 Final filters: base_currency={:?}, min_profit={:?} for user {}", 
-                    filters.base_currency, filters.min_profit_percentage, user_id);
+        console_log!(
+            "🔍 Final filters: base_currency={:?}, min_profit={:?} for user {}",
+            filters.base_currency,
+            filters.min_profit_percentage,
+            user_id
+        );
 
         // Fetch arbitrage opportunities with error handling
         let opportunities = match self.get_opportunities(&filters).await {
             Ok(opps) => {
-                console_log!("✅ Successfully fetched {} opportunities for user {}", opps.len(), user_id);
+                console_log!(
+                    "✅ Successfully fetched {} opportunities for user {}",
+                    opps.len(),
+                    user_id
+                );
                 opps
             }
             Err(e) => {
-                console_log!("❌ Failed to fetch opportunities for user {}: {:?}", user_id, e);
-                return Err(TelegramError::Api("Failed to fetch arbitrage opportunities. Please try again later.".to_string()));
+                console_log!(
+                    "❌ Failed to fetch opportunities for user {}: {:?}",
+                    user_id,
+                    e
+                );
+                return Err(TelegramError::Api(
+                    "Failed to fetch arbitrage opportunities. Please try again later.".to_string(),
+                ));
             }
         };
 
@@ -232,14 +268,27 @@ impl CommandHandler for OpportunitiesHandler {
         }
 
         // Build response with error handling
-        match self.format_opportunities_response(&opportunities, &invalid_args).await {
+        match self
+            .format_opportunities_response(&opportunities, &invalid_args)
+            .await
+        {
             Ok(response) => {
-                console_log!("✅ Opportunities response formatted successfully for user {} ({} chars)", user_id, response.len());
+                console_log!(
+                    "✅ Opportunities response formatted successfully for user {} ({} chars)",
+                    user_id,
+                    response.len()
+                );
                 Ok(response)
             }
             Err(e) => {
-                console_log!("❌ Failed to format opportunities response for user {}: {:?}", user_id, e);
-                Err(TelegramError::Api("Failed to format opportunities data. Please try again.".to_string()));
+                console_log!(
+                    "❌ Failed to format opportunities response for user {}: {:?}",
+                    user_id,
+                    e
+                );
+                Err(TelegramError::Api(
+                    "Failed to format opportunities data. Please try again.".to_string(),
+                ))
             }
         }
     }

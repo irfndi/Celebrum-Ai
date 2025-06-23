@@ -17,6 +17,7 @@ pub struct MessageHandler {
     // Future: Add template engine, formatting options, etc.
 }
 
+#[allow(dead_code)]
 impl MessageHandler {
     pub fn new() -> Self {
         Self {}

@@ -2,8 +2,8 @@
 //!
 //! Handles the /admin command for administrative functions
 
-use crate::core::command_router::{CommandHandler, CommandContext, UserPermissions};
 use crate::core::bot_client::TelegramResult;
+use crate::core::command_router::{CommandContext, CommandHandler, UserPermissions};
 use async_trait::async_trait;
 use worker::console_log;
 
@@ -18,38 +18,38 @@ impl AdminHandler {
     fn generate_admin_dashboard(&self) -> String {
         // TODO: Fetch actual system statistics
         // For now, return mock data
-        
+
         let mut dashboard = String::from("👑 **Admin Dashboard**\n\n");
-        
+
         dashboard.push_str("**📊 System Statistics:**\n");
         dashboard.push_str("• Active Users: 1,247\n");
         dashboard.push_str("• Total Trades Today: 89\n");
         dashboard.push_str("• System Uptime: 99.8%\n");
         dashboard.push_str("• API Response Time: 145ms\n\n");
-        
+
         dashboard.push_str("**💰 Trading Statistics:**\n");
         dashboard.push_str("• Active Opportunities: 23\n");
         dashboard.push_str("• Total Volume (24h): $2.4M\n");
         dashboard.push_str("• Average Profit: 2.8%\n");
         dashboard.push_str("• Success Rate: 94.2%\n\n");
-        
+
         dashboard.push_str("**🔧 System Health:**\n");
         dashboard.push_str("• Database: ✅ Healthy\n");
         dashboard.push_str("• API Endpoints: ✅ All Online\n");
         dashboard.push_str("• Exchange Connections: ✅ 8/8 Active\n");
         dashboard.push_str("• Background Jobs: ✅ Running\n\n");
-        
+
         dashboard.push_str("**🚨 Recent Alerts:**\n");
         dashboard.push_str("• No critical alerts\n");
         dashboard.push_str("• 2 minor warnings (resolved)\n\n");
-        
+
         dashboard.push_str("**💡 Admin Commands:**\n");
         dashboard.push_str("/admin stats - Detailed statistics\n");
         dashboard.push_str("/admin users - User management\n");
         dashboard.push_str("/admin broadcast <message> - Send message to all users\n");
         dashboard.push_str("/admin maintenance - System maintenance\n");
         dashboard.push_str("/admin logs - View recent logs\n");
-        
+
         dashboard
     }
 }
@@ -61,21 +61,23 @@ impl CommandHandler for AdminHandler {
         chat_id: i64,
         user_id: i64,
         args: &[&str],
-        context: &CommandContext,
+        _context: &CommandContext,
     ) -> TelegramResult<String> {
-        console_log!("👑 Processing /admin command for user {} in chat {}", user_id, chat_id);
+        console_log!(
+            "👑 Processing /admin command for user {} in chat {}",
+            user_id,
+            chat_id
+        );
 
         // If no arguments, show admin dashboard
         if args.is_empty() {
             return Ok(self.generate_admin_dashboard());
         }
-        
+
         let subcommand = args[0].to_lowercase();
-        
+
         match subcommand.as_str() {
-            "stats" => {
-                Ok(
-                    "📈 **Detailed System Statistics**\n\n\
+            "stats" => Ok("📈 **Detailed System Statistics**\n\n\
                     **User Metrics:**\n\
                     • New Users (24h): 23\n\
                     • Active Users (24h): 456\n\
@@ -96,13 +98,11 @@ impl CommandHandler for AdminHandler {
                     • Coinbase: ✅ 156ms\n\
                     • Kraken: ✅ 203ms\n\
                     • KuCoin: ⚠️ 456ms (slow)\n\
-                    • FTX: ❌ Offline".to_string()
-                )
-            }
+                    • FTX: ❌ Offline"
+                .to_string()),
             "users" => {
                 if args.len() < 2 {
-                    Ok(
-                        "👥 **User Management**\n\n\
+                    Ok("👥 **User Management**\n\n\
                         **Commands:**\n\
                         • `/admin users list` - List recent users\n\
                         • `/admin users search <query>` - Search users\n\
@@ -114,8 +114,8 @@ impl CommandHandler for AdminHandler {
                         • User 12846: Active, Standard\n\
                         • User 12845: Inactive, Standard\n\
                         • User 12844: Active, Premium\n\
-                        • User 12843: Banned".to_string()
-                    )
+                        • User 12843: Banned"
+                        .to_string())
                 } else {
                     let action = args[1].to_lowercase();
                     match action.as_str() {
@@ -168,9 +168,7 @@ impl CommandHandler for AdminHandler {
                     ))
                 }
             }
-            "maintenance" => {
-                Ok(
-                    "🔧 **System Maintenance**\n\n\
+            "maintenance" => Ok("🔧 **System Maintenance**\n\n\
                     **Available Actions:**\n\
                     • `/admin maintenance start` - Enter maintenance mode\n\
                     • `/admin maintenance stop` - Exit maintenance mode\n\
@@ -178,12 +176,9 @@ impl CommandHandler for AdminHandler {
                     • `/admin maintenance restart` - Restart services\n\n\
                     **Current Status:** ✅ Normal Operation\n\
                     **Last Maintenance:** 2 days ago\n\
-                    **Next Scheduled:** In 5 days".to_string()
-                )
-            }
-            "logs" => {
-                Ok(
-                    "📋 **Recent System Logs**\n\n\
+                    **Next Scheduled:** In 5 days"
+                .to_string()),
+            "logs" => Ok("📋 **Recent System Logs**\n\n\
                     ```\n\
                     [2024-01-15 14:30:25] INFO: User 12847 executed trade BTC/USDT\n\
                     [2024-01-15 14:29:18] WARN: High latency detected on KuCoin API\n\
@@ -191,12 +186,10 @@ impl CommandHandler for AdminHandler {
                     [2024-01-15 14:27:32] INFO: Background job completed successfully\n\
                     [2024-01-15 14:26:19] ERROR: Failed to connect to FTX API\n\
                     ```\n\n\
-                    Use `/admin logs <level>` to filter by log level (INFO, WARN, ERROR)".to_string()
-                )
-            }
-            _ => {
-                Ok(format!(
-                    "❌ Unknown admin command: {}\n\n\
+                    Use `/admin logs <level>` to filter by log level (INFO, WARN, ERROR)"
+                .to_string()),
+            _ => Ok(format!(
+                "❌ Unknown admin command: {}\n\n\
                     **Available commands:**\n\
                     • stats - System statistics\n\
                     • users - User management\n\
@@ -204,9 +197,8 @@ impl CommandHandler for AdminHandler {
                     • maintenance - System maintenance\n\
                     • logs - View system logs\n\n\
                     Use `/admin` without arguments to see the dashboard.",
-                    subcommand
-                ))
-            }
+                subcommand
+            )),
         }
     }
 

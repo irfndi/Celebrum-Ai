@@ -2,10 +2,7 @@
 
 // Utility functions for Telegram operations
 
-/// Log macro for console output
-#[macro_export]
-macro_rules! console_log {
-    ($($t:tt)*) => (log::info!($($t)*));
-}
+// Custom console_log macro removed to avoid conflict with worker::console_log
+// All logging should use worker::console_log! directly
 
 // Utility functions for Telegram operations can be added here as needed

@@ -27,7 +27,7 @@ pub trait CommandHandler: Send + Sync {
     fn help_text(&self) -> &'static str;
 
     /// Check if user has permission to use this command
-    fn check_permission(&self, user_permissions: &UserPermissions) -> bool {
+    fn check_permission(&self, _user_permissions: &UserPermissions) -> bool {
         // Default: allow all users
         true
     }
@@ -37,7 +37,9 @@ pub trait CommandHandler: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct CommandContext {
     pub user_permissions: UserPermissions,
+    #[allow(dead_code)]
     pub message_data: Value,
+    #[allow(dead_code)]
     pub bot_token: String,
 }
 
@@ -78,7 +80,12 @@ impl CommandRouter {
         args: &[&str],
         context: &CommandContext,
     ) -> TelegramResult<String> {
-        console_log!("🎯 Routing command: {} from user {} in chat {}", command, user_id, chat_id);
+        console_log!(
+            "🎯 Routing command: {} from user {} in chat {}",
+            command,
+            user_id,
+            chat_id
+        );
 
         // Validate input parameters
         if command.is_empty() {
@@ -90,12 +97,17 @@ impl CommandRouter {
         let clean_command = command.strip_prefix('/').unwrap_or(command);
 
         // Log command details
-        console_log!("📝 Clean command: '{}' with {} args for user {}", clean_command, args.len(), user_id);
+        console_log!(
+            "📝 Clean command: '{}' with {} args for user {}",
+            clean_command,
+            args.len(),
+            user_id
+        );
 
         match self.handlers.get(clean_command) {
             Some(handler) => {
                 console_log!("🔍 Found handler for command: {}", clean_command);
-                
+
                 // Check permissions with detailed logging
                 if !handler.check_permission(&context.user_permissions) {
                     console_log!(
@@ -110,10 +122,14 @@ impl CommandRouter {
                 }
 
                 // Execute the handler with comprehensive error handling
-                console_log!("⚡ Executing handler for command: {} (user: {})", command, user_id);
-                
+                console_log!(
+                    "⚡ Executing handler for command: {} (user: {})",
+                    command,
+                    user_id
+                );
+
                 let start_time = std::time::Instant::now();
-                
+
                 match handler.handle(chat_id, user_id, args, context).await {
                     Ok(response) => {
                         let duration = start_time.elapsed();
@@ -135,18 +151,23 @@ impl CommandRouter {
                             duration,
                             e
                         );
-                        
+
                         // Log detailed error information
                         self.log_handler_error(command, user_id, chat_id, &e).await;
-                        
+
                         // Re-throw the error to be handled by the webhook handler
                         Err(e)
                     }
                 }
             }
             None => {
-                console_log!("❓ Unknown command: '{}' from user {} (available: {:?})", command, user_id, self.get_command_names());
-                
+                console_log!(
+                    "❓ Unknown command: '{}' from user {} (available: {:?})",
+                    command,
+                    user_id,
+                    self.get_command_names()
+                );
+
                 // Suggest similar commands if available
                 let suggestion = self.suggest_similar_command(clean_command);
                 let help_text = if let Some(similar) = suggestion {
@@ -160,13 +181,14 @@ impl CommandRouter {
                         command
                     )
                 };
-                
+
                 Ok(help_text)
             }
         }
     }
 
     /// Get all registered commands with their help text
+    #[allow(dead_code)]
     pub fn get_help_text(&self) -> String {
         let mut help_lines = vec!["📋 Available commands:\n".to_string()];
 
@@ -189,7 +211,7 @@ impl CommandRouter {
     fn suggest_similar_command(&self, command: &str) -> Option<String> {
         let mut best_match = None;
         let mut best_distance = usize::MAX;
-        
+
         for cmd_name in self.handlers.keys() {
             let distance = self.levenshtein_distance(command, cmd_name);
             // Only suggest if the distance is reasonable (less than half the command length)
@@ -198,7 +220,7 @@ impl CommandRouter {
                 best_match = Some(cmd_name.clone());
             }
         }
-        
+
         best_match
     }
 
@@ -206,40 +228,44 @@ impl CommandRouter {
     fn levenshtein_distance(&self, s1: &str, s2: &str) -> usize {
         let len1 = s1.len();
         let len2 = s2.len();
-        
+
         if len1 == 0 {
             return len2;
         }
         if len2 == 0 {
             return len1;
         }
-        
+
         let mut matrix = vec![vec![0; len2 + 1]; len1 + 1];
-        
+
         // Initialize first row and column
-        for i in 0..=len1 {
-            matrix[i][0] = i;
+        for (i, row) in matrix.iter_mut().enumerate().take(len1 + 1) {
+            row[0] = i;
         }
         for j in 0..=len2 {
             matrix[0][j] = j;
         }
-        
+
         let s1_chars: Vec<char> = s1.chars().collect();
         let s2_chars: Vec<char> = s2.chars().collect();
-        
+
         for i in 1..=len1 {
             for j in 1..=len2 {
-                let cost = if s1_chars[i - 1] == s2_chars[j - 1] { 0 } else { 1 };
+                let cost = if s1_chars[i - 1] == s2_chars[j - 1] {
+                    0
+                } else {
+                    1
+                };
                 matrix[i][j] = std::cmp::min(
                     std::cmp::min(
-                        matrix[i - 1][j] + 1,      // deletion
-                        matrix[i][j - 1] + 1       // insertion
+                        matrix[i - 1][j] + 1, // deletion
+                        matrix[i][j - 1] + 1, // insertion
                     ),
-                    matrix[i - 1][j - 1] + cost    // substitution
+                    matrix[i - 1][j - 1] + cost, // substitution
                 );
             }
         }
-        
+
         matrix[len1][len2]
     }
 
@@ -258,7 +284,7 @@ impl CommandRouter {
             TelegramError::Timeout => "Timeout Error".to_string(),
             TelegramError::RateLimit => "Rate Limit Error".to_string(),
         };
-        
+
         console_log!(
             "🚨 HANDLER_ERROR | Command: {} | User: {} | Chat: {} | Error: {} | Available Commands: {:?}",
             command,
@@ -277,9 +303,10 @@ impl Default for CommandRouter {
 }
 
 /// Parse command and arguments from message text
+#[allow(dead_code)]
 pub fn parse_command(text: &str) -> Option<(String, Vec<String>)> {
     let text = text.trim();
-    
+
     if !text.starts_with('/') {
         return None;
     }
@@ -305,12 +332,15 @@ mod tests {
             parse_command("/start"),
             Some(("/start".to_string(), vec![]))
         );
-        
+
         assert_eq!(
             parse_command("/balance BTC ETH"),
-            Some(("/balance".to_string(), vec!["BTC".to_string(), "ETH".to_string()]))
+            Some((
+                "/balance".to_string(),
+                vec!["BTC".to_string(), "ETH".to_string()]
+            ))
         );
-        
+
         assert_eq!(parse_command("hello"), None);
         assert_eq!(parse_command(""), None);
     }

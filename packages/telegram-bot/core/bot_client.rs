@@ -19,6 +19,7 @@ pub type TelegramResult<T> = Result<T, TelegramError>;
 
 /// Error types for Telegram operations
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum TelegramError {
     Http(reqwest::Error),
     Json(serde_json::Error),
@@ -58,6 +59,7 @@ impl Default for TelegramConfig {
 
 // Simple retry configuration for Telegram API
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct RetryConfig {
     pub max_attempts: u32,
     pub base_delay_ms: u64,
@@ -74,6 +76,7 @@ impl Default for RetryConfig {
 
 impl RetryConfig {
     /// Calculate delay for retry attempt
+    #[allow(dead_code)]
     pub fn calculate_delay(&self, attempt: u32) -> Duration {
         let base_delay = Duration::from_millis(self.base_delay_ms);
         let backoff_multiplier = 2.0f64.powf(attempt as f64 - 1.0);
@@ -83,6 +86,7 @@ impl RetryConfig {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct RateLimitEntry {
     pub last_request: Instant,
     pub request_count: u32,
@@ -90,12 +94,14 @@ pub struct RateLimitEntry {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct CacheEntry<T> {
     pub value: T,
     pub expires_at: Instant,
 }
 
 /// Telegram Bot API Client
+#[allow(dead_code)]
 pub struct TelegramBotClient {
     config: TelegramConfig,
     http_client: Client,
@@ -103,6 +109,7 @@ pub struct TelegramBotClient {
 }
 
 impl TelegramBotClient {
+    #[allow(dead_code)]
     pub fn new(config: TelegramConfig) -> Self {
         Self {
             config,
@@ -112,6 +119,7 @@ impl TelegramBotClient {
     }
 
     /// Send a message to Telegram
+    #[allow(dead_code)]
     pub async fn send_message(
         &self,
         chat_id: &str,
@@ -141,6 +149,7 @@ impl TelegramBotClient {
     }
 
     /// Send a photo to Telegram
+    #[allow(dead_code)]
     pub async fn send_photo(
         &self,
         chat_id: &str,
@@ -165,6 +174,7 @@ impl TelegramBotClient {
     }
 
     /// Edit an existing message
+    #[allow(dead_code)]
     pub async fn edit_message(
         &self,
         chat_id: &str,
@@ -196,6 +206,7 @@ impl TelegramBotClient {
     }
 
     /// Answer callback query
+    #[allow(dead_code)]
     pub async fn answer_callback_query(
         &self,
         callback_query_id: &str,
@@ -297,6 +308,7 @@ impl TelegramBotClient {
     }
 
     /// Get bot info
+    #[allow(dead_code)]
     pub async fn get_me(&self) -> TelegramResult<Value> {
         let url = format!(
             "https://api.telegram.org/bot{}/getMe",
@@ -307,6 +319,7 @@ impl TelegramBotClient {
     }
 
     /// Set webhook URL
+    #[allow(dead_code)]
     pub async fn set_webhook(&self, webhook_url: &str) -> TelegramResult<Value> {
         let url = format!(
             "https://api.telegram.org/bot{}/setWebhook",
@@ -322,6 +335,7 @@ impl TelegramBotClient {
     }
 
     /// Delete webhook
+    #[allow(dead_code)]
     pub async fn delete_webhook(&self) -> TelegramResult<Value> {
         let url = format!(
             "https://api.telegram.org/bot{}/deleteWebhook",

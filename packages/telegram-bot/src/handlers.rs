@@ -5,6 +5,11 @@ use crate::integrations::{
 use crate::types::{TelegramCallbackQuery, TelegramMessage, TelegramUpdate};
 use worker::{console_log, Env, Request, Response, Result, RouteContext};
 
+// Re-export from handlers module
+#[path = "../handlers/mod.rs"]
+mod handlers_module;
+pub use handlers_module::initialize_command_handlers;
+
 /// Handle incoming webhook from Telegram
 pub async fn handle_webhook(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
     let env = ctx.env;
@@ -298,7 +303,7 @@ async fn handle_admin_command(
                         ⚙️ /admin config - System configuration\n\n\
                         System Status: ✅ All services operational";
                     send_telegram_message(env, message.chat.id, dashboard_text).await
-                },
+                }
                 _ => {
                     let dashboard_text = "👑 Admin Dashboard\n\n\
                         Available commands:\n\

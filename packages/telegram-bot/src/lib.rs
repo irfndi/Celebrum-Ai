@@ -1,13 +1,13 @@
+mod handlers;
 mod integrations;
 mod types;
 mod utils;
-mod handlers;
 
 // Include core module from parent directory
 #[path = "../core/mod.rs"]
 mod core;
 
-use worker::{Request, Response, Result, RouteContext};
+use worker::{console_log, Env};
 
 // Re-export handle_webhook for external use
 pub use crate::handlers::handle_webhook;
