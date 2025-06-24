@@ -424,8 +424,8 @@ impl ModularTelegramService {
             bot_token: self.service_container.config.bot_token.clone(),
         };
 
-        // Create router instance
-        let router = core::command_router::CommandRouter::new();
+        // Use the initialized router with registered handlers
+        let router = &self.webhook_handler.command_router;
 
         match router
             .route_command(

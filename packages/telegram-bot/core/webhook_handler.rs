@@ -17,8 +17,7 @@ use worker::console_log;
 
 /// Telegram webhook update processor
 pub struct WebhookHandler {
-    #[allow(dead_code)]
-    command_router: CommandRouter,
+    pub command_router: CommandRouter,
 }
 
 #[allow(dead_code)]
