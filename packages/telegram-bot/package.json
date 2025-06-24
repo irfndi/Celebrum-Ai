@@ -22,7 +22,7 @@
     "dev": "tsup --watch",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
-    "type-check": "tsc --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@celebrum-ai/db": "workspace:*",
