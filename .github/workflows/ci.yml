@@ -104,7 +104,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build dependencies first
-        run: pnpm --filter @celebrum-ai/db run build
+        run: pnpm --filter @celebrum-ai/db run build && pnpm --filter @celebrum-ai/shared run build
 
       - name: Lint TypeScript packages
         run: pnpm run lint

@@ -22,7 +22,7 @@
     }
   },
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc",
     "dev": "tsup --watch",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
@@ -37,7 +37,8 @@
   },
   "dependencies": {
     "@cloudflare/workers-types": "^4.20250620.0",
-    "drizzle-orm": "catalog:"
+    "drizzle-orm": "catalog:",
+    "tslib": "^2.8.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.3",

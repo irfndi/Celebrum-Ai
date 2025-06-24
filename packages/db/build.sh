@@ -21,7 +21,7 @@ pnpm run build
 # Generate database schema if needed
 if [ -f "drizzle.config.ts" ]; then
     echo "🗄️ Generating database schema..."
-    pnpm run db:generate
+    pnpm run generate
 fi
 
 echo "✅ @celebrum-ai/db build completed successfully!"
