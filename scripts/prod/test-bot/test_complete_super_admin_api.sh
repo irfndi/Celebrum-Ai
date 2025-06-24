@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # Configuration
-BASE_URL="${BASE_URL:-https://arb-edge.irfandimarsya.workers.dev}"
+BASE_URL="${BASE_URL:-https://celebrum-ai.irfandimarsya.workers.dev}"
 TEST_OUTPUT_DIR="@logs"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$TEST_OUTPUT_DIR/complete_super_admin_api_test_$TIMESTAMP.log"

@@ -1,5 +1,5 @@
 //! Balance Command Handler
-//! 
+//!
 //! Handles the /balance command to show a user's account balance and P&L.
 
 use crate::core::bot_client::TelegramResult;
@@ -30,23 +30,27 @@ impl CommandHandler for BalanceHandler {
         let user_id_str = user_id.to_string();
 
         let response_text = match get_user_balance(&user_id_str).await {
-            Ok(balance_data) => format!(
-                "💰 *Your Balance*\n\n\
-                - *Account Balance:* ${:.2}\n\
-                - *Total P&L:* ${:.2}\n\
-                - *Total Trades:* {}\n\
-                - *Win Rate:* {:.1}%\n\
-                - *Risk Level:* {}\n\n\
-                💡 Ready to find new opportunities? Try `/opportunities`",
-                balance_data.account_balance_usdt,
-                balance_data.total_pnl_usdt,
-                balance_data.total_trades,
-                balance_data.win_rate,
-                balance_data.risk_level
-            ),
+            Ok(balance_data) => {
+                let total_balance = balance_data["total_balance"].as_str().unwrap_or("0.00");
+                let available_balance =
+                    balance_data["available_balance"].as_str().unwrap_or("0.00");
+                let currency = balance_data["currency"].as_str().unwrap_or("USD");
+                let last_updated = balance_data["last_updated"].as_str().unwrap_or("Unknown");
+
+                format!(
+                    "💰 **Account Balance**\n\n\
+                    - *Total Balance:* {} {}\n\
+                    - *Available:* {} {}\n\
+                    - *Currency:* {}\n\
+                    - *Last Updated:* {}\n\n\
+                    💡 Use /opportunities to find new trades!",
+                    total_balance, currency, available_balance, currency, currency, last_updated
+                )
+            }
             Err(e) => {
                 console_log!("❌ Failed to get balance for user {}: {:?}", user_id, e);
-                "❌ Unable to retrieve your balance information. Please try again later.".to_string()
+                "❌ Unable to retrieve your balance information. Please try again later."
+                    .to_string()
             }
         };
 

@@ -207,7 +207,7 @@ Monitor these Cloudflare-specific metrics:
 1. **Verify System Health**
    ```bash
    # Test basic connectivity
-   curl -I https://arb-edge.irfandimarsya.workers.dev/api/v1/health
+   curl -I https://celebrum-ai.irfandimarsya.workers.dev/api/v1/health
    
    # Run quick API validation
    make test-api-v1-production
@@ -388,7 +388,7 @@ Based on current architecture:
 2. **Check System Status**
    ```bash
    # Verify services are responding
-   curl -I https://arb-edge.irfandimarsya.workers.dev/api/v1/health
+   curl -I https://celebrum-ai.irfandimarsya.workers.dev/api/v1/health
    
    # Check for any ongoing issues
    make test-api-v1-production

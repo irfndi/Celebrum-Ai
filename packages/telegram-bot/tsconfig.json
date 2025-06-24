@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "WebWorker"],
+    "lib": [
+      "ES2022",
+      "WebWorker"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
@@ -25,11 +28,19 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"],
-      "@arb-edge/shared": ["../shared/dist/index"],
-      "@arb-edge/shared/*": ["../shared/dist/*"]
+      "@/*": [
+        "./src/*"
+      ],
+      "@celebrum-ai/shared": [
+        "../shared/dist/index"
+      ],
+      "@celebrum-ai/shared/*": [
+        "../shared/dist/*"
+      ]
     },
-    "types": ["@cloudflare/workers-types"]
+    "types": [
+      "@cloudflare/workers-types"
+    ]
   },
   "include": [
     "src/**/*"

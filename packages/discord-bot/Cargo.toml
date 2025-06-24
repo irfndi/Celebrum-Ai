@@ -1,5 +1,5 @@
 [package]
-name = "arb-edge-discord-bot"
+name = "celebrum-ai-discord-bot"
 version = "0.1.0"
 edition = "2021"
 authors = ["ArbEdge Team"]

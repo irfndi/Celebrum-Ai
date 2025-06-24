@@ -32,7 +32,9 @@ impl HelpHandler {
             help_text.push_str("`/admin [action]` - Access admin functions\n");
         }
 
-        help_text.push_str("\n💡 *Pro tip:* Use `/opportunities high` to see only high-profit opportunities!");
+        help_text.push_str(
+            "\n💡 *Pro tip:* Use `/opportunities high` to see only high-profit opportunities!",
+        );
 
         help_text
     }

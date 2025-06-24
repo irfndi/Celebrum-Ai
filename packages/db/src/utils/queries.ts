@@ -1,6 +1,6 @@
 import { eq, and, desc, sql } from 'drizzle-orm';
-import type { Database } from './connection.js';
-import { users, positions, opportunities, tradingStrategies } from '../schema/index.js';
+import type { Database } from './connection';
+import { users, positions, opportunities, tradingStrategies } from '../schema/index';
 import type { 
   User, 
   NewUser, 
@@ -10,7 +10,7 @@ import type {
   NewOpportunity,
   TradingStrategy,
   NewTradingStrategy 
-} from '../schema/index.js';
+} from '../schema/index';
 
 // User operations
 export class UserQueries {
@@ -255,4 +255,4 @@ export class DatabaseQueries {
     this.opportunities = new OpportunityQueries(db);
     this.strategies = new TradingStrategyQueries(db);
   }
-} 
+}

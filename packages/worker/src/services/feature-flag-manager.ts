@@ -2,7 +2,7 @@ import type {
   UserRoleType,
   SubscriptionTierType,
   RBACOperationResult
-} from '@arb-edge/shared/types';
+} from '@celebrum-ai/shared/types';
 
 /**
  * Feature Flag Manager for dynamic feature control

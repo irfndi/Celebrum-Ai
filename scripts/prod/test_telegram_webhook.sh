@@ -13,7 +13,7 @@ PROD_URL="${TELEGRAM_PROD_WEBHOOK_URL}"
 if [ -z "$PROD_URL" ]; then
     echo "🛑 Error: TELEGRAM_PROD_WEBHOOK_URL environment variable is not set."
     echo "Please set it to your production webhook URL before running this script."
-    echo "Example: export TELEGRAM_PROD_WEBHOOK_URL='https://arb-edge.irfandimarsya.workers.dev/telegram/webhook'"
+    echo "Example: export TELEGRAM_PROD_WEBHOOK_URL='https://celebrum-ai.irfandimarsya.workers.dev/telegram/webhook'"
     exit 1
 fi
 

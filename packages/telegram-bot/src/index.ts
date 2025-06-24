@@ -1,5 +1,5 @@
 // Main exports for Telegram Bot TypeScript package
-export * from './types/index';
+export type * from './types/index';
 export * from './handlers/index';
 export * from './utils/index';
 
@@ -13,28 +13,20 @@ export type {
 // Re-export shared utilities and types
 export { 
   AppError,
-  ValidationError 
-} from '@arb-edge/shared/errors';
-export { 
+  ValidationError,
   formatTimestamp,
   isExpired,
   isValidTelegramId,
-  isValidEmail 
-} from '@arb-edge/shared/utils';
-export type { 
-  ApiResponse 
-} from '@arb-edge/shared/types';
-export { 
+  isValidEmail,
   UserRole,
-  UserStatus 
-} from '@arb-edge/shared/types';
-export { 
+  UserStatus,
   APP_NAME,
-  APP_VERSION 
-} from '@arb-edge/shared/constants';
+  APP_VERSION
+} from '@celebrum-ai/shared';
+export type { Env, ApiResponse } from '@celebrum-ai/shared';
 
 // Package version
 export const VERSION = '0.1.0';
 
 // Package name for logging
-export const PACKAGE_NAME = '@arb-edge/telegram-bot';
+export const PACKAGE_NAME = '@celebrum-ai/telegram-bot';

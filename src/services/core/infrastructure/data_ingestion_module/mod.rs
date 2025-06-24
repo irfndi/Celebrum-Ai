@@ -285,7 +285,7 @@ impl Default for DataIngestionModuleConfig {
             enable_comprehensive_monitoring: true,
             enable_performance_optimization: true,
             health_check_interval_seconds: 30,
-            r2_bucket_name: "prod-arb-edge".to_string(),
+            r2_bucket_name: "prod-celebrum-ai".to_string(),
             enable_kv_fallback: true,
             enable_compression: true,
             compression_threshold_bytes: 1024, // 1KB

@@ -1,5 +1,8 @@
 {
   "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -8,10 +11,9 @@
     "allowJs": false,
     "checkJs": false,
     "jsx": "preserve",
-    "declaration": true,
-    "declarationMap": true,
     "sourceMap": true,
     "outDir": "./dist",
+    "rootDir": "./src",
     "removeComments": false,
     "importHelpers": true,
     "strict": true,
@@ -23,7 +25,10 @@
     "useUnknownInCatchVariables": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "types": ["node", "@cloudflare/workers-types"]
+    "types": [
+      "node",
+      "@cloudflare/workers-types"
+    ]
   },
   "include": [
     "src/**/*.ts",
@@ -35,4 +40,4 @@
     "**/*.test.ts",
     "**/*.spec.ts"
   ]
-} 
+}

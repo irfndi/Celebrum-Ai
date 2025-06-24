@@ -7,7 +7,7 @@
 set -e
 
 # Configuration
-BASE_URL="${BASE_URL:-https://arb-edge.your-domain.workers.dev}"
+BASE_URL="${BASE_URL:-https://celebrum-ai.your-domain.workers.dev}"
 TEST_OUTPUT_DIR="./test_results"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$TEST_OUTPUT_DIR/api_test_$TIMESTAMP.log"

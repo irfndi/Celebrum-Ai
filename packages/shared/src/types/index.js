@@ -1,4 +1,4 @@
-// @arb-edge/shared - Shared Types
+// @celebrum-ai/shared - Shared Types
 import { z } from 'zod';
 // User Role and Status Enums
 export const UserRole = {
@@ -12,6 +12,56 @@ export const UserStatus = {
     ACTIVE: 'active',
     SUSPENDED: 'suspended',
     BANNED: 'banned'
+};
+export const SubscriptionTier = {
+    FREE: 'free',
+    PRO: 'pro',
+    ULTRA: 'ultra',
+    ENTERPRISE: 'enterprise'
+};
+// RBAC Permission Types
+export const Permission = {
+    // Basic permissions
+    READ_PROFILE: 'read:profile',
+    UPDATE_PROFILE: 'update:profile',
+    // Trading permissions
+    TRADE_MANUAL: 'trade:manual',
+    TRADE_AUTO: 'trade:auto',
+    TRADE_VIEW_POSITIONS: 'trade:view_positions',
+    TRADE_MANAGE_CONFIG: 'trade:manage_config',
+    // API permissions
+    API_EXCHANGE_ACCESS: 'api:exchange_access',
+    API_AI_ACCESS: 'api:ai_access',
+    API_MANAGE_KEYS: 'api:manage_keys',
+    // Opportunity permissions
+    OPPORTUNITY_VIEW: 'opportunity:view',
+    OPPORTUNITY_EXECUTE: 'opportunity:execute',
+    OPPORTUNITY_CREATE_ALERTS: 'opportunity:create_alerts',
+    // Strategy permissions
+    STRATEGY_VIEW: 'strategy:view',
+    STRATEGY_CREATE: 'strategy:create',
+    STRATEGY_EXECUTE: 'strategy:execute',
+    STRATEGY_BACKTEST: 'strategy:backtest',
+    // Admin permissions
+    ADMIN_USER_MANAGEMENT: 'admin:user_management',
+    ADMIN_SYSTEM_CONFIG: 'admin:system_config',
+    ADMIN_VIEW_ANALYTICS: 'admin:view_analytics',
+    ADMIN_MANAGE_FEATURES: 'admin:manage_features',
+    // Super admin permissions
+    SUPERADMIN_FULL_ACCESS: 'superadmin:full_access'
+};
+// Risk Management Types
+export const RiskLevel = {
+    LOW: 'low',
+    MEDIUM: 'medium',
+    HIGH: 'high'
+};
+export const PositionSizingMethod = {
+    FIXED_AMOUNT: 'fixed_amount',
+    PERCENTAGE_OF_PORTFOLIO: 'percentage_of_portfolio',
+    KELLY_FORMULA: 'kelly_formula',
+    VOLATILITY_BASED: 'volatility_based',
+    RISK_PARITY: 'risk_parity'
 };
 // User Types
 export const UserSchema = z.object({
@@ -136,6 +186,133 @@ export const ArbitrageOpportunitySchema = z.object({
     confidence_score: z.number(),
     generated_at: z.string(),
     expires_at: z.string(),
+});
+// RBAC and Trading Configuration Types
+export const RiskManagementConfigSchema = z.object({
+    maxDailyLossPercent: z.number().min(0).max(100),
+    maxDrawdownPercent: z.number().min(0).max(100),
+    positionSizingMethod: z.enum(['fixed_amount', 'percentage_of_portfolio', 'kelly_formula', 'volatility_based', 'risk_parity']),
+    stopLossRequired: z.boolean(),
+    takeProfitRecommended: z.boolean(),
+    trailingStopEnabled: z.boolean(),
+    riskRewardRatioMin: z.number().min(0),
+});
+export const TradingConfigSchema = z.object({
+    userId: z.string(),
+    role: z.enum(['free', 'pro', 'ultra', 'admin', 'superadmin']),
+    percentagePerTrade: z.number().min(0).max(100),
+    maxConcurrentTrades: z.number().min(1).max(50),
+    maxLeverage: z.number().min(1).max(100),
+    stopLoss: z.number().optional(),
+    takeProfit: z.number().optional(),
+    riskTolerance: z.enum(['low', 'medium', 'high']),
+    autoTradingEnabled: z.boolean(),
+    manualTradingEnabled: z.boolean(),
+    riskManagement: RiskManagementConfigSchema,
+    lastUpdated: z.number(),
+});
+export const ApiAccessSchema = z.object({
+    userId: z.string(),
+    role: z.enum(['free', 'pro', 'ultra', 'admin', 'superadmin']),
+    exchangeApis: z.array(z.object({
+        exchangeId: z.string(),
+        apiKey: z.string(),
+        secretKey: z.string(),
+        passphrase: z.string().optional(),
+        sandbox: z.boolean().default(false),
+        permissions: z.array(z.string()),
+        isActive: z.boolean().default(true),
+        lastUsed: z.number().optional(),
+    })),
+    aiApis: z.array(z.object({
+        provider: z.string(),
+        apiKey: z.string(),
+        model: z.string().optional(),
+        maxTokens: z.number().optional(),
+        isActive: z.boolean().default(true),
+        lastUsed: z.number().optional(),
+    })),
+    limits: z.object({
+        maxExchangeApis: z.number(),
+        maxAiApis: z.number(),
+        dailyRequestLimit: z.number(),
+        hourlyRequestLimit: z.number(),
+    }),
+    usage: z.object({
+        dailyRequests: z.number().default(0),
+        hourlyRequests: z.number().default(0),
+        totalRequests: z.number().default(0),
+        lastReset: z.number(),
+    }),
+    lastUpdated: z.number(),
+});
+export const OpportunityLimitsSchema = z.object({
+    dailyLimit: z.number(),
+    dailyUsed: z.number(),
+    hourlyLimit: z.number(),
+    hourlyUsed: z.number(),
+    totalAccessed: z.number(),
+    successRate: z.number().min(0).max(1),
+});
+export const StrategyLimitsSchema = z.object({
+    maxStrategies: z.number(),
+    createdStrategies: z.number(),
+    maxActiveStrategies: z.number(),
+    activeStrategies: z.number(),
+    maxConcurrentBacktests: z.number(),
+    concurrentBacktests: z.number(),
+});
+export const UserAccessSummarySchema = z.object({
+    userId: z.string(),
+    role: z.enum(['free', 'pro', 'ultra', 'admin', 'superadmin']),
+    subscriptionTier: z.enum(['free', 'pro', 'ultra', 'enterprise']),
+    permissions: z.array(z.string()),
+    apiAccess: ApiAccessSchema,
+    tradingConfig: TradingConfigSchema.optional(),
+    opportunityLimits: OpportunityLimitsSchema,
+    strategyLimits: StrategyLimitsSchema,
+    featureFlags: z.record(z.boolean()),
+    lastUpdated: z.number(),
+});
+export const TechnicalStrategySchema = z.object({
+    id: z.string(),
+    userId: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    version: z.string(),
+    yamlConfig: z.string(), // YAML strategy configuration
+    isActive: z.boolean().default(false),
+    indicators: z.array(z.object({
+        name: z.string(),
+        parameters: z.record(z.any()),
+        timeframe: z.string(),
+    })),
+    conditions: z.array(z.object({
+        type: z.enum(['entry', 'exit', 'stop_loss', 'take_profit']),
+        logic: z.string(),
+        parameters: z.record(z.any()),
+    })),
+    riskManagement: RiskManagementConfigSchema,
+    backtestResults: z.array(z.object({
+        id: z.string(),
+        startDate: z.string(),
+        endDate: z.string(),
+        totalReturn: z.number(),
+        sharpeRatio: z.number(),
+        maxDrawdown: z.number(),
+        winRate: z.number(),
+        totalTrades: z.number(),
+        createdAt: z.number(),
+    })).optional(),
+    createdAt: z.number(),
+    updatedAt: z.number(),
+});
+export const RBACOperationResultSchema = z.object({
+    success: z.boolean(),
+    message: z.string(),
+    data: z.any().optional(),
+    timestamp: z.number(),
+    errors: z.array(z.string()).optional(),
 });
 // Service Status Types
 export var ServiceStatus;

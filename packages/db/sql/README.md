@@ -82,23 +82,23 @@ This directory contains database migrations for the ArbEdge trading platform, ma
 ### Apply to Production
 ```bash
 # Apply initial schema
-wrangler d1 execute prod-arb-edge --remote --file=sql/migrations/001_initial_schema.sql
+wrangler d1 execute prod-celebrum-ai --remote --file=sql/migrations/001_initial_schema.sql
 
 # Apply indexes and data
-wrangler d1 execute prod-arb-edge --remote --file=sql/migrations/002_indexes_and_data.sql
+wrangler d1 execute prod-celebrum-ai --remote --file=sql/migrations/002_indexes_and_data.sql
 ```
 
 ### Apply to Local Development
 ```bash
 # Remove --remote flag for local development
-wrangler d1 execute prod-arb-edge --file=sql/migrations/001_initial_schema.sql
-wrangler d1 execute prod-arb-edge --file=sql/migrations/002_indexes_and_data.sql
+wrangler d1 execute prod-celebrum-ai --file=sql/migrations/001_initial_schema.sql
+wrangler d1 execute prod-celebrum-ai --file=sql/migrations/002_indexes_and_data.sql
 ```
 
 ### Verify Migration
 ```bash
 # Check tables exist
-wrangler d1 execute prod-arb-edge --remote --file=sql/001.check_tables.sql
+wrangler d1 execute prod-celebrum-ai --remote --file=sql/001.check_tables.sql
 ```
 
 ## Creating New Migrations

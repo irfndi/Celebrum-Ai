@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/d1';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
-import * as schema from '../schema/index.js';
+import * as schema from '../schema/index';
 
 // Type for our database instance
 export type Database = DrizzleD1Database<typeof schema>;
@@ -39,4 +39,4 @@ export async function withTransaction<T>(
   fn: (tx: Parameters<Parameters<Database['transaction']>[0]>[0]) => Promise<T>
 ): Promise<T> {
   return await db.transaction(fn);
-} 
+}

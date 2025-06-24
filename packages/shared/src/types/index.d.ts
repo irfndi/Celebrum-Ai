@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import type { D1Database, KVNamespace } from '@cloudflare/workers-types';
+export interface Env {
+    DB: D1Database;
+    SESSIONS: KVNamespace;
+}
 export interface ApiResponse<T = unknown> {
     success: boolean;
     data?: T;
@@ -7,19 +12,64 @@ export interface ApiResponse<T = unknown> {
     timestamp: string;
 }
 export declare const UserRole: {
-    readonly FREE: "free";
-    readonly PRO: "pro";
-    readonly ULTRA: "ultra";
-    readonly ADMIN: "admin";
-    readonly SUPERADMIN: "superadmin";
+    FREE: "free";
+    PRO: "pro";
+    ULTRA: "ultra";
+    ADMIN: "admin";
+    SUPERADMIN: "superadmin";
 };
 export declare const UserStatus: {
-    readonly ACTIVE: "active";
-    readonly SUSPENDED: "suspended";
-    readonly BANNED: "banned";
+    ACTIVE: "active";
+    SUSPENDED: "suspended";
+    BANNED: "banned";
+};
+export declare const SubscriptionTier: {
+    FREE: "free";
+    PRO: "pro";
+    ULTRA: "ultra";
+    ENTERPRISE: "enterprise";
 };
 export type UserRoleType = typeof UserRole[keyof typeof UserRole];
 export type UserStatusType = typeof UserStatus[keyof typeof UserStatus];
+export type SubscriptionTierType = typeof SubscriptionTier[keyof typeof SubscriptionTier];
+export declare const Permission: {
+    READ_PROFILE: "read:profile";
+    UPDATE_PROFILE: "update:profile";
+    TRADE_MANUAL: "trade:manual";
+    TRADE_AUTO: "trade:auto";
+    TRADE_VIEW_POSITIONS: "trade:view_positions";
+    TRADE_MANAGE_CONFIG: "trade:manage_config";
+    API_EXCHANGE_ACCESS: "api:exchange_access";
+    API_AI_ACCESS: "api:ai_access";
+    API_MANAGE_KEYS: "api:manage_keys";
+    OPPORTUNITY_VIEW: "opportunity:view";
+    OPPORTUNITY_EXECUTE: "opportunity:execute";
+    OPPORTUNITY_CREATE_ALERTS: "opportunity:create_alerts";
+    STRATEGY_VIEW: "strategy:view";
+    STRATEGY_CREATE: "strategy:create";
+    STRATEGY_EXECUTE: "strategy:execute";
+    STRATEGY_BACKTEST: "strategy:backtest";
+    ADMIN_USER_MANAGEMENT: "admin:user_management";
+    ADMIN_SYSTEM_CONFIG: "admin:system_config";
+    ADMIN_VIEW_ANALYTICS: "admin:view_analytics";
+    ADMIN_MANAGE_FEATURES: "admin:manage_features";
+    SUPERADMIN_FULL_ACCESS: "superadmin:full_access";
+};
+export type PermissionType = typeof Permission[keyof typeof Permission];
+export declare const RiskLevel: {
+    LOW: "low";
+    MEDIUM: "medium";
+    HIGH: "high";
+};
+export declare const PositionSizingMethod: {
+    FIXED_AMOUNT: "fixed_amount";
+    PERCENTAGE_OF_PORTFOLIO: "percentage_of_portfolio";
+    KELLY_FORMULA: "kelly_formula";
+    VOLATILITY_BASED: "volatility_based";
+    RISK_PARITY: "risk_parity";
+};
+export type RiskLevelType = typeof RiskLevel[keyof typeof RiskLevel];
+export type PositionSizingMethodType = typeof PositionSizingMethod[keyof typeof PositionSizingMethod];
 export declare const UserSchema: z.ZodObject<{
     id: z.ZodNumber;
     telegramId: z.ZodString;
@@ -89,10 +139,10 @@ export declare const UserSchema: z.ZodObject<{
         autoTrade?: boolean | undefined;
     }>>;
 }, "strip", z.ZodTypeAny, {
-    status: "active" | "suspended" | "banned";
     id: number;
     telegramId: string;
     role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+    status: "active" | "suspended" | "banned";
     createdAt: Date;
     updatedAt: Date;
     accountBalance: string;
@@ -127,12 +177,12 @@ export declare const UserSchema: z.ZodObject<{
     telegramId: string;
     createdAt: Date;
     updatedAt: Date;
-    status?: "active" | "suspended" | "banned" | undefined;
     email?: string | undefined;
     firstName?: string | undefined;
     lastName?: string | undefined;
     username?: string | undefined;
     role?: "free" | "pro" | "ultra" | "admin" | "superadmin" | undefined;
+    status?: "active" | "suspended" | "banned" | undefined;
     lastActiveAt?: Date | undefined;
     settings?: {
         notifications?: boolean | undefined;
@@ -232,9 +282,9 @@ export declare const PositionSchema: z.ZodObject<{
     closedAt: z.ZodOptional<z.ZodDate>;
 }, "strip", z.ZodTypeAny, {
     symbol: string;
-    status: "open" | "closed" | "partially_filled" | "cancelled";
     id: number;
     type: "long" | "short";
+    status: "open" | "closed" | "partially_filled" | "cancelled";
     createdAt: Date;
     updatedAt: Date;
     userId: number;
@@ -266,13 +316,13 @@ export declare const PositionSchema: z.ZodObject<{
     strategy: "manual" | "arbitrage" | "technical";
     entryPrice: number;
     quantity: number;
-    status?: "open" | "closed" | "partially_filled" | "cancelled" | undefined;
     metadata?: {
         fundingRate?: number | undefined;
         correlatedPositions?: string[] | undefined;
         riskScore?: number | undefined;
         autoClose?: boolean | undefined;
     } | undefined;
+    status?: "open" | "closed" | "partially_filled" | "cancelled" | undefined;
     stopLoss?: number | undefined;
     takeProfit?: number | undefined;
     exitPrice?: number | undefined;
@@ -360,6 +410,957 @@ export declare const ArbitrageOpportunitySchema: z.ZodObject<{
     expires_at: string;
 }>;
 export type ArbitrageOpportunity = z.infer<typeof ArbitrageOpportunitySchema>;
+export declare const RiskManagementConfigSchema: z.ZodObject<{
+    maxDailyLossPercent: z.ZodNumber;
+    maxDrawdownPercent: z.ZodNumber;
+    positionSizingMethod: z.ZodEnum<["fixed_amount", "percentage_of_portfolio", "kelly_formula", "volatility_based", "risk_parity"]>;
+    stopLossRequired: z.ZodBoolean;
+    takeProfitRecommended: z.ZodBoolean;
+    trailingStopEnabled: z.ZodBoolean;
+    riskRewardRatioMin: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    maxDailyLossPercent: number;
+    maxDrawdownPercent: number;
+    positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+    stopLossRequired: boolean;
+    takeProfitRecommended: boolean;
+    trailingStopEnabled: boolean;
+    riskRewardRatioMin: number;
+}, {
+    maxDailyLossPercent: number;
+    maxDrawdownPercent: number;
+    positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+    stopLossRequired: boolean;
+    takeProfitRecommended: boolean;
+    trailingStopEnabled: boolean;
+    riskRewardRatioMin: number;
+}>;
+export declare const TradingConfigSchema: z.ZodObject<{
+    userId: z.ZodString;
+    role: z.ZodEnum<["free", "pro", "ultra", "admin", "superadmin"]>;
+    percentagePerTrade: z.ZodNumber;
+    maxConcurrentTrades: z.ZodNumber;
+    maxLeverage: z.ZodNumber;
+    stopLoss: z.ZodOptional<z.ZodNumber>;
+    takeProfit: z.ZodOptional<z.ZodNumber>;
+    riskTolerance: z.ZodEnum<["low", "medium", "high"]>;
+    autoTradingEnabled: z.ZodBoolean;
+    manualTradingEnabled: z.ZodBoolean;
+    riskManagement: z.ZodObject<{
+        maxDailyLossPercent: z.ZodNumber;
+        maxDrawdownPercent: z.ZodNumber;
+        positionSizingMethod: z.ZodEnum<["fixed_amount", "percentage_of_portfolio", "kelly_formula", "volatility_based", "risk_parity"]>;
+        stopLossRequired: z.ZodBoolean;
+        takeProfitRecommended: z.ZodBoolean;
+        trailingStopEnabled: z.ZodBoolean;
+        riskRewardRatioMin: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        maxDailyLossPercent: number;
+        maxDrawdownPercent: number;
+        positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+        stopLossRequired: boolean;
+        takeProfitRecommended: boolean;
+        trailingStopEnabled: boolean;
+        riskRewardRatioMin: number;
+    }, {
+        maxDailyLossPercent: number;
+        maxDrawdownPercent: number;
+        positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+        stopLossRequired: boolean;
+        takeProfitRecommended: boolean;
+        trailingStopEnabled: boolean;
+        riskRewardRatioMin: number;
+    }>;
+    lastUpdated: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+    percentagePerTrade: number;
+    maxConcurrentTrades: number;
+    maxLeverage: number;
+    riskTolerance: "low" | "high" | "medium";
+    userId: string;
+    autoTradingEnabled: boolean;
+    manualTradingEnabled: boolean;
+    riskManagement: {
+        maxDailyLossPercent: number;
+        maxDrawdownPercent: number;
+        positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+        stopLossRequired: boolean;
+        takeProfitRecommended: boolean;
+        trailingStopEnabled: boolean;
+        riskRewardRatioMin: number;
+    };
+    lastUpdated: number;
+    stopLoss?: number | undefined;
+    takeProfit?: number | undefined;
+}, {
+    role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+    percentagePerTrade: number;
+    maxConcurrentTrades: number;
+    maxLeverage: number;
+    riskTolerance: "low" | "high" | "medium";
+    userId: string;
+    autoTradingEnabled: boolean;
+    manualTradingEnabled: boolean;
+    riskManagement: {
+        maxDailyLossPercent: number;
+        maxDrawdownPercent: number;
+        positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+        stopLossRequired: boolean;
+        takeProfitRecommended: boolean;
+        trailingStopEnabled: boolean;
+        riskRewardRatioMin: number;
+    };
+    lastUpdated: number;
+    stopLoss?: number | undefined;
+    takeProfit?: number | undefined;
+}>;
+export declare const ApiAccessSchema: z.ZodObject<{
+    userId: z.ZodString;
+    role: z.ZodEnum<["free", "pro", "ultra", "admin", "superadmin"]>;
+    exchangeApis: z.ZodArray<z.ZodObject<{
+        exchangeId: z.ZodString;
+        apiKey: z.ZodString;
+        secretKey: z.ZodString;
+        passphrase: z.ZodOptional<z.ZodString>;
+        sandbox: z.ZodDefault<z.ZodBoolean>;
+        permissions: z.ZodArray<z.ZodString, "many">;
+        isActive: z.ZodDefault<z.ZodBoolean>;
+        lastUsed: z.ZodOptional<z.ZodNumber>;
+    }, "strip", z.ZodTypeAny, {
+        exchangeId: string;
+        isActive: boolean;
+        apiKey: string;
+        secretKey: string;
+        sandbox: boolean;
+        permissions: string[];
+        passphrase?: string | undefined;
+        lastUsed?: number | undefined;
+    }, {
+        exchangeId: string;
+        apiKey: string;
+        secretKey: string;
+        permissions: string[];
+        isActive?: boolean | undefined;
+        passphrase?: string | undefined;
+        sandbox?: boolean | undefined;
+        lastUsed?: number | undefined;
+    }>, "many">;
+    aiApis: z.ZodArray<z.ZodObject<{
+        provider: z.ZodString;
+        apiKey: z.ZodString;
+        model: z.ZodOptional<z.ZodString>;
+        maxTokens: z.ZodOptional<z.ZodNumber>;
+        isActive: z.ZodDefault<z.ZodBoolean>;
+        lastUsed: z.ZodOptional<z.ZodNumber>;
+    }, "strip", z.ZodTypeAny, {
+        isActive: boolean;
+        apiKey: string;
+        provider: string;
+        lastUsed?: number | undefined;
+        model?: string | undefined;
+        maxTokens?: number | undefined;
+    }, {
+        apiKey: string;
+        provider: string;
+        isActive?: boolean | undefined;
+        lastUsed?: number | undefined;
+        model?: string | undefined;
+        maxTokens?: number | undefined;
+    }>, "many">;
+    limits: z.ZodObject<{
+        maxExchangeApis: z.ZodNumber;
+        maxAiApis: z.ZodNumber;
+        dailyRequestLimit: z.ZodNumber;
+        hourlyRequestLimit: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        maxExchangeApis: number;
+        maxAiApis: number;
+        dailyRequestLimit: number;
+        hourlyRequestLimit: number;
+    }, {
+        maxExchangeApis: number;
+        maxAiApis: number;
+        dailyRequestLimit: number;
+        hourlyRequestLimit: number;
+    }>;
+    usage: z.ZodObject<{
+        dailyRequests: z.ZodDefault<z.ZodNumber>;
+        hourlyRequests: z.ZodDefault<z.ZodNumber>;
+        totalRequests: z.ZodDefault<z.ZodNumber>;
+        lastReset: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        dailyRequests: number;
+        hourlyRequests: number;
+        totalRequests: number;
+        lastReset: number;
+    }, {
+        lastReset: number;
+        dailyRequests?: number | undefined;
+        hourlyRequests?: number | undefined;
+        totalRequests?: number | undefined;
+    }>;
+    lastUpdated: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+    exchangeApis: {
+        exchangeId: string;
+        isActive: boolean;
+        apiKey: string;
+        secretKey: string;
+        sandbox: boolean;
+        permissions: string[];
+        passphrase?: string | undefined;
+        lastUsed?: number | undefined;
+    }[];
+    aiApis: {
+        isActive: boolean;
+        apiKey: string;
+        provider: string;
+        lastUsed?: number | undefined;
+        model?: string | undefined;
+        maxTokens?: number | undefined;
+    }[];
+    userId: string;
+    lastUpdated: number;
+    limits: {
+        maxExchangeApis: number;
+        maxAiApis: number;
+        dailyRequestLimit: number;
+        hourlyRequestLimit: number;
+    };
+    usage: {
+        dailyRequests: number;
+        hourlyRequests: number;
+        totalRequests: number;
+        lastReset: number;
+    };
+}, {
+    role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+    exchangeApis: {
+        exchangeId: string;
+        apiKey: string;
+        secretKey: string;
+        permissions: string[];
+        isActive?: boolean | undefined;
+        passphrase?: string | undefined;
+        sandbox?: boolean | undefined;
+        lastUsed?: number | undefined;
+    }[];
+    aiApis: {
+        apiKey: string;
+        provider: string;
+        isActive?: boolean | undefined;
+        lastUsed?: number | undefined;
+        model?: string | undefined;
+        maxTokens?: number | undefined;
+    }[];
+    userId: string;
+    lastUpdated: number;
+    limits: {
+        maxExchangeApis: number;
+        maxAiApis: number;
+        dailyRequestLimit: number;
+        hourlyRequestLimit: number;
+    };
+    usage: {
+        lastReset: number;
+        dailyRequests?: number | undefined;
+        hourlyRequests?: number | undefined;
+        totalRequests?: number | undefined;
+    };
+}>;
+export declare const OpportunityLimitsSchema: z.ZodObject<{
+    dailyLimit: z.ZodNumber;
+    dailyUsed: z.ZodNumber;
+    hourlyLimit: z.ZodNumber;
+    hourlyUsed: z.ZodNumber;
+    totalAccessed: z.ZodNumber;
+    successRate: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    dailyLimit: number;
+    dailyUsed: number;
+    hourlyLimit: number;
+    hourlyUsed: number;
+    totalAccessed: number;
+    successRate: number;
+}, {
+    dailyLimit: number;
+    dailyUsed: number;
+    hourlyLimit: number;
+    hourlyUsed: number;
+    totalAccessed: number;
+    successRate: number;
+}>;
+export declare const StrategyLimitsSchema: z.ZodObject<{
+    maxStrategies: z.ZodNumber;
+    createdStrategies: z.ZodNumber;
+    maxActiveStrategies: z.ZodNumber;
+    activeStrategies: z.ZodNumber;
+    maxConcurrentBacktests: z.ZodNumber;
+    concurrentBacktests: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    maxStrategies: number;
+    createdStrategies: number;
+    maxActiveStrategies: number;
+    activeStrategies: number;
+    maxConcurrentBacktests: number;
+    concurrentBacktests: number;
+}, {
+    maxStrategies: number;
+    createdStrategies: number;
+    maxActiveStrategies: number;
+    activeStrategies: number;
+    maxConcurrentBacktests: number;
+    concurrentBacktests: number;
+}>;
+export declare const UserAccessSummarySchema: z.ZodObject<{
+    userId: z.ZodString;
+    role: z.ZodEnum<["free", "pro", "ultra", "admin", "superadmin"]>;
+    subscriptionTier: z.ZodEnum<["free", "pro", "ultra", "enterprise"]>;
+    permissions: z.ZodArray<z.ZodString, "many">;
+    apiAccess: z.ZodObject<{
+        userId: z.ZodString;
+        role: z.ZodEnum<["free", "pro", "ultra", "admin", "superadmin"]>;
+        exchangeApis: z.ZodArray<z.ZodObject<{
+            exchangeId: z.ZodString;
+            apiKey: z.ZodString;
+            secretKey: z.ZodString;
+            passphrase: z.ZodOptional<z.ZodString>;
+            sandbox: z.ZodDefault<z.ZodBoolean>;
+            permissions: z.ZodArray<z.ZodString, "many">;
+            isActive: z.ZodDefault<z.ZodBoolean>;
+            lastUsed: z.ZodOptional<z.ZodNumber>;
+        }, "strip", z.ZodTypeAny, {
+            exchangeId: string;
+            isActive: boolean;
+            apiKey: string;
+            secretKey: string;
+            sandbox: boolean;
+            permissions: string[];
+            passphrase?: string | undefined;
+            lastUsed?: number | undefined;
+        }, {
+            exchangeId: string;
+            apiKey: string;
+            secretKey: string;
+            permissions: string[];
+            isActive?: boolean | undefined;
+            passphrase?: string | undefined;
+            sandbox?: boolean | undefined;
+            lastUsed?: number | undefined;
+        }>, "many">;
+        aiApis: z.ZodArray<z.ZodObject<{
+            provider: z.ZodString;
+            apiKey: z.ZodString;
+            model: z.ZodOptional<z.ZodString>;
+            maxTokens: z.ZodOptional<z.ZodNumber>;
+            isActive: z.ZodDefault<z.ZodBoolean>;
+            lastUsed: z.ZodOptional<z.ZodNumber>;
+        }, "strip", z.ZodTypeAny, {
+            isActive: boolean;
+            apiKey: string;
+            provider: string;
+            lastUsed?: number | undefined;
+            model?: string | undefined;
+            maxTokens?: number | undefined;
+        }, {
+            apiKey: string;
+            provider: string;
+            isActive?: boolean | undefined;
+            lastUsed?: number | undefined;
+            model?: string | undefined;
+            maxTokens?: number | undefined;
+        }>, "many">;
+        limits: z.ZodObject<{
+            maxExchangeApis: z.ZodNumber;
+            maxAiApis: z.ZodNumber;
+            dailyRequestLimit: z.ZodNumber;
+            hourlyRequestLimit: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            maxExchangeApis: number;
+            maxAiApis: number;
+            dailyRequestLimit: number;
+            hourlyRequestLimit: number;
+        }, {
+            maxExchangeApis: number;
+            maxAiApis: number;
+            dailyRequestLimit: number;
+            hourlyRequestLimit: number;
+        }>;
+        usage: z.ZodObject<{
+            dailyRequests: z.ZodDefault<z.ZodNumber>;
+            hourlyRequests: z.ZodDefault<z.ZodNumber>;
+            totalRequests: z.ZodDefault<z.ZodNumber>;
+            lastReset: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            dailyRequests: number;
+            hourlyRequests: number;
+            totalRequests: number;
+            lastReset: number;
+        }, {
+            lastReset: number;
+            dailyRequests?: number | undefined;
+            hourlyRequests?: number | undefined;
+            totalRequests?: number | undefined;
+        }>;
+        lastUpdated: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+        exchangeApis: {
+            exchangeId: string;
+            isActive: boolean;
+            apiKey: string;
+            secretKey: string;
+            sandbox: boolean;
+            permissions: string[];
+            passphrase?: string | undefined;
+            lastUsed?: number | undefined;
+        }[];
+        aiApis: {
+            isActive: boolean;
+            apiKey: string;
+            provider: string;
+            lastUsed?: number | undefined;
+            model?: string | undefined;
+            maxTokens?: number | undefined;
+        }[];
+        userId: string;
+        lastUpdated: number;
+        limits: {
+            maxExchangeApis: number;
+            maxAiApis: number;
+            dailyRequestLimit: number;
+            hourlyRequestLimit: number;
+        };
+        usage: {
+            dailyRequests: number;
+            hourlyRequests: number;
+            totalRequests: number;
+            lastReset: number;
+        };
+    }, {
+        role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+        exchangeApis: {
+            exchangeId: string;
+            apiKey: string;
+            secretKey: string;
+            permissions: string[];
+            isActive?: boolean | undefined;
+            passphrase?: string | undefined;
+            sandbox?: boolean | undefined;
+            lastUsed?: number | undefined;
+        }[];
+        aiApis: {
+            apiKey: string;
+            provider: string;
+            isActive?: boolean | undefined;
+            lastUsed?: number | undefined;
+            model?: string | undefined;
+            maxTokens?: number | undefined;
+        }[];
+        userId: string;
+        lastUpdated: number;
+        limits: {
+            maxExchangeApis: number;
+            maxAiApis: number;
+            dailyRequestLimit: number;
+            hourlyRequestLimit: number;
+        };
+        usage: {
+            lastReset: number;
+            dailyRequests?: number | undefined;
+            hourlyRequests?: number | undefined;
+            totalRequests?: number | undefined;
+        };
+    }>;
+    tradingConfig: z.ZodOptional<z.ZodObject<{
+        userId: z.ZodString;
+        role: z.ZodEnum<["free", "pro", "ultra", "admin", "superadmin"]>;
+        percentagePerTrade: z.ZodNumber;
+        maxConcurrentTrades: z.ZodNumber;
+        maxLeverage: z.ZodNumber;
+        stopLoss: z.ZodOptional<z.ZodNumber>;
+        takeProfit: z.ZodOptional<z.ZodNumber>;
+        riskTolerance: z.ZodEnum<["low", "medium", "high"]>;
+        autoTradingEnabled: z.ZodBoolean;
+        manualTradingEnabled: z.ZodBoolean;
+        riskManagement: z.ZodObject<{
+            maxDailyLossPercent: z.ZodNumber;
+            maxDrawdownPercent: z.ZodNumber;
+            positionSizingMethod: z.ZodEnum<["fixed_amount", "percentage_of_portfolio", "kelly_formula", "volatility_based", "risk_parity"]>;
+            stopLossRequired: z.ZodBoolean;
+            takeProfitRecommended: z.ZodBoolean;
+            trailingStopEnabled: z.ZodBoolean;
+            riskRewardRatioMin: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            maxDailyLossPercent: number;
+            maxDrawdownPercent: number;
+            positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+            stopLossRequired: boolean;
+            takeProfitRecommended: boolean;
+            trailingStopEnabled: boolean;
+            riskRewardRatioMin: number;
+        }, {
+            maxDailyLossPercent: number;
+            maxDrawdownPercent: number;
+            positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+            stopLossRequired: boolean;
+            takeProfitRecommended: boolean;
+            trailingStopEnabled: boolean;
+            riskRewardRatioMin: number;
+        }>;
+        lastUpdated: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+        percentagePerTrade: number;
+        maxConcurrentTrades: number;
+        maxLeverage: number;
+        riskTolerance: "low" | "high" | "medium";
+        userId: string;
+        autoTradingEnabled: boolean;
+        manualTradingEnabled: boolean;
+        riskManagement: {
+            maxDailyLossPercent: number;
+            maxDrawdownPercent: number;
+            positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+            stopLossRequired: boolean;
+            takeProfitRecommended: boolean;
+            trailingStopEnabled: boolean;
+            riskRewardRatioMin: number;
+        };
+        lastUpdated: number;
+        stopLoss?: number | undefined;
+        takeProfit?: number | undefined;
+    }, {
+        role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+        percentagePerTrade: number;
+        maxConcurrentTrades: number;
+        maxLeverage: number;
+        riskTolerance: "low" | "high" | "medium";
+        userId: string;
+        autoTradingEnabled: boolean;
+        manualTradingEnabled: boolean;
+        riskManagement: {
+            maxDailyLossPercent: number;
+            maxDrawdownPercent: number;
+            positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+            stopLossRequired: boolean;
+            takeProfitRecommended: boolean;
+            trailingStopEnabled: boolean;
+            riskRewardRatioMin: number;
+        };
+        lastUpdated: number;
+        stopLoss?: number | undefined;
+        takeProfit?: number | undefined;
+    }>>;
+    opportunityLimits: z.ZodObject<{
+        dailyLimit: z.ZodNumber;
+        dailyUsed: z.ZodNumber;
+        hourlyLimit: z.ZodNumber;
+        hourlyUsed: z.ZodNumber;
+        totalAccessed: z.ZodNumber;
+        successRate: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        dailyLimit: number;
+        dailyUsed: number;
+        hourlyLimit: number;
+        hourlyUsed: number;
+        totalAccessed: number;
+        successRate: number;
+    }, {
+        dailyLimit: number;
+        dailyUsed: number;
+        hourlyLimit: number;
+        hourlyUsed: number;
+        totalAccessed: number;
+        successRate: number;
+    }>;
+    strategyLimits: z.ZodObject<{
+        maxStrategies: z.ZodNumber;
+        createdStrategies: z.ZodNumber;
+        maxActiveStrategies: z.ZodNumber;
+        activeStrategies: z.ZodNumber;
+        maxConcurrentBacktests: z.ZodNumber;
+        concurrentBacktests: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        maxStrategies: number;
+        createdStrategies: number;
+        maxActiveStrategies: number;
+        activeStrategies: number;
+        maxConcurrentBacktests: number;
+        concurrentBacktests: number;
+    }, {
+        maxStrategies: number;
+        createdStrategies: number;
+        maxActiveStrategies: number;
+        activeStrategies: number;
+        maxConcurrentBacktests: number;
+        concurrentBacktests: number;
+    }>;
+    featureFlags: z.ZodRecord<z.ZodString, z.ZodBoolean>;
+    lastUpdated: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+    userId: string;
+    lastUpdated: number;
+    permissions: string[];
+    subscriptionTier: "free" | "pro" | "ultra" | "enterprise";
+    apiAccess: {
+        role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+        exchangeApis: {
+            exchangeId: string;
+            isActive: boolean;
+            apiKey: string;
+            secretKey: string;
+            sandbox: boolean;
+            permissions: string[];
+            passphrase?: string | undefined;
+            lastUsed?: number | undefined;
+        }[];
+        aiApis: {
+            isActive: boolean;
+            apiKey: string;
+            provider: string;
+            lastUsed?: number | undefined;
+            model?: string | undefined;
+            maxTokens?: number | undefined;
+        }[];
+        userId: string;
+        lastUpdated: number;
+        limits: {
+            maxExchangeApis: number;
+            maxAiApis: number;
+            dailyRequestLimit: number;
+            hourlyRequestLimit: number;
+        };
+        usage: {
+            dailyRequests: number;
+            hourlyRequests: number;
+            totalRequests: number;
+            lastReset: number;
+        };
+    };
+    opportunityLimits: {
+        dailyLimit: number;
+        dailyUsed: number;
+        hourlyLimit: number;
+        hourlyUsed: number;
+        totalAccessed: number;
+        successRate: number;
+    };
+    strategyLimits: {
+        maxStrategies: number;
+        createdStrategies: number;
+        maxActiveStrategies: number;
+        activeStrategies: number;
+        maxConcurrentBacktests: number;
+        concurrentBacktests: number;
+    };
+    featureFlags: Record<string, boolean>;
+    tradingConfig?: {
+        role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+        percentagePerTrade: number;
+        maxConcurrentTrades: number;
+        maxLeverage: number;
+        riskTolerance: "low" | "high" | "medium";
+        userId: string;
+        autoTradingEnabled: boolean;
+        manualTradingEnabled: boolean;
+        riskManagement: {
+            maxDailyLossPercent: number;
+            maxDrawdownPercent: number;
+            positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+            stopLossRequired: boolean;
+            takeProfitRecommended: boolean;
+            trailingStopEnabled: boolean;
+            riskRewardRatioMin: number;
+        };
+        lastUpdated: number;
+        stopLoss?: number | undefined;
+        takeProfit?: number | undefined;
+    } | undefined;
+}, {
+    role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+    userId: string;
+    lastUpdated: number;
+    permissions: string[];
+    subscriptionTier: "free" | "pro" | "ultra" | "enterprise";
+    apiAccess: {
+        role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+        exchangeApis: {
+            exchangeId: string;
+            apiKey: string;
+            secretKey: string;
+            permissions: string[];
+            isActive?: boolean | undefined;
+            passphrase?: string | undefined;
+            sandbox?: boolean | undefined;
+            lastUsed?: number | undefined;
+        }[];
+        aiApis: {
+            apiKey: string;
+            provider: string;
+            isActive?: boolean | undefined;
+            lastUsed?: number | undefined;
+            model?: string | undefined;
+            maxTokens?: number | undefined;
+        }[];
+        userId: string;
+        lastUpdated: number;
+        limits: {
+            maxExchangeApis: number;
+            maxAiApis: number;
+            dailyRequestLimit: number;
+            hourlyRequestLimit: number;
+        };
+        usage: {
+            lastReset: number;
+            dailyRequests?: number | undefined;
+            hourlyRequests?: number | undefined;
+            totalRequests?: number | undefined;
+        };
+    };
+    opportunityLimits: {
+        dailyLimit: number;
+        dailyUsed: number;
+        hourlyLimit: number;
+        hourlyUsed: number;
+        totalAccessed: number;
+        successRate: number;
+    };
+    strategyLimits: {
+        maxStrategies: number;
+        createdStrategies: number;
+        maxActiveStrategies: number;
+        activeStrategies: number;
+        maxConcurrentBacktests: number;
+        concurrentBacktests: number;
+    };
+    featureFlags: Record<string, boolean>;
+    tradingConfig?: {
+        role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+        percentagePerTrade: number;
+        maxConcurrentTrades: number;
+        maxLeverage: number;
+        riskTolerance: "low" | "high" | "medium";
+        userId: string;
+        autoTradingEnabled: boolean;
+        manualTradingEnabled: boolean;
+        riskManagement: {
+            maxDailyLossPercent: number;
+            maxDrawdownPercent: number;
+            positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+            stopLossRequired: boolean;
+            takeProfitRecommended: boolean;
+            trailingStopEnabled: boolean;
+            riskRewardRatioMin: number;
+        };
+        lastUpdated: number;
+        stopLoss?: number | undefined;
+        takeProfit?: number | undefined;
+    } | undefined;
+}>;
+export declare const TechnicalStrategySchema: z.ZodObject<{
+    id: z.ZodString;
+    userId: z.ZodString;
+    name: z.ZodString;
+    description: z.ZodOptional<z.ZodString>;
+    version: z.ZodString;
+    yamlConfig: z.ZodString;
+    isActive: z.ZodDefault<z.ZodBoolean>;
+    indicators: z.ZodArray<z.ZodObject<{
+        name: z.ZodString;
+        parameters: z.ZodRecord<z.ZodString, z.ZodAny>;
+        timeframe: z.ZodString;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        parameters: Record<string, any>;
+        timeframe: string;
+    }, {
+        name: string;
+        parameters: Record<string, any>;
+        timeframe: string;
+    }>, "many">;
+    conditions: z.ZodArray<z.ZodObject<{
+        type: z.ZodEnum<["entry", "exit", "stop_loss", "take_profit"]>;
+        logic: z.ZodString;
+        parameters: z.ZodRecord<z.ZodString, z.ZodAny>;
+    }, "strip", z.ZodTypeAny, {
+        type: "entry" | "exit" | "stop_loss" | "take_profit";
+        parameters: Record<string, any>;
+        logic: string;
+    }, {
+        type: "entry" | "exit" | "stop_loss" | "take_profit";
+        parameters: Record<string, any>;
+        logic: string;
+    }>, "many">;
+    riskManagement: z.ZodObject<{
+        maxDailyLossPercent: z.ZodNumber;
+        maxDrawdownPercent: z.ZodNumber;
+        positionSizingMethod: z.ZodEnum<["fixed_amount", "percentage_of_portfolio", "kelly_formula", "volatility_based", "risk_parity"]>;
+        stopLossRequired: z.ZodBoolean;
+        takeProfitRecommended: z.ZodBoolean;
+        trailingStopEnabled: z.ZodBoolean;
+        riskRewardRatioMin: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        maxDailyLossPercent: number;
+        maxDrawdownPercent: number;
+        positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+        stopLossRequired: boolean;
+        takeProfitRecommended: boolean;
+        trailingStopEnabled: boolean;
+        riskRewardRatioMin: number;
+    }, {
+        maxDailyLossPercent: number;
+        maxDrawdownPercent: number;
+        positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+        stopLossRequired: boolean;
+        takeProfitRecommended: boolean;
+        trailingStopEnabled: boolean;
+        riskRewardRatioMin: number;
+    }>;
+    backtestResults: z.ZodOptional<z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        startDate: z.ZodString;
+        endDate: z.ZodString;
+        totalReturn: z.ZodNumber;
+        sharpeRatio: z.ZodNumber;
+        maxDrawdown: z.ZodNumber;
+        winRate: z.ZodNumber;
+        totalTrades: z.ZodNumber;
+        createdAt: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        id: string;
+        createdAt: number;
+        startDate: string;
+        endDate: string;
+        totalReturn: number;
+        sharpeRatio: number;
+        maxDrawdown: number;
+        winRate: number;
+        totalTrades: number;
+    }, {
+        id: string;
+        createdAt: number;
+        startDate: string;
+        endDate: string;
+        totalReturn: number;
+        sharpeRatio: number;
+        maxDrawdown: number;
+        winRate: number;
+        totalTrades: number;
+    }>, "many">>;
+    createdAt: z.ZodNumber;
+    updatedAt: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    id: string;
+    createdAt: number;
+    updatedAt: number;
+    userId: string;
+    isActive: boolean;
+    riskManagement: {
+        maxDailyLossPercent: number;
+        maxDrawdownPercent: number;
+        positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+        stopLossRequired: boolean;
+        takeProfitRecommended: boolean;
+        trailingStopEnabled: boolean;
+        riskRewardRatioMin: number;
+    };
+    name: string;
+    version: string;
+    yamlConfig: string;
+    indicators: {
+        name: string;
+        parameters: Record<string, any>;
+        timeframe: string;
+    }[];
+    conditions: {
+        type: "entry" | "exit" | "stop_loss" | "take_profit";
+        parameters: Record<string, any>;
+        logic: string;
+    }[];
+    description?: string | undefined;
+    backtestResults?: {
+        id: string;
+        createdAt: number;
+        startDate: string;
+        endDate: string;
+        totalReturn: number;
+        sharpeRatio: number;
+        maxDrawdown: number;
+        winRate: number;
+        totalTrades: number;
+    }[] | undefined;
+}, {
+    id: string;
+    createdAt: number;
+    updatedAt: number;
+    userId: string;
+    riskManagement: {
+        maxDailyLossPercent: number;
+        maxDrawdownPercent: number;
+        positionSizingMethod: "fixed_amount" | "percentage_of_portfolio" | "kelly_formula" | "volatility_based" | "risk_parity";
+        stopLossRequired: boolean;
+        takeProfitRecommended: boolean;
+        trailingStopEnabled: boolean;
+        riskRewardRatioMin: number;
+    };
+    name: string;
+    version: string;
+    yamlConfig: string;
+    indicators: {
+        name: string;
+        parameters: Record<string, any>;
+        timeframe: string;
+    }[];
+    conditions: {
+        type: "entry" | "exit" | "stop_loss" | "take_profit";
+        parameters: Record<string, any>;
+        logic: string;
+    }[];
+    isActive?: boolean | undefined;
+    description?: string | undefined;
+    backtestResults?: {
+        id: string;
+        createdAt: number;
+        startDate: string;
+        endDate: string;
+        totalReturn: number;
+        sharpeRatio: number;
+        maxDrawdown: number;
+        winRate: number;
+        totalTrades: number;
+    }[] | undefined;
+}>;
+export declare const RBACOperationResultSchema: z.ZodObject<{
+    success: z.ZodBoolean;
+    message: z.ZodString;
+    data: z.ZodOptional<z.ZodAny>;
+    timestamp: z.ZodNumber;
+    errors: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+}, "strip", z.ZodTypeAny, {
+    message: string;
+    success: boolean;
+    timestamp: number;
+    data?: any;
+    errors?: string[] | undefined;
+}, {
+    message: string;
+    success: boolean;
+    timestamp: number;
+    data?: any;
+    errors?: string[] | undefined;
+}>;
+export type RiskManagementConfig = z.infer<typeof RiskManagementConfigSchema>;
+export type TradingConfig = z.infer<typeof TradingConfigSchema>;
+export type ApiAccess = z.infer<typeof ApiAccessSchema>;
+export type OpportunityLimits = z.infer<typeof OpportunityLimitsSchema>;
+export type StrategyLimits = z.infer<typeof StrategyLimitsSchema>;
+export type UserAccessSummary = z.infer<typeof UserAccessSummarySchema>;
+export type TechnicalStrategy = z.infer<typeof TechnicalStrategySchema>;
+export type RBACOperationResult = z.infer<typeof RBACOperationResultSchema>;
 export interface TelegramUser {
     id: number;
     is_bot: boolean;
@@ -592,10 +1593,10 @@ export declare const Schemas: {
             autoTrade?: boolean | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
-        status: "active" | "suspended" | "banned";
         id: number;
         telegramId: string;
         role: "free" | "pro" | "ultra" | "admin" | "superadmin";
+        status: "active" | "suspended" | "banned";
         createdAt: Date;
         updatedAt: Date;
         accountBalance: string;
@@ -630,12 +1631,12 @@ export declare const Schemas: {
         telegramId: string;
         createdAt: Date;
         updatedAt: Date;
-        status?: "active" | "suspended" | "banned" | undefined;
         email?: string | undefined;
         firstName?: string | undefined;
         lastName?: string | undefined;
         username?: string | undefined;
         role?: "free" | "pro" | "ultra" | "admin" | "superadmin" | undefined;
+        status?: "active" | "suspended" | "banned" | undefined;
         lastActiveAt?: Date | undefined;
         settings?: {
             notifications?: boolean | undefined;

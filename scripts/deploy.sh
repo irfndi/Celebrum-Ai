@@ -89,8 +89,8 @@ echo "✅ D1 Database created: $D1_DB_ID"
 
 # Create R2 Buckets
 echo "🪣 Creating R2 buckets..."
-wrangler r2 bucket create arb-edge-market-data --env production
-wrangler r2 bucket create arb-edge-analytics --env production
+wrangler r2 bucket create celebrum-ai-market-data --env production
+wrangler r2 bucket create celebrum-ai-analytics --env production
 echo "✅ R2 Buckets created"
 
 # Create Queues
@@ -103,9 +103,9 @@ echo "✅ Queues created"
 
 # Create Pipelines
 echo "🔄 Creating Cloudflare Pipelines..."
-wrangler pipelines create market-data-pipeline --r2-bucket arb-edge-market-data --env production
-wrangler pipelines create analytics-pipeline --r2-bucket arb-edge-analytics --env production
-wrangler pipelines create audit-pipeline --r2-bucket arb-edge-analytics --env production
+wrangler pipelines create market-data-pipeline --r2-bucket celebrum-ai-market-data --env production
+wrangler pipelines create analytics-pipeline --r2-bucket celebrum-ai-analytics --env production
+wrangler pipelines create audit-pipeline --r2-bucket celebrum-ai-analytics --env production
 echo "✅ Pipelines created"
 
 # Update wrangler.toml with actual IDs

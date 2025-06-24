@@ -1,5 +1,5 @@
 [package]
-name = "arb-edge-db"
+name = "celebrum-ai-db"
 version = "0.1.0"
 edition = "2021"
 authors = ["ArbEdge Team"]

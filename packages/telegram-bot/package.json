@@ -1,7 +1,7 @@
 {
-  "name": "@arb-edge/telegram-bot",
+  "name": "@celebrum-ai/telegram-bot",
   "version": "0.1.0",
-  "description": "Telegram Bot TypeScript interfaces and utilities for ArbEdge",
+  "description": "Telegram Bot TypeScript interfaces and utilities for Celebrum AI",
   "type": "module",
   "exports": {
     ".": {
@@ -18,24 +18,25 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsc --build",
+    "dev": "tsup --watch",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@arb-edge/db": "workspace:*",
-    "@arb-edge/shared": "workspace:*",
+    "@celebrum-ai/db": "workspace:*",
+    "@celebrum-ai/shared": "workspace:*",
     "@cloudflare/workers-types": "^4.20250620.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.3",
     "oxlint": "^1.2.0",
+    "tsup": "^8.5.0",
     "typescript": "^5.8.3"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "keywords": [
     "telegram",

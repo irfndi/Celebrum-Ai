@@ -3,7 +3,7 @@ use worker::console_log;
 use worker::*;
 
 // External crate imports
-extern crate arb_edge_telegram_bot;
+extern crate celebrum_ai_telegram_bot;
 
 // Time constants for improved readability
 
@@ -44,7 +44,7 @@ pub async fn main(req: Request, env: worker::Env, _ctx: worker::Context) -> Resu
             console_log!("📱 Telegram webhook received");
 
             // Delegate to telegram bot handler
-            arb_edge_telegram_bot::handle_webhook(req, ctx).await
+            celebrum_ai_telegram_bot::handle_webhook(req, ctx).await
         })
         // === CORE API ROUTES ===
         // Health check endpoint

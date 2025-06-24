@@ -11,13 +11,13 @@ import type {
   TechnicalStrategy,
   RiskManagementConfig,
   RiskLevelType
-} from '@arb-edge/shared/types';
+} from '@celebrum-ai/shared/types';
 import {
   Permission,
   UserRole,
   SubscriptionTier,
   RiskLevel
-} from '@arb-edge/shared/types';
+} from '@celebrum-ai/shared/types';
 
 /**
  * Comprehensive RBAC Service for ArbEdge

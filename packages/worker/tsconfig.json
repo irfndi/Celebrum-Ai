@@ -15,19 +15,25 @@
       "@cloudflare/workers-types"
     ],
     "paths": {
-      "@arb-edge/shared": [
+      "@celebrum-ai/shared": [
         "../shared/dist/index"
       ],
-      "@arb-edge/shared/*": [
+      "@celebrum-ai/shared/*": [
         "../shared/dist/*"
       ],
-      "@arb-edge/telegram-bot": [
+      "@celebrum-ai/db": [
+        "../db/dist/index"
+      ],
+      "@celebrum-ai/db/*": [
+        "../db/dist/*"
+      ],
+      "@celebrum-ai/telegram-bot": [
         "../telegram-bot/dist/index"
       ],
-      "@arb-edge/telegram-bot/*": [
+      "@celebrum-ai/telegram-bot/*": [
         "../telegram-bot/dist/*"
       ],
-      "@arb-edge/web": [
+      "@celebrum-ai/web": [
         "../web/dist/_worker.js"
       ]
     }

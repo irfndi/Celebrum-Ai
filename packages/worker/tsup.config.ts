@@ -9,8 +9,7 @@ export default defineConfig({
   minify: true,
   sourcemap: true,
   dts: false,
-  noExternal: ['@arb-edge/telegram-bot', '@arb-edge/web', '@arb-edge/shared'],
-  external: ['cloudflare:workers'],
+  external: ['@celebrum-ai/shared', '@celebrum-ai/db', 'cloudflare:workers'],
   esbuildOptions(options) {
     options.conditions = ['worker', 'browser'];
   },

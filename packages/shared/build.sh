@@ -1,9 +1,9 @@
 #!/bin/bash
-# Build script for @arb-edge/shared package
+# Build script for @celebrum-ai/shared package
 
 set -euo pipefail
 
-echo "📦 Building @arb-edge/shared package..."
+echo "📦 Building @celebrum-ai/shared package..."
 
 # Change to package directory
 cd "$(dirname "$0")"
@@ -31,4 +31,4 @@ else
     exit 1
 fi
 
-echo "✅ @arb-edge/shared build completed successfully!"
+echo "✅ @celebrum-ai/shared build completed successfully!"

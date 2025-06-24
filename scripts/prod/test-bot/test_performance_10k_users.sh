@@ -15,7 +15,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-BASE_URL="${BASE_URL:-https://arb-edge.irfandimarsya.workers.dev}"
+BASE_URL="${BASE_URL:-https://celebrum-ai.irfandimarsya.workers.dev}"
 MAX_USERS="${MAX_USERS:-10000}"
 RAMP_UP_DURATION="${RAMP_UP_DURATION:-300}"  # 5 minutes ramp-up
 TEST_DURATION="${TEST_DURATION:-600}"        # 10 minutes sustained load

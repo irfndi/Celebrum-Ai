@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { integer, real, sqliteTable, text, index } from 'drizzle-orm/sqlite-core';
-import { users } from './users.js';
+import { users } from './users';
 
 export const positions = sqliteTable(
   'positions',
@@ -121,4 +121,4 @@ export type NewPosition = typeof positions.$inferInsert;
 export type Opportunity = typeof opportunities.$inferSelect;
 export type NewOpportunity = typeof opportunities.$inferInsert;
 export type TradingStrategy = typeof tradingStrategies.$inferSelect;
-export type NewTradingStrategy = typeof tradingStrategies.$inferInsert; 
+export type NewTradingStrategy = typeof tradingStrategies.$inferInsert;

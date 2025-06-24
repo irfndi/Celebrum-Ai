@@ -113,10 +113,10 @@ TELEGRAM_CHAT_ID = "your-telegram-chat-id"
 TELEGRAM_TEST_MODE = "false"
 
 # Service URLs for routing
-WEB_SERVICE_URL = "https://web.arb-edge.com"
-API_SERVICE_URL = "https://api.arb-edge.com"
-DISCORD_BOT_SERVICE_URL = "https://discord-bot.arb-edge.com"
-TELEGRAM_BOT_SERVICE_URL = "https://telegram-bot.arb-edge.com"
+WEB_SERVICE_URL = "https://web.celebrum-ai.com"
+API_SERVICE_URL = "https://api.celebrum-ai.com"
+DISCORD_BOT_SERVICE_URL = "https://discord-bot.celebrum-ai.com"
+TELEGRAM_BOT_SERVICE_URL = "https://telegram-bot.celebrum-ai.com"
 ```
 
 ### KV Namespaces
@@ -305,7 +305,7 @@ Set up alerts for:
 
 ```javascript
 cors({
-  origin: ['https://arb-edge.com', 'https://*.arb-edge.com'],
+  origin: ['https://celebrum-ai.com', 'https://*.celebrum-ai.com'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   credentials: true,

@@ -10,7 +10,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Setup Telegram Bot Webhook for ArbEdge"
     echo ""
     echo "Arguments:"
-    echo "  WORKER_URL    Worker URL (default: https://arb-edge.irfandimarsya.workers.dev)"
+    echo "  WORKER_URL    Worker URL (default: https://celebrum-ai.irfandimarsya.workers.dev)"
     echo "                Can also be set via WORKER_URL environment variable"
     echo ""
     echo "Examples:"
@@ -47,7 +47,7 @@ if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
 fi
 
 # Worker URL - accept as environment variable or script argument with default
-WORKER_URL="${1:-${WORKER_URL:-https://arb-edge.irfandimarsya.workers.dev}}"
+WORKER_URL="${1:-${WORKER_URL:-https://celebrum-ai.irfandimarsya.workers.dev}}"
 WEBHOOK_URL="$WORKER_URL/telegram/webhook"
 
 echo "📡 Setting webhook URL: $WEBHOOK_URL"

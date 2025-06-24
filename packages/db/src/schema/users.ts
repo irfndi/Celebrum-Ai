@@ -9,6 +9,7 @@ export const users = sqliteTable(
     firstName: text('first_name'),
     lastName: text('last_name'),
     username: text('username'),
+    languageCode: text('language_code'),
     email: text('email'),
     role: text('role', { enum: ['free', 'pro', 'ultra', 'admin', 'superadmin'] })
       .notNull()
@@ -68,4 +69,4 @@ export const users = sqliteTable(
 );
 
 export type User = typeof users.$inferSelect;
-export type NewUser = typeof users.$inferInsert; 
+export type NewUser = typeof users.$inferInsert;

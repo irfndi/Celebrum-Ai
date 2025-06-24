@@ -1,9 +1,9 @@
 #!/bin/bash
-# Build script for @arb-edge/worker package
+# Build script for @celebrum-ai/worker package
 
 set -euo pipefail
 
-echo "⚡ Building @arb-edge/worker package..."
+echo "⚡ Building @celebrum-ai/worker package..."
 
 # Change to package directory
 cd "$(dirname "$0")"
@@ -39,5 +39,5 @@ else
     exit 1
 fi
 
-echo "✅ @arb-edge/worker build completed successfully!"
+echo "✅ @celebrum-ai/worker build completed successfully!"
 echo "💡 Use 'pnpm run deploy' to deploy to Cloudflare Workers"

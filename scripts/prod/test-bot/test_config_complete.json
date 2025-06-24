@@ -2,7 +2,7 @@
   "test_configuration": {
     "description": "ArbEdge API Test Configuration - Defines expected behavior for RBAC & Subscription tiers",
     "version": "1.0.0",
-    "base_url": "https://arb-edge.your-domain.workers.dev",
+    "base_url": "https://celebrum-ai.your-domain.workers.dev",
     "test_users": {
       "free_user": {
         "user_id": "user_free_123",

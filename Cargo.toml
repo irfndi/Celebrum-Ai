@@ -50,7 +50,7 @@ secrecy = "0.8"
 thiserror = "1.0"
 
 # Internal packages
-arb-edge-telegram-bot = { path = "packages/telegram-bot" }
+celebrum-ai-telegram-bot = { path = "packages/telegram-bot" }
 rust_decimal = { version = "1.0", features = ["serde-float"] }
 rust_decimal_macros = "1.0"
 async-trait = "0.1"

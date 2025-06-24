@@ -1,9 +1,9 @@
 #!/bin/bash
-# Build script for @arb-edge/web package
+# Build script for @celebrum-ai/web package
 
 set -euo pipefail
 
-echo "🌐 Building @arb-edge/web package..."
+echo "🌐 Building @celebrum-ai/web package..."
 
 # Change to package directory
 cd "$(dirname "$0")"
@@ -33,4 +33,4 @@ else
     exit 1
 fi
 
-echo "✅ @arb-edge/web build completed successfully!"
+echo "✅ @celebrum-ai/web build completed successfully!"

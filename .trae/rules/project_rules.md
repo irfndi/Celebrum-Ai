@@ -87,4 +87,4 @@ These principles are non-negotiable and guide all planning and execution.
 *   **Error Protocol:** When a mistake or blocker occurs: **Stop. Analyze the root cause. Document the fix and the lesson learned in `scratchpad.md`.** Only then, proceed.
 *   **The Carmack Principle:** If you make the same mistake three times, you MUST stop, ask "What would John Carmack do?", document your reflection and the new corrective action in `scratchpad.md`, and then proceed.
 *   **File Integrity:** Always read a file's latest content before editing it.
-*   **Security:** If a dependency vulnerability is reported in the terminal (e.g., by `npm audit`), run the recommended audit/fix command before proceeding.
+*   **Security:** If a dependency vulnerability is reported in the terminal (e.g., by `pnpm audit`), run the recommended audit/fix command before proceeding.

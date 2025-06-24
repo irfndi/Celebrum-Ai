@@ -34,23 +34,23 @@ build-packages: ## Build all TypeScript packages
 
 build-db: ## Build database package
 	@echo "🔨 Building database package..."
-	@pnpm --filter @arb-edge/db run build
+	@pnpm --filter @celebrum-ai/db run build
 
 build-shared: ## Build shared package
 	@echo "🔨 Building shared package..."
-	@pnpm --filter @arb-edge/shared run build
+	@pnpm --filter @celebrum-ai/shared run build
 
 build-telegram-bot: ## Build telegram bot package
 	@echo "🔨 Building telegram bot package..."
-	@pnpm --filter @arb-edge/telegram-bot run build
+	@pnpm --filter @celebrum-ai/telegram-bot run build
 
 build-web: ## Build web package
 	@echo "🔨 Building web package..."
-	@pnpm --filter @arb-edge/web run build
+	@pnpm --filter @celebrum-ai/web run build
 
 build-worker: ## Build worker package
 	@echo "🔨 Building worker package..."
-	@pnpm --filter @arb-edge/worker run build
+	@pnpm --filter @celebrum-ai/worker run build
 
 test-packages: ## Test all TypeScript packages
 	@echo "🧪 Testing TypeScript packages..."
@@ -58,23 +58,23 @@ test-packages: ## Test all TypeScript packages
 
 test-db: ## Test database package
 	@echo "🧪 Testing database package..."
-	@pnpm --filter @arb-edge/db run test
+	@pnpm --filter @celebrum-ai/db run test
 
 test-shared: ## Test shared package
 	@echo "🧪 Testing shared package..."
-	@pnpm --filter @arb-edge/shared run test
+	@pnpm --filter @celebrum-ai/shared run test
 
 test-telegram-bot: ## Test telegram bot package
 	@echo "🧪 Testing telegram bot package..."
-	@pnpm --filter @arb-edge/telegram-bot run test
+	@pnpm --filter @celebrum-ai/telegram-bot run test
 
 test-web: ## Test web package
 	@echo "🧪 Testing web package..."
-	@pnpm --filter @arb-edge/web run test
+	@pnpm --filter @celebrum-ai/web run test
 
 test-worker: ## Test worker package
 	@echo "🧪 Testing worker package..."
-	@pnpm --filter @arb-edge/worker run test
+	@pnpm --filter @celebrum-ai/worker run test
 
 lint-packages: ## Lint all TypeScript packages
 	@echo "🔍 Linting TypeScript packages..."
@@ -82,23 +82,23 @@ lint-packages: ## Lint all TypeScript packages
 
 lint-db: ## Lint database package
 	@echo "🔍 Linting database package..."
-	@pnpm --filter @arb-edge/db run lint
+	@pnpm --filter @celebrum-ai/db run lint
 
 lint-shared: ## Lint shared package
 	@echo "🔍 Linting shared package..."
-	@pnpm --filter @arb-edge/shared run lint
+	@pnpm --filter @celebrum-ai/shared run lint
 
 lint-telegram-bot: ## Lint telegram bot package
 	@echo "🔍 Linting telegram bot package..."
-	@pnpm --filter @arb-edge/telegram-bot run lint
+	@pnpm --filter @celebrum-ai/telegram-bot run lint
 
 lint-web: ## Lint web package
 	@echo "🔍 Linting web package..."
-	@pnpm --filter @arb-edge/web run lint
+	@pnpm --filter @celebrum-ai/web run lint
 
 lint-worker: ## Lint worker package
 	@echo "🔍 Linting worker package..."
-	@pnpm --filter @arb-edge/worker run lint
+	@pnpm --filter @celebrum-ai/worker run lint
 
 # Testing commands
 test: ## Run all tests
@@ -149,15 +149,15 @@ dev: ## Start development servers for all packages
 
 dev-worker: ## Start worker development server
 	@echo "🚀 Starting worker development server..."
-	@pnpm --filter @arb-edge/worker run dev
+	@pnpm --filter @celebrum-ai/worker run dev
 
 dev-web: ## Start web development server
 	@echo "🚀 Starting web development server..."
-	@pnpm --filter @arb-edge/web run dev
+	@pnpm --filter @celebrum-ai/web run dev
 
 dev-telegram-bot: ## Start telegram bot development server
 	@echo "🚀 Starting telegram bot development server..."
-	@pnpm --filter @arb-edge/telegram-bot run dev
+	@pnpm --filter @celebrum-ai/telegram-bot run dev
 
 # Deployment commands
 deploy: ## Deploy all packages
@@ -166,11 +166,11 @@ deploy: ## Deploy all packages
 
 deploy-worker: ## Deploy worker package
 	@echo "🚀 Deploying worker package..."
-	@pnpm --filter @arb-edge/worker run deploy
+	@pnpm --filter @celebrum-ai/worker run deploy
 
 deploy-web: ## Deploy web package
 	@echo "🚀 Deploying web package..."
-	@pnpm --filter @arb-edge/web run deploy
+	@pnpm --filter @celebrum-ai/web run deploy
 
 # Code quality commands
 fmt: ## Format code (Rust + TypeScript)
@@ -298,23 +298,23 @@ clean-packages: ## Clean TypeScript package build artifacts
 
 clean-db: ## Clean database package build artifacts
 	@echo "🧹 Cleaning database package..."
-	@pnpm --filter @arb-edge/db run clean
+	@pnpm --filter @celebrum-ai/db run clean
 
 clean-shared: ## Clean shared package build artifacts
 	@echo "🧹 Cleaning shared package..."
-	@pnpm --filter @arb-edge/shared run clean
+	@pnpm --filter @celebrum-ai/shared run clean
 
 clean-telegram-bot: ## Clean telegram bot package build artifacts
 	@echo "🧹 Cleaning telegram bot package..."
-	@pnpm --filter @arb-edge/telegram-bot run clean
+	@pnpm --filter @celebrum-ai/telegram-bot run clean
 
 clean-web: ## Clean web package build artifacts
 	@echo "🧹 Cleaning web package..."
-	@pnpm --filter @arb-edge/web run clean
+	@pnpm --filter @celebrum-ai/web run clean
 
 clean-worker: ## Clean worker package build artifacts
 	@echo "🧹 Cleaning worker package..."
-	@pnpm --filter @arb-edge/worker run clean
+	@pnpm --filter @celebrum-ai/worker run clean
 
 # Type checking commands
 typecheck: ## Run TypeScript type checking for all packages
@@ -323,23 +323,23 @@ typecheck: ## Run TypeScript type checking for all packages
 
 typecheck-db: ## Run TypeScript type checking for database package
 	@echo "🔍 Type checking database package..."
-	@pnpm --filter @arb-edge/db run typecheck
+	@pnpm --filter @celebrum-ai/db run typecheck
 
 typecheck-shared: ## Run TypeScript type checking for shared package
 	@echo "🔍 Type checking shared package..."
-	@pnpm --filter @arb-edge/shared run typecheck
+	@pnpm --filter @celebrum-ai/shared run typecheck
 
 typecheck-telegram-bot: ## Run TypeScript type checking for telegram bot package
 	@echo "🔍 Type checking telegram bot package..."
-	@pnpm --filter @arb-edge/telegram-bot run typecheck
+	@pnpm --filter @celebrum-ai/telegram-bot run typecheck
 
 typecheck-web: ## Run TypeScript type checking for web package
 	@echo "🔍 Type checking web package..."
-	@pnpm --filter @arb-edge/web run typecheck
+	@pnpm --filter @celebrum-ai/web run typecheck
 
 typecheck-worker: ## Run TypeScript type checking for worker package
 	@echo "🔍 Type checking worker package..."
-	@pnpm --filter @arb-edge/worker run typecheck
+	@pnpm --filter @celebrum-ai/worker run typecheck
 
 # Utility commands
 
@@ -390,11 +390,11 @@ test-api-local: ## Run API Tests against local development server
 
 test-api-staging: ## Run API Tests against staging environment
 	@echo "🚀 Running API Tests against staging environment..."
-	@BASE_URL=https://arb-edge-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_api_flow.sh
+	@BASE_URL=https://celebrum-ai-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_api_flow.sh
 
 test-api-production: ## Run API Tests against production environment
 	@echo "🌍 Running API Tests against production environment..."
-	@BASE_URL=https://arb-edge.your-domain.workers.dev ./scripts/prod/test-bot/test_api_flow.sh
+	@BASE_URL=https://celebrum-ai.your-domain.workers.dev ./scripts/prod/test-bot/test_api_flow.sh
 
 # API v1 Direct Testing (No Telegram required)
 test-api-v1: ## Run comprehensive API v1 tests with RBAC validation
@@ -408,11 +408,11 @@ test-api-v1-local: ## Run API v1 tests against local development server
 
 test-api-v1-staging: ## Run API v1 tests against staging environment
 	@echo "🚀 Running API v1 Tests against staging environment..."
-	@BASE_URL=https://arb-edge-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_api_v1_comprehensive.sh
+	@BASE_URL=https://celebrum-ai-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_api_v1_comprehensive.sh
 
 test-api-v1-production: ## Run API v1 tests against production environment
 	@echo "🌍 Running API v1 Tests against production environment..."
-	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_api_v1_comprehensive.sh
+	@BASE_URL=https://celebrum-ai.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_api_v1_comprehensive.sh
 
 test-api-prod-admin: ## Run Production API Tests (Super Admin Only with D1 Database)
 	@echo "👑 Running Production API Tests (Super Admin + D1 Database)..."
@@ -431,11 +431,11 @@ test-performance-local: ## Run performance tests against local development serve
 
 test-performance-staging: ## Run performance tests against staging environment
 	@echo "🚀 Running Performance Tests against staging environment..."
-	@BASE_URL=https://arb-edge-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_performance_comprehensive.sh
+	@BASE_URL=https://celebrum-ai-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_performance_comprehensive.sh
 
 test-performance-production: ## Run performance tests against production environment
 	@echo "🌍 Running Performance Tests against production environment..."
-	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_performance_comprehensive.sh
+	@BASE_URL=https://celebrum-ai.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_performance_comprehensive.sh
 
 test-performance-stress: ## Run high-stress performance tests (100 concurrent users)
 	@echo "💥 Running High-Stress Performance Tests..."
@@ -453,11 +453,11 @@ test-performance-10k: ## Run 10K concurrent users performance test (PRODUCTION O
 
 test-performance-10k-production: ## Run 10K users test against production environment
 	@echo "🌍 Running 10K Users Test against production environment..."
-	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_performance_10k_users.sh
+	@BASE_URL=https://celebrum-ai.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_performance_10k_users.sh
 
 test-performance-10k-staging: ## Run 10K users test against staging environment
 	@echo "🚀 Running 10K Users Test against staging environment..."
-	@BASE_URL=https://arb-edge-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_performance_10k_users.sh
+	@BASE_URL=https://celebrum-ai-staging.your-domain.workers.dev ./scripts/prod/test-bot/test_performance_10k_users.sh
 
 test-performance-ramp: ## Run gradual ramp-up test (100->10K users)
 	@echo "📈 Running Gradual Ramp-up Test..."
@@ -479,7 +479,7 @@ test-complete-super-admin: ## Run comprehensive test of ALL functionality with s
 
 test-complete-super-admin-production: ## Run complete super admin test against production environment
 	@echo "🌍 Running Complete Super Admin Test against production environment..."
-	@BASE_URL=https://arb-edge.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_complete_super_admin_api.sh
+	@BASE_URL=https://celebrum-ai.irfandimarsya.workers.dev ./scripts/prod/test-bot/test_complete_super_admin_api.sh
 
 test-complete-super-admin-local: ## Run complete super admin test against local development server
 	@echo "🏠 Running Complete Super Admin Test against local development server..."

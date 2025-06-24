@@ -1,5 +1,5 @@
 {
-  "name": "@arb-edge/web",
+  "name": "@celebrum-ai/web",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "lint:fix": "oxlint . --fix"
   },
   "dependencies": {
-    "@arb-edge/db": "workspace:*",
+    "@celebrum-ai/db": "workspace:*",
     "@astrojs/cloudflare": "^12.6.0",
     "@astrojs/node": "^9.2.2",
     "@astrojs/tailwind": "^6.0.2",
@@ -35,7 +35,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/irfndi/arb-edge.git",
+    "url": "git+https://github.com/irfndi/celebrum-ai.git",
     "directory": "packages/web"
   }
 }

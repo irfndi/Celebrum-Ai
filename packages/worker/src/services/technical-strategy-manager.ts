@@ -4,7 +4,7 @@ import type {
   StrategyLimits,
   RBACOperationResult,
   TechnicalStrategy
-} from '@arb-edge/shared/types';
+} from '@celebrum-ai/shared/types';
 
 /**
  * Technical Strategy Manager for YAML-based strategy system

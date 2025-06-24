@@ -2428,7 +2428,7 @@
             "dependencies": [
               7
             ],
-            "details": "Use `wrangler tail` to watch live logs. Verify commands are being routed and executed correctly in production.\n<info added on 2025-06-23T06:39:22.889Z>\nProduction monitoring active via wrangler tail. Successfully connected to arb-edge worker. Deployment confirmed successful with Version ID: b0dd81a7-6b7f-4578-ac7d-0aae6398add5. Monitoring session expires 2025-06-23T10:09:22Z. Ready to observe command execution and troubleshoot issues.\n</info added on 2025-06-23T06:39:22.889Z>",
+            "details": "Use `wrangler tail` to watch live logs. Verify commands are being routed and executed correctly in production.\n<info added on 2025-06-23T06:39:22.889Z>\nProduction monitoring active via wrangler tail. Successfully connected to celebrum-ai worker. Deployment confirmed successful with Version ID: b0dd81a7-6b7f-4578-ac7d-0aae6398add5. Monitoring session expires 2025-06-23T10:09:22Z. Ready to observe command execution and troubleshoot issues.\n</info added on 2025-06-23T06:39:22.889Z>",
             "status": "done",
             "testStrategy": "Observe live logs and respond to any issues that arise."
           }
@@ -2453,7 +2453,7 @@
             "title": "Test Basic User Commands",
             "description": "Conduct thorough testing of basic user commands (/start, /help, etc.) in the production environment.",
             "dependencies": [],
-            "details": "Utilize the existing production webhook test script to test basic commands. Verify responses and functionality.\n<info added on 2025-06-23T06:42:16.325Z>\nCritical production issues identified during initial testing:\n1. Worker runtime canceling requests due to hanging code\n2. TypeError from undefined function calls\n3. Cron job failures with exceptions\nAll 57 test commands failed with Error 1101 (Worker exception)\nProduction webhook URL: https://arb-edge.irfandimarsya.workers.dev/telegram/webhook\nWrangler tail monitoring confirms consistent failures\nImmediate action required: Code review and debugging needed before proceeding with further testing\n</info added on 2025-06-23T06:42:16.325Z>",
+            "details": "Utilize the existing production webhook test script to test basic commands. Verify responses and functionality.\n<info added on 2025-06-23T06:42:16.325Z>\nCritical production issues identified during initial testing:\n1. Worker runtime canceling requests due to hanging code\n2. TypeError from undefined function calls\n3. Cron job failures with exceptions\nAll 57 test commands failed with Error 1101 (Worker exception)\nProduction webhook URL: https://celebrum-ai.irfandimarsya.workers.dev/telegram/webhook\nWrangler tail monitoring confirms consistent failures\nImmediate action required: Code review and debugging needed before proceeding with further testing\n</info added on 2025-06-23T06:42:16.325Z>",
             "status": "in-progress",
             "testStrategy": "Execute each command multiple times with different user contexts to ensure consistent behavior."
           },

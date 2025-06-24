@@ -1,9 +1,9 @@
 #!/bin/bash
-# Build script for @arb-edge/telegram-bot package
+# Build script for @celebrum-ai/telegram-bot package
 
 set -euo pipefail
 
-echo "🤖 Building @arb-edge/telegram-bot package..."
+echo "🤖 Building @celebrum-ai/telegram-bot package..."
 
 # Change to package directory
 cd "$(dirname "$0")"
@@ -37,4 +37,4 @@ else
     exit 1
 fi
 
-echo "✅ @arb-edge/telegram-bot build completed successfully!"
+echo "✅ @celebrum-ai/telegram-bot build completed successfully!"

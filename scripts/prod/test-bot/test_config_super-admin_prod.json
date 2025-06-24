@@ -3,7 +3,7 @@
     "description": "ArbEdge Production API Test Configuration - Super Admin focused testing with real D1 database",
     "version": "1.0.0",
     "environment": "production",
-    "base_url": "https://arb-edge.irfandimarsya.workers.dev",
+    "base_url": "https://celebrum-ai.irfandimarsya.workers.dev",
     "test_focus": "super_admin_only",
     "super_admin_user": {
       "user_id": "FETCHED_FROM_D1_AT_RUNTIME",

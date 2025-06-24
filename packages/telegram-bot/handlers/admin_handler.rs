@@ -6,7 +6,7 @@ use crate::core::bot_client::TelegramResult;
 use crate::core::command_router::{CommandContext, CommandHandler, UserPermissions};
 use crate::integrations::get_admin_statistics;
 use async_trait::async_trait;
-use worker::{console_log, Env};
+use worker::console_log;
 
 pub struct AdminHandler;
 
@@ -16,8 +16,8 @@ impl AdminHandler {
     }
 
     /// Generate the main admin dashboard view.
-    fn get_dashboard_text(&self) -> String {
-        match get_admin_statistics() {
+    async fn get_dashboard_text(&self) -> String {
+        match get_admin_statistics().await {
             Ok(stats) => format!(
                 "👑 *Admin Dashboard*\n\n
                 *📊 System Statistics*\n
@@ -31,23 +31,24 @@ impl AdminHandler {
                 - `/admin stats` - View detailed statistics\n
                 - `/admin users` - User management functions\n
                 - `/admin broadcast` - Send a message to all users",
-                stats.total_users,
-                stats.active_users,
-                stats.admin_users,
-                stats.total_volume_usdt,
-                stats.total_trades
+                stats["total_users"].as_u64().unwrap_or(0),
+                stats["active_users"].as_u64().unwrap_or(0),
+                0,   // admin_users not available in current stats
+                0.0, // total_volume_usdt not available in current stats
+                stats["total_trades"].as_u64().unwrap_or(0)
             ),
             Err(e) => {
                 console_log!("❌ Failed to get admin stats for dashboard: {:?}", e);
                 "👑 *Admin Dashboard*\n\n
-                Could not load system statistics. The system may be experiencing issues.".to_string()
+                Could not load system statistics. The system may be experiencing issues."
+                    .to_string()
             }
         }
     }
 
     /// Generate detailed statistics view.
-    fn get_stats_text(&self) -> String {
-        match get_admin_statistics() {
+    async fn get_stats_text(&self) -> String {
+        match get_admin_statistics().await {
             Ok(stats) => format!(
                 "📈 *Detailed System Statistics*\n\n
                 *👥 User Metrics*\n
@@ -62,11 +63,11 @@ impl AdminHandler {
                 - *Status:* ✅ All systems operational\n
                 - *Database Load:* Low\n
                 - *API Latency:* 120ms",
-                stats.total_users,
-                stats.active_users,
-                stats.admin_users, // Assuming admin_users can represent premium for now
-                stats.total_trades,
-                stats.total_volume_usdt
+                stats["total_users"].as_u64().unwrap_or(0),
+                stats["active_users"].as_u64().unwrap_or(0),
+                0, // admin_users not available in current stats
+                stats["total_trades"].as_u64().unwrap_or(0),
+                0.0 // total_volume_usdt not available in current stats
             ),
             Err(e) => {
                 console_log!("❌ Failed to get detailed admin stats: {:?}", e);
@@ -90,8 +91,8 @@ impl CommandHandler for AdminHandler {
         let subcommand = args.first().unwrap_or(&"dashboard").to_lowercase();
 
         match subcommand.as_str() {
-            "stats" | "statistics" => Ok(self.get_stats_text()),
-            "dashboard" => Ok(self.get_dashboard_text()),
+            "stats" | "statistics" => Ok(self.get_stats_text().await),
+            "dashboard" => Ok(self.get_dashboard_text().await),
             "users" => {
                 // Placeholder for user management functionality
                 Ok("👥 *User Management*\n\nThis feature is under development.".to_string())
@@ -106,10 +107,8 @@ impl CommandHandler for AdminHandler {
                     Ok("Usage: /admin broadcast <message>".to_string())
                 }
             }
-            "logs" => {
-                Ok("📜 *System Logs*\n\nThis feature is under development.".to_string())
-            }
-            _ => Ok(self.get_dashboard_text()),
+            "logs" => Ok("📜 *System Logs*\n\nThis feature is under development.".to_string()),
+            _ => Ok(self.get_dashboard_text().await),
         }
     }
 

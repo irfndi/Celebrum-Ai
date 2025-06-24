@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # Configuration
-BASE_URL="${BASE_URL:-https://arb-edge.irfandimarsya.workers.dev}"
+BASE_URL="${BASE_URL:-https://celebrum-ai.irfandimarsya.workers.dev}"
 TEST_OUTPUT_DIR="./test_results"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$TEST_OUTPUT_DIR/prod_api_test_$TIMESTAMP.log"
@@ -136,8 +136,8 @@ validate_user_management() {
 
 # Fetch real Super Admin credentials from production D1 database
 echo "🔍 Fetching real admin data from production D1 database..."
-SUPER_ADMIN_USER_ID=$(wrangler d1 execute prod-arb-edge --command="SELECT user_id FROM user_profiles WHERE user_id LIKE '%superadmin%' LIMIT 1" --json | jq -r '.[0].results[0].user_id')
-SUPER_ADMIN_TELEGRAM_ID=$(wrangler d1 execute prod-arb-edge --command="SELECT telegram_id FROM user_profiles WHERE user_id LIKE '%superadmin%' LIMIT 1" --json | jq -r '.[0].results[0].telegram_id')
+SUPER_ADMIN_USER_ID=$(wrangler d1 execute prod-celebrum-ai --command="SELECT user_id FROM user_profiles WHERE user_id LIKE '%superadmin%' LIMIT 1" --json | jq -r '.[0].results[0].user_id')
+SUPER_ADMIN_TELEGRAM_ID=$(wrangler d1 execute prod-celebrum-ai --command="SELECT telegram_id FROM user_profiles WHERE user_id LIKE '%superadmin%' LIMIT 1" --json | jq -r '.[0].results[0].telegram_id')
 
 if [ "$SUPER_ADMIN_USER_ID" = "null" ] || [ -z "$SUPER_ADMIN_USER_ID" ]; then
     echo "❌ Error: No admin user found in production D1 database"

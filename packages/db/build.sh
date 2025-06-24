@@ -1,9 +1,9 @@
 #!/bin/bash
-# Build script for @arb-edge/db package
+# Build script for @celebrum-ai/db package
 
 set -euo pipefail
 
-echo "🗄️ Building @arb-edge/db package..."
+echo "🗄️ Building @celebrum-ai/db package..."
 
 # Change to package directory
 cd "$(dirname "$0")"
@@ -24,4 +24,4 @@ if [ -f "drizzle.config.ts" ]; then
     pnpm run db:generate
 fi
 
-echo "✅ @arb-edge/db build completed successfully!"
+echo "✅ @celebrum-ai/db build completed successfully!"

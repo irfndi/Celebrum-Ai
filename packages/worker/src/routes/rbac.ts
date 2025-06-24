@@ -12,7 +12,7 @@ import type {
   PermissionType,
   RiskLevelType,
   PositionSizingMethodType
-} from '@arb-edge/shared/types';
+} from '@celebrum-ai/shared/types';
 
 type Env = {
   ArbEdgeKV: KVNamespace;
@@ -39,7 +39,7 @@ const rbacRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // CORS middleware
 rbacRoutes.use('*', cors({
-  origin: ['http://localhost:3000', 'https://arb-edge.com'],
+  origin: ['http://localhost:3000', 'https://celebrum-ai.com'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: true

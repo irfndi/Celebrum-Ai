@@ -73,11 +73,13 @@ export interface TelegramInlineKeyboardButton {
 export interface TelegramHandler {
   command: string;
   description: string;
-  handler: (update: TelegramUpdate, env: any) => Promise<TelegramBotResponse | null>;
+  handler: (update: TelegramUpdate, env: Env) => Promise<TelegramBotResponse | null>;
 }
 
+import type { Env } from '@celebrum-ai/shared';
+
 export interface TelegramWebhookContext {
-  env: any;
+  env: Env;
   ctx: ExecutionContext;
 }
 
@@ -90,8 +92,8 @@ export interface TelegramIntegrationConfig {
 }
 
 export interface TelegramServiceInterface {
-  processUpdate(update: TelegramUpdate, env: any): Promise<Response>;
+  processUpdate(update: TelegramUpdate, env: Env): Promise<Response>;
   sendMessage(chatId: number, text: string, options?: any): Promise<boolean>;
   setWebhook(url: string): Promise<boolean>;
   deleteWebhook(): Promise<boolean>;
-} 
+}

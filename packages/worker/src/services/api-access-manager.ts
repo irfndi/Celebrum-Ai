@@ -3,11 +3,11 @@ import type {
   SubscriptionTierType,
   ApiAccess,
   RBACOperationResult
-} from '@arb-edge/shared/types';
+} from '@celebrum-ai/shared/types';
 import type {
   UserRole,
   SubscriptionTier
-} from '@arb-edge/shared/types';
+} from '@celebrum-ai/shared/types';
 
 /**
  * API Access Manager for managing exchange and AI API configurations

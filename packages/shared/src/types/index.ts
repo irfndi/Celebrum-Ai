@@ -1,5 +1,11 @@
-// @arb-edge/shared - Shared Types
+// @celebrum-ai/shared - Shared Types
 import { z } from 'zod';
+import type { D1Database, KVNamespace } from '@cloudflare/workers-types';
+
+export interface Env {
+  DB: D1Database;
+  SESSIONS: KVNamespace;
+}
 
 // Common API Response Types
 export interface ApiResponse<T = unknown> {
@@ -101,6 +107,7 @@ export const UserSchema = z.object({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   username: z.string().optional(),
+  languageCode: z.string().optional(),
   email: z.string().optional(),
   role: z.enum(['free', 'pro', 'ultra', 'admin', 'superadmin']).default('free'),
   status: z.enum(['active', 'suspended', 'banned']).default('active'),

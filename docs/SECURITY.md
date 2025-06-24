@@ -181,7 +181,7 @@ Our GitHub Actions workflow automatically:
 ArbEdge includes built-in security middleware:
 
 ```typescript
-import { securityMiddleware } from '@arb-edge/shared/middleware';
+import { securityMiddleware } from '@celebrum-ai/shared/middleware';
 
 // Apply security headers
 app.use(securityMiddleware());

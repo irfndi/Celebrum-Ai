@@ -6,12 +6,12 @@ import type {
   RBACOperationResult,
   RiskLevelType,
   PositionSizingMethodType
-} from '@arb-edge/shared/types';
+} from '@celebrum-ai/shared/types';
 import {
   UserRole,
   RiskLevel,
   PositionSizingMethod
-} from '@arb-edge/shared/types';
+} from '@celebrum-ai/shared/types';
 
 /**
  * Trading Configuration Manager for managing user trading settings and risk management

@@ -52,7 +52,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "arb-edge-telegram-bot"
+name = "celebrum-ai-telegram-bot"
 version = "0.1.0"
 dependencies = [
  "anyhow",

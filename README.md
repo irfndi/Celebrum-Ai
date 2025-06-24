@@ -41,8 +41,8 @@ This project implements a modular, production-ready architecture:
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-username/arb-edge.git
-   cd arb-edge
+   git clone https://github.com/your-username/celebrum-ai.git
+   cd celebrum-ai
    ```
 
 2. **Install dependencies and setup**:

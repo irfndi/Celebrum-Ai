@@ -377,7 +377,7 @@ export function slugify(text) {
         .trim()
         .replace(/[^\w\s-]/g, '')
         .replace(/[\s_-]/g, '-')
-        .replace(/-{2,}/g, '-')
+        .replace(/--+/g, '-') // Safe alternative to /-{2,}/g
         .replace(/^-+|-+$/g, '');
 }
 export function truncate(text, length) {

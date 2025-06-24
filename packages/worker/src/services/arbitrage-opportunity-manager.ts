@@ -5,7 +5,7 @@ import type {
   RBACOperationResult,
   Opportunity,
   ArbitrageOpportunity
-} from '@arb-edge/shared/types';
+} from '@celebrum-ai/shared/types';
 
 /**
  * Arbitrage Opportunity Manager for managing opportunity detection and execution limits

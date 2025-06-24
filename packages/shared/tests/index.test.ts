@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { UserSchema } from './index';
-import type { ApiResponse } from './index';
+import { UserSchema } from '../src/index';
+import type { ApiResponse } from '../src/index';
 
 describe('Shared Package', () => {
   it('should export UserSchema', () => {

@@ -1,11 +1,13 @@
 [package]
-name = "arb-edge-telegram-bot"
+name = "celebrum-ai-telegram-bot"
 version = "0.1.0"
 edition = "2021"
 authors = ["ArbEdge Team"]
 description = "Telegram Bot for ArbEdge Arbitrage Platform"
 
 [lib]
+name = "celebrum_ai_telegram_bot"
+path = "lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

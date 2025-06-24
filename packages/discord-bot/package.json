@@ -1,5 +1,5 @@
 {
-  "name": "@arb-edge/discord-bot",
+  "name": "@celebrum-ai/discord-bot",
   "version": "0.1.0",
   "description": "ArbEdge Discord Bot - Discord integration for trading platform",
   "private": true,
@@ -15,7 +15,7 @@
     "clean": "echo 'Discord bot package not implemented yet'"
   },
   "dependencies": {
-    "@arb-edge/shared": "workspace:*"
+    "@celebrum-ai/shared": "workspace:*"
   },
   "keywords": [
     "discord",
@@ -29,7 +29,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/username/arb-edge.git",
+    "url": "git+https://github.com/username/celebrum-ai.git",
     "directory": "packages/discord-bot"
   },
   "publishConfig": {

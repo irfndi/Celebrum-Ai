@@ -3,10 +3,9 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
+    "allowImportingTsExtensions": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true,
     "jsx": "preserve",
     "strict": true,
     "noUnusedLocals": true,
@@ -20,18 +19,29 @@
     "outDir": "dist",
     "rootDir": "src",
     "baseUrl": ".",
-    "types": ["@cloudflare/workers-types", "node"],
+    "types": [
+      "@cloudflare/workers-types",
+      "node"
+    ],
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": [
+        "src/*"
+      ]
     }
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "tests/index.test.ts"
   ],
   "exclude": [
     "node_modules",
     "dist",
     "**/*.test.ts",
     "**/*.spec.ts"
+  ],
+  "references": [
+    {
+      "path": "../db"
+    }
   ]
 }

@@ -36,7 +36,7 @@
 - ✅ **Tables Created**: 6 invitation system tables + indexes
 - ✅ **Configuration**: 14 system config entries for invitation/referral/affiliation
 - ✅ **Migration Tracking**: Migrations 004 & 005 recorded in schema_migrations
-- ✅ **Production Database**: All changes applied to prod-arb-edge database
+- ✅ **Production Database**: All changes applied to prod-celebrum-ai database
 
 **✅ Implementation Complete**:
 - ✅ Database schema with 90-day beta period (updated from 180 days)
@@ -317,7 +317,7 @@
 - **CodeRabbit PR Comments**: ✅ **128/128 COMPLETED** - ALL comments resolved including latest 127-128
 - **PR Comments 127-128**: ✅ **COMPLETED & TESTED** - Enhanced setup-d1.sh with fail-fast validation and absolute paths
 - **Build System**: ✅ **VERIFIED** - All Cloudflare build issues resolved, worker-build compiles successfully
-- **D1 Database**: ✅ **CONFIGURED** - Real prod-arb-edge database (ID: 879bf844-93b2-433d-9319-6e6065bbfdfd)
+- **D1 Database**: ✅ **CONFIGURED** - Real prod-celebrum-ai database (ID: 879bf844-93b2-433d-9319-6e6065bbfdfd)
 - **Local CI Status**: ✅ **ALL PASSING** - Full verification completed
 - **CI Pipeline**: ✅ **DEPLOYED** - Latest commit b1187ad pushed with complete fixes
 

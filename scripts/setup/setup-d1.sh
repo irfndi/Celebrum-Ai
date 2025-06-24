@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 
 # Use existing D1 database
-DB_NAME="prod-arb-edge"
+DB_NAME="prod-celebrum-ai"
 DB_ID="879bf844-93b2-433d-9319-6e6065bbfdfd"
 
 echo "📋 Using existing D1 database:"

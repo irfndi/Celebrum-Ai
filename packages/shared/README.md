@@ -1,4 +1,4 @@
-# @arb-edge/shared
+# @celebrum-ai/shared
 
 Shared types, utilities, configurations, and middleware for ArbEdge services.
 
@@ -9,11 +9,11 @@ This package provides common functionality used across all ArbEdge services incl
 ## Installation
 
 ```bash
-npm install @arb-edge/shared
+npm install @celebrum-ai/shared
 # or
-yarn add @arb-edge/shared
+yarn add @celebrum-ai/shared
 # or
-pnpm add @arb-edge/shared
+pnpm add @celebrum-ai/shared
 ```
 
 ## Modules
@@ -23,7 +23,7 @@ pnpm add @arb-edge/shared
 Comprehensive TypeScript types and Zod schemas for the entire application.
 
 ```typescript
-import { User, Position, Opportunity, ApiResponse } from '@arb-edge/shared/types';
+import { User, Position, Opportunity, ApiResponse } from '@celebrum-ai/shared/types';
 
 // User types
 const user: User = {
@@ -58,7 +58,7 @@ import {
   validateSymbol,
   addMinutes,
   calculatePositionSize 
-} from '@arb-edge/shared/utils';
+} from '@celebrum-ai/shared/utils';
 
 // Formatting
 const formatted = formatNumber(1234567.89); // "1,234,567.89"
@@ -93,7 +93,7 @@ import {
   SUCCESS_MESSAGES,
   validateConfig,
   getConfigForEnvironment 
-} from '@arb-edge/shared/config';
+} from '@celebrum-ai/shared/config';
 
 // API configuration
 console.log(API_CONFIG.DEFAULT_PORT); // 3000
@@ -123,7 +123,7 @@ import {
   NOTIFICATION_TYPES,
   WEBSOCKET_EVENTS,
   REGEX_PATTERNS 
-} from '@arb-edge/shared/constants';
+} from '@celebrum-ai/shared/constants';
 
 // Supported assets
 console.log(SUPPORTED_CRYPTOCURRENCIES); // ['BTC', 'ETH', 'USDT', ...]
@@ -154,7 +154,7 @@ import {
   InsufficientBalanceError,
   handleError,
   formatErrorResponse 
-} from '@arb-edge/shared/errors';
+} from '@celebrum-ai/shared/errors';
 
 // Custom errors
 throw new ValidationError('Invalid email format', { field: 'email' });
@@ -182,7 +182,7 @@ import {
   validatePrice,
   safeValidate,
   createValidationMiddleware 
-} from '@arb-edge/shared/validation';
+} from '@celebrum-ai/shared/validation';
 
 // Schema validation
 const userResult = schemas.createUser.safeParse(userData);
@@ -218,7 +218,7 @@ import {
   authMiddleware,
   validateMiddleware,
   errorMiddleware 
-} from '@arb-edge/shared/middleware';
+} from '@celebrum-ai/shared/middleware';
 
 // Individual middleware
 app.use(corsMiddleware());
@@ -251,7 +251,7 @@ import {
   AppError,
   formatErrorResponse,
   SUCCESS_MESSAGES 
-} from '@arb-edge/shared';
+} from '@celebrum-ai/shared';
 
 const app = express();
 
@@ -287,8 +287,8 @@ app.use(middleware.error());
 ### Database Integration Example
 
 ```typescript
-import { User, NewUser, schemas } from '@arb-edge/shared';
-import { db } from '@arb-edge/db';
+import { User, NewUser, schemas } from '@celebrum-ai/shared';
+import { db } from '@celebrum-ai/db';
 
 // Validate and create user
 export async function createUser(userData: unknown): Promise<User> {
@@ -310,7 +310,7 @@ import {
   validateSymbol,
   TradingError,
   TRADING_CONFIG 
-} from '@arb-edge/shared';
+} from '@celebrum-ai/shared';
 
 export async function executeArbitrage(opportunity: Opportunity) {
   // Validate symbol

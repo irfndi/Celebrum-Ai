@@ -2,8 +2,9 @@ import type {
   TelegramUpdate, 
   TelegramBotResponse, 
   TelegramHandler,
-  TelegramWebhookContext 
+  TelegramWebhookContext
 } from '../types/index';
+import type { Env } from '@celebrum-ai/shared';
 
 // Command handlers registry
 export const TELEGRAM_HANDLERS = new Map<string, TelegramHandler>();
@@ -69,37 +70,51 @@ export async function processTelegramUpdate(
 }
 
 // Default handlers
+import { SessionService, UserService } from '@celebrum-ai/shared';
+
+// ... existing code ...
+
+const start = async (update: TelegramUpdate, env: Env): Promise<TelegramBotResponse | null> => {
+  const sessionService = new SessionService(env.SESSIONS);
+  const chatId = update.message?.chat.id;
+  const from = update.message?.from;
+
+  if (!chatId || !from) return null;
+
+  const userService = new UserService(env.DB);
+  const telegramId = from.id.toString();
+  let user = await userService.findUserByTelegramId(telegramId);
+
+  let welcomeMessage;
+  if (user) {
+    await sessionService.deleteSessionByTelegramId(telegramId); // Clean up old sessions
+    const session = await sessionService.createSession(user);
+    welcomeMessage = `👋 <b>Welcome back, ${from.first_name}!</b>\n\nYour trading journey continues. What would you like to do today?\n\n(Session ID: ${session.sessionId})`;
+  } else {
+    user = await userService.createUser({
+      telegramId: telegramId,
+      firstName: from.first_name,
+      lastName: from.last_name,
+      username: from.username,
+      languageCode: from.language_code
+    });
+    const session = await sessionService.createSession(user);
+    welcomeMessage = `🚀 <b>Welcome to Celebrum Trading Platform, ${from.first_name}!</b>\n\nYour account has been created. I'm your AI-powered trading assistant. Here's what I can help you with:\n\n📊 <b>Market Analysis</b>\n• Real-time arbitrage opportunities\n• Price tracking across exchanges\n• Market insights and trends\n\n🛠️ <b>Trading Tools</b>\n• Portfolio management\n• Risk assessment\n• Trade execution assistance\n\nType /help to see all available commands or /opportunities to get started!\n\n<i>Ready to maximize your trading potential? Let's go! 🎯</i>\n\n(Session ID: ${session.sessionId})`;
+  }
+
+  return {
+    method: 'sendMessage',
+    chat_id: chatId,
+    text: welcomeMessage,
+    parse_mode: 'HTML'
+  };
+};
+
 export const defaultHandlers: TelegramHandler[] = [
   {
     command: 'start',
-    description: 'Start the bot and show welcome message',
-    handler: async (update: TelegramUpdate) => {
-      const chatId = update.message?.chat.id;
-      if (!chatId) return null;
-
-      return {
-        method: 'sendMessage',
-        chat_id: chatId,
-        text: `🚀 <b>Welcome to Celebrum Trading Platform!</b>
-
-I'm your AI-powered trading assistant. Here's what I can help you with:
-
-📊 <b>Market Analysis</b>
-• Real-time arbitrage opportunities
-• Price tracking across exchanges
-• Market insights and trends
-
-🛠️ <b>Trading Tools</b>
-• Portfolio management
-• Risk assessment
-• Trade execution assistance
-
-Type /help to see all available commands or /opportunities to get started!
-
-<i>Ready to maximize your trading potential? Let's go! 🎯</i>`,
-        parse_mode: 'HTML'
-      };
-    }
+    description: 'Start the bot and create/authenticate your account',
+    handler: start
   },
   {
     command: 'help',
@@ -127,4 +142,4 @@ export function initializeDefaultHandlers(): void {
   defaultHandlers.forEach(handler => {
     registerHandler(handler);
   });
-} 
+}
