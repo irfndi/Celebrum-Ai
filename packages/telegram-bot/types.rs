@@ -32,7 +32,10 @@ impl UserAccessLevel {
     pub fn can_trade(&self) -> bool {
         match self {
             UserAccessLevel::Free => false,
-            UserAccessLevel::Pro | UserAccessLevel::Ultra | UserAccessLevel::Admin | UserAccessLevel::SuperAdmin => true,
+            UserAccessLevel::Pro
+            | UserAccessLevel::Ultra
+            | UserAccessLevel::Admin
+            | UserAccessLevel::SuperAdmin => true,
             // Legacy support
             UserAccessLevel::Guest | UserAccessLevel::FreeWithoutAPI => false,
             _ => true, // Default to true for other legacy roles
