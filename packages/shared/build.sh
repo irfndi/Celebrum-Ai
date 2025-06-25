@@ -18,6 +18,13 @@ fi
 echo "🧹 Cleaning previous build..."
 rm -rf dist
 
+# Ensure db package is built first
+echo "🔄 Checking if db package is built..."
+if [ ! -d "../db/dist" ]; then
+    echo "⚠️ DB package not built, building it first..."
+    (cd ../db && pnpm run build)
+fi
+
 # Run TypeScript compilation with tsup
 echo "🔨 Building with tsup..."
 pnpm run build

@@ -10,7 +10,7 @@ export default defineConfig({
   treeshake: true,
   minify: false, // Keep readable for development
   target: 'es2022',
-  external: ['zod'],
+  external: ['zod', '@celebrum-ai/db'],
   tsconfig: 'tsconfig.build.json',
   outDir: 'dist',
   banner: {

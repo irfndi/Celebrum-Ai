@@ -13,7 +13,7 @@
   },
   "packageManager": "pnpm@10.12.1",
   "scripts": {
-    "build": "pnpm --filter @celebrum-ai/db run build && pnpm --filter @celebrum-ai/shared run build && pnpm --filter @celebrum-ai/telegram-bot run build && pnpm --filter @celebrum-ai/web run build && pnpm --filter @celebrum-ai/worker run build",
+    "build": "pnpm --filter @celebrum-ai/db run build && pnpm --filter @celebrum-ai/shared run build:force && pnpm --filter @celebrum-ai/telegram-bot run build && pnpm --filter @celebrum-ai/web run build && pnpm --filter @celebrum-ai/worker run build",
     "dev": "./scripts/dev/start-dev.sh",
     "dev:worker": "./scripts/dev/start-dev.sh worker",
     "dev:web": "./scripts/dev/start-dev.sh web",

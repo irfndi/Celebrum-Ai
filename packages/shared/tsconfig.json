@@ -1,5 +1,9 @@
 {
+  "references": [
+    { "path": "../db" }
+  ],
   "compilerOptions": {
+    "composite": true,
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -26,7 +30,9 @@
     "paths": {
       "@/*": [
         "src/*"
-      ]
+      ],
+      "@celebrum-ai/db": ["../db/src"],
+      "@celebrum-ai/db/*": ["../db/src/*"]
     }
   },
   "include": [
