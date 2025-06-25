@@ -1,11 +1,16 @@
 name = "dev-celebrum-ai"
-main = "dist/index.js"
 compatibility_date = "2024-05-18"
+
+main = "src/container-entry.ts"
+
+[[containers]]
+name = "main"
+image = "."
+command = ["pnpm", "start"]
 
 [site]
 bucket = "../../packages/web/dist"
 compatibility_flags = ["nodejs_compat"]
-
 
 # KV Namespaces
 [[kv_namespaces]]
@@ -30,102 +35,21 @@ database_name = "prod-celebrum-ai"
 database_id = "879bf844-93b2-433d-9319-6e6065bbfdfd"
 migrations_dir = "../db/sql/migrations"
 
-# R2 Buckets
-[[r2_buckets]]
-binding = "ArbEdgeR2"
-bucket_name = "prod-celebrum-ai"
+# R2 Buckets (commented out - buckets not found)
+# [[r2_buckets]]
+# binding = "ArbEdgeR2"
+# bucket_name = "prod-celebrum-ai"
 
-[[r2_buckets]]
-binding = "ArbEdgeR2_Analytics"
-bucket_name = "prod-celebrum-ai-analytics"
+# [[r2_buckets]]
+# binding = "ArbEdgeR2_Analytics"
+# bucket_name = "prod-celebrum-ai-analytics"
 
 # Environment Variables
 [vars]
 ENVIRONMENT = "production"
 LOG_LEVEL = "info"
-RATE_LIMIT_REQUESTS_PER_MINUTE = "60"
-CACHE_TTL_SECONDS = "300"
-SUPER_ADMIN_USER_ID = "1082762347"
-EXCHANGES = "binance,bybit,okx,bitget"
-ARBITRAGE_THRESHOLD = "0.001"
-TELEGRAM_CHAT_ID = "1082762347"
-TELEGRAM_TEST_MODE = "false"
 
-# Service URLs for routing
-WEB_SERVICE_URL = "https://web.celebrum-ai.com"
-API_SERVICE_URL = "https://api.celebrum-ai.com"
-DISCORD_BOT_SERVICE_URL = "https://discord-bot.celebrum-ai.com"
-TELEGRAM_BOT_SERVICE_URL = "https://telegram-bot.celebrum-ai.com"
-
-# Development environment overrides
-#[env.development]
-#name = "dev-celebrum-ai"
-
-[env.development.vars]
-ENVIRONMENT = "development"
-LOG_LEVEL = "debug"
-RATE_LIMIT_REQUESTS_PER_MINUTE = "120"
-TELEGRAM_TEST_MODE = "true"
-WEB_SERVICE_URL = "http://localhost:3000"
-API_SERVICE_URL = "http://localhost:8787"
-DISCORD_BOT_SERVICE_URL = "http://localhost:3001"
-TELEGRAM_BOT_SERVICE_URL = "http://localhost:3002"
-
-# Staging environment overrides
-#[env.staging]
-#name = "dev-celebrum-ai"
-
-#[env.staging.vars]
-#ENVIRONMENT = "staging"
-#LOG_LEVEL = "info"
-##RATE_LIMIT_REQUESTS_PER_MINUTE = "90"
-#TELEGRAM_TEST_MODE = "true"
-#WEB_SERVICE_URL = "https://web-staging.celebrum-ai.com"
-#API_SERVICE_URL = "https://api-staging.celebrum-ai.com"
-#DISCORD_BOT_SERVICE_URL = "https://discord-bot-staging.celebrum-ai.com"
-#TELEGRAM_BOT_SERVICE_URL = "https://telegram-bot-staging.celebrum-ai.com"
-
-# Production environment
-[env.production]
-name = "dev-celebrum-ai"
-
-# Build configuration
-[build]
-command = "pnpm run build"
-
-# Cron Triggers - Optimized Tiered Maintenance System
-[triggers]
-# Tier 1: High-frequency tasks (every 5 minutes) - critical operations
-# Tier 2: Medium-frequency tasks (every 30 minutes) - routine maintenance  
-# Tier 3: Low-frequency tasks (every 6 hours) - deep cleanup
-crons = ["*/5 * * * *", "*/30 * * * *", "0 */6 * * *"]
-
-# Miniflare configuration for local development
+# Development configuration
 [dev.miniflare]
 kv_persist = true
 d1_persist = true
-
-# Limits and performance
-[limits]
-cpu_ms = 30000  # 30 seconds max CPU time
-
-logpush = true
-[observability.logs]
-enabled = true
-
-# Analytics and monitoring
-[[analytics_engine_datasets]]
-binding = "ANALYTICS"
-dataset = "arb_edge_analytics"
-
-# Durable Objects (if needed in the future)
-# [[durable_objects.bindings]]
-# name = "TRADING_SESSION"
-# class_name = "TradingSession"
-# script_name = "celebrum-ai-worker"
-
-# R2 Buckets (if needed for file storage)
-# [[r2_buckets]]
-# binding = "ASSETS"
-# bucket_name = "celebrum-ai-assets"
-# preview_bucket_name = "celebrum-ai-assets-preview"
