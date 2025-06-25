@@ -6,9 +6,10 @@ account_id = "12c131cfa275bfa596ed5f840a2de74f"
 main = "src/container-entry.ts"
 
 [[containers]]
-name = "main"
-image = "."
+ name = "main"
+image = "docker.io/library/node:20-slim"
 command = ["pnpm", "start"]
+class_name = "MainContainer"
 
 [site]
 bucket = "../../packages/web/dist"
@@ -36,14 +37,14 @@ database_name = "prod-celebrum-ai"
 database_id = "879bf844-93b2-433d-9319-6e6065bbfdfd"
 migrations_dir = "../db/sql/migrations"
 
-# R2 Buckets (commented out - buckets not found)
-# [[r2_buckets]]
-# binding = "ArbEdgeR2"
-# bucket_name = "prod-celebrum-ai"
+# R2 Buckets
+[[r2_buckets]]
+binding = "ArbEdgeR2"
+bucket_name = "prod-celebrum-ai"
 
-# [[r2_buckets]]
-# binding = "ArbEdgeR2_Analytics"
-# bucket_name = "prod-celebrum-ai-analytics"
+[[r2_buckets]]
+binding = "ArbEdgeR2_Analytics"
+bucket_name = "prod-celebrum-ai-analytics"
 
 # Environment Variables
 [vars]
@@ -52,5 +53,3 @@ LOG_LEVEL = "info"
 
 # Development configuration
 [dev]
-local = true
-persist = true
