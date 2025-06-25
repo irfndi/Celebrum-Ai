@@ -17,17 +17,17 @@ bucket = "../../packages/web/dist"
 # KV Namespaces
 [[kv_namespaces]]
 binding = "ArbEdgeKV"
-id = "1018c576bf664c15afe0c53d85df8ed0"
+id = "975cbb73bbc047d5980d4c22c58e1cc7"
 preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
 
 [[kv_namespaces]]
 binding = "PROD_BOT_MARKET_CACHE"
-id = "c5b936f1c0eb4f50ae9519f64bd3c5d9"
+id = "0b76a94e2ab34f7b94bfb9268d9c6b7f"
 preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
 
 [[kv_namespaces]]
 binding = "PROD_BOT_SESSION_STORE"
-id = "d090d03b365b4619800d96ad1da5ac8c"
+id = "3c74b10792214176a876be682d147871"
 preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
 
 # D1 Database
