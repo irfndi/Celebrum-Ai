@@ -1,0 +1,22 @@
+name = "dev-celebrum-ai-telegram-bot"
+compatibility_date = "2024-05-18"
+compatibility_flags = ["nodejs_compat"]
+account_id = "12c131cfa275bfa596ed5f840a2de74f"
+
+main = "src/index.ts"
+
+# KV Namespaces
+[[kv_namespaces]]
+binding = "ArbEdgeKV"
+id = "1018c576bf664c15afe0c53d85df8ed0"
+preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
+
+[[kv_namespaces]]
+binding = "PROD_BOT_MARKET_CACHE"
+id = "c5b936f1c0eb4f50ae9519f64bd3c5d9"
+preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"
+
+[[kv_namespaces]]
+binding = "PROD_BOT_SESSION_STORE"
+id = "d090d03b365b4619800d96ad1da5ac8c"
+preview_id = "9db67fd132d64e93bcdf3cebebd07bc6"

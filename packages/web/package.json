@@ -10,7 +10,8 @@
     "astro": "astro",
     "check": "astro check",
     "lint": "oxlint .",
-    "lint:fix": "oxlint . --fix"
+    "lint:fix": "oxlint . --fix",
+    "deploy": "wrangler pages deploy ./dist"
   },
   "dependencies": {
     "@celebrum-ai/db": "workspace:*",

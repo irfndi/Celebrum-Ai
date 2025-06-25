@@ -18,16 +18,21 @@ print_header() {
 }
 
 print_usage() {
-    echo -e "${YELLOW}Usage:${NC}"
-    echo -e "  $0 [package] [environment]"
-    echo -e "\n${YELLOW}Packages:${NC}"
-    echo -e "  - worker: Deploy Cloudflare Worker"
-    echo -e "  - web: Deploy Astro web application"
-    echo -e "  - all: Deploy all packages"
-    echo -e "\n${YELLOW}Environments:${NC}"
-    echo -e "  - development (default)"
-    echo -e "  - staging"
-    echo -e "  - production"
+    echo -e "${YELLOW}Usage: $0 [package] [environment]${NC}"
+    echo -e "${YELLOW}Packages:${NC}"
+    echo -e "  ${CYAN}worker${NC}        - Deploy Cloudflare Worker"
+    echo -e "  ${CYAN}telegram-bot${NC}  - Deploy Telegram Bot Worker"
+    echo -e "  ${CYAN}web${NC}           - Deploy Astro web application"
+    echo -e "  ${CYAN}all${NC}           - Deploy all packages"
+    echo -e "${YELLOW}Environments:${NC}"
+    echo -e "  ${CYAN}production${NC}    - Deploy to production"
+    echo -e "  ${CYAN}staging${NC}       - Deploy to staging"
+    echo -e "  ${CYAN}development${NC}   - Deploy to development (default)"
+    echo -e "${YELLOW}Examples:${NC}"
+    echo -e "  ${CYAN}$0 worker production${NC}  - Deploy worker to production"
+    echo -e "  ${CYAN}$0 all staging${NC}        - Deploy all packages to staging"
+    echo -e "  ${CYAN}$0 worker${NC}             - Deploy worker to development"
+    echo -e "  ${CYAN}$0 web production${NC}     - Deploy web to production"
 }
 
 check_prerequisites() {
@@ -88,11 +93,65 @@ deploy_worker() {
 
 
 
+deploy_telegram_bot() {
+    local env=${1:-development}
+    echo -e "${GREEN}📱 Deploying Telegram Bot to ${env}...${NC}"
+    
+    cd packages/telegram-bot
+    
+    case "$env" in
+        "production")
+            wrangler deploy --env production
+            ;;
+        "staging")
+            wrangler deploy --env staging
+            ;;
+        "development")
+            wrangler deploy --env development
+            ;;
+        *)
+            echo -e "${RED}❌ Unknown environment: $env${NC}"
+            exit 1
+            ;;
+    esac
+    
+    cd ../..
+    echo -e "${GREEN}✅ Telegram Bot deployed to ${env}${NC}"
+}
+
+deploy_web() {
+    local env=${1:-development}
+    echo -e "${GREEN}🌐 Deploying Web App to ${env}...${NC}"
+    
+    cd packages/web
+    
+    case "$env" in
+        "production")
+            wrangler pages deploy ./dist --project-name=celebrum-ai-web --branch=main
+            ;;
+        "staging")
+            wrangler pages deploy ./dist --project-name=celebrum-ai-web --branch=staging
+            ;;
+        "development")
+            wrangler pages deploy ./dist --project-name=celebrum-ai-web --branch=development
+            ;;
+        *)
+            echo -e "${RED}❌ Unknown environment: $env${NC}"
+            exit 1
+            ;;
+    esac
+    
+    cd ../..
+    echo -e "${GREEN}✅ Web App deployed to ${env}${NC}"
+}
+
 deploy_all() {
     local env=${1:-development}
     echo -e "${GREEN}🚀 Deploying all packages to ${env}...${NC}"
     
     deploy_worker "$env"
+    deploy_telegram_bot "$env"
+    deploy_web "$env"
     
     echo -e "${GREEN}✅ All packages deployed to ${env}${NC}"
 }
@@ -136,7 +195,12 @@ case "$PACKAGE" in
     "worker")
         deploy_worker "$ENVIRONMENT"
         ;;
-
+    "telegram-bot")
+        deploy_telegram_bot "$ENVIRONMENT"
+        ;;
+    "web")
+        deploy_web "$ENVIRONMENT"
+        ;;
     "all")
         deploy_all "$ENVIRONMENT"
         ;;

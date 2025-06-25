@@ -178,7 +178,7 @@ jobs:
         run: pnpm add -g wrangler@latest
 
       - name: Test wrangler build
-        run: wrangler deploy --dry-run
+        run: cd packages/worker && wrangler deploy --dry-run
 
   codeql:
     name: CodeQL Security Analysis
@@ -297,7 +297,7 @@ jobs:
         run: pnpm add -g wrangler@latest
 
       - name: Deploy Core Worker
-        run: pnpm run deploy:core
+        run: pnpm run deploy:worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

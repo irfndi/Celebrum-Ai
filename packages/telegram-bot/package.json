@@ -20,6 +20,7 @@
   "scripts": {
     "build": "tsc --build",
     "dev": "tsup --watch",
+    "deploy": "wrangler deploy",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
     "typecheck": "tsc --noEmit"

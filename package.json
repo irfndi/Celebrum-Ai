@@ -34,6 +34,7 @@
     "deploy": "./scripts/deploy/deploy.sh",
     "deploy:worker": "./scripts/deploy/deploy.sh worker",
     "deploy:web": "./scripts/deploy/deploy.sh web",
+    "deploy:telegram-bot": "./scripts/deploy/deploy.sh telegram-bot",
     "deploy:all": "./scripts/deploy/deploy.sh all",
     "deploy:prod": "./scripts/deploy/deploy.sh all production",
     "deploy:staging": "./scripts/deploy/deploy.sh all staging"
