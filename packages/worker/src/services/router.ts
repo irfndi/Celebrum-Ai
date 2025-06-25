@@ -131,7 +131,8 @@ export class ServiceRouter {
           firstName: telegramUser.first_name,
           lastName: telegramUser.last_name,
           username: telegramUser.username,
-          languageCode: telegramUser.language_code,
+          // Use conditional spread operator to bypass type check
+          ...(telegramUser.language_code ? { languageCode: telegramUser.language_code } : {}),
           lastActiveAt: new Date()
         };
         
@@ -159,7 +160,8 @@ export class ServiceRouter {
           firstName: telegramUser.first_name,
           lastName: telegramUser.last_name,
           username: telegramUser.username,
-          languageCode: telegramUser.language_code,
+          // Use conditional spread operator to bypass type check
+          ...(telegramUser.language_code ? { languageCode: telegramUser.language_code } : {}),
           role: 'free',
           status: 'active',
           lastActiveAt: new Date(),
