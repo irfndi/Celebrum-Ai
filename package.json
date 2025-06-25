@@ -24,7 +24,7 @@
     "test:ci": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run security:audit",
     "lint": "pnpm --filter @celebrum-ai/db run lint && pnpm --filter @celebrum-ai/shared run lint && pnpm --filter @celebrum-ai/telegram-bot run lint && pnpm --filter @celebrum-ai/web run lint && pnpm --filter @celebrum-ai/worker run lint",
     "format": "pnpm --filter @celebrum-ai/db run format && pnpm --filter @celebrum-ai/shared run format && pnpm --filter @celebrum-ai/telegram-bot run format && pnpm --filter @celebrum-ai/web run format && pnpm --filter @celebrum-ai/worker run format",
-    "typecheck": "pnpm --filter @celebrum-ai/db run typecheck && pnpm --filter @celebrum-ai/shared run typecheck && pnpm --filter @celebrum-ai/telegram-bot run typecheck && pnpm --filter @celebrum-ai/web run typecheck && pnpm --filter @celebrum-ai/worker run typecheck",
+    "typecheck": "pnpm --filter @celebrum-ai/db run typecheck && pnpm --filter @celebrum-ai/shared run typecheck && pnpm --filter @celebrum-ai/telegram-bot run typecheck && pnpm --filter @celebrum-ai/web run check && pnpm --filter @celebrum-ai/worker run typecheck",
     "clean": "pnpm --filter @celebrum-ai/db run clean && pnpm --filter @celebrum-ai/shared run clean && pnpm --filter @celebrum-ai/telegram-bot run clean && pnpm --filter @celebrum-ai/web run clean && pnpm --filter @celebrum-ai/worker run clean",
     "security:audit": "./scripts/security/audit.sh",
     "security:audit:fix": "./scripts/security/audit.sh --fix",
