@@ -1,5 +1,5 @@
 import type { Context, Next } from 'hono';
-import type { Env } from '../index';
+import type { Env } from '@celebrum-ai/shared';
 
 /**
  * ErrorHandler provides centralized error handling and logging

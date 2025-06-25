@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rateLimiter } from './rate-limit';
+import { rateLimiter } from '../../src/middleware/rate-limit';
 
 describe('Rate Limiter Middleware', () => {
   it('should export rateLimiter function', () => {

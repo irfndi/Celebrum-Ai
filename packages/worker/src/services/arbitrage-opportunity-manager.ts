@@ -512,37 +512,27 @@ export class ArbitrageOpportunityManager {
     const baseOpportunities: ArbitrageOpportunity[] = [
       {
         id: `opp_${Date.now()}_1`,
-        type: 'spatial',
         symbol: 'BTC/USDT',
-        buyExchange: 'binance',
-        sellExchange: 'coinbase',
-        buyPrice: 45000,
-        sellPrice: 45200,
-        profitPercent: 0.44,
-        volume: 1.5,
-        estimatedProfit: 300,
-        risk: 'low',
-        confidence: 0.95,
-        timeWindow: 300,
-        detectedAt: Date.now(),
-        expiresAt: Date.now() + 300000
+        exchange_a: 'binance',
+        exchange_b: 'coinbase',
+        price_a: 45000,
+        price_b: 45200,
+        profit_percentage: 0.44,
+        confidence_score: 0.95,
+        generated_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 300000).toISOString()
       },
       {
         id: `opp_${Date.now()}_2`,
-        type: 'temporal',
         symbol: 'ETH/USDT',
-        buyExchange: 'kraken',
-        sellExchange: 'binance',
-        buyPrice: 3200,
-        sellPrice: 3220,
-        profitPercent: 0.625,
-        volume: 2.0,
-        estimatedProfit: 40,
-        risk: 'medium',
-        confidence: 0.88,
-        timeWindow: 180,
-        detectedAt: Date.now(),
-        expiresAt: Date.now() + 180000
+        exchange_a: 'kraken',
+        exchange_b: 'binance',
+        price_a: 3200,
+        price_b: 3220,
+        profit_percentage: 0.625,
+        confidence_score: 0.85,
+        generated_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 300000).toISOString()
       }
     ];
 
@@ -556,15 +546,15 @@ export class ArbitrageOpportunityManager {
   private filterOpportunitiesByRole(opportunities: ArbitrageOpportunity[], role: UserRoleType): ArbitrageOpportunity[] {
     switch (role) {
       case 'free':
-        return opportunities.filter(opp => opp.risk === 'low' && opp.profitPercent >= 0.3);
+        return opportunities.filter(opp => opp.confidence_score >= 0.8 && opp.profit_percentage >= 0.3);
       case 'pro':
-        return opportunities.filter(opp => opp.risk !== 'high' && opp.profitPercent >= 0.2);
+        return opportunities.filter(opp => opp.confidence_score >= 0.7 && opp.profit_percentage >= 0.2);
       case 'ultra':
       case 'admin':
       case 'superadmin':
         return opportunities; // All opportunities
       default:
-        return opportunities.filter(opp => opp.risk === 'low');
+        return opportunities.filter(opp => opp.confidence_score >= 0.8);
     }
   }
 
@@ -573,21 +563,15 @@ export class ArbitrageOpportunityManager {
    */
   private applyFilters(opportunities: ArbitrageOpportunity[], filters: any): ArbitrageOpportunity[] {
     return opportunities.filter(opp => {
-      if (filters.minProfitPercent && opp.profitPercent < filters.minProfitPercent) {
+      if (filters.minProfitPercent && opp.profit_percentage < filters.minProfitPercent) {
         return false;
       }
       
-      if (filters.maxRisk) {
-        const riskLevels = { low: 1, medium: 2, high: 3 };
-        const maxRiskLevel = riskLevels[filters.maxRisk];
-        const oppRiskLevel = riskLevels[opp.risk];
-        if (oppRiskLevel > maxRiskLevel) {
-          return false;
-        }
-      }
+      // Risk filtering removed as ArbitrageOpportunity schema doesn't include risk property
+      // Risk can be calculated from confidence_score if needed
       
       if (filters.exchanges && filters.exchanges.length > 0) {
-        if (!filters.exchanges.includes(opp.buyExchange) && !filters.exchanges.includes(opp.sellExchange)) {
+        if (!filters.exchanges.includes(opp.exchange_a) && !filters.exchanges.includes(opp.exchange_b)) {
           return false;
         }
       }

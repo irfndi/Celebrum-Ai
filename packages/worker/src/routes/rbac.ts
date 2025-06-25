@@ -6,20 +6,18 @@ import { TradingConfigManager } from '../services/trading-config-manager';
 import { ArbitrageOpportunityManager } from '../services/arbitrage-opportunity-manager';
 import { TechnicalStrategyManager } from '../services/technical-strategy-manager';
 import { FeatureFlagManager } from '../services/feature-flag-manager';
+import type { Env } from '@celebrum-ai/shared';
+import {
+  Permission
+} from '@celebrum-ai/shared/types';
 import type {
   UserRoleType,
   SubscriptionTierType,
+  ExchangeIdType,
   PermissionType,
   RiskLevelType,
   PositionSizingMethodType
 } from '@celebrum-ai/shared/types';
-
-type Env = {
-  ArbEdgeKV: KVNamespace;
-  ArbEdgeDB: D1Database;
-  ENCRYPTION_KEY: string;
-  JWT_SECRET: string;
-};
 
 type Variables = {
   rbacService: RBACService;
@@ -145,14 +143,22 @@ rbacRoutes.get('/api/users/:userId/access-summary', async (c) => {
 rbacRoutes.put('/api/users/:userId/role', async (c) => {
   try {
     const userId = c.req.param('userId');
-    const { newRole } = await c.req.json();
+    const { newRole, newTier } = await c.req.json();
     const currentUser = c.get('currentUser');
     const rbacService = c.get('rbacService') as RBACService;
     
     // Check if current user has permission to update roles
-    const hasPermission = await rbacService.hasPermission(
-      currentUser.userId,
-      'manage_users' as PermissionType
+    const currentUserSummary = await rbacService.getUserAccessSummary(currentUser.userId);
+    if (!currentUserSummary) {
+      return c.json({
+        success: false,
+        message: 'Current user not found'
+      }, 404);
+    }
+    
+    const hasPermission = rbacService.hasPermission(
+      currentUserSummary.role,
+      Permission.ADMIN_USER_MANAGEMENT
     );
     
     if (!hasPermission) {
@@ -162,7 +168,7 @@ rbacRoutes.put('/api/users/:userId/role', async (c) => {
       }, 403);
     }
     
-    const result = await rbacService.updateUserRole(userId, newRole);
+    const result = await rbacService.updateUserRole(userId, newRole, newTier || 'free');
     
     if (result.success) {
       return c.json({
@@ -205,7 +211,7 @@ rbacRoutes.get('/api/users/:userId/api-access', async (c) => {
     }
     
     const apiAccessManager = c.get('apiAccessManager') as ApiAccessManager;
-    const apiAccess = await apiAccessManager.getApiAccess(userId);
+    const apiAccess = await apiAccessManager.getApiAccessSummary(userId);
     
     return c.json({
       success: true,
@@ -238,7 +244,31 @@ rbacRoutes.post('/api/users/:userId/api-access', async (c) => {
     }
     
     const apiAccessManager = c.get('apiAccessManager') as ApiAccessManager;
-    const result = await apiAccessManager.addApiConfig(userId, type, name, credentials);
+    let result;
+    
+    if (type === 'exchange') {
+      result = await apiAccessManager.addExchangeApi(
+        userId,
+        name,
+        credentials.apiKey,
+        credentials.apiSecret,
+        credentials.passphrase,
+        credentials.sandbox || false
+      );
+    } else if (type === 'ai') {
+      result = await apiAccessManager.addAiApi(
+        userId,
+        name,
+        credentials.apiKey,
+        credentials.model,
+        credentials.endpoint
+      );
+    } else {
+      return c.json({
+        success: false,
+        message: 'Invalid API type'
+      }, 400);
+    }
     
     if (result.success) {
       return c.json({
@@ -280,7 +310,19 @@ rbacRoutes.delete('/api/users/:userId/api-access/:apiId', async (c) => {
     }
     
     const apiAccessManager = c.get('apiAccessManager') as ApiAccessManager;
-    const result = await apiAccessManager.removeApiConfig(userId, apiId);
+    const { type } = c.req.query();
+    let result;
+    
+    if (type === 'exchange') {
+      result = await apiAccessManager.removeExchangeApi(userId, apiId as ExchangeIdType);
+    } else if (type === 'ai') {
+      result = await apiAccessManager.removeAiApi(userId, apiId);
+    } else {
+      return c.json({
+        success: false,
+        message: 'Invalid API type or type parameter missing'
+      }, 400);
+    }
     
     if (result.success) {
       return c.json({

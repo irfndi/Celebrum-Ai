@@ -319,8 +319,7 @@ export class TradingConfigManager {
           success: false,
           message: 'Trade request validation failed',
           timestamp: Date.now(),
-          errors,
-          warnings: warnings.length > 0 ? warnings : undefined
+          errors
         };
       }
 
@@ -332,8 +331,7 @@ export class TradingConfigManager {
           maxLeverage: config.maxLeverage,
           maxPositionSize: config.percentagePerTrade,
           riskManagement: config.riskManagement
-        },
-        warnings: warnings.length > 0 ? warnings : undefined
+        }
       };
     } catch (error) {
       return {

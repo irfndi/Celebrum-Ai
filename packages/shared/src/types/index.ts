@@ -5,6 +5,17 @@ import type { D1Database, KVNamespace } from '@cloudflare/workers-types';
 export interface Env {
   DB: D1Database;
   SESSIONS: KVNamespace;
+  ArbEdgeKV: KVNamespace;
+  ArbEdgeD1: D1Database;
+  PROD_BOT_MARKET_CACHE: KVNamespace;
+  PROD_BOT_SESSION_STORE: KVNamespace;
+  API_SERVICE_URL?: string;
+  WEB_SERVICE_URL?: string;
+  DISCORD_BOT_SERVICE_URL?: string;
+  TELEGRAM_BOT_SERVICE_URL?: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  RATE_LIMIT_REQUESTS_PER_MINUTE?: string;
+  ENVIRONMENT?: string;
 }
 
 // Common API Response Types

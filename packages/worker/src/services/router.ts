@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
-import { Env } from '@celebrum-ai/shared';
+import type { Env } from '@celebrum-ai/shared';
 import { UserService, SessionService } from '@celebrum-ai/shared';
-import { User, NewUser } from '@celebrum-ai/db/schema/users';
+import type { User, NewUser } from '@celebrum-ai/db/schema/users';
 import { sql } from 'drizzle-orm';
 
 /**

@@ -1,4 +1,4 @@
-import { UserQueries } from '@celebrum-ai/db/utils';
+import { UserQueries } from '@celebrum-ai/db';
 import type { User, NewUser } from '@celebrum-ai/db/schema';
 
 export class UserService {

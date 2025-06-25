@@ -2,7 +2,8 @@ import type {
   UserRoleType,
   SubscriptionTierType,
   ApiAccess,
-  RBACOperationResult
+  RBACOperationResult,
+  ExchangeIdType
 } from '@celebrum-ai/shared/types';
 import type {
   UserRole,
@@ -62,13 +63,12 @@ export class ApiAccessManager {
       const exchangeApi = {
         exchangeId,
         apiKey: await this.encryptApiKey(apiKey),
-        apiSecret: await this.encryptApiKey(apiSecret),
+        secretKey: await this.encryptApiKey(apiSecret),
         passphrase: passphrase ? await this.encryptApiKey(passphrase) : undefined,
         sandbox,
+        permissions: ['read', 'trade'],
         isActive: true,
-        addedAt: Date.now(),
-        lastUsed: 0,
-        requestCount: 0
+        lastUsed: Date.now()
       };
 
       if (existingIndex >= 0) {
@@ -323,7 +323,6 @@ export class ApiAccessManager {
 
       // Update last used timestamp
       exchangeApi.lastUsed = Date.now();
-      exchangeApi.requestCount++;
       
       // Store updated usage
       await this.env.ArbEdgeKV.put(key, JSON.stringify(apiAccess), {
@@ -332,7 +331,7 @@ export class ApiAccessManager {
 
       return {
         apiKey: await this.decryptApiKey(exchangeApi.apiKey),
-        apiSecret: await this.decryptApiKey(exchangeApi.apiSecret),
+        apiSecret: await this.decryptApiKey(exchangeApi.secretKey),
         passphrase: exchangeApi.passphrase ? await this.decryptApiKey(exchangeApi.passphrase) : undefined,
         sandbox: exchangeApi.sandbox
       };
@@ -365,7 +364,6 @@ export class ApiAccessManager {
 
       // Update last used timestamp
       aiApi.lastUsed = Date.now();
-      aiApi.requestCount++;
       
       // Store updated usage
       await this.env.ArbEdgeKV.put(key, JSON.stringify(apiAccess), {
@@ -374,8 +372,8 @@ export class ApiAccessManager {
 
       return {
         apiKey: await this.decryptApiKey(aiApi.apiKey),
-        model: aiApi.model,
-        endpoint: aiApi.endpoint
+        model: aiApi.model || 'default',
+        endpoint: `https://api.${provider}.com/v1`
       };
     } catch (error) {
       console.error('Failed to get AI API credentials:', error);
@@ -426,7 +424,7 @@ export class ApiAccessManager {
   /**
    * Get user's API access summary
    */
-  async getApiAccessSummary(userId: string): Promise<ApiAccess | null> {
+  async getApiAccessSummary(userId: string): Promise<any | null> {
     try {
       const key = `rbac:api_access:${userId}`;
       const apiAccess = await this.env.ArbEdgeKV.get(key, 'json') as ApiAccess;
@@ -437,27 +435,23 @@ export class ApiAccessManager {
 
       // Remove sensitive data for summary
       const summary = {
-        ...apiAccess,
+        userId: apiAccess.userId,
+        role: apiAccess.role,
         exchangeApis: apiAccess.exchangeApis.map(api => ({
           exchangeId: api.exchangeId,
           sandbox: api.sandbox,
           isActive: api.isActive,
-          addedAt: api.addedAt,
-          lastUsed: api.lastUsed,
-          requestCount: api.requestCount
+          lastUsed: api.lastUsed
         })),
         aiApis: apiAccess.aiApis.map(api => ({
           provider: api.provider,
           model: api.model,
           isActive: api.isActive,
-          addedAt: api.addedAt,
-          lastUsed: api.lastUsed,
-          requestCount: api.requestCount,
-          tokensUsed: api.tokensUsed
+          lastUsed: api.lastUsed
         }))
       };
 
-      return summary as ApiAccess;
+      return summary;
     } catch (error) {
       console.error('Failed to get API access summary:', error);
       return null;

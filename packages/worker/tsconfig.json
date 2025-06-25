@@ -10,7 +10,7 @@
     "strict": true,
     "declaration": true,
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": "./",
     "types": [
       "@cloudflare/workers-types"
     ],
@@ -39,7 +39,10 @@
     }
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "tests/middleware/rate-limit.test.ts",
+    "tests/middleware/health.test.ts",
+    "tests/middleware/error.test.ts"
   ],
   "exclude": [
     "node_modules",

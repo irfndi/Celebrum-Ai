@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { healthCheck } from './health';
+import { healthCheck } from '../../src/middleware/health';
 
 describe('Health Check Middleware', () => {
   it('should export healthCheck function', () => {

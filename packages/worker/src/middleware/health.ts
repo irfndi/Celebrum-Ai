@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import type { Env } from '../index';
+import type { Env } from '@celebrum-ai/shared';
 
 /**
  * HealthCheck provides comprehensive health monitoring for the worker and its dependencies

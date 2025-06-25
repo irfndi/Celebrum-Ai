@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { errorHandler } from './error';
+import { errorHandler } from '../../src/middleware/error';
 
 describe('Error Handler Middleware', () => {
   it('should export errorHandler function', () => {

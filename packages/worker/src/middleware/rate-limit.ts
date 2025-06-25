@@ -1,5 +1,5 @@
 import type { Context, Next } from 'hono';
-import type { Env } from '../index';
+import type { Env } from '@celebrum-ai/shared';
 
 /**
  * RateLimiter provides request rate limiting functionality

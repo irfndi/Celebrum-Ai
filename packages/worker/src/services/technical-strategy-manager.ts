@@ -34,9 +34,10 @@ export class TechnicalStrategyManager {
     const strategyLimits: StrategyLimits = {
       maxStrategies: limits.maxStrategies,
       createdStrategies: 0,
+      maxActiveStrategies: limits.maxActiveStrategies,
       activeStrategies: 0,
       maxConcurrentBacktests: limits.maxConcurrentBacktests,
-      runningBacktests: 0
+      concurrentBacktests: 0
     };
 
     // Store in KV
@@ -108,12 +109,12 @@ export class TechnicalStrategyManager {
           break;
 
         case 'backtest':
-          if (limits.maxConcurrentBacktests > 0 && limits.runningBacktests >= limits.maxConcurrentBacktests) {
+          if (limits.maxConcurrentBacktests > 0 && limits.concurrentBacktests >= limits.maxConcurrentBacktests) {
             return {
               success: false,
               message: 'Maximum concurrent backtests limit exceeded',
               timestamp: now,
-              errors: [`Max backtests: ${limits.maxConcurrentBacktests}, Running: ${limits.runningBacktests}`]
+              errors: [`Max backtests: ${limits.maxConcurrentBacktests}, Running: ${limits.concurrentBacktests}`]
             };
           }
           break;
@@ -129,7 +130,7 @@ export class TechnicalStrategyManager {
         timestamp: now,
         data: {
           remainingStrategies: Math.max(0, limits.maxStrategies - limits.createdStrategies),
-          remainingBacktests: Math.max(0, limits.maxConcurrentBacktests - limits.runningBacktests),
+          remainingBacktests: Math.max(0, limits.maxConcurrentBacktests - limits.concurrentBacktests),
           activeStrategies: limits.activeStrategies
         }
       };
@@ -177,21 +178,23 @@ export class TechnicalStrategyManager {
         userId,
         name: strategyConfig.name,
         description: strategyConfig.description,
+        version: '1.0.0', // Default version
         yamlConfig: strategyConfig.yamlConfig,
-        symbols: strategyConfig.symbols,
-        timeframes: strategyConfig.timeframes,
-        riskLevel: strategyConfig.riskLevel,
         isActive: strategyConfig.isActive,
+        indicators: [], // TODO: Parse from yamlConfig
+        conditions: [], // TODO: Parse from yamlConfig
+        riskManagement: {
+          maxDailyLossPercent: 5,
+          maxDrawdownPercent: 20,
+          positionSizingMethod: 'percentage_of_portfolio',
+          stopLossRequired: true,
+          takeProfitRecommended: false,
+          trailingStopEnabled: false,
+          riskRewardRatioMin: 1.5
+        }, // TODO: Parse from yamlConfig
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        backtestResults: [],
-        performance: {
-          totalTrades: 0,
-          winRate: 0,
-          profitLoss: 0,
-          maxDrawdown: 0,
-          sharpeRatio: 0
-        }
+        backtestResults: []
       };
 
       // Store strategy
@@ -232,8 +235,8 @@ export class TechnicalStrategyManager {
           strategy: {
             id: strategy.id,
             name: strategy.name,
-            isActive: strategy.isActive,
-            riskLevel: strategy.riskLevel
+            isActive: strategy.isActive
+            // TODO: Add riskLevel property to TechnicalStrategy schema if needed
           }
         }
       };
@@ -498,7 +501,7 @@ export class TechnicalStrategyManager {
       // Update running backtest count
       const limits = await this.getStrategyLimits(userId);
       if (limits) {
-        limits.runningBacktests++;
+        limits.concurrentBacktests++;
         const limitsKey = `rbac:strategy_limits:${userId}`;
         await this.env.ArbEdgeKV.put(limitsKey, JSON.stringify(limits), {
           expirationTtl: 86400
@@ -623,19 +626,20 @@ export class TechnicalStrategyManager {
    */
   private getTierLimits(tier: SubscriptionTierType): {
     maxStrategies: number;
+    maxActiveStrategies: number;
     maxConcurrentBacktests: number;
   } {
     switch (tier) {
       case 'free':
-        return { maxStrategies: 3, maxConcurrentBacktests: 1 };
+        return { maxStrategies: 3, maxActiveStrategies: 2, maxConcurrentBacktests: 1 };
       case 'pro':
-        return { maxStrategies: 10, maxConcurrentBacktests: 3 };
+        return { maxStrategies: 10, maxActiveStrategies: 5, maxConcurrentBacktests: 3 };
       case 'ultra':
-        return { maxStrategies: 50, maxConcurrentBacktests: 10 };
+        return { maxStrategies: 50, maxActiveStrategies: 20, maxConcurrentBacktests: 10 };
       case 'enterprise':
-        return { maxStrategies: -1, maxConcurrentBacktests: -1 }; // unlimited
+        return { maxStrategies: -1, maxActiveStrategies: -1, maxConcurrentBacktests: -1 }; // unlimited
       default:
-        return { maxStrategies: 3, maxConcurrentBacktests: 1 };
+        return { maxStrategies: 3, maxActiveStrategies: 2, maxConcurrentBacktests: 1 };
     }
   }
 
@@ -705,18 +709,20 @@ export class TechnicalStrategyManager {
         return false;
       }
       
-      if (filters.riskLevel && strategy.riskLevel !== filters.riskLevel) {
-        return false;
-      }
+      // TODO: Implement riskLevel filtering when TechnicalStrategy schema supports riskLevel
+      // if (filters.riskLevel && strategy.riskLevel !== filters.riskLevel) {
+      //   return false;
+      // }
       
-      if (filters.symbols && filters.symbols.length > 0) {
-        const hasMatchingSymbol = strategy.symbols.some(symbol => 
-          filters.symbols!.includes(symbol)
-        );
-        if (!hasMatchingSymbol) {
-          return false;
-        }
-      }
+      // TODO: Implement symbols filtering when TechnicalStrategy schema supports symbols
+      // if (filters.symbols && filters.symbols.length > 0) {
+      //   const hasMatchingSymbol = strategy.symbols.some((symbol: string) => 
+      //     filters.symbols!.includes(symbol)
+      //   );
+      //   if (!hasMatchingSymbol) {
+      //     return false;
+      //   }
+      // }
       
       return true;
     });
@@ -755,7 +761,7 @@ export class TechnicalStrategyManager {
           // Update running backtest count
           const limits = await this.getStrategyLimits(userId);
           if (limits) {
-            limits.runningBacktests = Math.max(0, limits.runningBacktests - 1);
+            limits.concurrentBacktests = Math.max(0, limits.concurrentBacktests - 1);
             const limitsKey = `rbac:strategy_limits:${userId}`;
             await this.env.ArbEdgeKV.put(limitsKey, JSON.stringify(limits), {
               expirationTtl: 86400

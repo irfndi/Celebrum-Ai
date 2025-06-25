@@ -1,4 +1,4 @@
-import type { Env } from '../index';
+import type { Env } from '@celebrum-ai/shared';
 
 /**
  * Handles scheduled cron events.
