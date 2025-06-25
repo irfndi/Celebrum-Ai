@@ -32,11 +32,10 @@ impl CommandHandler for BalanceHandler {
         let response_text = match get_user_balance(&user_id_str).await {
             Ok(balance_data) => {
                 let total_balance = balance_data["total_balance"].as_str().unwrap_or("0.00");
-                let available_balance =
-                    balance_data["available_balance"].as_str().unwrap_or("0.00");
+                let available_balance = balance_data["available_balance"].as_str().unwrap_or("0.00");
                 let currency = balance_data["currency"].as_str().unwrap_or("USD");
                 let last_updated = balance_data["last_updated"].as_str().unwrap_or("Unknown");
-
+                
                 format!(
                     "💰 **Account Balance**\n\n\
                     - *Total Balance:* {} {}\n\
@@ -44,7 +43,10 @@ impl CommandHandler for BalanceHandler {
                     - *Currency:* {}\n\
                     - *Last Updated:* {}\n\n\
                     💡 Use /opportunities to find new trades!",
-                    total_balance, currency, available_balance, currency, currency, last_updated
+                    total_balance, currency,
+                    available_balance, currency,
+                    currency,
+                    last_updated
                 )
             }
             Err(e) => {
