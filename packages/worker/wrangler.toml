@@ -11,8 +11,8 @@ image = "docker.io/library/node:20-slim"
 command = ["pnpm", "start"]
 class_name = "MainContainer"
 
-[site]
-bucket = "../../packages/web/dist"
+[assets]
+directory = "../../packages/web/dist"
 
 # KV Namespaces
 [[kv_namespaces]]
